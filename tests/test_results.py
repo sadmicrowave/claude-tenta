@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import support  # noqa: E402,F401  (points HOME at a throwaway folder)
 from cw import results  # noqa: E402
 
 TRACE = ("." * 50 + "Exception in thread Thread-2 (<lambda>):\nTraceback (most recent call last):\n"

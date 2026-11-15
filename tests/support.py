@@ -1,15 +1,22 @@
 """Shared fixtures for the worker and CLI tests: a requester, a bare queue repo and results repo, and a worker wired to them with only the
 command runner and the process spawner faked."""
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
+# Safety net: no test may ever touch the real home folder (~/.cw, ~/.config, ...). Importing this module points HOME at a throwaway folder.
+os.environ["HOME"] = tempfile.mkdtemp(prefix="cw-test-home-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cw import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
+from cw.client import cli  # noqa: E402
+from cw.client.repo import ClientRepos  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
 IP = "192." + "168." + "7.77"
@@ -139,3 +146,27 @@ class Base(unittest.TestCase):
             self.w.execute(jid)
             self.w._p("running", jid).unlink(missing_ok=True)
         return self
+
+
+class RepoFixture(Base):
+    """The real worker fixture plus a client with its own clones of the same two repos."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.tmp / "clienthome"
+        self.sleeps = []
+        self.repos = ClientRepos(self.home / "queue", self.home / "results", str(self.tmp / "queue.git"), str(self.tmp / "results.git"), sleep=self.sleeps.append)
+        self.repos.clone_all(self.home)
+        self.said = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
+        self.said.start()
+        self.addCleanup(self.said.stop)
+        self.answers = []
+        self.admin_calls = []
+        self.ctx = cli.Context(self.repos, product="testcw", admin="tcw-admin", ask=lambda p: self.answers.pop(0), sleep=lambda s: None,
+                               run_admin=lambda args: self.admin_calls.append(args) or 0, is_tty=lambda: False, home=self.home)
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(list(args), ctx=self.ctx)
+        return code, out.getvalue(), err.getvalue()

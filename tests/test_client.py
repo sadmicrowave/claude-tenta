@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cw.client import cli, submit, view  # noqa: E402
 from cw.client.repo import ClientError, ClientRepos  # noqa: E402
-from support import Base, sh  # noqa: E402
+from support import Base, RepoFixture, sh  # noqa: E402
 
 NOW = datetime(2026, 1, 2, 3, 0, 0, tzinfo=timezone.utc)
 LIMITS = submit.file_limits(None)
@@ -150,30 +150,6 @@ class Human(unittest.TestCase):
                        "tcw-admin adopt profile-abc123 --name ls-long"):
             self.assertIn(needle, text)
         self.assertEqual(output, "done")
-
-
-class RepoFixture(Base):
-    """The real worker fixture plus a client with its own clones of the same two repos."""
-
-    def setUp(self):
-        super().setUp()
-        self.home = self.tmp / "clienthome"
-        self.sleeps = []
-        self.repos = ClientRepos(self.home / "queue", self.home / "results", str(self.tmp / "queue.git"), str(self.tmp / "results.git"), sleep=self.sleeps.append)
-        self.repos.clone_all(self.home)
-        self.said = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
-        self.said.start()
-        self.addCleanup(self.said.stop)
-        self.answers = []
-        self.admin_calls = []
-        self.ctx = cli.Context(self.repos, product="testcw", admin="tcw-admin", ask=lambda p: self.answers.pop(0), sleep=lambda s: None,
-                               run_admin=lambda args: self.admin_calls.append(args) or 0, is_tty=lambda: False)
-
-    def run_cli(self, *args):
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            code = cli.main(list(args), ctx=self.ctx)
-        return code, out.getvalue(), err.getvalue()
 
 
 class Repo(RepoFixture):

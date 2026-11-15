@@ -10,6 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import support  # noqa: E402,F401  (points HOME at a throwaway folder)
 from cw.client import cli, cmdlog  # noqa: E402
 from cw.client.repo import ClientRepos  # noqa: E402
 
@@ -120,7 +121,7 @@ def time_now():
 class Command(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homecw", own_tools=("cw-run", "homecw"))
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homecw", own_tools=("cw-run", "homecw"), home=self.home)
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
         self.env = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
         self.env.start()

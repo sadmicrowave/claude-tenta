@@ -6,13 +6,19 @@
   jobs [-n N]                    your most recent jobs, and the ones waiting for your approval
   classes                        what the worker can run today, as it published it
   prune [--days N] [--force]     squash old job files out of the jobs branch
-  offload log hook|top|show|clear   learn which of your commands are worth running on the worker (more under offload: fit, profile, ...)
+  offload log hook|top|show|clear   learn which of your commands are worth running on the worker
+  offload fit -- <cmd>           is this command registered, excluded or unknown?  (exit 0 / 3 / 5 / 4)
+  offload history                every fit check you or Claude made
+  offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
+  offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
+  offload exclusions             commands that were tested and do not fit
 
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
 """
 import argparse
 import json
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -20,6 +26,7 @@ from pathlib import Path
 from .. import clihelp, config
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
+from . import offload as off
 from . import submit as sub
 from . import view
 from .repo import PENDING, ClientError, ClientRepos
@@ -33,10 +40,12 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="cw-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=()):
+                 is_tty=None, own_tools=(), home=None):
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
+        self.home = Path(home) if home else Path("~/.cw").expanduser()
+        self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
-        self.label_of = label_of or (lambda jid, cls: "-" if cls in ("", "profile-run") else cls)
+        self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
         self.is_tty = is_tty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
 
@@ -45,7 +54,7 @@ class Context:
         repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
         name = cfg.identity.name
         return cls(repos, product=name, admin=f"{name}-admin", hints=[("on your computer", f"{name}-admin approve {{}}"), (f"on {name}", f"{name} approve {{}}")],
-                   own_tools=("cw-run", "cw-admin", "cw-setup", "cw-help", name, f"{name}-admin"))
+                   own_tools=("cw-run", "cw-admin", "cw-setup", "cw-help", name, f"{name}-admin"), home=Path(cfg.paths.client_home).expanduser())
 
 
 def fail_from(e):
@@ -128,7 +137,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             locked = r.pull_results()
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
-                return view.print_result(res, as_json, admin=ctx.admin)
+                return view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
             if locked:
                 emit("Stopped waiting: the worker is locked", f"{jid} will not run until you unlock it.", "It stays queued and runs after you unlock.", tag="LOCKED",
                      color=RED, run=f"{ctx.admin} unlock", stream=sys.stderr)
@@ -150,6 +159,14 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
         prog.clear()
 
 
+def suggestion_for(ctx, res):
+    """The class name to suggest for a profile result that fits: the one chosen when it was profiled, else one derived from the command."""
+    pr = res.get("profile")
+    if not pr or pr.get("verdict") != "fits":
+        return None
+    return off.suggest_name(pr["argv"], off.taken_names(ctx.repos), preferred=ctx.names.get(res["id"]))
+
+
 def cmd_result(ctx, a):
     r = ctx.repos
     r.need_setup()
@@ -165,7 +182,7 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    return view.print_result(res, a.json, admin=ctx.admin)
+    return view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
 
 
 def cmd_jobs(ctx, n=15):
@@ -199,13 +216,193 @@ def cmd_classes(ctx):
     if not info:
         emit(f"{ctx.product} has not published its class list yet", "It does this about a minute after an install. Try again shortly.", tag="ERROR", color=RED)
         return 1
-    view.render_classes(info, product=ctx.product)
+    view.render_classes(info, pending=[n for n in off.proposed_names(r) if n not in info["classes"]], excluded=len(off.read_exclusions(r).get("excluded", [])), product=ctx.product)
     return 0
 
 
 def cmd_prune(ctx, days, force):
     ctx.repos.need_setup()
     emit("Jobs branch", ctx.repos.prune_jobs(days, force), tag="PRUNE", color=CYAN)
+    return 0
+
+
+# ---- offload: fit, history, exclusions, profile, propose ----
+def cmd_fit(ctx, argv):
+    r = ctx.repos
+    r.need_setup()
+    if not argv:
+        emit("No command given", "Put the command after a double dash, exactly as you would type it.", tag="ERROR", color=RED, run="cw-run offload fit -- eslint .")
+        return 2
+    res = off.check_fit(r, argv, ctx.fitlog, by="terminal" if ctx.is_tty() else "captured")
+    print_fit(ctx, res, argv)
+    return res["rc"]
+
+
+def print_fit(ctx, res, argv):
+    """The one-line answer with its first word coloured. Goes to stdout: it is what a script or Claude reads."""
+    word, rest = off.fit_message(res, argv, ctx.product).split(" ", 1)
+    color = {"registered": GREEN, "excluded": RED, "retry": YELLOW, "unknown": YELLOW}[res["verdict"]]
+    print(f"{paint(word, BOLD, color, stream=sys.stdout)} {rest}")
+
+
+VERDICT_STYLE = {"registered": GREEN, "excluded": RED, "retry": YELLOW, "unknown": YELLOW}
+
+
+def cmd_history(ctx, a):
+    log, out = ctx.fitlog, sys.stdout
+    if a.clear:
+        emit("Fit history cleared", ("Removed", f"{log.clear()} checks"), tag="DONE", color=GREEN, stream=out)
+        return 0
+    rows = log.filtered(a.verdict, a.command)
+    if a.json:
+        print(json.dumps(rows if a.all else rows[-a.n:], indent=2))
+        return 0
+    if not rows:
+        emit("No fit checks recorded" + (" for that filter" if a.verdict or a.command else " yet"), "Every `cw-run offload fit` is recorded here, whether you or Claude ran it.",
+             tag="NOTE", color=YELLOW, stream=out, run_label="Make one", run="cw-run offload fit -- <command>")
+        return 0
+    counts = {}
+    for r in rows:
+        counts[r.get("verdict")] = counts.get(r.get("verdict"), 0) + 1
+    print(f"\n{paint('offload history', BOLD, GREEN, stream=out)}  {paint('every check of whether a command suits ' + ctx.product, BOLD, stream=out)}")
+    first = off.parse_ts(rows[0].get("ts"))
+    span = f"since {time.strftime('%Y-%m-%d', time.localtime(first))}" if first else ""
+    print(paint(f"Kept on this computer only; trimmed to the last {off.FIT_KEEP_DAYS} days or {off.FIT_KEEP_MAX} checks.", DIM, stream=out))
+    print("\n" + paint("SUMMARY", BOLD, CYAN, stream=out) + (f"  {paint(span, DIM, stream=out)}" if span else ""))
+    parts = [f"{counts[k]} {paint(k, BOLD, VERDICT_STYLE[k], stream=out)}" for k in ("registered", "excluded", "retry", "unknown") if counts.get(k)]
+    print(f"  {paint('Checks'.ljust(14), BOLD, stream=out)}{len(rows)}  ({', '.join(parts)})")
+    unknown = {}
+    for r in rows:
+        if r.get("verdict") == "unknown":
+            unknown[r["command"]] = unknown.get(r["command"], 0) + 1
+    repeated = sorted(((n, c) for c, n in unknown.items() if n >= 2), reverse=True)[:3]
+    if repeated:
+        print(f"  {paint('Worth a look'.ljust(14), BOLD, stream=out)}checked more than once, still unknown:")
+        for n, c in repeated:
+            print(f"  {' ' * 14}{n}x  {c[:70]}")
+    shown = list(reversed(rows if a.all else rows[-a.n:]))                       # newest first
+    print("\n" + paint("CHECKS", BOLD, CYAN, stream=out) + "  " + paint(f"{len(shown)} of {len(rows)}, newest first", DIM, stream=out))
+    print(paint(f"  {'WHEN':<17}{'VERDICT':<12}{'BY':<9}CLASS / COMMAND", BOLD, stream=out))
+    for r in shown:
+        ts = off.parse_ts(r.get("ts"))
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
+        v = r.get("verdict", "?")
+        print(f"  {when:<17}{paint(f'{v:<12}', BOLD, VERDICT_STYLE.get(v, DIM), stream=out)}{r.get('by', '?'):<9}{r.get('class') or r.get('command', '')}")
+        if r.get("class"):
+            print(f"  {' ' * 38}{paint(r['command'][:80], DIM, stream=out)}")
+        elif r.get("reasons"):
+            print(f"  {' ' * 29}{paint(r['reasons'][:100], RED, _ui.ITALIC, stream=out)}")
+    print()
+    return 0
+
+
+def cmd_exclusions(ctx):
+    r = ctx.repos
+    r.need_setup()
+    r.fetch_queue()
+    ex, out = off.read_exclusions(r).get("excluded", []), sys.stdout
+    print(paint(f"Commands that were test-run on {ctx.product} and do not fit it. Claude runs these itself instead.", BOLD, stream=out))
+    if not ex:
+        print("\nNone yet.")
+    for e in ex:
+        pr = e.get("profiled", {})
+        print(f"\n{paint(' '.join(e['argv']), BOLD, RED, stream=out)}")
+        print(f"  {paint('why', DIM, stream=out)}         {'; '.join(e.get('reasons', []))}")
+        print(f"  {paint('limited by', DIM, stream=out)}  {', '.join(e.get('limiting', [])) or '?'}")
+        print(f"  {paint('tested', DIM, stream=out)}      {pr.get('date', '?')} on {pr.get('mem_total_mb', '?')} MB RAM (job {pr.get('job', '?')})")
+    return 0
+
+
+def cmd_profile(ctx, a):
+    r = ctx.repos
+    r.need_setup()
+    argv, spec = list(a.argv), {"flags": {}, "packages": []}
+    if a.spec:
+        spec = off.load_spec(Path(a.spec).expanduser().read_text(), a.spec)
+        if spec.get("command") and not argv:
+            argv = shlex.split(spec["command"])
+    pick = lambda cli_v, key: cli_v if cli_v not in (None, "") else spec.get(key)      # noqa: E731
+    what, expect, why = pick(a.what, "what"), pick(a.expect, "expect"), pick(a.why, "why")
+    side, watch, name = pick(a.side_effects, "side_effects"), pick(a.watch_for, "watch_for"), pick(a.name, "name")
+    timeout_s = a.timeout_s or (int(spec["timeout_s"]) if spec.get("timeout_s") else None)
+    est = {}
+    for k in off.EST_KEYS:
+        v = getattr(a, k)
+        if v is None and spec.get(k) not in (None, ""):
+            try:
+                v = float(spec[k])
+            except ValueError:
+                raise ClientError(f"{a.spec}: {k} must be a number, got {spec[k]!r}")
+        est[k] = v
+    r.pull_results()
+    if not a.retry:
+        rc = cmd_fit_quiet(ctx, argv)
+        if rc in (0, 3, 5):                                  # registered, excluded, or "excluded before the upgrade: ask the user, then --retry"
+            return 0 if rc == 0 else 1
+    files = {}
+    for f in a.file or []:
+        p = Path(f).expanduser()
+        files[p.name] = p.read_text()
+    limits = sub.file_limits(r.registry_info())
+    if a.dir:
+        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", why, tag="NOTE", color=YELLOW)))
+    if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
+        raise ClientError("Too many input files", f"One job can carry at most {limits['max_count']} files and {limits['max_total_kb']} KB of text.",
+                          ["Attach only the files the command needs: --include 'src/**/*.js'"])
+    if name:
+        bad = off.class_name_problem(name, off.taken_names(r))
+        if bad:
+            raise ClientError(f"The name {name!r} cannot be used", bad, example=off.own_command_with(a.raw, "").replace(f"--name {name}", "--name <another-name>"))
+    job = off.build_profile_job(argv, what, expect, est, flags={**spec["flags"], **off.parse_flags(a.flag)}, packages=spec["packages"] + (a.package or []), why=why,
+                                side_effects=side, watch_for=watch, timeout_s=timeout_s, files=files, retry_example=lambda extra: off.own_command_with(a.raw, extra))
+    jid = a.id or sub.new_job_id("profile", r.result_ids())
+    sub.push_job(r, jid, job)
+    if name:
+        ctx.names.remember(jid, name)
+    shown = [("command", " ".join(argv)), ("job", jid)] + ([("name", name)] if name else []) + (
+        [("needs", ", ".join(job["packages"]) + "  (fetched into a throwaway folder, deleted unless it fits)")] if job.get("packages") else [])
+    out = ["", paint("This profiling run needs YOUR approval.", BOLD, YELLOW)] + [f"  {paint(k + ':', DIM)} {v}" for k, v in shown]
+    out += ["", f"1. Review and approve it by running this on your computer:", "", paint(f"{ctx.admin} approve {jid}", BOLD, GREEN), "",
+            "2. Then watch for the result with:", "", paint(f"cw-run result {jid}", BOLD, GREEN), ""]
+    print("\n".join(out), file=sys.stderr)
+    if not a.wait:                                           # a profiling run always needs approval, usually from another terminal: never block on it
+        if not ctx.is_tty():
+            print(jid)                                       # the bare id is for scripts and Claude
+        return 0
+    return wait(ctx, jid, a.timeout, False, told=True)
+
+
+def cmd_fit_quiet(ctx, argv):
+    """A fit check made on the way to profiling: logged, but the unknown-case advice (written for Claude) is left out."""
+    res = off.check_fit(ctx.repos, argv, ctx.fitlog, source="profile", by="terminal" if ctx.is_tty() else "captured")
+    if res["verdict"] != "unknown":
+        print_fit(ctx, res, argv)
+    return res["rc"]
+
+
+def cmd_propose(ctx, a):
+    r = ctx.repos
+    r.need_setup()
+    r.pull_results()
+    r.fetch_queue()
+    res = r.read_result(a.id)
+    if res is None:
+        raise ClientError(f"{a.id} has no profile result yet", "The worker may still be running it, or it was never approved.", example=f"cw-run result {a.id} --wait")
+    out = off.propose(r, a.id, res, name=a.name, tier=a.tier, batchable=a.batchable, dry_run=a.dry_run, names=ctx.names)
+    kind = out["kind"]
+    if kind == "excluded":
+        emit(f"Recorded: this command does not fit {ctx.product}", ("Command", " ".join(out["argv"])), ("Reasons", "; ".join(out["reasons"])), "\n",
+             "Claude will not offload it again.", tag="RECORDED", color=YELLOW)
+        return 0
+    pk = out.get("packages")
+    details = [("Cost", out["entry"]["cost"]), ("Tier", out["tier"]), ("Branch", out["branch"] + ("  (already proposed)" if out.get("already") else ""))]
+    if pk:
+        details += ["\n", ("Installs", f"{', '.join(pk)}  (as root; you see the exact commands first)")]
+    if kind == "preview":
+        emit(f"Would register the class {out['name']!r}", ("Class", out["name"]), ("Runs", " ".join(out["entry"].get("run") or [])), *details, tag="PREVIEW", color=CYAN)
+        return 0
+    emit(f"Proposed the class {out['name']!r}", *details, "\n", "Nothing changes on the worker until you review and install it.", tag="PROPOSED", color=GREEN,
+         run_label="Review and install it", run=f"{ctx.admin} apply {out['branch']}")
     return 0
 
 
@@ -220,14 +417,25 @@ LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yoursel
 
 def command_log(ctx, cfg=None):
     from .cmdlog import CommandLog
-    home = Path(cfg.paths.client_home).expanduser() if cfg else Path("~/.cw").expanduser()
-    return CommandLog(home, own_tools=ctx.own_tools)
+    return CommandLog(ctx.home, own_tools=ctx.own_tools)
 
 
 def cmd_offload(ctx, a, cfg):
-    if a.offload_cmd != "log" or not a.log_cmd:
-        emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload log show", "where the log is, and how big"),
-             tag="HELP", color=CYAN)
+    c = a.offload_cmd
+    if c == "fit":
+        return cmd_fit(ctx, a.argv)
+    if c == "history":
+        return cmd_history(ctx, a)
+    if c == "exclusions":
+        return cmd_exclusions(ctx)
+    if c == "profile":
+        return cmd_profile(ctx, a)
+    if c == "propose":
+        return cmd_propose(ctx, a)
+    if c != "log" or not a.log_cmd:
+        emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
+             ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
+             ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
@@ -306,6 +514,36 @@ def build_parser():
     t.add_argument("--all", action="store_true", help="include shapes that are not candidates, with the reason")
     lsp.add_parser("show", add_help=False)
     lsp.add_parser("clear", add_help=False)
+    osp.add_parser("fit", add_help=False)
+    hs = osp.add_parser("history", add_help=False)
+    hs.add_argument("-n", type=int, default=15, metavar="N", help="how many checks to show (default %(default)s)")
+    hs.add_argument("--all", action="store_true", help="every check that is kept")
+    hs.add_argument("--verdict", choices=["registered", "excluded", "retry", "unknown"], help="only checks with this answer")
+    hs.add_argument("--command", metavar="TEXT", help="only checks whose command contains this text")
+    hs.add_argument("--json", action="store_true", help="print the checks as JSON")
+    hs.add_argument("--clear", action="store_true", help="forget the history")
+    osp.add_parser("exclusions", add_help=False)
+    pf = osp.add_parser("profile", add_help=False)
+    pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")
+    pf.add_argument("--name", help="the class name to propose if it fits")
+    pf.add_argument("--what", help="what the command does, in plain words")
+    pf.add_argument("--expect", help="how long it should take, how much memory, what it prints")
+    pf.add_argument("--why"), pf.add_argument("--side-effects", dest="side_effects"), pf.add_argument("--watch-for", dest="watch_for")
+    for k in ("est_time_s", "est_mem_mb", "est_cpu_cores", "est_disk_mb"):
+        pf.add_argument("--" + k.replace("_", "-"), dest=k, type=float, help="your honest estimate" if k in ("est_time_s", "est_mem_mb") else argparse.SUPPRESS)
+    pf.add_argument("--flag", action="append", metavar="-x=meaning", help="explain a flag; one per flag")
+    pf.add_argument("--package", action="append", metavar="apt:name", help="software the worker lacks: apt:, npm: or pip:")
+    pf.add_argument("--file", action="append", metavar="F"), pf.add_argument("--dir", metavar="D"), pf.add_argument("--include", action="append", metavar="GLOB")
+    pf.add_argument("--timeout-s", dest="timeout_s", type=int, help="the hard time limit for this run")
+    pf.add_argument("--id"), pf.add_argument("--retry", action="store_true", help="profile again even if it was excluded before")
+    pf.add_argument("--wait", action="store_true", help="stay until it finishes (needs your approval from another terminal)")
+    pf.add_argument("--timeout", type=int, default=3000, metavar="SEC", help="seconds to wait with --wait (default %(default)s)")
+    pp = osp.add_parser("propose", add_help=False)
+    pp.add_argument("id", help="the profile job id (cw-run jobs lists them)")
+    pp.add_argument("--name", help="the class name (default: the one chosen when profiling)")
+    pp.add_argument("--tier", choices=["auto", "approve"], default="auto", help="auto runs as soon as you submit it; approve waits for your OK each time")
+    pp.add_argument("--batchable", action="store_true", help="the input files are independent, so a big set may be split into several jobs")
+    pp.add_argument("--dry-run", action="store_true", help="show what would be proposed; push nothing")
     s = sp.add_parser("prune", add_help=False)
     s.add_argument("--days", type=int, default=14, metavar="N", help="keep jobs from the last N days (default %(default)s)")
     s.add_argument("--force", action="store_true", help="squash even if the branch is short")
@@ -324,11 +562,16 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
 
 def main(argv=None, ctx=None, cfg=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    raw, tail = list(argv), []
+    if "--" in argv:                                          # everything after -- is the command being asked about, not options
+        i = argv.index("--")
+        argv, tail = argv[:i], argv[i + 1:]
     ap, sp = build_parser()
     if clihelp.show_cli_help(["cw-run", *argv], "cw-run", "queue jobs on the worker and read their results", sp, HELP, [("See what it can run", "cw-run classes")]):
         return 0
     try:
         a = ap.parse_args(argv)
+        a.argv, a.raw = tail, raw
     except SystemExit:
         emit("That is not a command cw-run understands", "Run cw-run help to see the commands.", tag="ERROR", color=RED)
         return 2

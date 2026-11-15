@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import support  # noqa: E402,F401  (points HOME at a throwaway folder)
 from cw import config, render, sandboxtest  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]

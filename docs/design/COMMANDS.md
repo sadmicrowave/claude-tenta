@@ -110,7 +110,7 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 |---|---|
 | `cw-run submit / result / jobs / classes / setup / prune` | built and tested |
 | `cw-run offload log hook / top / show / clear` (was `cw-log`) | built and tested |
-| `cw-run offload fit / history / profile / exclusions / propose` | to build |
+| `cw-run offload fit / history / profile / exclusions / propose` | built and tested |
 | `<name> ...` (the worker's engine) | built and tested |
 | `cw-admin ...` | to build |
 | `cw-setup` (wizard) | to build |

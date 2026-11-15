@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import support  # noqa: E402,F401  (points HOME at a throwaway folder)
 from cw import perms, review  # noqa: E402
 
 JOB = {"argv": ["eslint", "--max-warnings", "0", "src/"], "what": "Lints the source tree", "why": "before release", "expect": "10 seconds, 200 MB",

@@ -104,7 +104,7 @@ def format_result(res, admin="cw-admin", suggest_name=None):
             tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('register it and install it on the worker, asking you once', DIM)}\n",
                      paint(f"{admin} adopt {res['id']} --name {suggest_name}", BOLD, GREEN) + "\n", paint("The name is a suggestion; change it if you like.", DIM) + "\n"]
         elif pr["verdict"] in ("fits", "does-not-fit"):
-            tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('record that it does not fit, so it is never offloaded', DIM)}\n", paint(f"cw-run adopt {res['id']}", BOLD, GREEN) + "\n"]
+            tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('record that it does not fit, so it is never offloaded', DIM)}\n", paint(f"cw-run offload propose {res['id']}", BOLD, GREEN) + "\n"]
     return head, res.get("output") or "", tail
 
 
