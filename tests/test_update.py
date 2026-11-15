@@ -1,6 +1,7 @@
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -178,13 +179,138 @@ class Install(unittest.TestCase):
                 self.assertNotIn("claude-worker", p.read_text(errors="ignore"), str(p))
 
 
+def run(*cmd, cwd=None, env=None):
+    r = subprocess.run(cmd, cwd=cwd, env={**os.environ, **(env or {})}, capture_output=True, text=True)
+    assert r.returncode == 0, f"{cmd}: {r.stderr}"
+    return r.stdout.strip()
+
+
+class Fetch(unittest.TestCase):
+    """A real 'public repository' with a main branch, SSH-signed release tags (one trusted key, one not) and an unmerged side branch."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        t = self.tmp
+        self.upstream = t / "upstream.git"
+        work = t / "work"
+        run("git", "init", "-q", "-b", "main", str(work))
+        shutil.copytree(ROOT / "src", work / "src", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / "templates", work / "templates")
+        self.git_env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+        self.work = work
+        for name in ("good", "other"):
+            run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / name), "-C", name)
+        (t / "etc").mkdir()
+        pub = (t / "good.pub").read_text().split()
+        (t / "etc" / "allowed_signers").write_text(f'releases namespaces="git" {pub[0]} {pub[1]}\n')
+        self.c1 = self.commit("one")
+        self.c2 = self.commit("two")
+        self.c3 = self.commit("three")
+        run("git", "clone", "-q", "--bare", str(work), str(self.upstream))
+        self.cfg = config.load(None, env={"CW_CONFIG": "", "CW_PATHS_STATE_ROOT": str(t / "var"), "CW_PATHS_CONFIG": str(t / "etc"),
+                                           "CW_PATHS_CODE": str(t / "code"), "CW_UPDATES_SOURCE": "https://example.com/project.git"})
+        self.said = []
+
+    def commit(self, text):
+        (self.work / "VERSION").write_text(text + "\n")
+        run("git", "add", "-A", cwd=self.work, env=self.git_env)
+        run("git", "commit", "-q", "-m", text, cwd=self.work, env=self.git_env)
+        return run("git", "rev-parse", "HEAD", cwd=self.work)
+
+    def tag(self, name, commit, key, when):
+        run("git", "-c", "gpg.format=ssh", "-c", f"user.signingkey={self.tmp / key}", "tag", "-s", "-m", name, name, commit, cwd=self.work,
+            env={**self.git_env, "GIT_COMMITTER_DATE": when})
+
+    def publish(self):
+        run("git", "push", "-q", "--force", str(self.upstream), "refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*", cwd=self.work)
+
+    def git(self, *args, cwd=None):
+        return update.run_git("-c", f"url.{self.upstream}.insteadOf=https://example.com/project.git", *args, cwd=cwd)
+
+    def fetch(self, **kw):
+        return update.fetch_release(self.cfg, git=self.git, workdir=self.tmp / "out", out=self.said.append, **kw)
+
+    def test_verified_installs_the_newest_tag_signed_by_a_trusted_key_and_skips_the_rest(self):
+        self.tag("release-1", self.c1, "good", "2026-01-01T00:00:00")
+        run("git", "tag", "release-2", self.c2, cwd=self.work, env=self.git_env)                  # lightweight: not signed at all
+        self.tag("release-3", self.c3, "other", "2026-01-03T00:00:00")                              # signed, but by a key nobody trusts
+        self.publish()
+        src, rev, label = self.fetch(verified=True)
+        self.assertEqual((label, rev), ("release-1", self.c1))
+        self.assertEqual((src / "VERSION").read_text(), "one\n")
+        self.assertIn("ignoring release-3 (not signed by a trusted key)", " ".join(self.said))
+        self.assertIn("ignoring release-2", " ".join(self.said))
+
+    def test_the_newest_trusted_tag_wins(self):
+        self.tag("release-1", self.c1, "good", "2026-01-01T00:00:00")
+        self.tag("release-2", self.c2, "good", "2026-01-02T00:00:00")
+        self.publish()
+        self.assertEqual(self.fetch(verified=True)[2], "release-2")
+
+    def test_with_no_trusted_tag_nothing_is_installed(self):
+        self.tag("release-3", self.c3, "other", "2026-01-03T00:00:00")
+        self.publish()
+        with self.assertRaises(update.InstallError) as cm:
+            self.fetch(verified=True)
+        self.assertIn("no release tag signed by a trusted key", str(cm.exception))
+
+    def test_without_a_signers_file_automatic_updates_are_off(self):
+        (self.tmp / "etc" / "allowed_signers").unlink()
+        with self.assertRaises(update.InstallError) as cm:
+            self.fetch(verified=True)
+        self.assertIn("allowed_signers is missing", str(cm.exception))
+
+    def test_an_explicit_revision_must_be_on_the_configured_branch(self):
+        run("git", "checkout", "-q", "-b", "side", self.c1, cwd=self.work, env=self.git_env)
+        side = self.commit("only on a side branch")
+        run("git", "checkout", "-q", "main", cwd=self.work, env=self.git_env)
+        self.publish()
+        src, rev, label = self.fetch(rev=self.c2[:10])
+        self.assertEqual((rev, label, (src / "VERSION").read_text()), (self.c2, self.c2[:10], "two\n"))
+        with self.assertRaises(update.InstallError) as cm:
+            self.fetch(rev=side)
+        self.assertIn("is not on main", str(cm.exception))
+
+    def test_bad_and_unknown_revisions_are_refused(self):
+        self.publish()
+        for bad in (None, "", "main", "xyz", "../x", "a" * 41):
+            with self.assertRaises(update.InstallError, msg=str(bad)):
+                self.fetch(rev=bad)
+        with self.assertRaises(update.InstallError) as cm:
+            self.fetch(rev="0" * 40)
+        self.assertIn("was not found", str(cm.exception))
+
+    def test_the_export_has_no_git_folder_hooks_or_config(self):
+        self.publish()
+        src, rev, label = self.fetch(rev=self.c3)
+        self.assertEqual([p for p in src.rglob("*") if p.name in (".git", "hooks", "config") and p.parent.name != "cw"], [])
+        self.assertFalse((src / ".git").exists())
+
+    def test_the_source_must_be_configured_and_an_unreachable_one_is_explained(self):
+        c = config.load(None, env={"CW_CONFIG": "", "CW_PATHS_STATE_ROOT": str(self.tmp / "var2")})
+        with self.assertRaises(config.ConfigError):
+            update.fetch_release(c, rev=self.c1)
+        with self.assertRaises(update.InstallError) as cm:
+            update.fetch_release(self.cfg, rev=self.c1, git=lambda *a, cwd=None: (128, "fatal: unable to access"), workdir=self.tmp / "o2")
+        self.assertIn("could not fetch https://example.com/project.git", str(cm.exception))
+
+    def test_a_fetched_release_installs_end_to_end(self):
+        self.tag("release-1", self.c1, "good", "2026-01-01T00:00:00")
+        self.publish()
+        src, rev, label = self.fetch(verified=True)
+        c2 = config.load(None, env={"CW_CONFIG": "", "CW_IDENTITY_NAME": "homecw", "CW_SERVER_ADMIN_USER": "cwadmin"})
+        r = update.install_release(src, c2, rev, self.tmp / "root", visudo=lambda t: (True, ""), chown=lambda p: None)
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual(update.installed_rev(c2, self.tmp / "root"), self.c1)
+
+
 class Command(unittest.TestCase):
     def test_usage(self):
         import io
         from contextlib import redirect_stderr
         err = io.StringIO()
         with redirect_stderr(err):
-            self.assertEqual(update.main([]), 2)
+            self.assertEqual(update.main(["--bogus"]), 2)
         self.assertIn("usage", err.getvalue())
 
 

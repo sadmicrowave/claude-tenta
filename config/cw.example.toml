@@ -61,6 +61,8 @@ update_min = 15                 # minutes between checks for a new signed releas
 
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
+# source = "https://github.com/your-github-handle/claude-worker.git"   # where releases are fetched from; required to install or update
+branch = "main"                 # an explicit revision must be on this branch before it may be installed
 
 [registry]
 packs = ["core"]                # job-class packs to install

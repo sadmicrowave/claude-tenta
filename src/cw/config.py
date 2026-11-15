@@ -234,6 +234,8 @@ SCHEMA = {
     },
     "updates": {
         "mode": ("manual", _enum("manual", "signed-tags"), "manual = you apply; signed-tags = install only tags signed by your key"),
+        "source": (None, _url, "https address of the project repository releases are fetched from (your fork, or the project itself)"),
+        "branch": ("main", _str(BRANCH_RE, "a branch name"), "branch an explicit revision must be on before it may be installed"),
     },
     "registry": {"packs": (["core"], _list_of(_str(IDENT_RE, "a pack name")), "job-class packs to install")},
     "policy": {"packs": (["core"], _list_of(_str(IDENT_RE, "a pack name")), "off-limits rule packs to apply")},

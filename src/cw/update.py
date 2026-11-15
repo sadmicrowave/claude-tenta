@@ -149,6 +149,63 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
     return report
 
 
+def run_git(*args, cwd=None):
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=300)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def fetch_release(cfg, *, verified=False, rev=None, git=run_git, workdir=None, out=print):
+    """Get a clean copy of a release from the project repository (cfg.updates.source) and return (source folder, full commit id, label).
+
+      verified   the NEWEST tag named release-* whose signature checks against <config>/allowed_signers (tags with no or an untrusted
+                 signature are skipped, and said so). Pushing to the repository alone can never change what runs here.
+      rev        one exact commit, which must be on cfg.updates.branch (so an unmerged or abandoned commit cannot be installed).
+    The source is exported with `git archive`, so no .git folder, hook or config comes with it."""
+    import tempfile
+    cfg.require("updates.source")
+    src = Path(cfg.paths.state_root + "-src")
+    work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="cw-release-"))
+    if not (src / "HEAD").exists():
+        src.parent.mkdir(parents=True, exist_ok=True)
+        rc, msg = git("clone", "--bare", "--quiet", cfg.updates.source, str(src))
+        if rc:
+            raise InstallError(f"could not fetch {cfg.updates.source}: {msg[:200]}")
+    rc, msg = git("-C", str(src), "fetch", "--quiet", "--prune", "--force", "--tags", cfg.updates.source, "+refs/heads/*:refs/heads/*")
+    if rc:
+        raise InstallError(f"could not update from {cfg.updates.source}: {msg[:200]}")
+    if verified:
+        signers = Path(cfg.path("allowed_signers"))
+        if not signers.is_file():
+            raise InstallError(f"{signers} is missing, so automatic updates are off (it lists the keys whose signed release tags are trusted)")
+        rc, tags = git("-C", str(src), "tag", "-l", "release-*", "--sort=-creatordate")
+        target = label = None
+        for tag in tags.split():
+            rc, _ = git("-C", str(src), "-c", "gpg.format=ssh", "-c", f"gpg.ssh.allowedSignersFile={signers}", "verify-tag", tag)
+            if rc == 0:
+                rc, sha = git("-C", str(src), "rev-parse", f"{tag}^{{commit}}")
+                target, label = sha, tag
+                break
+            out(f"SKIP  ignoring {tag} (not signed by a trusted key)")
+        if not target:
+            raise InstallError("no release tag signed by a trusted key; nothing to do")
+    else:
+        if not rev or not REV_RE.match(rev):
+            raise InstallError("an explicit revision must be 7 to 40 hex characters")
+        rc, sha = git("-C", str(src), "rev-parse", "--verify", "-q", f"{rev}^{{commit}}")
+        if rc:
+            raise InstallError(f"commit {rev} was not found in {cfg.updates.source}")
+        rc, _ = git("-C", str(src), "merge-base", "--is-ancestor", sha, f"refs/heads/{cfg.updates.branch}")
+        if rc:
+            raise InstallError(f"commit {rev} is not on {cfg.updates.branch}; only commits on that branch can be installed")
+        target, label = sha, rev
+    work.mkdir(parents=True, exist_ok=True)
+    arc = subprocess.run(["git", "-C", str(src), "archive", target], capture_output=True, timeout=300)
+    if arc.returncode:
+        raise InstallError("could not export the release")
+    subprocess.run(["tar", "-x", "-C", str(work)], input=arc.stdout, check=True, timeout=300)
+    return work, target, label
+
+
 def installed_rev(cfg, prefix="/"):
     try:
         return _dest(prefix, f"{cfg.paths.config}/installed-rev").read_text().split()[0]
@@ -161,15 +218,21 @@ def real_systemctl(*args):
 
 
 def main(argv=None):
-    """python3 -m cw.update <release checkout> <rev>   (run as root; the update tool wraps this with the fetch and signature checks)"""
+    """python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit>      (run as root)"""
     from . import config, sandboxtest
     argv = list(sys.argv[1:] if argv is None else argv)
-    if len(argv) != 2:
-        print("usage: python3 -m cw.update <release checkout> <revision>", file=sys.stderr)
-        return 2
+    usage = "usage: python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit>"
     try:
         cfg = config.load()
-        report = install_release(argv[0], cfg, argv[1], sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl)
+        if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):
+            src, rev, label = fetch_release(cfg, verified=argv[0] == "--verified", rev=argv[1] if len(argv) == 2 else None)
+            print(f"installing {label} ({rev[:9]})")
+        elif len(argv) == 3 and argv[0] == "--local":
+            src, rev = argv[1], argv[2]
+        else:
+            print(usage, file=sys.stderr)
+            return 2
+        report = install_release(src, cfg, rev, sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl)
     except (InstallError, render.RenderError, ConfigError) as e:
         print(f"install refused: {e}", file=sys.stderr)
         return 1
