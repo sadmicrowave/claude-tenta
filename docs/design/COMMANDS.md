@@ -58,3 +58,49 @@ System helpers: cw-update  canary-watch  fan-profile  sys-status  net-check  cw-
 6. **`login` / `logout` are obsolete** with the new sudo design (read-only commands need no password; the rest ask).
 7. **`branches` / `merge` / `tidy` / `diff` / `apply` manage the code and registry in the private repo.** In the packaged design code comes from
    the public project (a signed release) and the private repo holds only jobs and registry/policy, so most of these shrink to registry proposals plus `update`.
+
+## Decisions so far
+
+- `cw-log` becomes part of a planning group, `cw-run offload`, beside fit, profile, adopt and exclusions (it records the user's own commands).
+- `cw-admin` stays flat (`cw-admin unlock`, `cw-admin approve`); its help screen groups commands under Worker, Jobs, Security, Registry and Release.
+- `cw-admin login` and `logout` are removed: read-only commands need no password under the sudoers rule, everything else asks.
+- `cw-unlock`, `cw-approve` and the other per-command server binaries do not exist in the packaged version: the worker has one engine, `<name> <command>`.
+
+## Proposed tree
+
+```
+cw-setup                                 NEW  the wizard: client | server | audit
+cw-help                                  every command, grouped
+
+cw-run                                   a requester
+ ├─ submit <class>  result <job>  jobs  classes
+ ├─ setup  prune                         repair / housekeeping
+ └─ offload                              what is worth running on the worker
+     ├─ log  hook|top|show|clear         (was cw-log)
+     ├─ fit -- <cmd>   history           (was fit, fits)
+     ├─ profile -- <cmd>
+     ├─ exclusions
+     └─ propose <profile-job>            (was cw-run adopt: a registry proposal, or an exclusion)
+
+cw-admin                                 the administrator, over SSH (flat; the help groups them)
+ ├─ Worker    status   check
+ ├─ Jobs      review   approve   cancel   kill
+ ├─ Security  quarantine   unlock   output
+ ├─ Registry  adopt <profile-job>   retire <class>   proposals
+ └─ Release   diff   apply
+
+<name>                                   on the worker: the same engine the timers use
+ ├─ status  show  review  approve  cancel  kill
+ ├─ quarantine  unlock  output  prune-results  test-alert
+ └─ (internal) fetch  step  exec  run  canary-alarm  check-registry  install-packages
+System helpers (root, not user commands): update  canary-watch  sandbox-test
+```
+
+## Still open
+
+- `cw-run status` could become `cw-run jobs` ("my jobs"), leaving `status` to mean the worker's health only, and the `cw-status` alias goes.
+- `adopt` currently means two things. Proposed: `cw-run offload propose` records a proposal (no authority); `cw-admin adopt` is the guided
+  one-step "register it and install it" (needs authority).
+- `branches`, `merge` and `tidy` manage code branches in the private repo. In the packaged design code comes from a signed release of the
+  public project, so for an end user they shrink to `cw-admin proposals` (list, diff, merge, tidy) for registry proposals; the code-branch
+  merge tools stay a maintainer's tool.
