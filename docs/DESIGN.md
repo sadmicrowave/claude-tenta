@@ -3,6 +3,18 @@
 Goal: someone with a spare Linux box and a laptop can answer a short list of questions and end up with the same architecture,
 hardened by default, and can extend it (job classes, hardening steps, off-limits rules) without editing core code.
 
+## Principles
+
+1. **Secure by provisioning, not by fixing.** Nothing in the hardening list is a post-install "fix". The wizard asks plain questions, writes the
+   answers to `cw.toml`, and applies the matching hardening while it builds the machine: key-only SSH, no root-equivalent groups for the admin
+   account, isolation that fails closed, restricted file modes, sandboxed units. A user never has to know which commands to run, or in what order.
+2. **Questions in, config out.** The wizard's job is to turn answers into a config file and then converge the machine to it. `cw-setup apply`
+   can be re-run at any time and is idempotent; `cw-admin audit` reports drift from the config.
+3. **Every root-run change is verified.** After installing a new version the tool runs a self-test job end to end and offers an automatic
+   rollback to the previous version if it fails, so hardening can never silently strand the worker.
+4. **Quiet is not safe.** Alerts are short and carry no environment detail; a locked worker sends reminders (default after 1, 6, 24 hours, then daily,
+   at normal priority) until a human clears it. Both are config values (`[alerts]`).
+
 ## Roles and repos
 
 | Thing | Where | Public? |
@@ -56,6 +68,9 @@ method        = "systemd-run"         # systemd-run | unshare
 [alerts]
 kind   = "ntfy"                       # none | ntfy | webhook | email
 url    = "https://ntfy.example.com/cw-alerts"
+remind_hours = [1, 6, 24]             # reminders while locked; then every `remind_repeat_h`
+remind_repeat_h = 24
+# the access token, if any, lives in secrets.env (CW_ALERT_TOKEN), never here
 [policy]
 packs  = ["core"]                     # off-limits rule packs, see below
 [registry]
