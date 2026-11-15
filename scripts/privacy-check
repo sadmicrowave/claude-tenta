@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""privacy-check: stop personal or environment details from reaching a public repo.
+
+  scripts/privacy-check --staged        scan what is about to be committed (pre-commit hook), plus the author identity
+  scripts/privacy-check --all           scan every tracked file
+  scripts/privacy-check --history       scan every commit message, author and patch ever recorded (run before the first push)
+  scripts/privacy-check --install-hook  install this as .git/hooks/pre-commit and commit-msg
+
+Two layers of rules:
+  1. GENERIC patterns below (private IPs, MAC addresses, emails, *.local hosts, key material, tokens). Documentation must use the
+     reserved example values: 192.0.2.x / 198.51.100.x / 203.0.113.x, example.com, host.example.
+  2. YOUR OWN denylist: one case-insensitive regex per line in $CW_PRIVACY_DENYLIST (default ~/.config/claude-worker-dev/denylist,
+     outside the repo, so the list of things you want hidden is never itself published). Put your GitHub handle, real name, e-mail,
+     employer, hostnames, LAN subnet, and so on there.
+
+A line containing `privacy-ok` is skipped (use sparingly, with a reason in the same line). Exit 1 on any finding.
+"""
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or ".")
+DENYLIST = Path(os.environ.get("CW_PRIVACY_DENYLIST", Path.home() / ".config/claude-worker-dev/denylist"))
+
+GENERIC = {
+    "private-ip": re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"),
+    "mac-address": re.compile(r"\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\b"),
+    "email": re.compile(r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b|users\.noreply\.github\.com\b|anthropic\.com\b)[\w-]+(?:\.[\w-]+)+\b"),
+    "mdns-hostname": re.compile(r"\b[\w-]+\.local\b(?!\w)"),
+    "private-key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    "ssh-public-key": re.compile(r"\bssh-(?:ed25519|rsa|dss)\s+AAAA[0-9A-Za-z+/=]{20,}"),
+    "token": re.compile(r"\b(?:ghp_|gho_|ghs_|ghu_|github_pat_|sk-ant-|xox[abprs]-|AKIA)[A-Za-z0-9_-]{12,}"),
+    "ntfy-topic": re.compile(r"ntfy\.sh/(?!your-|<|example|TOPIC)[A-Za-z0-9_-]{6,}"),
+    "home-path": re.compile(r"/(?:Users|home)/(?!worker\b|agent\b|<|\$|you\b|user\b|example\b|runner\b)[a-z][\w.-]{1,30}/"),
+}
+# Files that legitimately contain test fixtures of these shapes (the guard's own tests).
+SKIP_FILES = {"scripts/privacy-check"}
+SKIP_PREFIXES = ("tests/fixtures/",)
+
+
+def denylist():
+    try:
+        return [re.compile(l.strip(), re.I) for l in DENYLIST.read_text().splitlines() if l.strip() and not l.startswith("#")]
+    except OSError:
+        print(f"privacy-check: WARNING no personal denylist at {DENYLIST}; only generic rules apply", file=sys.stderr)
+        return []
+
+
+def scan_text(label, text, rules, personal):
+    hits = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if "privacy-ok" in line:
+            continue
+        for name, rx in rules.items():
+            if rx.search(line):
+                hits.append(f"{label}:{n}: [{name}]")
+        for rx in personal:
+            if rx.search(line):
+                hits.append(f"{label}:{n}: [your-denylist]")   # never print the matched text: logs are not private either
+    return hits
+
+
+def git(*a):
+    return subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True, errors="replace").stdout
+
+
+def skip(path):
+    return path in SKIP_FILES or path.startswith(SKIP_PREFIXES)
+
+
+def main(argv):
+    mode = argv[0] if argv else "--staged"
+    personal = denylist()
+    hits = []
+    if mode == "--install-hook":
+        for hook, arg in (("pre-commit", "--staged"), ("commit-msg", "--message")):
+            p = ROOT / ".git/hooks" / hook
+            extra = ' "$1"' if hook == "commit-msg" else ""
+            p.write_text(f'#!/bin/sh\nexec "$(git rev-parse --show-toplevel)/scripts/privacy-check" {arg}{extra}\n')
+            p.chmod(0o755)
+        print("installed pre-commit and commit-msg hooks")
+        return 0
+    if mode == "--message":                      # commit-msg hook: $1 is the message file
+        hits += scan_text("commit-message", Path(argv[1]).read_text(), GENERIC, personal)
+        mode = "--identity"
+    if mode in ("--staged", "--identity"):
+        ident = git("var", "GIT_AUTHOR_IDENT").strip()
+        hits += scan_text("author-identity", ident, {k: v for k, v in GENERIC.items() if k != "email"}, [])   # the noreply identity is the approved public one; the email rule below enforces it
+        email = re.search(r"<([^>]*)>", ident)
+        if not email or not email.group(1).endswith("@users.noreply.github.com"):
+            hits.append("author-identity: [email] use your GitHub noreply address: git config user.email <id>+<handle>@users.noreply.github.com")
+        if mode == "--staged":
+            for path in git("diff", "--cached", "--name-only", "--diff-filter=ACMR").splitlines():
+                if not skip(path):
+                    hits += scan_text(path, git("show", f":{path}"), GENERIC, personal)
+    elif mode == "--all":
+        for path in git("ls-files").splitlines():
+            if not skip(path) and (ROOT / path).is_file():
+                hits += scan_text(path, (ROOT / path).read_text(errors="replace"), GENERIC, personal)
+    elif mode == "--history":
+        for line in git("log", "--all", "--format=%H%x00%an <%ae>%x00%cn <%ce>%x00%B%x01").split("\x01"):
+            if line.strip():
+                sha, *rest = line.strip().split("\x00")
+                hits += scan_text(f"{sha[:8]}:meta", "\n".join(rest), GENERIC, personal)
+        patch = git("log", "--all", "-p", "--format=", "--no-color")
+        hits += scan_text("history-patch", "\n".join(l for l in patch.splitlines() if l.startswith("+") and not l.startswith("+++")), GENERIC, personal)
+    else:
+        print(__doc__)
+        return 2
+    if hits:
+        print("privacy-check: BLOCKED. Remove or replace with example values (or add `privacy-ok` with a reason):", file=sys.stderr)
+        print("\n".join("  " + h for h in sorted(set(hits))[:60]), file=sys.stderr)
+        return 1
+    print("privacy-check: clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

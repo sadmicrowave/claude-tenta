@@ -1,0 +1,35 @@
+# Per-install configuration and secrets: these describe YOUR network and must never be committed.
+cw.toml
+*.local.toml
+secrets.env
+env
+*.env
+!*.example.env
+.privacy-denylist
+allowed_signers
+
+# Runtime / personal state written by the tools
+fit-log.jsonl
+profile-names.json
+viewed.json
+state/
+quarantine/
+results/
+jobs/
+
+# Keys and credentials
+*.pem
+*.key
+id_*
+*.pat
+.git-credentials
+.aws/
+
+# Python / editor / OS
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.vscode/
+.idea/
