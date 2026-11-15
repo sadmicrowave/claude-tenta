@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import shutil
 import stat
 import subprocess
@@ -21,7 +22,7 @@ def mode(p):
     return stat.S_IMODE(Path(p).stat().st_mode)
 
 
-class Install(unittest.TestCase):
+class InstallBase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.release = self.tmp / "release"
@@ -43,6 +44,8 @@ class Install(unittest.TestCase):
     def at(self, path):
         return self.prefix / path.lstrip("/")
 
+
+class Install(InstallBase):
     def test_a_first_install_writes_code_wrappers_units_sudoers_and_the_revision(self):
         r = self.install()
         self.assertTrue(r.ok, r.errors)
@@ -216,6 +219,117 @@ def run(*cmd, cwd=None, env=None):
     r = subprocess.run(cmd, cwd=cwd, env={**os.environ, **(env or {})}, capture_output=True, text=True)
     assert r.returncode == 0, f"{cmd}: {r.stderr}"
     return r.stdout.strip()
+
+
+class UpdateWrapper(InstallBase):
+    def test_the_update_command_is_installed_root_run_with_a_fixed_environment(self):
+        r = self.install()
+        self.assertTrue(r.ok, r.errors)
+        w = self.at("/usr/local/sbin/homecw-update")
+        self.assertEqual(mode(w), 0o755)
+        text = w.read_text()
+        self.assertIn("cd / || exit 1", text)
+        self.assertIn("env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin", text)
+        self.assertIn("PYTHONPATH='/opt/homecw/lib'", text)
+        self.assertIn("-m cw.update \"$@\"", text)
+        self.assertNotIn(" -I ", text)           # -I would ignore the PYTHONPATH the tool needs
+        self.assertEqual(w.read_text().count("\n"), 4)
+
+    def test_the_wrapper_is_the_only_thing_the_read_only_sudo_rule_does_not_cover(self):
+        self.install()
+        self.assertNotIn("homecw-update", self.at("/etc/sudoers.d/homecw").read_text())
+
+
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML is not installed")
+class RegistryInstall(InstallBase):
+    GOOD = "classes:\n  echo:\n    tier: auto\n    cost: light\n    run: [/bin/echo, hi]\n"
+
+    def setUp(self):
+        super().setUp()
+        self.cfg = config.load(None, env={"CW_CONFIG": "", "CW_SERVER_ADMIN_USER": "cwadmin", "CW_IDENTITY_NAME": "homecw"})
+        (self.release / "packs" / "core").mkdir(parents=True)
+        (self.release / "packs" / "core" / "registry.yaml").write_text(self.GOOD.replace("echo", "core-one"))
+        self.ran, self.queue_text = [], self.GOOD
+        self.at(self.cfg.path("queue_clone") + "/x").parent.mkdir(parents=True, exist_ok=True)
+        (self.at(self.cfg.path("queue_clone")) / ".git").mkdir(exist_ok=True)
+
+    def fake_run(self, argv):
+        self.ran.append(argv)
+        if "fetch" in argv:
+            return self.fetch_result
+        return (0, self.queue_text) if self.queue_text is not None else (128, "fatal: path not found")
+
+    fetch_result = (0, "")
+
+    def go(self, **kw):
+        return update.install_registry(self.cfg, self.release, run=self.fake_run, prefix=self.prefix, **kw)
+
+    def registry_file(self):
+        return self.at(self.cfg.path("registry"))
+
+    def test_the_queue_repositorys_registry_is_installed_and_git_runs_as_the_worker(self):
+        self.assertEqual(self.go(), "updated")
+        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+        for argv in self.ran:
+            self.assertEqual(argv[:5], ["runuser", "-u", "cwworker", "--", "git"])
+        self.assertIn("origin/main:registry.yaml", self.ran[-1])
+
+    def test_the_same_registry_is_not_rewritten_and_a_change_keeps_the_previous_one(self):
+        self.go()
+        self.assertEqual(self.go(), "unchanged")
+        self.queue_text = self.GOOD + "  other:\n    tier: auto\n    cost: light\n    run: [/bin/echo, x]\n"
+        self.assertEqual(self.go(), "updated")
+        self.assertEqual(self.at(self.cfg.path("registry") + ".previous").read_text(), self.GOOD)
+
+    def test_an_invalid_registry_is_refused_and_nothing_is_written(self):
+        self.queue_text = "classes:\n  bad:\n    tier: nonsense\n    run: not-a-list\n"
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("NOT installed", str(e.exception))
+        self.assertFalse(self.registry_file().exists())
+        self.queue_text = "classes: [unclosed"
+        with self.assertRaises(update.InstallError):
+            self.go()
+
+    def test_an_invalid_new_registry_leaves_the_working_one_alone(self):
+        self.go()
+        self.queue_text = "classes: {}\n"
+        with self.assertRaises(update.InstallError):
+            self.go()
+        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+
+    def test_a_failed_fetch_stops_instead_of_installing_something_stale(self):
+        self.fetch_result = (128, "Permission denied (publickey)")
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("Permission denied", str(e.exception))
+        self.assertFalse(self.registry_file().exists())
+
+    def test_a_fresh_install_with_no_registry_anywhere_uses_the_core_pack(self):
+        self.queue_text = None
+        self.assertEqual(self.go(), "bootstrapped")
+        self.assertIn("core-one", self.registry_file().read_text())
+
+    def test_no_registry_in_the_queue_repository_leaves_an_installed_one_alone(self):
+        self.go()
+        self.queue_text = None
+        self.assertEqual(self.go(), "unchanged")
+        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+
+    def test_packages_are_installed_first_and_a_failure_keeps_the_registry_out(self):
+        seen = []
+        self.assertEqual(self.go(install_packages=lambda t: seen.append(t) or (True, "")), "updated")
+        self.assertEqual(seen, [self.GOOD])
+        self.registry_file().unlink()
+        with self.assertRaises(update.InstallError) as e:
+            self.go(install_packages=lambda t: (False, "E: unable to locate package"))
+        self.assertIn("unable to locate", str(e.exception))
+        self.assertFalse(self.registry_file().exists())
+
+    def test_without_a_queue_clone_yet_the_core_pack_is_used(self):
+        shutil.rmtree(self.at(self.cfg.path("queue_clone")))
+        self.assertEqual(self.go(), "bootstrapped")
+        self.assertEqual(self.ran, [])
 
 
 class Fetch(unittest.TestCase):

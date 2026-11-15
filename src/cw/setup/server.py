@@ -50,10 +50,12 @@ def deploy_key_commands(cfg, pubkeys):
 
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
-                 systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release):
+                 systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
+                 install_packages=None):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
+        self.registry_installer, self.install_packages = registry_installer, install_packages
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -85,6 +87,8 @@ class ServerSetup:
             raise SetupError("This machine is not supported", problem)
         if not self.dry_run and not self.is_root():
             raise SetupError("Run this as root", "It creates accounts and installs system files.", ["sudo python3 -m cw.setup server"])
+        if not self.host.run(["python3", "-c", "import yaml"]).ok:
+            raise SetupError("PyYAML is missing", "The worker reads its job registry with it.", ["sudo apt-get install -y python3-yaml"])
         self.note("checked the machine", "ok", f"{facts.os_id} {facts.os_version}")
         return facts
 
@@ -180,6 +184,19 @@ class ServerSetup:
             self.note("repository clones", "waiting", "add the deploy keys, then run again")
         return pending
 
+    def registry_step(self):
+        """Install the job registry the worker will trust (the queue repository's, validated; the core pack on a brand-new install)."""
+        if self.dry_run:
+            self.say("    install the job registry from the queue repository (validated first), or the core pack on a fresh install")
+            self.note("job registry", "planned")
+            return
+        try:
+            result = self.registry_installer(self.cfg, self.source, run=lambda argv: (lambda r: (r.rc, r.out))(self.host.run(argv)), prefix=str(self.host.root),
+                                             install_packages=self.install_packages, out=self.say)
+        except update.InstallError as e:
+            raise SetupError("The job registry was not installed", str(e), ["Fix registry.yaml on the main branch of your queue repository, then run this again"])
+        self.note("job registry", result)
+
     def hardening_step(self):
         cfg, results = self.cfg, {}
         for mid in cfg.hardening.modules:
@@ -212,6 +229,8 @@ class ServerSetup:
         pubs = self.deploy_keys()
         if self.clones(pubs):
             return self.report
+        self.say("\nJob registry")
+        self.registry_step()
         self.say("\nHardening")
         self.hardening_step()
         self.say("\nStarting")

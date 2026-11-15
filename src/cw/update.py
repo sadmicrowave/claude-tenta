@@ -68,6 +68,7 @@ def desired_files(src, cfg):
             files[f"{code}/lib/cw/{f.relative_to(pkg).as_posix()}"] = (f.read_bytes(), 0o644)
     files[render.wrapper_path(cfg)] = (render.cli_wrapper(cfg), 0o755)
     files[f"{render.BIN_DIR}/{cfg.identity.name}"] = (render.sudo_wrapper(cfg), 0o755)
+    files[render.update_wrapper_path(cfg)] = (render.update_wrapper(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
         files[f"/etc/systemd/system/{name}"] = (text, 0o644)
     return files
@@ -169,6 +170,70 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
     return report
 
 
+def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=print):
+    """Install the job registry the worker will trust: the queue repository's registry.yaml on its main branch, validated first.
+
+    The queue clone belongs to the worker account and its contents are untrusted, so git runs AS the worker (never as root, whose hooks and
+    config it could otherwise influence) and root only receives the file's text. The text is parsed and validated before anything is written;
+    its packages are installed first; the previous registry is kept as registry.yaml.previous. A fresh install with no registry anywhere falls
+    back to the core pack shipped in the release. Returns 'unchanged', 'updated' or 'bootstrapped'; raises InstallError and writes nothing
+    when the registry is not valid. `run(argv) -> (returncode, output)`."""
+    from . import registry
+    worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
+    dest, text, origin = _dest(prefix, cfg.path("registry")), None, "the queue repository"
+    if _dest(prefix, clone + "/.git").exists():
+        as_worker = ["runuser", "-u", worker, "--", "git", "-C", clone]
+        rc, msg = run(as_worker + ["fetch", "--quiet", "origin", main_branch])
+        if rc:
+            raise InstallError(f"could not fetch the queue repository, so the registry was not updated: {msg.strip()[:200]}")
+        rc, body = run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
+        text = body if rc == 0 else None
+    if text is None:
+        if dest.exists():
+            return "unchanged"
+        core = Path(src) / "packs" / "core" / "registry.yaml"
+        if not core.is_file():
+            raise InstallError("there is no registry.yaml on the main branch of the queue repository and no core registry in this release")
+        text, origin = core.read_text(), "the core pack"
+    try:
+        problems = registry.validate(registry.parse(text), cfg.path("tools"))
+    except Exception as e:                                   # not valid YAML
+        problems = [f"not valid YAML: {e}"]
+    if problems:
+        raise InstallError(f"the registry from {origin} is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
+    if dest.exists() and dest.read_text() == text:
+        return "unchanged"
+    if install_packages is not None:
+        ok, why = install_packages(text)
+        if not ok:
+            raise InstallError(f"the packages the registry needs could not be installed, so the registry was NOT installed: {why}")
+    if dest.exists():
+        _write_atomic(dest.with_name(dest.name + ".previous"), dest.read_bytes(), 0o644)
+    _write_atomic(dest, text, 0o644)
+    return "bootstrapped" if origin == "the core pack" else "updated"
+
+
+def real_run(argv):
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=300)
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def real_install_packages(cfg):
+    """Install the packages a registry names, using the worker's own tool (it pins and verifies them). Returns (ok, why)."""
+    def install(text):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write(text)
+            name = f.name
+        try:
+            env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "PYTHONPATH": f"{cfg.paths.code}/lib", "CW_CONFIG": f"{cfg.paths.config}/cw.toml"}
+            r = subprocess.run(["/usr/bin/python3", "-m", "cw.cli", "install-packages", name], capture_output=True, text=True, env=env, cwd="/", timeout=900)
+            return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()[-300:]
+        finally:
+            os.unlink(name)
+    return install
+
+
 def run_git(*args, cwd=None):
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=300)
     return r.returncode, (r.stdout + r.stderr).strip()
@@ -257,6 +322,10 @@ def main(argv=None):
             print(usage, file=sys.stderr)
             return 2
         report = install_release(src, cfg, rev, sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl, sysctl=real_sysctl)
+        if report.ok:
+            result = install_registry(cfg, src, run=real_run, install_packages=real_install_packages(cfg))
+            if result != "unchanged":
+                report.updated.append(f"{cfg.path('registry')} ({result})")
     except (InstallError, render.RenderError, ConfigError) as e:
         print(f"install refused: {e}", file=sys.stderr)
         return 1

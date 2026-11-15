@@ -251,6 +251,7 @@ class ServerTests(unittest.TestCase):
         self.h.replies["id cwworker"] = Result(1)
         self.said = []
         self.src = self.make_source()
+        self.registry_calls = []
 
     def make_source(self):
         src = Path(tempfile.mkdtemp(prefix="cw-src-"))
@@ -262,7 +263,8 @@ class ServerTests(unittest.TestCase):
     def setup_obj(self, **kw):
         given = {"server.admin_user": "me", "github.owner": "someone", **kw.pop("given", {})}
         return server.ServerSetup(self.h, self.src, say=self.said.append, given=given, use_defaults=True, rev="a" * 40, is_root=lambda: True,
-                                  systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0, **kw)
+                                  systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0,
+                                  registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped", **kw)
 
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
@@ -301,6 +303,37 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.ran("systemctl enable --now claude-worker-step.timer"))
         self.assertTrue(self.h.exists("/etc/claude-worker/hardening.json"))
         self.assertEqual([c for c in self.h.calls if c[:2] == ["systemctl", "enable"] and "update.timer" in " ".join(c)], [])
+
+    def test_the_registry_is_installed_after_the_clones_and_before_hardening(self):
+        order = []
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True)
+        s.registry_installer = lambda cfg, src, **k: order.append("registry") or "updated"
+        orig = s.hardening_step
+        s.hardening_step = lambda: order.append("hardening") or orig()
+        s.run_all()
+        self.assertEqual(order, ["registry", "hardening"])
+        self.assertTrue(any("job registry" in r[0] and r[1] == "updated" for r in s.report))
+
+    def test_a_bad_registry_stops_the_wizard_before_hardening(self):
+        def bad(cfg, src, **k):
+            raise server.update.InstallError("the registry is not valid")
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True)
+        s.registry_installer = bad
+        with self.assertRaises(server.SetupError) as e:
+            s.run_all()
+        self.assertIn("not valid", e.exception.why)
+        self.assertFalse(self.h.exists("/etc/claude-worker/hardening.json"))
+
+    def test_the_registry_is_not_installed_while_waiting_for_deploy_keys(self):
+        self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied")
+        self.setup_obj(dry_run=False).run_all()
+        self.assertEqual(self.registry_calls, [])
+
+    def test_missing_pyyaml_is_explained(self):
+        self.h.replies["python3 -c import yaml"] = Result(1, "No module named yaml")
+        with self.assertRaises(server.SetupError) as e:
+            self.setup_obj(dry_run=True).run_all()
+        self.assertIn("python3-yaml", " ".join(e.exception.steps))
 
     def test_a_missing_admin_account_stops_with_the_command_to_create_it(self):
         self.h.replies["id me"] = Result(1, "no such user")
