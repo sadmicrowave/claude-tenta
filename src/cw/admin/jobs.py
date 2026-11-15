@@ -1,0 +1,91 @@
+"""Review and approve jobs. A job is approved only as the exact file you looked at: the approval carries its SHA-256 and the worker
+refuses it if its own copy differs. `review` remembers what you were shown, so `approve --all` can approve a set in one go without
+re-reading, but only the ones that have not changed since."""
+import hashlib
+import json
+import re
+from pathlib import Path
+
+from .. import review as review_mod
+from ..client.repo import ClientError
+
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,80}$")
+
+
+class Viewed:
+    """{job id: sha256 of the job file you were shown ("" = the worker's own copy was shown there)} kept in the client home."""
+
+    def __init__(self, home):
+        self.path = Path(home) / "viewed.json"
+
+    def load(self):
+        try:
+            data = json.loads(self.path.read_text())
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def mark(self, jid, digest):
+        seen = self.load()
+        seen[jid] = digest or ""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(seen, indent=1, sort_keys=True))
+
+
+def job_bytes(repos, jid, branches=("jobs", "main")):
+    """The job file as it is on GitHub (the jobs branch, or main for old ones), or None."""
+    for b in branches:
+        text = repos.show_file(f"origin/{b}", f"jobs/{jid}.json")
+        if text is not None:
+            return text.encode()
+    return None
+
+
+def digest_of(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def waiting(repos):
+    """[(id, published result)] for every job the worker shows as waiting for approval."""
+    repos.pull_results()
+    out = []
+    d = repos.results / "results"
+    for f in sorted(d.glob("*.json")) if d.is_dir() else []:
+        res = repos.read_result(f.stem)
+        if res and res.get("status") == "awaiting_approval" and ID_RE.match(f.stem):
+            out.append((f.stem, res))
+    return out
+
+
+def describe(job, pub=None, product="the worker"):
+    """The text a person reads before approving. Profile runs get the full review; any other job shows its fields (file bodies by size)."""
+    if job.get("class") == "profile-run":
+        pub = pub or {}
+        return review_mod.review_text(job, pub.get("facts"), pub.get("package_text"), pub.get("glance"), product=product)
+    shown = {k: v for k, v in job.items() if k != "files"}
+    if job.get("files"):
+        shown["files"] = {k: f"{len(v)} bytes" for k, v in job["files"].items()}
+    return json.dumps(shown, indent=2)
+
+
+def classify(waiting_jobs, seen, current):
+    """Split waiting jobs into (ready, skipped): ready = [(id, digest)] viewed and unchanged, skipped = [(id, why)]."""
+    ready, skipped = [], []
+    for jid, _ in waiting_jobs:
+        raw = current(jid)
+        now = digest_of(raw) if raw is not None else ""
+        if jid not in seen:
+            skipped.append((jid, "not viewed yet"))
+        elif raw is None and seen[jid] == "":
+            skipped.append((jid, "its file is no longer on GitHub; review it again"))
+        elif seen[jid] != now:
+            skipped.append((jid, "changed since you viewed it"))
+        else:
+            ready.append((jid, now))
+    return ready, skipped
+
+
+def require_id(jid):
+    if not jid or not ID_RE.match(jid):
+        raise ClientError("That is not a job id", "Job ids are lowercase letters, digits and dashes.", example="cw-run jobs")
+    return jid

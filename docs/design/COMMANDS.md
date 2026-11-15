@@ -1,6 +1,6 @@
 # Command set review (DRAFT, for discussion)
 
-Status: a proposal. Nothing here is built yet; the tools below are described as they exist today and as they could be consolidated.
+Status: the decisions below are accepted and `cw-run`, the worker engine and `cw-admin` are built; `cw-setup` is next.
 
 ## Today (the original install)
 
@@ -112,5 +112,7 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 | `cw-run offload log hook / top / show / clear` (was `cw-log`) | built and tested |
 | `cw-run offload fit / history / profile / exclusions / propose` | built and tested |
 | `<name> ...` (the worker's engine) | built and tested |
-| `cw-admin ...` | to build |
+| `cw-admin` Worker / Jobs / Security (status, check, review, approve, cancel, kill, quarantine, unlock, output) | built and tested |
+| `cw-admin` Registry (adopt, retire, proposals) and Release (diff, apply with health check and rollback) | built and tested |
+| root-run `<name>-update` entry point that `cw-admin apply` calls over `sudo` | to build (with the wizard's server half) |
 | `cw-setup` (wizard) | to build |

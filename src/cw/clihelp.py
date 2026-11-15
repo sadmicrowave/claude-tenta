@@ -60,7 +60,7 @@ def _examples(examples, stream):
         print(f"\n  {paint(desc, DIM, stream=stream)}\n  {paint(cmd, BOLD, GREEN, stream=stream)}")
 
 
-def show_cli_help(argv, prog, summary, sub, details, examples, see=None):
+def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=None):
     """Styled help for `prog`: `prog`, `prog help`, `prog -h`, `prog help CMD`, `prog CMD -h`.
     `details` maps each command to (one line, [(what it shows, example command), ...]). Returns True when it printed help."""
     args = argv[1:]
@@ -89,8 +89,13 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None):
         return True
     print(f"\n{paint(prog, BOLD, GREEN, stream=out)}  {paint(summary, BOLD, stream=out)}")
     print("\n" + paint("USAGE", BOLD, CYAN, stream=out) + f"\n  {prog} <command> [options]")
-    print("\n" + paint("COMMANDS", BOLD, CYAN, stream=out))
-    _table([(c, d[0]) for c, d in details.items()], out)
+    if groups:                                  # [(title, [command, ...])]: the commands under headings, in the order given
+        for title, names in groups:
+            print("\n" + paint(title.upper(), BOLD, CYAN, stream=out))
+            _table([(c, details[c][0]) for c in names], out)
+    else:
+        print("\n" + paint("COMMANDS", BOLD, CYAN, stream=out))
+        _table([(c, d[0]) for c, d in details.items()], out)
     _examples(examples, out)
     print("\n" + paint("MORE", BOLD, CYAN, stream=out))
     _table([(f"{prog} help <command>", "every option of one command, with examples")] + list(see or []), out, bold_first=False)
