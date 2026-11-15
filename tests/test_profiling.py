@@ -67,12 +67,12 @@ class Verdict(unittest.TestCase):
 
 class Facts(unittest.TestCase):
     def test_facts_about_a_real_program(self):
-        facts = profiling.command_facts([sys.executable, "-c", "1"], lookup=lambda *c: {"dpkg": "python3: /usr/bin/python3", "whatis": "python3 (1) - an interpreted language"}[c[0]])
-        self.assertEqual(facts["binary"], sys.executable)
-        self.assertEqual(facts["package"], "python3")
-        self.assertIn("interpreted language", facts["summary"])
-        self.assertTrue(facts["size_kb"] >= 1)
-        self.assertNotIn("interpreter", facts)                                                # a path to python is not matched by name
+        tool = Path(tempfile.mkdtemp()) / "mytool"
+        tool.write_bytes(b"x" * 5000)
+        tool.chmod(0o755)
+        answers = {"dpkg": "mypkg: /usr/bin/mytool", "whatis": "mytool (1) - does a thing"}
+        facts = profiling.command_facts([str(tool), "--go"], lookup=lambda *c: answers[c[0]])
+        self.assertEqual(facts, {"binary": str(tool), "size_kb": 4, "package": "mypkg", "summary": "mytool (1) - does a thing"})
 
     def test_interpreters_are_flagged_because_the_arguments_are_the_program(self):
         for name in ("python3", "bash", "sh", "node", "env", "xargs", "awk"):
