@@ -103,7 +103,11 @@ def main(argv):
         for line in git("log", "--all", "--format=%H%x00%an <%ae>%x00%cn <%ce>%x00%B%x01").split("\x01"):
             if line.strip():
                 sha, *rest = line.strip().split("\x00")
-                hits += scan_text(f"{sha[:8]}:meta", "\n".join(rest), GENERIC, personal)
+                hits += scan_text(f"{sha[:8]}:author", "\n".join(rest[:2]), {k: v for k, v in GENERIC.items() if k != "email"}, [])
+                for who in rest[:2]:
+                    if not who.endswith("@users.noreply.github.com>"):
+                        hits.append(f"{sha[:8]}:author: [email] not a GitHub noreply address")
+                hits += scan_text(f"{sha[:8]}:message", "\n".join(rest[2:]), GENERIC, personal)
         patch = git("log", "--all", "-p", "--format=", "--no-color")
         hits += scan_text("history-patch", "\n".join(l for l in patch.splitlines() if l.startswith("+") and not l.startswith("+++")), GENERIC, personal)
     else:
