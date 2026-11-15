@@ -48,11 +48,16 @@ def denylist():
         return []
 
 
+STANDARD_RANGES = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")   # the three standard private blocks name no one's network
+
+
 def scan_text(label, text, rules, personal):
     hits = []
     for n, line in enumerate(text.splitlines(), 1):
         if "privacy-ok" in line:
             continue
+        for block in STANDARD_RANGES + ("git@github.com",):      # git@github.com is the standard SSH address, not a person
+            line = line.replace(block, "")
         for name, rx in rules.items():
             if rx.search(line):
                 hits.append(f"{label}:{n}: [{name}]")

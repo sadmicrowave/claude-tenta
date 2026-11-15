@@ -1,0 +1,63 @@
+# cw.example.toml: every setting, with its default. Copy to ~/.config/claude-worker/cw.toml (your computer) or
+# /etc/claude-worker/cw.toml (the server). The setup wizard writes this file for you; you rarely edit it by hand.
+# Only documentation values appear here (example.com, 192.0.2.0/24). Secrets (API keys, alert tokens) go in secrets.env, never here.
+# Any setting can also be set with an environment variable CW_<SECTION>_<KEY>, e.g. CW_SERVER_HOST=worker.example.lan
+
+[identity]
+name = "claude-worker"          # prefix for services, folders and commands on this install
+
+[server]
+host = "worker.example.lan"     # name or address the client connects to over SSH
+admin_user = "cwadmin"          # the human account on the server; it needs a password to use sudo
+worker_user = "cwworker"        # the unprivileged account that runs jobs
+ssh_port = 22
+
+[github]
+owner = "your-github-handle"    # account that owns the two private repos
+queue_repo = "cw-queue"         # private repo holding jobs
+results_repo = "cw-results"     # private repo holding results
+jobs_branch = "jobs"
+data_branch = "data"
+main_branch = "main"
+
+[paths]                         # {name} and {worker_user} are filled in from the settings above
+code = "/opt/{name}"            # where the code is installed on the server
+state_root = "/var/lib/{name}"  # state, the two git clones and job working folders (server)
+config = "/etc/{name}"          # this config, the registry and secrets (server)
+worker_home = "/home/{worker_user}"
+client_home = "~/.cw"           # where the client keeps its clone and notes (your computer)
+
+[hardware]
+profile = "small-server"        # old-laptop | small-server | workstation | custom; fills in the three limits below
+capacity = 4                    # capacity points running jobs may add up to (a heavy job takes 4)
+max_load = 3.0                  # do not start a job above this 1-minute load average
+max_temp_c = 75                 # do not start a job when the hottest core is above this
+thermal = "none"                # none | lm-sensors | apple-smc
+
+[isolation]
+require_netns = true            # refuse to run a no-network job if the machine cannot isolate it. Leave on.
+method = "unshare"              # unshare | systemd-run
+
+[alerts]
+kind = "none"                   # none | ntfy | webhook
+# url = "https://ntfy.example.com/cw-alerts"   # required when kind is not "none"; an access token goes in secrets.env
+remind_hours = [1, 6, 24]       # hours after a lockdown starts at which a reminder is sent
+remind_repeat_h = 24            # then repeat this often
+
+[network]
+lan_deny_out = true             # stop the server starting connections to other devices on your LAN
+lan_allow_out = []              # LAN networks it may still reach, e.g. ["192.0.2.0/24"]
+dns_servers = []                # DNS servers it may use inside the LAN, e.g. ["192.0.2.1"]
+ssh_from = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]   # networks allowed to SSH in
+
+[updates]
+mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
+
+[registry]
+packs = ["core"]                # job-class packs to install
+
+[policy]
+packs = ["core"]                # off-limits rule packs to apply
+
+[hardening]
+modules = ["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-worker"
+version = "0.0.1"
+description = "Offload slow jobs from a laptop to a spare Linux machine on your home network"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = []          # standard library only: the config loader must run on a fresh server
+
+[tool.setuptools.packages.find]
+where = ["src"]
