@@ -96,11 +96,21 @@ cw-admin                                 the administrator, over SSH (flat; the 
 System helpers (root, not user commands): update  canary-watch  sandbox-test
 ```
 
-## Still open
+## Decided (all three open points accepted)
 
-- `cw-run status` could become `cw-run jobs` ("my jobs"), leaving `status` to mean the worker's health only, and the `cw-status` alias goes.
-- `adopt` currently means two things. Proposed: `cw-run offload propose` records a proposal (no authority); `cw-admin adopt` is the guided
+- `cw-run status` is now `cw-run jobs` ("my jobs"). `status` means the worker's health only, and the `cw-status` alias is dropped.
+- `adopt` is split. `cw-run offload propose` records a registry proposal or an exclusion (no authority); `cw-admin adopt` is the guided
   one-step "register it and install it" (needs authority).
-- `branches`, `merge` and `tidy` manage code branches in the private repo. In the packaged design code comes from a signed release of the
-  public project, so for an end user they shrink to `cw-admin proposals` (list, diff, merge, tidy) for registry proposals; the code-branch
-  merge tools stay a maintainer's tool.
+- `branches`, `merge` and `tidy` become `cw-admin proposals` (list, diff, merge, tidy) for registry proposals. The code-branch merge
+  tools stay a maintainer's tool, not part of the end-user product.
+
+## Build status
+
+| Command | State |
+|---|---|
+| `cw-run submit / result / jobs / classes / setup / prune` | built and tested |
+| `cw-run offload log hook / top / show / clear` (was `cw-log`) | built and tested |
+| `cw-run offload fit / history / profile / exclusions / propose` | to build |
+| `<name> ...` (the worker's engine) | built and tested |
+| `cw-admin ...` | to build |
+| `cw-setup` (wizard) | to build |

@@ -338,7 +338,7 @@ class EndToEnd(RepoFixture):
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("jobs"))
 
-    def test_classes_and_status(self):
+    def test_classes_and_jobs(self):
         self.assertEqual(self.run_cli("classes")[0], 1)
         self.w.fetch()
         code, out, err = self.run_cli("classes")
@@ -347,18 +347,18 @@ class EndToEnd(RepoFixture):
         self.assertIn("careful", out)
         code, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         jid = out.strip()
-        code, out, err = self.run_cli("status")
+        code, out, err = self.run_cli("jobs")
         self.assertIn(jid, out)
         self.assertIn("queued", out)
         self.w.fetch()
         self.w.execute(jid)
-        self.assertRegex(self.run_cli("status")[1], rf"ok\s+.*{jid}")
+        self.assertRegex(self.run_cli("jobs")[1], rf"ok\s+.*{jid}")
 
     def test_an_approval_job_shows_where_to_approve_it(self):
         code, out, err = self.run_cli("submit", "careful", "--no-wait")
         jid = out.strip()
         self.w.fetch()
-        code, out, err = self.run_cli("status")
+        code, out, err = self.run_cli("jobs")
         self.assertIn("WAITING FOR YOU", out)
         self.assertIn(f"tcw-admin approve {jid}", out)
         code, out, err = self.run_cli("result", jid)
@@ -395,7 +395,7 @@ class EndToEnd(RepoFixture):
         self.assertIn("no jobs branch yet", out + err)
         code, out, err = self.run_cli("help")
         self.assertEqual(code, 0)
-        for word in ("setup", "submit", "result", "status", "classes", "prune"):
+        for word in ("setup", "submit", "result", "jobs", "classes", "prune", "offload"):
             self.assertIn(word, out)
         self.assertEqual(self.run_cli("nonsense")[0], 2)
         self.assertEqual(self.run_cli()[0], 0)                                                   # no arguments is help
@@ -404,7 +404,7 @@ class EndToEnd(RepoFixture):
         lonely = cli.Context(ClientRepos(self.tmp / "no" / "q", self.tmp / "no" / "r", "x", "y"), product="testcw")
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            self.assertEqual(cli.main(["status"], ctx=lonely), 2)
+            self.assertEqual(cli.main(["jobs"], ctx=lonely), 2)
         self.assertIn("not set up yet", out.getvalue() + err.getvalue())
         self.assertIn("cw-run setup", out.getvalue() + err.getvalue())
 
@@ -477,6 +477,8 @@ class Config(unittest.TestCase):
         self.assertEqual((ctx.repos.queue_url, ctx.repos.results_url), ("git@github.com:alice/cw-queue.git", "git@github.com:alice/cw-results.git"))
         self.assertEqual(str(ctx.repos.queue), str(Path("~/.homecw/queue").expanduser()))
         self.assertEqual(ctx.hints, [("on your computer", "homecw-admin approve {}"), ("on homecw", "homecw approve {}")])
+        self.assertIn("homecw", ctx.own_tools)
+        self.assertIn("cw-admin", ctx.own_tools)
         self.assertNotIn("example-owner", json.dumps([ctx.repos.queue_url, ctx.repos.results_url]))
 
 

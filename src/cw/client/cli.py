@@ -3,9 +3,10 @@
   setup                          clone the two private repos on this computer
   submit <class> [options]       queue a job (-p name=value, --prompt, --file, --dir/--include); waits for the result in a terminal
   result <job> [--wait]          read a job's result; --wait keeps checking until it finishes
-  status [-n N]                  your most recent jobs, and the ones waiting for your approval
+  jobs [-n N]                    your most recent jobs, and the ones waiting for your approval
   classes                        what the worker can run today, as it published it
   prune [--days N] [--force]     squash old job files out of the jobs branch
+  offload log hook|top|show|clear   learn which of your commands are worth running on the worker (more under offload: fit, profile, ...)
 
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
 """
@@ -32,8 +33,8 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="cw-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None):
-        self.repos, self.product, self.admin = repos, product, admin
+                 is_tty=None, own_tools=()):
+        self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: "-" if cls in ("", "profile-run") else cls)
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -43,7 +44,8 @@ class Context:
     def from_config(cls, cfg):
         repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
         name = cfg.identity.name
-        return cls(repos, product=name, admin=f"{name}-admin", hints=[("on your computer", f"{name}-admin approve {{}}"), (f"on {name}", f"{name} approve {{}}")])
+        return cls(repos, product=name, admin=f"{name}-admin", hints=[("on your computer", f"{name}-admin approve {{}}"), (f"on {name}", f"{name} approve {{}}")],
+                   own_tools=("cw-run", "cw-admin", "cw-setup", "cw-help", name, f"{name}-admin"))
 
 
 def fail_from(e):
@@ -55,7 +57,7 @@ def fail_from(e):
 # ---- commands ----
 def cmd_setup(ctx, cfg):
     rows = ctx.repos.clone_all(cfg.paths.client_home)
-    emit("This computer is set up", *[(what, path) for what, path in rows], tag="DONE", color=GREEN, run=["cw-run classes", "cw-run status"], run_label="Try it")
+    emit("This computer is set up", *[(what, path) for what, path in rows], tag="DONE", color=GREEN, run=["cw-run classes", "cw-run jobs"], run_label="Try it")
     return 0
 
 
@@ -166,7 +168,7 @@ def cmd_result(ctx, a):
     return view.print_result(res, a.json, admin=ctx.admin)
 
 
-def cmd_status(ctx, n=15):
+def cmd_jobs(ctx, n=15):
     r = ctx.repos
     r.need_setup()
     r.fetch_queue()
@@ -207,6 +209,65 @@ def cmd_prune(ctx, days, force):
     return 0
 
 
+# ---- offload: what is worth running on the worker ----
+LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yourself)", [("Installed once in Claude Code's settings", "cw-run offload log hook pre")]),
+            "top": ("rank the commands you run most that the worker could take",
+                    [("The top 10 candidates", "cw-run offload log top"), ("Include shapes that are not candidates, with the reason", "cw-run offload log top --all"),
+                     ("Only commands that usually take over a minute", "cw-run offload log top --min-seconds 60")]),
+            "show": ("how many commands are recorded, and where the log is", [("Show the log summary", "cw-run offload log show")]),
+            "clear": ("delete the log", [("Start again from nothing", "cw-run offload log clear")])}
+
+
+def command_log(ctx, cfg=None):
+    from .cmdlog import CommandLog
+    home = Path(cfg.paths.client_home).expanduser() if cfg else Path("~/.cw").expanduser()
+    return CommandLog(home, own_tools=ctx.own_tools)
+
+
+def cmd_offload(ctx, a, cfg):
+    if a.offload_cmd != "log" or not a.log_cmd:
+        emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload log show", "where the log is, and how big"),
+             tag="HELP", color=CYAN)
+        return 0
+    log = command_log(ctx, cfg)
+    if a.log_cmd == "hook":
+        try:
+            log.hook(a.phase, sys.stdin.read())
+        except Exception:
+            pass                                              # a hook must never get in Claude Code's way
+        return 0
+    if a.log_cmd == "show":
+        emit(f"{len(log.read())} commands recorded", ("Log file", str(log.path) + ("" if log.path.exists() else "  (not created yet)")), tag="LOG", color=CYAN)
+        return 0
+    if a.log_cmd == "clear":
+        log.clear()
+        emit("Log cleared", f"Deleted {log.path}", tag="DONE", color=GREEN)
+        return 0
+    recs = log.read()
+    if not recs:
+        emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: cw-run offload log hook pre|post"])
+        return 0
+    rows = log.rank(a.min_seconds, a.all, recs)[:a.top]
+    out = sys.stdout
+    print(paint(("All command shapes" if a.all else f"Candidates for {ctx.product} (median time at least {a.min_seconds:.0f} s)") + ".", BOLD, stream=out))
+    print(paint(f"From {len(recs)} commands recorded on this computer.", DIM, stream=out))
+    print(f"\n{paint('RUNS', BOLD, stream=out)}     how many times you ran it\n{paint('MEDIAN', BOLD, stream=out)}   the usual time one run takes\n"
+          f"{paint('TOTAL', BOLD, stream=out)}    all the time you spent on it\n")
+    if not rows:
+        emit("No candidates yet", "A candidate is repeated, slow, runs locally, and is not a git, network or package-manager command.", tag="NOTE", color=YELLOW)
+        return 0
+    print(paint(f"{'#':>2}  {'RUNS':>5}  {'MEDIAN':>7}  {'TOTAL':>7}  COMMAND SHAPE", BOLD, stream=out))
+    for i, r in enumerate(rows, 1):
+        med = "?" if r["median"] is None else f"{r['median']:.0f}s"
+        print(f"{i:>2}  {r['count']:>5}  {med:>7}  {r['total']:>6.0f}s  {r['shape']}" + (paint(f"   [{r['reason']}]", _ui.ITALIC, YELLOW, stream=out) if r["reason"] else ""))
+    if not a.all:
+        print("\n" + paint("Most recent example of each", BOLD, stream=out) + "\n")
+        for i, r in enumerate(rows, 1):
+            print(f"{i:>2}  {r['example'][:150]}")
+        emit("Pick the one you like", tag="NEXT", color=CYAN, run_label=f"Check whether {ctx.product} can take it", run="cw-run offload fit -- <the example command>")
+    return 0
+
+
 # ---- parsing ----
 def build_parser():
     ap = argparse.ArgumentParser(description="cw-run", add_help=False)
@@ -230,9 +291,21 @@ def build_parser():
     r.add_argument("--wait", action="store_true", help="keep checking until it finishes")
     r.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     r.add_argument("--json", action="store_true", help="print the result as JSON")
-    s = sp.add_parser("status", add_help=False)
+    s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
     sp.add_parser("classes", add_help=False)
+    o = sp.add_parser("offload", add_help=False)
+    osp = o.add_subparsers(dest="offload_cmd")
+    lg = osp.add_parser("log", add_help=False)
+    lsp = lg.add_subparsers(dest="log_cmd")
+    h = lsp.add_parser("hook", add_help=False)
+    h.add_argument("phase", choices=["pre", "post"], help="before or after the command")
+    t = lsp.add_parser("top", add_help=False)
+    t.add_argument("--top", type=int, default=10, help="how many to list (default %(default)s)")
+    t.add_argument("--min-seconds", type=float, default=30.0, help="only commands whose median run is at least this long (default %(default)s)")
+    t.add_argument("--all", action="store_true", help="include shapes that are not candidates, with the reason")
+    lsp.add_parser("show", add_help=False)
+    lsp.add_parser("clear", add_help=False)
     s = sp.add_parser("prune", add_help=False)
     s.add_argument("--days", type=int, default=14, metavar="N", help="keep jobs from the last N days (default %(default)s)")
     s.add_argument("--force", action="store_true", help="squash even if the branch is short")
@@ -243,7 +316,8 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "submit": ("queue a job", [("Queue a job and wait for it", "cw-run submit sys-status --wait"), ("With a parameter", "cw-run submit net-check -p lan_host=192.0.2.1"),
                                    ("Attach the files a command needs", "cw-run submit lint --dir ./src --include 'src/**/*.js'")]),
         "result": ("read a job's result", [("Read it now", "cw-run result job-abc123"), ("Wait for it", "cw-run result job-abc123 --wait")]),
-        "status": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "cw-run status"), ("Show more", "cw-run status -n 40")]),
+        "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "cw-run jobs"), ("Show more", "cw-run jobs -n 40")]),
+        "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "cw-run offload log top"), ("Where is the log?", "cw-run offload log show")]),
         "classes": ("what the worker can run today", [("List them", "cw-run classes")]),
         "prune": ("squash old job files out of the jobs branch", [("Tidy it", "cw-run prune")])}
 
@@ -268,8 +342,10 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_submit(ctx, a)
         if a.cmd == "result":
             return cmd_result(ctx, a)
-        if a.cmd == "status":
-            return cmd_status(ctx, a.n)
+        if a.cmd == "jobs":
+            return cmd_jobs(ctx, a.n)
+        if a.cmd == "offload":
+            return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":
             return cmd_classes(ctx)
         if a.cmd == "prune":
