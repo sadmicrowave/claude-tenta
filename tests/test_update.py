@@ -116,6 +116,17 @@ class Install(unittest.TestCase):
         self.assertIn("/opt/homecw/lib/cw/oldmodule.py", r.removed)
         self.assertTrue((self.at("/opt/homecw/lib/cw") / "notes.txt").exists())
 
+    def test_subpackages_are_installed_and_stale_files_in_them_are_removed(self):
+        r = self.install()
+        self.assertTrue(self.at("/opt/homecw/lib/cw/client/cli.py").is_file())
+        self.assertIn("/opt/homecw/lib/cw/client/cli.py", r.updated)
+        stale = self.at("/opt/homecw/lib/cw/client/gone.py")
+        stale.write_text("OLD = 1\n")
+        r = self.install(REV2)
+        self.assertFalse(stale.exists())
+        self.assertIn("/opt/homecw/lib/cw/client/gone.py", r.removed)
+        self.assertTrue(self.at("/opt/homecw/lib/cw/client/cli.py").is_file())
+
     def test_an_invalid_sudoers_rule_is_never_installed_but_the_rest_is(self):
         r = self.install(visudo_ok=False)
         self.assertFalse(self.at("/etc/sudoers.d/homecw").exists())
@@ -159,6 +170,26 @@ class Install(unittest.TestCase):
         self.install()
         leftovers = [p for p in self.prefix.rglob("*") if p.name.endswith(".new")]
         self.assertEqual(leftovers, [])
+
+    def test_ipv6_follows_the_configuration(self):
+        sysctls = []
+        off = config.load(None, env={"CW_CONFIG": "", "CW_SERVER_ADMIN_USER": "cwadmin", "CW_IDENTITY_NAME": "homecw", "CW_NETWORK_IPV6": "disabled"})
+        r = update.install_release(self.release, off, REV, self.prefix, visudo=lambda t: (True, ""), chown=lambda p: None, sysctl=lambda *a: sysctls.append(a))
+        f = self.at("/etc/sysctl.d/60-homecw-ipv6.conf")
+        self.assertIn("/etc/sysctl.d/60-homecw-ipv6.conf", r.updated)
+        self.assertIn("net.ipv6.conf.all.disable_ipv6 = 1", f.read_text())
+        self.assertEqual(sysctls, [("--system",)])
+        sysctls.clear()
+        update.install_release(self.release, off, REV, self.prefix, visudo=lambda t: (True, ""), chown=lambda p: None, sysctl=lambda *a: sysctls.append(a))
+        self.assertEqual(sysctls, [])                                                       # unchanged: nothing re-applied
+        r = update.install_release(self.release, self.cfg, REV, self.prefix, visudo=lambda t: (True, ""), chown=lambda p: None, sysctl=lambda *a: sysctls.append(a))
+        self.assertFalse(f.exists())                                                        # turning it back to "enabled" removes the file ...
+        self.assertIn("/etc/sysctl.d/60-homecw-ipv6.conf", r.removed)
+        self.assertEqual(sysctls, [("-w", "net.ipv6.conf.all.disable_ipv6=0", "net.ipv6.conf.default.disable_ipv6=0")])   # ... and puts the setting back
+
+    def test_a_default_install_writes_no_ipv6_file(self):
+        self.install()
+        self.assertFalse(self.at("/etc/sysctl.d/60-homecw-ipv6.conf").exists())
 
     def test_a_file_whose_mode_was_loosened_is_put_right(self):
         self.install()

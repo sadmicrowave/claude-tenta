@@ -54,7 +54,22 @@ class Rules(unittest.TestCase):
         v6 = self.flat(firewall.rules(cfg(), "192.0.2.1", ipv6=True))
         self.assertIn("deny out to fc00::/7", v6)
         self.assertFalse(any("fe80" in x for x in v6))                                       # neighbour discovery needs link-local
-        self.assertFalse(any("fc00" in x for x in self.flat(firewall.rules(cfg(), "192.0.2.1"))))
+        self.assertFalse(any("fc00" in x for x in self.flat(firewall.rules(cfg(), "192.0.2.1", ipv6=False))))
+
+    def test_the_ipv6_choice_comes_from_the_configuration(self):
+        self.assertTrue(firewall.ipv6_enabled(cfg()))                                         # the default keeps IPv6
+        self.assertIn("deny out to fc00::/7", self.flat(firewall.rules(cfg(), "192.0.2.1")))
+        off = cfg(CW_NETWORK_IPV6="disabled")
+        self.assertFalse(firewall.ipv6_enabled(off))
+        self.assertFalse(any("fc00" in x for x in self.flat(firewall.rules(off, "192.0.2.1"))))   # nothing to block when it is off
+        with self.assertRaises(config.ConfigError):
+            cfg(CW_NETWORK_IPV6="maybe")
+
+    def test_ufw_is_told_whether_to_write_ipv6_rules(self):
+        self.assertEqual(firewall.ufw_defaults_text("A=1\nIPV6=yes\nB=2\n", False), "A=1\nIPV6=no\nB=2\n")
+        self.assertEqual(firewall.ufw_defaults_text("IPV6=no\n", True), "IPV6=yes\n")
+        self.assertEqual(firewall.ufw_defaults_text("A=1\n", False), "A=1\nIPV6=no\n")           # added when missing
+        self.assertEqual(firewall.ufw_defaults_text("  IPV6 = yes\n", False), "IPV6=no\n")
 
     def test_every_value_is_validated_so_no_rule_can_carry_extra_arguments(self):
         for r in firewall.rules(cfg(CW_NETWORK_LAN_ALLOW_OUT="192.0.2.0/24"), "192.0.2.1"):
@@ -99,6 +114,19 @@ class Applying(unittest.TestCase):
         self.assertIn("ufw --force enable", text)
         self.assertIn("Nothing was changed", text)
         self.assertIn("gateway: 192.0.2.1", text)
+
+    def test_apply_sets_ufw_ipv6_from_the_configuration(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp()) / "ufw"
+        d.write_text("IPV6=yes\nDEFAULT_INPUT_POLICY=\"DROP\"\n")
+        calls, said, n, err = self.run_apply(c=cfg(CW_NETWORK_SSH_FROM="192.0.2.0/24", CW_NETWORK_IPV6="disabled"), dry_run=False, defaults_path=str(d))
+        self.assertIsNone(err)
+        self.assertEqual(d.read_text(), "IPV6=no\nDEFAULT_INPUT_POLICY=\"DROP\"\n")
+        self.assertIn("IPv6 disabled", "\n".join(said))
+        self.assertFalse(any("fc00" in " ".join(c) for c in calls))
+        calls, said, n, err = self.run_apply(dry_run=False, defaults_path=str(d))
+        self.assertIn("IPV6=yes", d.read_text())
+        self.assertTrue(any("fc00::/7" in " ".join(c) for c in calls))
 
     def test_apply_runs_every_rule_in_order_and_enables_last(self):
         calls, said, n, err = self.run_apply(dry_run=False)

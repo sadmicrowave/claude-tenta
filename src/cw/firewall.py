@@ -9,8 +9,10 @@ would not be allowed in afterwards. IPv6: only unique-local addresses (fc00::/7)
 neighbour discovery needs it and blocking it would cut IPv6 off.
 """
 import ipaddress
+import re
 import shlex
 import subprocess
+from pathlib import Path
 
 PRIVATE_V4 = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
 PRIVATE_V6 = ("fc00::/7",)
@@ -36,8 +38,14 @@ def detect_gateway(run=None):
     return None
 
 
-def rules(cfg, gateway=None, ipv6=False):
-    """The ufw rules, in the order they must be applied: a list of argument lists (each starts after `ufw`)."""
+def ipv6_enabled(cfg):
+    return cfg.network.ipv6 == "enabled"
+
+
+def rules(cfg, gateway=None, ipv6=None):
+    """The ufw rules, in the order they must be applied: a list of argument lists (each starts after `ufw`). `ipv6` defaults to the
+    configuration (network.ipv6); when IPv6 is disabled on the server there is nothing to block, so no IPv6 rule is written."""
+    ipv6 = ipv6_enabled(cfg) if ipv6 is None else ipv6
     n, port = cfg.network, str(cfg.server.ssh_port)
     out = [["default", "deny", "incoming"], ["default", "allow", "outgoing"]]
     for net in n.ssh_from:
@@ -75,12 +83,26 @@ def check_ssh_survives(cfg, client_address):
             "applying the firewall would lock you out. Add your network to network.ssh_from first")
 
 
-def apply(cfg, run=None, gateway=None, ipv6=False, client_address=None, dry_run=True, out=print):
+def ufw_defaults_text(text, ipv6):
+    """The contents of /etc/default/ufw with IPV6 set to yes or no (added if missing). ufw only writes IPv6 rules when this is yes, so with
+    IPv6 disabled on the machine it must be no."""
+    want = f"IPV6={'yes' if ipv6 else 'no'}"
+    lines, found = text.splitlines(), False
+    for i, line in enumerate(lines):
+        if re.match(r"^\s*IPV6\s*=", line):
+            lines[i], found = want, True
+    if not found:
+        lines.append(want)
+    return "\n".join(lines) + "\n"
+
+
+def apply(cfg, run=None, gateway=None, ipv6=None, client_address=None, dry_run=True, out=print, defaults_path="/etc/default/ufw"):
     """Print (dry_run) or apply the rules. Returns the number of rules. Stops at the first failing rule, leaving ufw as far as it got:
     nothing is enabled until every rule succeeded."""
     gateway = gateway or detect_gateway()
+    ipv6 = ipv6_enabled(cfg) if ipv6 is None else ipv6
     rule_list = rules(cfg, gateway, ipv6)
-    out("Firewall rules" + ("" if dry_run else " being applied") + f" (gateway: {gateway or 'not detected'})")
+    out("Firewall rules" + ("" if dry_run else " being applied") + f" (gateway: {gateway or 'not detected'}; IPv6 {'enabled' if ipv6 else 'disabled'})")
     for c in commands(rule_list):
         out("  " + c)
     if dry_run:
@@ -92,6 +114,13 @@ def apply(cfg, run=None, gateway=None, ipv6=False, client_address=None, dry_run=
     if not cfg.network.dns_servers and not gateway:
         raise FirewallError("no DNS server is configured and the gateway could not be detected, so DNS would stop working; set network.dns_servers")
     run = run or (lambda cmd: subprocess.run(cmd, capture_output=True, text=True, timeout=60))
+    try:
+        current = Path(defaults_path).read_text()
+        new = ufw_defaults_text(current, ipv6)
+        if new != current:
+            Path(defaults_path).write_text(new)
+    except OSError:
+        pass                                           # no /etc/default/ufw to adjust (ufw not installed yet): the rules below will say so
     for r in rule_list:
         res = run(["ufw", *r])
         if res.returncode != 0:

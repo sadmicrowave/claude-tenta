@@ -49,6 +49,7 @@ lan_deny_out = true             # stop the server starting connections to other 
 lan_allow_out = []              # LAN networks it may still reach, e.g. ["192.0.2.0/24"]
 dns_servers = []                # DNS servers it may use inside the LAN, e.g. ["192.0.2.1"]
 ssh_from = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]   # networks allowed to SSH in
+ipv6 = "enabled"                # enabled | disabled. disabled turns IPv6 off on the server (a hardening choice: most home networks do not need it)
 
 [access]
 sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask

@@ -119,3 +119,11 @@ def sudo_wrapper(cfg):
             raise RenderError(f"the value for {k} is not allowed in a generated file: {val!r}")
     return ("#!/bin/sh\n# The administrator's entry point: runs the worker's commands as the worker account (read-only ones need no password).\n"
             f"exec sudo -p '[sudo] password for %p to run {cfg.identity.name}: ' -u {cfg.server.worker_user} {wrapper_path(cfg)} \"$@\"\n")
+
+
+def sysctl_text(cfg):
+    """/etc/sysctl.d file that turns IPv6 off, or None when network.ipv6 is 'enabled'. Settled at install time and at boot."""
+    if cfg.network.ipv6 != "disabled":
+        return None
+    return (f"# Installed by the {cfg.identity.name} installer because network.ipv6 = \"disabled\" in the configuration.\n"
+            "net.ipv6.conf.all.disable_ipv6 = 1\nnet.ipv6.conf.default.disable_ipv6 = 1\nnet.ipv6.conf.lo.disable_ipv6 = 1\n")

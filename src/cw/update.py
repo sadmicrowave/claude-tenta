@@ -63,8 +63,9 @@ def desired_files(src, cfg):
     if not (pkg / "__init__.py").is_file() or not (templates / "systemd").is_dir():
         raise InstallError(f"{src} is not a release checkout (expected src/cw and templates/)")
     code, files = cfg.paths.code, {}
-    for f in sorted(pkg.glob("*.py")):
-        files[f"{code}/lib/cw/{f.name}"] = (f.read_bytes(), 0o644)
+    for f in sorted(pkg.rglob("*.py")):
+        if "__pycache__" not in f.parts:
+            files[f"{code}/lib/cw/{f.relative_to(pkg).as_posix()}"] = (f.read_bytes(), 0o644)
     files[render.wrapper_path(cfg)] = (render.cli_wrapper(cfg), 0o755)
     files[f"{render.BIN_DIR}/{cfg.identity.name}"] = (render.sudo_wrapper(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
@@ -88,7 +89,7 @@ def check_sudoers(text):
         os.unlink(name)
 
 
-def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, visudo=check_sudoers, chown=None, out=print):
+def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, visudo=check_sudoers, chown=None, sysctl=None, out=print):
     """Install the release in `src`. `sandbox(unit_text) -> int` (0 = fine) gates changed unit files; `systemctl(*args)` reloads systemd.
     Returns a Report; raises InstallError / render.RenderError before writing anything if the release cannot be rendered."""
     if not REV_RE.match(str(rev)):
@@ -118,18 +119,37 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
         _write_atomic(dest, data_b, mode)
         chown(dest)
         report.updated.append(path)
+    # IPv6 follows the configuration: a sysctl file when it is disabled, none (and the setting put back) when it is enabled
+    sysctl_path, ipv6_text = f"/etc/sysctl.d/60-{cfg.identity.name}-ipv6.conf", render.sysctl_text(cfg)
+    ipv6_dest = _dest(prefix, sysctl_path)
+    if ipv6_text is not None:
+        data = ipv6_text.encode()
+        if not (ipv6_dest.exists() and ipv6_dest.read_bytes() == data):
+            _write_atomic(ipv6_dest, data, 0o644)
+            chown(ipv6_dest)
+            report.updated.append(sysctl_path)
+            if sysctl is not None:
+                sysctl("--system")
+        else:
+            report.unchanged += 1
+    elif ipv6_dest.exists():
+        ipv6_dest.unlink()
+        report.removed.append(sysctl_path)
+        if sysctl is not None:
+            sysctl("-w", "net.ipv6.conf.all.disable_ipv6=0", "net.ipv6.conf.default.disable_ipv6=0")
     # a sudoers file from an earlier release stays only while the configuration still asks for it
     if sudoers is None:
         stale = _dest(prefix, sudoers_path)
         if stale.exists():
             stale.unlink()
             report.removed.append(sudoers_path)
-    libdir = _dest(prefix, f"{cfg.paths.code}/lib/cw")
-    wanted = {Path(p).name for p in files if p.startswith(f"{cfg.paths.code}/lib/cw/")}
-    for old in sorted(libdir.glob("*.py")) if libdir.is_dir() else []:
-        if old.name not in wanted:
+    libdir, libroot = _dest(prefix, f"{cfg.paths.code}/lib/cw"), f"{cfg.paths.code}/lib/cw/"
+    wanted = {p for p in files if p.startswith(libroot)}
+    for old in sorted(libdir.rglob("*.py")) if libdir.is_dir() else []:
+        rel = libroot + old.relative_to(libdir).as_posix()
+        if "__pycache__" not in old.parts and rel not in wanted:
             old.unlink()
-            report.removed.append(f"{cfg.paths.code}/lib/cw/{old.name}")
+            report.removed.append(rel)
     if report.units_changed and sandbox is not None:
         step_unit = files[f"{unit_prefix}{cfg.identity.name}-step.service"][0]
         out("Testing the unit sandbox before keeping it")
@@ -217,6 +237,10 @@ def real_systemctl(*args):
     return subprocess.run(["systemctl", *args], check=True, timeout=60)
 
 
+def real_sysctl(*args):
+    return subprocess.run(["sysctl", *args], check=True, capture_output=True, timeout=60)
+
+
 def main(argv=None):
     """python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit>      (run as root)"""
     from . import config, sandboxtest
@@ -232,7 +256,7 @@ def main(argv=None):
         else:
             print(usage, file=sys.stderr)
             return 2
-        report = install_release(src, cfg, rev, sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl)
+        report = install_release(src, cfg, rev, sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl, sysctl=real_sysctl)
     except (InstallError, render.RenderError, ConfigError) as e:
         print(f"install refused: {e}", file=sys.stderr)
         return 1

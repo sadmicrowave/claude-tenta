@@ -221,6 +221,8 @@ SCHEMA = {
         "lan_allow_out": ([], _list_of(_cidr), "LAN networks the server may still reach (for example a local DNS server)"),
         "dns_servers": ([], _list_of(_ip), "DNS servers the server may use inside the LAN"),
         "ssh_from": (list(RFC1918), _list_of(_cidr), "networks allowed to SSH in"),
+        "ipv6": ("enabled", _enum("enabled", "disabled"),
+                 "disabled turns IPv6 off on the server (less to attack, and nothing to firewall); enabled keeps it and blocks unique-local addresses"),
     },
     "access": {
         "sudo": ("readonly-nopasswd", _enum("readonly-nopasswd", "password"),
@@ -400,7 +402,8 @@ class Config:
             "state": f"{p.state_root}/state", "queue_clone": f"{p.state_root}/queue", "results_clone": f"{p.state_root}/results",
             "registry": f"{p.config}/registry.yaml", "secrets": f"{p.config}/secrets.env", "installed_rev": f"{p.config}/installed-rev",
             "allowed_signers": f"{p.config}/allowed_signers", "config_file": f"{p.config}/cw.toml",
-            "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}",
+            "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}", "source_clone": f"{p.state_root}-src",
+            "client_queue": str(Path(p.client_home).expanduser() / "queue"), "client_results": str(Path(p.client_home).expanduser() / "results"),
         }
         return table[what]
 
