@@ -1,6 +1,8 @@
 """Small helpers shared by every module: UTC time in one format, and plain-words durations."""
 from datetime import datetime, timezone
 
+SAFE_PATH = "/usr/local/bin:/usr/bin:/bin"       # the only program search path a job gets (a throwaway tools folder may be put in front)
+
 
 def now():
     return datetime.now(timezone.utc)

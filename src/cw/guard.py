@@ -27,6 +27,7 @@ GUARD_RULES = {
     "env_dump": re.compile(r"(?m)(?:^[A-Z][A-Z0-9_]{2,}=.*\n){5,}"),
     "mdns_name": re.compile(r"(?i)\b[a-z0-9][a-z0-9-]*\.(?:local|lan|home|internal)\b"),
 }
+SECRET_RE = re.compile(r"(sk-ant-[\w-]+|gh[pousr]_\w+|github_pat_\w+)")
 BLOB_RE = re.compile(r"[A-Za-z0-9+/_-]{80,}={0,2}")
 GUARD_NAMES = set(GUARD_RULES) | {"hostname", "encoded_blob", "canary"}
 
@@ -50,6 +51,12 @@ RULE_WHY = {
 def why_text(rules):
     """'Withheld because it contained ...' for a set of rule names; unknown names are shown as they are."""
     return "Withheld because " + "; and ".join(RULE_WHY.get(r, f"it matched rule {r}") for r in sorted(rules)) + "."
+
+
+def scrub(text, cap):
+    """Last-line hygiene on published text: redact anything shaped like an API key or token, then cap the length."""
+    text = SECRET_RE.sub("[redacted]", text or "")
+    return text[:cap] + ("\n[truncated]" if len(text) > cap else "")
 
 
 def _entropy(text):
