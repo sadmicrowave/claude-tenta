@@ -125,6 +125,13 @@ class GitIO:
         src = self.job_listing().get(jid)
         return self.git_bytes(self.queue, "show", f"{src[0]}:{src[1]}") if src else None
 
+    def published_result(self, jid):
+        """The result file this worker last published for a job (from its own results clone), or None."""
+        try:
+            return json.loads((self.results / "results" / f"{jid}.json").read_text())
+        except (OSError, ValueError):
+            return None
+
     # ---- publishing ----
     def publish(self, res):
         """Write results/<id>.json, commit, push. Returns True if the push succeeded (False: retry later)."""

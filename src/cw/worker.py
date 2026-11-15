@@ -370,16 +370,24 @@ class Worker:
             self._p("queued", f"{jid}.json").unlink(missing_ok=True)
 
     def cancel(self, jid):
-        """Cancel a job that has not started (waiting for approval or queued). Returns True if it published a 'cancelled' result."""
-        if self._p("running", jid).exists() or self._p("done", jid).exists():
-            return False
-        res = {"id": jid, "class": None, "status": "cancelled", "started": None, "finished": iso(self.clock()), "exit_code": None, "output": "",
-               "note": "cancelled by the administrator before it ran"}
-        self._p("queued", f"{jid}.json").unlink(missing_ok=True)
-        self._p("approved", jid).unlink(missing_ok=True)
+        """Cancel a job that has not started: one waiting in the queue, or one still waiting for approval. Returns (ok, why)."""
+        if not jobs.ID_RE.match(jid or ""):
+            return False, "that is not a job id"
+        snap = self._p("queued", f"{jid}.json")
+        prior = self.io.published_result(jid) or {}
+        waiting_for_approval = (prior.get("status") == "awaiting_approval" and not snap.exists()
+                                and not self._p("running", jid).exists() and not self._p("done", jid).exists())
+        if self._p("running", jid).exists() or not (snap.exists() or waiting_for_approval):
+            return False, "it is already running, finished, or unknown"
+        snap.unlink(missing_ok=True)
+        self._p("approved", jid).unlink(missing_ok=True)         # an approval of a cancelled job must not survive
+        res = {"id": jid, "class": prior.get("class"), "status": "cancelled", "started": None, "finished": iso(self.clock()), "exit_code": None,
+               "output": "", "note": "cancelled before it was approved" if waiting_for_approval else f"cancelled on {self.s.product} before it started"}
         self._p("finished", f"{jid}.json").write_text(json.dumps(res))
-        self.publish_pending()
-        return True
+        if self.io.publish(res):
+            self._p("done", jid).touch()
+            self._p("finished", f"{jid}.json").unlink(missing_ok=True)
+        return True, ""
 
     def publish_pending(self):
         for f in sorted(self._p("finished").glob("*.json")):
