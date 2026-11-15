@@ -130,8 +130,9 @@ max_files_kb  = 2000
 
 ## Hardening modules
 
-Each module has a `module.toml` (id, title, plain-words explanation, risk of lockout, default on/off, supported OS), and three scripts that
-must be idempotent: `check` (exit 0 = already satisfied, prints why not), `apply`, `revert`. The wizard runs `check` for every module,
+Each module is a small Python class in `src/cw/setup/hardening.py` (id, title, plain-words explanation, risk of lockout), with `check` (read-only: is it already true, and if not why),
+`preflight` (a reason not to apply it now, such as no SSH key installed), `plan` (the exact steps, as data) and `revert`. This replaced the earlier idea of
+per-module scripts: steps as data can be shown before they run, run against a fake machine in tests, and never go through a shell. The wizard runs `check` for every module,
 explains the ones that fail, asks one question each, shows the exact commands, applies, re-runs `check`, and records the result in
 `/etc/<name>/hardening.json`. `cw-admin audit` re-runs all checks any time and reports drift.
 

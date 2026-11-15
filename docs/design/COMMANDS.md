@@ -115,4 +115,4 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 | `cw-admin` Worker / Jobs / Security (status, check, review, approve, cancel, kill, quarantine, unlock, output) | built and tested |
 | `cw-admin` Registry (adopt, retire, proposals) and Release (diff, apply with health check and rollback) | built and tested |
 | root-run `<name>-update` entry point that `cw-admin apply` calls over `sudo` | to build (with the wizard's server half) |
-| `cw-setup` (wizard) | to build |
+| `cw-setup client / server / audit` (questions, config writer, hardening modules, deploy keys, core registry pack) | built and tested; the clean-VM end-to-end run and the root-run `<name>-update` entry point remain |
