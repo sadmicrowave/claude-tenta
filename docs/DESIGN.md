@@ -14,7 +14,7 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
 The wizard creates the two private repos under the user's account (with `gh` if present, otherwise it prints exact steps), adds a read-only
 deploy key to the queue repo and a write deploy key to the results repo, and writes the names into `cw.toml`. The software is installed
 from this public repo at a pinned, signed release; the private repos hold **data and policy only, never code**. (That also removes the need
-for the worker to trust a code path through a repo the owner pushes jobs to.)
+for the worker to trust a code path through a repo the user pushes jobs to.)
 
 ## Configuration
 
@@ -171,10 +171,10 @@ Whichever is chosen is recorded in `cw.toml` and verified by `cw-admin audit`. N
 
 1. Config loader and schema; a `names` module so no module hard-codes a name or path. Port the dispatcher first, then shell scripts, then client tools.
 2. Fix the H and M review items in the ported code (S1-S10) behind tests.
-3. Pack loader, policy merge, hardening module runner; migrate `registry.yaml` into `packs/core` and the owner's own classes into a private pack.
+3. Pack loader, policy merge, hardening module runner; migrate `registry.yaml` into `packs/core` and personal classes into a user-private pack.
 4. Wizard, server half then client half; clean-VM end-to-end test in CI.
 5. Docs generated from schema and modules; signed releases; `cw-admin audit`.
-6. Migrate the owner's live install to the packaged build as the first real user.
+6. Migrate the original live install to the packaged build as the first real user.
 
 ## Open questions
 
