@@ -50,6 +50,15 @@ lan_allow_out = []              # LAN networks it may still reach, e.g. ["192.0.
 dns_servers = []                # DNS servers it may use inside the LAN, e.g. ["192.0.2.1"]
 ssh_from = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]   # networks allowed to SSH in
 
+[access]
+sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask
+
+[schedule]
+fetch_s = 30                    # seconds between checks of the queue repo for new jobs
+step_s = 10                     # seconds between passes that start queued jobs
+canary_s = 30                   # seconds between checks of the decoy credential files
+update_min = 15                 # minutes between checks for a new signed release (updates.mode = "signed-tags")
+
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
 

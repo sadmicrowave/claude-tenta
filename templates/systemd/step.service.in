@@ -1,0 +1,14 @@
+[Unit]
+Description={{name}} step pass (start queued jobs while there is spare capacity)
+
+[Service]
+User={{worker_user}}
+Type=oneshot
+# a pass should take seconds; never let one hang for hours
+TimeoutStartSec=10min
+# jobs are started detached; do not kill them when this short pass exits
+KillMode=process
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+{{sandbox}}
+ExecStart=/usr/bin/python3 -m cw.cli step

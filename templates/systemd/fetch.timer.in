@@ -1,0 +1,9 @@
+[Unit]
+Description=Check the {{name}} queue repo for new jobs
+
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec={{fetch_s}}
+
+[Install]
+WantedBy=timers.target

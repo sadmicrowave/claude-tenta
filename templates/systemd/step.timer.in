@@ -1,0 +1,9 @@
+[Unit]
+Description=Start queued {{name}} jobs as capacity frees up
+
+[Timer]
+OnBootSec=70
+OnUnitInactiveSec={{step_s}}
+
+[Install]
+WantedBy=timers.target

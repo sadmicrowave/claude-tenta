@@ -1,0 +1,5 @@
+# Installed by the update tool and checked with visudo first. {{admin_user}} may run these READ-ONLY commands as {{worker_user}} without a
+# password. Everything else (approve, cancel, kill, unlock, installing an update) still asks for the password. Each line names the exact
+# command and subcommand; none of them can change the worker's state.
+Cmnd_Alias {{alias}} = {{commands}}
+{{admin_user}} ALL=({{worker_user}}) NOPASSWD: {{alias}}

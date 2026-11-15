@@ -222,6 +222,16 @@ SCHEMA = {
         "dns_servers": ([], _list_of(_ip), "DNS servers the server may use inside the LAN"),
         "ssh_from": (list(RFC1918), _list_of(_cidr), "networks allowed to SSH in"),
     },
+    "access": {
+        "sudo": ("readonly-nopasswd", _enum("readonly-nopasswd", "password"),
+                 "readonly-nopasswd: the admin may run the read-only commands (status, show, ...) without a password; password: always ask"),
+    },
+    "schedule": {
+        "fetch_s": (30, _int(10, 3600), "seconds between checks of the queue repo for new jobs"),
+        "step_s": (10, _int(5, 600), "seconds between passes that start queued jobs"),
+        "canary_s": (30, _int(10, 3600), "seconds between checks of the decoy credential files"),
+        "update_min": (15, _int(5, 1440), "minutes between checks for a new signed release (when updates.mode is signed-tags)"),
+    },
     "updates": {
         "mode": ("manual", _enum("manual", "signed-tags"), "manual = you apply; signed-tags = install only tags signed by your key"),
     },

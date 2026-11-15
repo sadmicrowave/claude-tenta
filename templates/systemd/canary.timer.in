@@ -1,0 +1,9 @@
+[Unit]
+Description=Check {{name}}'s decoy credential files for reads
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec={{canary_s}}
+
+[Install]
+WantedBy=timers.target

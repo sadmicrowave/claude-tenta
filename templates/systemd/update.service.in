@@ -1,0 +1,10 @@
+[Unit]
+Description={{name}} self-update (installs only release tags signed by a trusted key)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+ExecStart=/usr/bin/python3 -m cw.update --verified

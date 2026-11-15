@@ -1,0 +1,16 @@
+[Unit]
+Description={{name}} fetch pass (git pull, validate and queue new jobs, then start what fits)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{worker_user}}
+Type=oneshot
+# a pass should take seconds; never let one hang for hours
+TimeoutStartSec=10min
+# jobs are started detached; do not kill them when this short pass exits
+KillMode=process
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+{{sandbox}}
+ExecStart=/usr/bin/python3 -m cw.cli fetch

@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for a new signed {{name}} release
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec={{update_min}}min
+
+[Install]
+WantedBy=timers.target
