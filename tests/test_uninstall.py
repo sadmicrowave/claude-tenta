@@ -217,6 +217,18 @@ class FromYourComputer(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("The removal stopped", err)
 
+    def test_a_connection_failure_is_explained_not_a_traceback(self):
+        from cw.client.repo import ClientError
+
+        class Down(FakeSsh):
+            def capture(self, remote):
+                raise ClientError("Could not connect to worker.example", "Permission denied (publickey)", ["Check that SSH key login works from this computer."], example="ssh admin" + "@" + "worker.example true")
+        code, err = self.run_cli(ssh=Down())
+        self.assertEqual(code, 2)
+        self.assertIn("Could not connect to worker.example", err)
+        self.assertIn("Permission denied (publickey)", err)
+        self.assertNotIn("Traceback", err)
+
     def test_help_lists_uninstall(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

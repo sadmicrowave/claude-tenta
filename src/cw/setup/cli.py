@@ -16,6 +16,7 @@ import tomllib
 from pathlib import Path
 
 from .. import config
+from ..client.repo import ClientError
 from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
 from . import audit as audit_mod
@@ -185,6 +186,9 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     except SetupError as e:
         emit(e.title, e.why, tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
         return 1
+    except ClientError as e:                    # a failed SSH connection or git step on this side: said in plain words, never a traceback
+        emit(e.title, e.why, tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
+        return 2
     except config.ConfigError as e:
         emit("The configuration has problems", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
         return 1

@@ -1,6 +1,7 @@
 """cw-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
 import io
 import json
+import os
 import subprocess
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -56,6 +57,15 @@ class SshTests(unittest.TestCase):
         self.assertEqual(a[-1], "true")
         self.assertNotIn("-t", a)
         self.assertIn("-t", Ssh("h", control_dir="/tmp/cw-test-ctl").argv("x", tty=True))
+
+    def test_the_control_socket_path_fits_a_unix_socket_even_with_macos_style_temp_folders(self):
+        import tempfile
+        long_tmp = "/var/folders/k7/nb4y713s0dx6nd0d_zvfcqt40000gp/T"
+        with unittest.mock.patch.object(tempfile, "gettempdir", return_value=long_tmp), unittest.mock.patch.dict(os.environ, {"TMPDIR": long_tmp}):
+            s = Ssh("h", "u", control_dir=None)
+            control = [a for a in s.argv("x") if a.startswith("ControlPath=")][0].split("=", 1)[1]
+        # %C is 40 characters, and ssh appends a dot and 16 more while it connects
+        self.assertLessEqual(len(control.replace("%C", "x" * 40)) + 17, 103, control)
 
     def test_an_address_that_looks_like_an_option_is_refused(self):
         with self.assertRaises(ClientError):

@@ -7,12 +7,21 @@ shared for at most a minute so that one command that makes several calls asks fo
 import os
 import shlex
 import subprocess
-import tempfile
 
 from ..client.repo import ClientError
 
 CONNECT_TIMEOUT_S = 10
 SHARE_FOR_S = 60
+# A unix socket path may not exceed 103 bytes, and ssh appends 17 while connecting; %C expands to a 40-character hash. macOS's own temporary folder is far
+# too long for that, so the control sockets live directly under /tmp.
+SOCKET_BUDGET = 103 - 17 - 1 - 40
+
+
+def default_control_dir():
+    d = f"/tmp/cw-ssh-{os.getuid()}"
+    if len(d) > SOCKET_BUDGET:
+        raise ValueError(f"the SSH control folder {d} is too long for a unix socket")
+    return d
 
 
 class Ssh:
@@ -20,7 +29,7 @@ class Ssh:
         if not host or host.startswith("-"):
             raise ClientError("No server address is configured", "server.host is empty or not an address.", example="cw-setup client")
         self.host, self.user, self.port, self._run, self._popen = host, user, int(port), run, popen
-        self.control_dir = control_dir or os.path.join(tempfile.gettempdir(), f"cw-ssh-{os.getuid()}")
+        self.control_dir = control_dir or default_control_dir()
 
     @property
     def target(self):
