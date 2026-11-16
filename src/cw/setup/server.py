@@ -5,6 +5,7 @@ machine first and does only what is missing. The order is fixed so that nothing 
 then the repository keys, then the hardening modules, then a check.
 """
 import json
+import re
 import shlex
 import subprocess
 import time
@@ -23,6 +24,7 @@ class SetupError(Exception):
 
 EXIT_WAITING = 10          # the server half stopped because the repositories cannot be reached yet (the deploy keys are not added); run it again to continue
 CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"          # Anthropic's documented installer for Linux; it needs no root
+CLAUDE_LEGACY = "2.1.112"          # the last release that is plain JavaScript (runs on Node, on processors the native program cannot run on); later ones are native only
 CLAUDE_QUESTIONS = {
     "account": {"key": "claude.token", "title": "Paste your Claude token",
                 "why": "On your own computer, open a terminal and run `claude setup-token`. Sign in in the browser it opens, then copy the long token it prints and paste it here. It lasts about a year.",
@@ -275,16 +277,16 @@ class ServerSetup:
             self.note("Claude sign-in", "skipped", "not used on this worker; every other job runs without it")
             return
         w, home = cfg.server.worker_user, cfg.paths.worker_home
-        if not self.facts.claude_capable:
-            self.note("Claude tool", "skipped", "this processor is too old for Claude Code; every other job runs without it")
-            return
         if self.host.exists(f"{home}/.local/bin/claude"):
             self.note("Claude tool", "ok", "already installed for the worker")
         elif self.approve_claude_install(w):
             if not self.host.run(["curl", "--version"]).ok and not self.dry_run:
                 self.run(["apt-get", "install", "-y", "curl"], step="install curl")
             try:
-                self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
+                if self.facts.claude_native:
+                    self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
+                else:
+                    self.install_claude_legacy(w, home)
                 if not self.dry_run and not self.host.run(["runuser", "-u", w, "--", f"{home}/.local/bin/claude", "--version"]).ok:
                     raise SetupError("The Claude tool does not run on this machine", "It installed but `claude --version` failed.")
             except SetupError as e:                      # a Claude tool that cannot be installed must never stop the rest of the worker from starting
@@ -295,6 +297,20 @@ class ServerSetup:
         else:
             self.note("Claude tool", "skipped", "you chose not to install it; Claude jobs will not run until it is installed")
         self.claude_secret(auth)
+
+    def legacy_command(self, home):
+        return ["env", f"HOME={home}", "sh", "-c",
+                f"npm install --no-audit --no-fund --prefix {home}/.local @anthropic-ai/claude-code@{CLAUDE_LEGACY} && mkdir -p {home}/.local/bin "
+                f"&& ln -sf ../node_modules/.bin/claude {home}/.local/bin/claude"]
+
+    def install_claude_legacy(self, w, home):
+        """The older release, from npm, into the worker's own home. Needs Node 18 or newer, which is installed if it is missing."""
+        node = self.host.run(["node", "--version"])
+        found = re.match(r"v(\d+)", node.out.strip()) if node.ok else None
+        major = int(found.group(1)) if found else 0
+        if not self.dry_run and major < 18:
+            self.run(["apt-get", "install", "-y", "nodejs", "npm"], step="install Node for the Claude tool")
+        self.run(self.legacy_command(home), step="install Claude Code", as_user=w)
 
     def forget_claude_secrets(self):
         """Choosing none after having chosen a sign-in removes what was stored, so no old credential is left on the worker."""
@@ -309,10 +325,16 @@ class ServerSetup:
         self.note("Claude sign-in", "removed", "the stored token or key was deleted from the worker")
 
     def approve_claude_install(self, worker):
-        info = {"id": "claude-install", "label": "Install", "tag": "downloads from claude.ai", "title": "Install Claude Code for the worker",
-                "why": "Jobs that use Claude run the `claude` command-line tool as the worker account. Anthropic's own installer puts it in the worker's home folder; it needs no root.",
-                "risk": "This downloads and runs Anthropic's installer script from claude.ai, as the worker account (not root). The tool updates itself afterwards. Skip it to install the tool yourself.",
-                "now": "not installed", "steps": [f"runuser -u {worker} -- {CLAUDE_INSTALL}"], "lockout": False}
+        if self.facts.claude_native:
+            info = {"id": "claude-install", "label": "Install", "tag": "downloads from claude.ai", "title": "Install Claude Code for the worker",
+                    "why": "Jobs that use Claude run the `claude` command-line tool as the worker account. Anthropic's own installer puts it in the worker's home folder; it needs no root.",
+                    "risk": "This downloads and runs Anthropic's installer script from claude.ai, as the worker account (not root). The tool updates itself afterwards. Skip it to install the tool yourself.",
+                    "now": "not installed", "steps": [f"runuser -u {worker} -- {CLAUDE_INSTALL}"], "lockout": False}
+        else:
+            info = {"id": "claude-install", "label": "Install", "tag": "older release", "title": f"Install Claude Code {CLAUDE_LEGACY} for the worker",
+                    "why": "This processor is too old for the current Claude Code, which is a native program that dies here with \"Illegal instruction\". The last plain-JavaScript release runs on Node instead and was tried on this kind of machine.",
+                    "risk": f"This installs the pinned release {CLAUDE_LEGACY} from npm, as the worker account (not root), and installs Node if it is missing. It does not update itself, so it misses later fixes, and Anthropic may one day stop accepting an old release. Skip it to leave Claude jobs off.",
+                    "now": "not installed", "steps": [f"runuser -u {worker} -- {shlex.join(self.legacy_command(self.cfg.paths.worker_home))}"], "lockout": False}
         if self.dry_run:
             return True
         if self.ui is not None:

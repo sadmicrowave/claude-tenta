@@ -134,18 +134,18 @@ class DetectTests(unittest.TestCase):
         self.assertIsNone(f.os_problem())
         self.assertEqual(f.suggestions()["hardware.profile"], "small-server")
 
-    def test_a_processor_too_old_for_claude_code_is_reported_and_suggests_none(self):
+    def test_a_processor_too_old_for_the_native_claude_code_is_reported(self):
         """The real server was a 2010 Core 2 Duo: Claude Code's installer died there with "Illegal instruction"."""
         h = FakeHost()
         h.put("/proc/cpuinfo", "processor : 0\nmodel name : Intel(R) Core(TM)2 Duo\nflags : fpu sse sse2 ssse3 sse4_1\n")
         f = detect.detect(h)
-        self.assertFalse(f.claude_capable)
-        self.assertEqual(f.suggestions()["claude.auth"], "none")
-        self.assertIn(("Claude Code", "cannot run here: this processor is too old for it"), f.summary())
+        self.assertFalse(f.claude_native)
+        self.assertNotIn("claude.auth", f.suggestions())                  # still a normal choice: an older release runs there
+        self.assertIn(("Claude Code", "needs an older release here: this processor is too old for the current one"), f.summary())
         h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 sse4_1 sse4_2 avx avx2\n")
-        self.assertTrue(detect.detect(h).claude_capable)
+        self.assertTrue(detect.detect(h).claude_native)
         h.put("/proc/cpuinfo", "processor : 0\nFeatures : fp asimd\n")                      # not x86: nothing to check
-        self.assertTrue(detect.detect(h).claude_capable)
+        self.assertTrue(detect.detect(h).claude_native)
 
     def test_old_or_unsupported_systems_are_refused_in_plain_words(self):
         self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="20.04", systemd=True).os_problem())
@@ -621,7 +621,7 @@ class ClaudeSignIn(ServerTests):
 
     class Screen:
         def __init__(self, token="", install=True):
-            self.token, self.install, self.cards, self.asked = token, install, [], []
+            self.token, self.install, self.cards, self.asked, self.infos = token, install, [], [], []
 
         total_hint = 0
 
@@ -639,6 +639,7 @@ class ClaudeSignIn(ServerTests):
 
         def protection(self, info):
             self.cards.append(info["id"])
+            self.infos.append(info)
             return self.install if info["id"] == "claude-install" else True
 
         def ask_secret(self, q):
@@ -712,11 +713,25 @@ class ClaudeSignIn(ServerTests):
         self.assertEqual(screen.asked, [])                                  # no point asking for a token for a tool that cannot run
         self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-fetch.timer"))        # the worker still started
 
-    def test_a_processor_too_old_for_claude_code_skips_the_tool_without_trying(self):
+    def test_a_processor_too_old_for_the_native_program_gets_the_last_javascript_release(self):
         self.h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 ssse3 sse4_1\n")
+        self.h.replies["node --version"] = Result(0, "v22.22.1\n")
         s, screen = self.run_with("account", token="sk-ant-oat01-" + "v" * 40)
-        self.assertFalse(any("claude.ai/install.sh" in " ".join(c) for c in self.h.calls))
-        self.assertEqual({step: status for step, status, _ in s.report}["Claude tool"], "skipped")
+        calls = [" ".join(c) for c in self.h.calls]
+        self.assertFalse(any("claude.ai/install.sh" in c for c in calls))                   # the native installer is never run there
+        npm = [c for c in calls if "npm install" in c]
+        self.assertEqual(len(npm), 1)
+        self.assertIn("@anthropic-ai/claude-code@" + server.CLAUDE_LEGACY, npm[0])
+        self.assertTrue(npm[0].startswith("runuser -u cwworker --"))                         # as the worker account, never root
+        self.assertEqual({step: status for step, status, _ in s.report}["Claude tool"], "installed")
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())                            # and the sign-in is stored as usual
+
+    def test_the_older_release_is_described_honestly_on_its_card(self):
+        self.h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2\n")
+        s, screen = self.run_with("account", token="")
+        card = next(i for i in screen.infos if i["id"] == "claude-install")
+        self.assertIn(server.CLAUDE_LEGACY, card["title"])
+        self.assertIn("does not update itself", card["risk"])
 
     def test_a_preview_asks_for_nothing_and_changes_nothing(self):
         screen = self.Screen("sk-ant-oat01-" + "q" * 40)

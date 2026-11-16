@@ -204,13 +204,13 @@ class FirstJobRetries(unittest.TestCase):
 
 
 class OldProcessor(InstallBase):
-    def test_the_claude_question_is_not_asked_where_claude_code_cannot_run(self):
+    def test_the_claude_question_is_still_asked_and_the_summary_says_an_older_release_is_used(self):
         self.ssh.files["/proc/cpuinfo"] = "processor : 0\nflags : fpu sse sse2 sse4_1\n"
-        inst = self.installer()
+        inst = self.installer(given={"claude.auth": "account"})
         inst.run_all()
         answers = dict(self.ssh.sent)[f"cat > {REMOTE}/answers.toml"].decode()
-        self.assertIn('auth = "none"', answers)
-        self.assertTrue(any("cannot run here" in line for line in self.said))
+        self.assertIn('auth = "account"', answers)
+        self.assertTrue(any("needs an older release here" in line for line in self.said))
 
 
 class Rerun(InstallBase):
