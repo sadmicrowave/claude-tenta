@@ -10,6 +10,7 @@ Every name, address and folder comes from the configuration (cw.toml); nothing h
 this program: sudo asks you itself, on your own terminal.
 """
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -218,6 +219,33 @@ def install_registry_change(ctx, a, name=None, present=True):
     return apply(ctx, argparse.Namespace(rev=None, yes=True, force=True, no_verify=False, full=False, quiet_done=True))
 
 
+def send_order(ctx, action, job=None, hard=False, lock=None):
+    """Sign an order to the worker (unlock, cancel or kill) here and publish it. The worker carries it out within about a minute, at most once, and only if the
+    signature checks; nothing about it needs a login."""
+    record = approvals.make_control_record(action, job=job, hard=hard, lock=lock)
+    try:
+        signature = approvals.sign(record, approval_key(ctx), namespace=approvals.CONTROL_NAMESPACE)
+    except ValueError as e:
+        raise ClientError("Could not sign the order", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one cw-setup made? Run: cw-setup install"])
+    nonce = json.loads(record)["nonce"]
+    ctx.repos.push_files(approvals.BRANCH, {approvals.control_path(nonce): approvals.bundle(record, signature)}, f"control: {action}" + (f" {job}" if job else ""))
+
+
+def wait_until(ctx, done, what, timeout=180, step=5):
+    """In a terminal, poll the published results until done() is true. Returns True when it was."""
+    if not ctx.is_tty():
+        return False
+    emit(f"Waiting for the worker to {what}", "It picks orders up within about a minute. Ctrl-C stops waiting, not the order.", tag="WAITING", color=CYAN)
+    waited = 0
+    while waited <= timeout:
+        ctx.repos.pull_results()
+        if done():
+            return True
+        ctx.sleep(step)
+        waited += step
+    return False
+
+
 def approve_all(ctx, a):
     ready, skipped = jobs.classify(jobs.waiting(ctx.repos), ctx.viewed.load(), lambda j: jobs.job_bytes(ctx.repos, j))
     if not ready and not skipped:
@@ -289,11 +317,25 @@ def follow(ctx, a, rc, jid):
 
 
 def cmd_cancel(ctx, a):
-    return ctx.remote("cancel", jobs.require_id(a.id))
+    jid = jobs.require_id(a.id)
+    if not use_signed(ctx, a):
+        return ctx.remote("cancel", jid)
+    send_order(ctx, "cancel", job=jid)
+    stopped = wait_until(ctx, lambda: (ctx.repos.read_result(jid) or {}).get("status") == "cancelled", "cancel it")
+    emit("Cancelled" if stopped else "Order signed and published", f"{jid}: signed here, no login to {ctx.name} was needed." + ("" if stopped else " It is cancelled on the worker's next pass, if it has not started."),
+         tag="DONE" if stopped else "NEXT", color=GREEN if stopped else CYAN)
+    return 0
 
 
 def cmd_kill(ctx, a):
-    return ctx.remote("kill", jobs.require_id(a.id), *(["--hard"] if a.hard else []))
+    jid = jobs.require_id(a.id)
+    if not use_signed(ctx, a):
+        return ctx.remote("kill", jid, *(["--hard"] if a.hard else []))
+    send_order(ctx, "kill", job=jid, hard=a.hard)
+    stopped = wait_until(ctx, lambda: (ctx.repos.read_result(jid) or {}).get("status") in ("killed", "error", "limit", "ok"), "stop it")
+    emit("Stopped" if stopped else "Order signed and published", f"{jid}: signed here, no login to {ctx.name} was needed." + ("" if stopped else " The worker stops it on its next pass, if it is still running."),
+         tag="DONE" if stopped else "NEXT", color=GREEN if stopped else CYAN)
+    return 0
 
 
 # ---- security ----
@@ -306,7 +348,21 @@ def cmd_output(ctx, a):
 
 
 def cmd_unlock(ctx, a):
-    return ctx.remote("unlock")
+    if not use_signed(ctx, a):
+        return ctx.remote("unlock")
+    banner = ctx.repos.pull_results()
+    if not banner:
+        emit("Not locked", f"{ctx.name} reports no lockdown.", tag="OK", color=GREEN)
+        return 0
+    emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), ("Since", banner.get("since")), tag="LOCKED", color=RED,
+         run_label="Look at the details first (read-only, no password)", run="cw-admin quarantine")
+    if not ctx.confirm("Unlock it? Only do this once you have looked at what happened.", getattr(a, "yes", False)):
+        stop("Not unlocked", "You answered no. It stays locked.")
+    send_order(ctx, "unlock", lock=banner.get("since"))
+    cleared = wait_until(ctx, lambda: not ctx.repos.pull_results(), "unlock")
+    emit("Unlocked" if cleared else "Unlock signed and published", f"Signed here; no login to {ctx.name} was needed." + ("" if cleared else " It unlocks on its next pass."),
+         tag="DONE" if cleared else "NEXT", color=GREEN if cleared else CYAN)
+    return 0
 
 
 # ---- registry and proposals ----
@@ -599,12 +655,16 @@ def build_parser():
     yes(s)
     s = sp.add_parser("cancel", add_help=False)
     s.add_argument("id", help="the job id")
+    s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
     s = sp.add_parser("kill", add_help=False)
     s.add_argument("id", help="the job id")
     s.add_argument("--hard", action="store_true", help="also kill the whole process tree")
+    s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
     s = sp.add_parser("quarantine", add_help=False)
     s.add_argument("id", nargs="?", help="a job id, to read its withheld result in full")
-    sp.add_parser("unlock", add_help=False)
+    s = sp.add_parser("unlock", add_help=False)
+    s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
+    yes(s)
     s = sp.add_parser("output", add_help=False)
     s.add_argument("id", nargs="?", help="a job id, to read the full output of its failed command")
     s = sp.add_parser("adopt", add_help=False)

@@ -63,7 +63,7 @@ class Signing(unittest.TestCase):
 
     def test_the_key_is_good_for_approvals_only_not_for_other_signatures(self):
         """A key listed for approvals must not be accepted for anything else, and the reverse: the file names the namespace."""
-        self.assertIn(f'namespaces="{approvals.NAMESPACE},{approvals.REGISTRY_NAMESPACE}"', self.signers.read_text())
+        self.assertIn(f'namespaces="{approvals.NAMESPACE},{approvals.REGISTRY_NAMESPACE},{approvals.CONTROL_NAMESPACE}"', self.signers.read_text())
         record = "x"
         sig = subprocess.run(["ssh-keygen", "-Y", "sign", "-q", "-f", str(self.d / "key"), "-n", "git"], input=record, capture_output=True, text=True).stdout
         self.assertFalse(approvals.verify(record, sig, self.signers))
@@ -75,6 +75,42 @@ class Signing(unittest.TestCase):
     def test_garbage_is_refused_not_a_crash(self):
         for text in ("", "not json", "{}", '{"record": "x", "signature": "y"}', json.dumps({"record": "{}", "signature": "s"})):
             self.assertFalse(approvals.check(text, "job-0001", DIGEST, self.signers, now=2000)[0], text)
+
+
+class Orders(Signing):
+    def order(self, action="cancel", key="key", now=1000, ns=approvals.CONTROL_NAMESPACE, **kw):
+        record = approvals.make_control_record(action, now=now, nonce="ab12cd34", **kw)
+        return approvals.bundle(record, approvals.sign(record, self.d / key, namespace=ns))
+
+    def test_a_signed_order_is_accepted_once_and_names_what_it_orders(self):
+        ok, why, rec = approvals.check_control(self.order("kill", job="job-0001", hard=True), self.signers, now=1100)
+        self.assertEqual((ok, rec["action"], rec["job"], rec["hard"]), (True, "kill", "job-0001", True))
+
+    def test_an_order_expires_and_cannot_be_future_dated(self):
+        self.assertIn("expired", approvals.check_control(self.order("unlock", lock="t"), self.signers, now=1000 + approvals.CONTROL_TTL_S + 1)[1])
+        self.assertIn("future", approvals.check_control(self.order("unlock", now=10_000_000), self.signers, now=1000)[1])
+
+    def test_a_signature_for_approving_a_job_is_not_an_order(self):
+        text = self.order("cancel", job="job-0001", ns=approvals.NAMESPACE)
+        ok, why, _ = approvals.check_control(text, self.signers, now=1100)
+        self.assertEqual((ok, "signature" in why), (False, True))
+
+    def test_another_key_and_a_tampered_order_are_refused(self):
+        keygen(self.d / "stranger")
+        self.assertFalse(approvals.check_control(self.order("cancel", key="stranger", job="job-0001"), self.signers, now=1100)[0])
+        doc = json.loads(self.order("cancel", job="job-0001"))
+        doc["record"] = doc["record"].replace("job-0001", "job-0009")
+        self.assertFalse(approvals.check_control(json.dumps(doc), self.signers, now=1100)[0])
+
+    def test_unknown_actions_and_a_cancel_without_a_job_are_refused(self):
+        rec = approvals.make_control_record("cancel", job="job-1", now=1000)
+        bad = json.loads(rec)
+        bad["action"] = "rm-rf"
+        sig = approvals.sign(json.dumps(bad), self.d / "key", namespace=approvals.CONTROL_NAMESPACE)
+        self.assertFalse(approvals.check_control(approvals.bundle(json.dumps(bad), sig), self.signers, now=1100)[0])
+        nojob = approvals.make_control_record("cancel", now=1000)
+        sig = approvals.sign(nojob, self.d / "key", namespace=approvals.CONTROL_NAMESPACE)
+        self.assertIn("no job", approvals.check_control(approvals.bundle(nojob, sig), self.signers, now=1100)[1])
 
 
 class Approvers(unittest.TestCase):

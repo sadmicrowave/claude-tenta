@@ -193,6 +193,58 @@ class SignedApprovals(AdminBase):
         self.assertEqual(len(self.ssh.calls), 1)
 
 
+class SignedOrders(SignedApprovals):
+    """cw-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
+
+    def setUp(self):
+        super().setUp()
+        self.ctx.sleep = lambda s: None
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
+
+    def orders(self):
+        self.repos.fetch_queue()
+        out = subprocess.run(["git", "-C", str(self.repos.queue), "ls-tree", "--name-only", f"origin/{approvals.BRANCH}", "control/"], capture_output=True, text=True).stdout
+        return [self.repos.show_file(f"origin/{approvals.BRANCH}", n) for n in out.split()]
+
+    def test_cancel_and_kill_publish_signed_orders_naming_the_job_and_log_in_nowhere(self):
+        self.assertEqual(self.admin("cancel", "job-b")[0], 0)
+        self.assertEqual(self.admin("kill", "job-b", "--hard")[0], 0)
+        self.assertEqual(self.ssh.calls, [])
+        recs = [approvals.check_control(t, self.signers) for t in self.orders()]
+        self.assertTrue(all(ok for ok, _, _ in recs))
+        self.assertEqual(sorted((r["action"], r["job"], bool(r.get("hard"))) for _, _, r in recs), [("cancel", "job-b", False), ("kill", "job-b", True)])
+
+    def test_unlock_shows_what_happened_asks_and_signs_for_that_exact_lockdown(self):
+        self.repos.pull_results = lambda: {"kind": "quarantine", "job": "job-x", "since": "2026-11-16T10:00:00Z"}
+        self.answers.append("y")
+        code, out, err = self.admin("unlock")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.ssh.calls, [])
+        (text,) = self.orders()
+        ok, why, rec = approvals.check_control(text, self.signers)
+        self.assertEqual((ok, rec["action"], rec["lock"]), (True, "unlock", "2026-11-16T10:00:00Z"))      # an old order cannot clear a later lockdown
+
+    def test_answering_no_to_unlock_signs_nothing(self):
+        self.repos.pull_results = lambda: {"kind": "quarantine", "job": "job-x", "since": "t"}
+        self.answers.append("n")
+        code, _, _ = self.admin("unlock")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.orders(), [])
+
+    def test_unlock_when_the_worker_says_it_is_not_locked_signs_nothing(self):
+        code, out, err = self.admin("unlock")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.orders(), [])
+        self.assertIn("Not locked", out + err)
+
+    def test_ssh_forces_the_old_way_and_an_older_worker_gets_it_automatically(self):
+        self.admin("cancel", "job-b", "--ssh")
+        self.assertEqual(self.ssh.calls, ["cw-worker cancel job-b"])
+        self.worker_publishes(capacity=4)
+        self.admin("unlock")
+        self.assertEqual(self.ssh.calls[-1], "cw-worker unlock")
+
+
 class FollowAfterApproving(unittest.TestCase):
     def test_the_command_cw_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
         """cw-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""

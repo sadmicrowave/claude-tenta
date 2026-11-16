@@ -80,6 +80,30 @@ class Lifecycle(Base):
         self.assertEqual(self.result("job-0001")["status"], "ok")
 
 
+class ClaudeJobs(Base):
+    def setUp(self):
+        super().setUp()
+        self.registry_path.write_text(REGISTRY + "  askme:\n    kind: claude\n    tier: auto\n    cost: light\n    accepts_files: true\n    allowed_tools: [Read]\n")
+        self.make_worker()
+
+    def test_claude_is_told_which_files_are_attached_so_this_file_has_something_to_point_at(self):
+        self.job("job-0001", "askme", prompt="What does this file say?", files={"README.md": "# hello\n", "notes.txt": "n\n"})
+        self.w.fetch()
+        self.w.execute("job-0001")
+        call = self.runner.calls[-1]
+        prompt = call["argv"][call["argv"].index("-p") + 1]
+        self.assertTrue(prompt.startswith("What does this file say?"))
+        self.assertIn("Attached files, in the current directory: README.md, notes.txt", prompt)
+        self.assertEqual(call["files"], ["README.md", "notes.txt"])
+
+    def test_a_prompt_with_no_files_is_left_exactly_as_written(self):
+        self.job("job-0002", "askme", prompt="Say hi")
+        self.w.fetch()
+        self.w.execute("job-0002")
+        call = self.runner.calls[-1]
+        self.assertEqual(call["argv"][call["argv"].index("-p") + 1], "Say hi")
+
+
 class SignedApproval(Base):
     """Approving from the administrator's own computer: a signed approval is published next to the job, and the worker checks it against its approver key."""
 
@@ -89,7 +113,7 @@ class SignedApproval(Base):
         self.pub = self.keygen("key")
         self.signers = self.keys / "approvers"
         self.signers.write_text(approvals.with_approver("", self.pub))
-        self.make_worker(signed_approval=self.verifier)
+        self.make_worker(signed_approval=self.verifier, approvers_file=self.signers)
 
     def keygen(self, name):
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.keys / name)], check=True)
@@ -150,6 +174,76 @@ class SignedApproval(Base):
         self.publish_approval("job-0001", self.digest("job-0001"))
         self.w.fetch()
         self.assertEqual(self.spawned, [])
+
+
+class SignedOrders(SignedApproval):
+    """Unlock, cancel and kill ordered from the administrator's own computer."""
+
+    def order(self, action, key="key", nonce=None, **kw):
+        record = approvals.make_control_record(action, nonce=nonce, **kw)
+        text = approvals.bundle(record, approvals.sign(record, self.keys / key, namespace=approvals.CONTROL_NAMESPACE))
+        nonce = json.loads(record)["nonce"]
+        req = self.tmp / "requester"
+        remote = subprocess.run(["git", "-C", str(self.tmp / "queue.git"), "rev-parse", "--verify", "-q", "refs/heads/approvals"], capture_output=True).returncode == 0
+        sh("git", "checkout", "-q", "-B", "approvals", "origin/approvals" if remote else "origin/main", cwd=req)
+        (req / "control").mkdir(exist_ok=True)
+        (req / "control" / f"{nonce}.json").write_text(text)
+        sh("git", "add", "-A", cwd=req)
+        sh("git", "commit", "-q", "-m", f"control {action}", cwd=req)
+        sh("git", "push", "-q", "origin", "HEAD:refs/heads/approvals", cwd=req)
+        return nonce
+
+    def test_a_signed_cancel_cancels_a_job_that_is_waiting_for_approval(self):
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.order("cancel", job="job-0001")
+        self.w.fetch()
+        self.assertEqual(self.result("job-0001")["status"], "cancelled")
+
+    def test_a_signed_unlock_clears_the_lockdown_even_though_a_locked_worker_does_nothing_else(self):
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        since = self.lockdown.locked()["since"]
+        self.order("unlock", lock=since)
+        self.w.fetch()
+        self.assertIsNone(self.lockdown.locked())
+
+    def test_an_unlock_signed_for_an_earlier_lockdown_does_not_clear_a_later_one(self):
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        self.order("unlock", lock="1999-01-01T00:00:00Z")
+        self.w.fetch()
+        self.assertIsNotNone(self.lockdown.locked())
+        self.assertTrue(any("earlier lockdown" in m for m in self.logged))
+
+    def test_an_order_is_carried_out_at_most_once(self):
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        self.order("unlock", lock=self.lockdown.locked()["since"], nonce="aaaa1111")
+        self.w.fetch()
+        self.assertIsNone(self.lockdown.locked())
+        self.lockdown.engage("quarantine", "job-0010", {"private_ip"}, cls="echo")          # a new lockdown: the old order is still on GitHub
+        self.w.fetch()
+        self.assertIsNotNone(self.lockdown.locked())
+
+    def test_an_order_signed_with_a_key_the_worker_does_not_trust_does_nothing(self):
+        self.keygen("intruder")
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        self.order("unlock", key="intruder", lock=self.lockdown.locked()["since"])
+        self.w.fetch()
+        self.assertIsNotNone(self.lockdown.locked())
+        self.assertTrue(any("not accepted" in m for m in self.logged))
+
+    def test_a_signed_kill_stops_the_running_job(self):
+        killed = []
+        self.w.kill_job = lambda jid, hard=False: killed.append((jid, hard)) or True
+        self.order("kill", job="job-0001", hard=True)
+        self.w.fetch()
+        self.assertEqual(killed, [("job-0001", True)])
+
+    def test_with_no_approver_key_installed_no_order_is_ever_carried_out(self):
+        self.signers.unlink()
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        self.order("unlock", lock=self.lockdown.locked()["since"])
+        self.w.fetch()
+        self.assertIsNotNone(self.lockdown.locked())
 
 
 class Rejections(Base):

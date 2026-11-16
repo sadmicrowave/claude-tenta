@@ -130,6 +130,49 @@ class Worker:
         self._p("approved", jid).write_text(digest)
         return True, ""
 
+    def apply_controls(self):
+        """Carry out the orders (unlock, cancel, kill) the administrator signed on their own computer. Each order is acted on at most once, whatever the outcome:
+        it is marked done BEFORE it is carried out, so a crash cannot repeat it. An order that is unsigned, signed by another key, or stale does nothing."""
+        if not self.approvers_file or not os.path.isfile(self.approvers_file):
+            return 0
+        done_dir = self.state / "control-done"
+        done_dir.mkdir(exist_ok=True)
+        acted = 0
+        for name in self.io.control_listing():
+            key = Path(name).stem
+            if (done_dir / key).exists():
+                continue
+            raw = self.io.control_bytes(name)
+            if raw is None:
+                continue
+            ok, why, rec = approvals.check_control(raw.decode("utf-8", "replace"), self.approvers_file)
+            (done_dir / key).write_text(why or "accepted")
+            if not ok:
+                self.log(f"an order ({key}) was found but not accepted: {why}")
+                continue
+            acted += 1
+            self._carry_out(rec)
+        return acted
+
+    def _carry_out(self, rec):
+        action = rec["action"]
+        if action == "cancel":
+            ok, why = self.cancel(rec["job"])
+            self.log(f"signed order: cancel {rec['job']}: " + ("done" if ok else why))
+        elif action == "kill":
+            ok = self.kill_job(rec["job"], hard=bool(rec.get("hard")))
+            self.log(f"signed order: kill {rec['job']}: " + ("done" if ok else "it was not running"))
+        elif action == "unlock":
+            st = self.lock.locked()
+            if not st:
+                self.log("signed order: unlock: the worker was not locked")
+            elif rec.get("lock") != st.get("since"):
+                self.log("signed order: unlock refused: it was signed for an earlier lockdown, not the current one")
+            else:
+                self.lock.clear()
+                self.publish_security()
+                self.log("signed order: unlocked")
+
     def _approved(self, jid, digest):
         m = self._p("approved", jid)
         if m.exists() and m.read_text().strip() == digest:
@@ -290,6 +333,8 @@ class Worker:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
         self.io.publish({**res, "status": "running", "note": f"approved; running on {self.s.product} now"})   # so the client can tell it was picked up
+        if kind == "claude" and files:                    # Claude is not told by the files themselves that they exist: "this file" would have nothing to point at
+            prompt = f"{prompt}\n\n[Attached files, in the current directory: {', '.join(sorted(files))}. Use the Read tool to look at them.]"
         run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, prompt, meta, reg, res)
         if prep_fail:
             st, rc, out, metrics, note = "error", None, "", {}, prep_fail
@@ -529,6 +574,10 @@ class Worker:
     def fetch(self):
         """The fetch pass. Returns the ids that were looked at."""
         self.io.sync()
+        try:
+            self.apply_controls()                                      # before the lockdown check: a signed unlock must work while locked
+        except Exception as e:                                         # an order that cannot be read must never break a pass
+            self.log(f"signed orders: {e}")
         self.publish_pending()
         reg = self.load_registry()
         self.publish_registry_info(reg)

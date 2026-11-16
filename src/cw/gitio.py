@@ -132,6 +132,14 @@ class GitIO:
             return None
         return self.git_bytes(self.queue, "show", f"origin/approvals:approvals/{jid}.json")
 
+    def control_listing(self):
+        """The names (control/<nonce>.json) of the signed orders on the approvals branch of the queue repo."""
+        out = self.git_bytes(self.queue, "ls-tree", "-z", "--name-only", "origin/approvals", "control/")
+        return sorted(n for n in (out or b"").decode("utf-8", "replace").split("\0") if re.fullmatch(r"control/[a-f0-9]{8,32}\.json", n))
+
+    def control_bytes(self, name):
+        return self.git_bytes(self.queue, "show", f"origin/approvals:{name}") if re.fullmatch(r"control/[a-f0-9]{8,32}\.json", name or "") else None
+
     def published_result(self, jid):
         """The result file this worker last published for a job (from its own results clone), or None."""
         try:

@@ -20,6 +20,9 @@ import time
 NAMESPACE = "cw-approval"                 # signatures that approve one job
 REGISTRY_NAMESPACE = "cw-registry"        # signatures that approve a version of the job registry (what the worker may be asked to run)
 REGISTRY_PATH = "registry/registry.json"
+CONTROL_NAMESPACE = "cw-control"          # signatures on orders to the worker: unlock, cancel, kill
+CONTROL_DIR = "control"
+CONTROL_TTL_S = 3600                      # an order not carried out within an hour is stale
 PRINCIPAL = "approver"
 BRANCH = "approvals"                      # a branch of the queue repository: approvals/<job id>.json
 TTL_S = 7 * 86400                         # an approval not acted on within a week is no longer good
@@ -126,6 +129,53 @@ def check_registry(text, registry_text, signers_file, now=None, not_before=0, ru
     return True, "", rec
 
 
+def control_path(nonce):
+    return f"{CONTROL_DIR}/{nonce}.json"
+
+
+def make_control_record(action, job=None, hard=False, lock=None, now=None, nonce=None, ttl=CONTROL_TTL_S):
+    """An order to the worker, as exact text to sign. `lock` (for unlock) names the lockdown being cleared (its `since`), so an old signed unlock can never clear a
+    LATER lockdown; `nonce` makes every order its own file, carried out at most once."""
+    import secrets
+    now = int(time.time() if now is None else now)
+    rec = {"v": 1, "kind": "control", "action": action, "nonce": nonce or secrets.token_hex(4), "issued": now, "expires": now + ttl}
+    if job is not None:
+        rec["job"] = job
+    if hard:
+        rec["hard"] = True
+    if lock is not None:
+        rec["lock"] = lock
+    return json.dumps(rec, sort_keys=True, separators=(",", ":"))
+
+
+def check_control(text, signers_file, now=None, run=subprocess.run):
+    """(True, '', record) for a good, unexpired, correctly signed order; else (False, why, None)."""
+    now = int(time.time() if now is None else now)
+    try:
+        doc = json.loads(text)
+        record, signature = doc["record"], doc["signature"]
+        rec = json.loads(record)
+    except (ValueError, KeyError, TypeError):
+        return False, "not a valid control file", None
+    if not isinstance(rec, dict) or rec.get("v") != 1 or rec.get("kind") != "control" or rec.get("action") not in ("unlock", "cancel", "kill"):
+        return False, "not a known order", None
+    if rec["action"] in ("cancel", "kill") and not isinstance(rec.get("job"), str):
+        return False, "the order names no job", None
+    try:
+        issued, expires = int(rec["issued"]), int(rec["expires"])
+    except (KeyError, ValueError, TypeError):
+        return False, "order has no valid times", None
+    if issued > now + SKEW_S:
+        return False, "order is dated in the future", None
+    if expires < now:
+        return False, "order has expired", None
+    if not os.path.isfile(signers_file):
+        return False, "no approver key is installed on this worker", None
+    if not verify(record, signature, signers_file, run=run, namespace=CONTROL_NAMESPACE):
+        return False, "signature does not match the approver key", None
+    return True, "", rec
+
+
 def fingerprint(pubkey):
     """The usual `SHA256:...` fingerprint of an SSH public key line, or None."""
     parts = (pubkey or "").split()
@@ -152,7 +202,7 @@ def signers_line(pubkey):
     parts = pubkey.strip().split()
     if len(parts) < 2 or not parts[0].startswith(("ssh-", "ecdsa-", "sk-")):
         raise ValueError("that is not an SSH public key")
-    return f'{PRINCIPAL} namespaces="{NAMESPACE},{REGISTRY_NAMESPACE}" {parts[0]} {parts[1]}'
+    return f'{PRINCIPAL} namespaces="{NAMESPACE},{REGISTRY_NAMESPACE},{CONTROL_NAMESPACE}" {parts[0]} {parts[1]}'
 
 
 def with_approver(existing, pubkey):
