@@ -335,7 +335,7 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.ran("useradd --system --create-home --home-dir " + H + "/cwworker --shell /usr/sbin/nologin cwworker"))
         self.assertEqual(config.load(self.h.path("/etc/claude-ballast/cw.toml")).github.owner, "someone")
         self.assertTrue(self.h.exists("/opt/claude-ballast/lib/cw/cli.py"))
-        self.assertTrue(self.h.exists("/usr/local/bin/claude-ballast"))
+        self.assertTrue(self.h.exists("/usr/local/bin/cw-worker"))
         self.assertEqual(self.h.read("/etc/claude-ballast/installed-rev").strip(), "a" * 40)
         self.assertIn("Host github-claude-ballast-queue", self.h.read(H + "/cwworker/.ssh/config"))
 

@@ -37,6 +37,8 @@ READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "
 UNITS = ("fetch.service", "fetch.timer", "step.service", "step.timer", "canary.service", "canary.timer", "update.service", "update.timer")
 BIN_DIR = "/usr/local/bin"
 SBIN_DIR = "/usr/local/sbin"
+WORKER_CMD = "cw-worker"        # the command names never contain the install name, so they stay the same when the install is renamed
+UPDATE_CMD = "cw-update"
 
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 _CHECKS = {
@@ -120,21 +122,21 @@ def sudo_wrapper(cfg):
         if not rx.fullmatch(val):
             raise RenderError(f"the value for {k} is not allowed in a generated file: {val!r}")
     return ("#!/bin/sh\n# The administrator's entry point: runs the worker's commands as the worker account (read-only ones need no password).\n"
-            f"exec sudo -p '[sudo] password for %p to run {cfg.identity.name}: ' -u {cfg.server.worker_user} {wrapper_path(cfg)} \"$@\"\n")
+            f"exec sudo -p '[sudo] password for %p to run {WORKER_CMD}: ' -u {cfg.server.worker_user} {wrapper_path(cfg)} \"$@\"\n")
 
 
 def update_wrapper_path(cfg):
-    return f"{SBIN_DIR}/{cfg.identity.name}-update"
+    return f"{SBIN_DIR}/{UPDATE_CMD}"
 
 
 def update_wrapper(cfg):
-    """/usr/local/sbin/<name>-update: the ONE command that installs a release, run through sudo (so it asks for the admin's password).
+    """/usr/local/sbin/cw-update: the ONE command that installs a release, run through sudo (so it asks for the admin's password).
     It runs the installed update tool as root with a fixed environment; nothing from the caller's environment or arguments reaches a shell."""
     v = values_for(cfg)
     for k in ("lib", "config"):
         if not _CHECKS[k].fullmatch(v[k]):
             raise RenderError(f"the value for {k} is not allowed in a generated file: {v[k]!r}")
-    return ("#!/bin/sh\n# Installs a release of the software on this machine. Run it with sudo: sudo " + cfg.identity.name + "-update --rev <commit>\n"
+    return ("#!/bin/sh\n# Installs a release of the software on this machine. Run it with sudo: sudo " + UPDATE_CMD + " --rev <commit>\n"
             f"cd / || exit 1\nexec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin PYTHONPATH='{v['lib']}' CW_CONFIG='{v['config']}/cw.toml' /usr/bin/python3 -m cw.update \"$@\"\n")
 
 

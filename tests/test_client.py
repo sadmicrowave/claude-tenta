@@ -449,11 +449,11 @@ class Config(unittest.TestCase):
         from cw import config
         cfg = config.load(None, env={"CW_CONFIG": "", "CW_IDENTITY_NAME": "homecw", "CW_GITHUB_OWNER": "alice", "CW_PATHS_CLIENT_HOME": "~/.homecw"})
         ctx = cli.Context.from_config(cfg)
-        self.assertEqual((ctx.product, ctx.admin), ("homecw", "homecw-admin"))
+        self.assertEqual((ctx.product, ctx.admin), ("homecw", "cw-admin"))
         self.assertEqual((ctx.repos.queue_url, ctx.repos.results_url), ("git@github.com:alice/homecw-queue.git", "git@github.com:alice/homecw-results.git"))          # derived from the install name
         self.assertEqual(str(ctx.repos.queue), str(Path("~/.homecw/queue").expanduser()))
-        self.assertEqual(ctx.hints, [("on your computer", "homecw-admin approve {}"), ("on homecw", "homecw approve {}")])
-        self.assertIn("homecw", ctx.own_tools)
+        self.assertEqual(ctx.hints, [("on your computer", "cw-admin approve {}"), ("on the worker", "cw-worker approve {}")])
+        self.assertIn("cw-worker", ctx.own_tools)
         self.assertIn("cw-admin", ctx.own_tools)
         self.assertNotIn("example-owner", json.dumps([ctx.repos.queue_url, ctx.repos.results_url]))
 

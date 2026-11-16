@@ -140,7 +140,7 @@ class Worker:
         q.chmod(0o600)
         self.lock.engage(kind, res["id"], set(rules), cls=res.get("class"))
         res.update(status="quarantined", output="", note=f"output withheld by the security guard ({', '.join(sorted(rules))}); "
-                                                          "the full text is on the worker only (cw-quarantine)")
+                                                          "the full text is on the worker only (cw-admin quarantine)")
         res.pop("facts", None)
 
     def publish_security(self):

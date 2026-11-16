@@ -53,7 +53,7 @@ A rule needs a `reason`. Unknown keys (including any `allow` or `override`) are 
 
 ### Composition
 
-`<name>-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
+`cw-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
 registry the worker will trust:
 
 1. packs' classes, in the order named; a name defined twice is an error naming both packs;

@@ -20,7 +20,7 @@ class CliBase(Base):
     def setUp(self):
         super().setUp()
         self.answers = []
-        self.ctx = cli.Context(self.w, product="testcw", admin="testcw-admin", installed_rev=self.tmp / "installed-rev", notifier=self.notifier,
+        self.ctx = cli.Context(self.w, product="testcw", admin="cw-admin", installed_rev=self.tmp / "installed-rev", notifier=self.notifier,
                                canary_status=self.tmp / "canary.json", ask=lambda prompt: self.answers.pop(0), uptime=lambda: 4000.0)
         (self.tmp / "installed-rev").write_text("abcdef1234567890\n")
         self.env = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
@@ -264,7 +264,7 @@ class Status(CliBase):
         code, out = self.run_cli("status")
         self.assertRegex(out, r"running\s+job-0001\s+pid 4242 PROCESS GONE")
         self.assertIn("WAITING FOR YOU", out)
-        self.assertIn("testcw-admin approve job-0002", out)                                    # the client's command name is configurable
+        self.assertIn("cw-admin approve job-0002", out)                                    # the client's command name is configurable
         self.assertIn("job-0002", out)
 
     def test_recent_results_are_summarised(self):
@@ -283,7 +283,7 @@ class Status(CliBase):
         code, out = self.run_cli("status")
         self.assertIn("LOCKED", out)
         self.assertIn("SECURITY LOCKDOWN", out)
-        self.assertIn("cw-quarantine", out)
+        self.assertIn("cw-worker quarantine", out)
         self.assertNotIn("NOT LOCKED", out)
 
     def test_the_canary_check_reads_the_watchers_status_file(self):

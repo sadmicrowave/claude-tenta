@@ -46,7 +46,7 @@ class Uninstall:
         extra = [hardening.Action("remove", path=p) for p in files]
         if self.exists(audit):
             extra += [hardening.Action("remove", path=audit), hardening.Action("run", argv=["augenrules", "--load"])]
-        for p in (f"/usr/local/bin/{n}", f"/usr/local/sbin/{n}-update"):
+        for p in ("/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update", f"/usr/local/bin/{n}", f"/usr/local/sbin/{n}-update"):      # the second pair is what earlier installs used
             if self.exists(p):
                 extra.append(hardening.Action("remove", path=p))
         if extra:

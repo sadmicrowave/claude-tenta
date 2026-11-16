@@ -45,7 +45,7 @@ QUESTIONS = [
        examples=["https://ntfy.sh/your-long-random-topic"], half="server", when=lambda a: a.get("alerts.kind", "none") != "none"),
     # ---- advanced: the defaults are right for almost everyone ----
     _Q("identity.name", "What should this install be called?",
-       "Everything is named after it: the services, folders and commands on the server (claude-ballast-update, /opt/claude-ballast, ...). Two installs on one machine need different names.",
+       "Everything is named after it: the services and folders on the server (claude-ballast-step, /opt/claude-ballast, ...); the commands are always cw-worker and cw-update. Two installs on one machine need different names.",
        risk="It is baked into many file names, so changing it later means reinstalling.", examples=["claude-ballast", "ballast-lab"], half="both", advanced=True),
     _Q("server.ssh_port", "Which port does SSH listen on?", "The port your computer uses to reach the server, and the one the firewall keeps open.",
        risk="A wrong port fails the connection check; nothing is changed.", examples=["22", "2222"], half="both", advanced=True),

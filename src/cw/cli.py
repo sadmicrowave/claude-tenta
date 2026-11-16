@@ -267,7 +267,7 @@ def cmd_quarantine(ctx, jid=None):
         print(paint("Withheld results", BOLD, stream=sys.stdout) + paint("  (they never left this machine)", DIM, stream=sys.stdout) + "\n")
         for f in files:
             print(f"  {f.stem}")
-        emit("Read one in full", tag="NEXT", color=CYAN, run=["cw-quarantine <job>", "cw-unlock"], run_label="Read one, then unlock when you are satisfied")
+        emit("Read one in full", tag="NEXT", color=CYAN, run=["cw-worker quarantine <job>", "cw-worker unlock"], run_label="Read one, then unlock when you are satisfied")
     else:
         emit("Nothing in quarantine", tag="OK", color=GREEN)
     return 0
@@ -466,7 +466,7 @@ def cmd_status(ctx, hours=12):
     if state:
         line(False, "Security", "LOCKED", f"{ctx.product} runs nothing until you review and unlock it")
         emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,
-             run_label="Look at it, then unlock", run=["cw-quarantine", "cw-unlock"])
+             run_label="Look at it, then unlock", run=["cw-worker quarantine", "cw-worker unlock"])
     else:
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
         print()

@@ -20,6 +20,7 @@ from pathlib import Path
 from . import guard
 
 KEY = "cw-canary"
+OPENS = {"open", "openat", "openat2", "open_by_handle_at", "read", "pread64", "readv", "mmap"}     # a real read; loading the rule itself also carries the key
 SERIAL_RE = re.compile(r"msg=audit\(([^)]*):(\d+)\)")
 
 
@@ -29,19 +30,19 @@ def parse_events(text):
     for block in text.split("----"):
         if KEY not in block:
             continue
-        ev = {"serial": None, "when": "", "exe": "", "comm": "", "user": "", "file": ""}
+        ev = {"serial": None, "when": "", "exe": "", "comm": "", "user": "", "file": "", "call": ""}
         for line in block.splitlines():
             m = SERIAL_RE.search(line)
             if m and ev["serial"] is None:
                 ev["when"], ev["serial"] = m.group(1), m.group(2)
             if line.startswith("type=SYSCALL"):
-                for k, rx in (("exe", r"\bexe=(\S+)"), ("comm", r"\bcomm=(\S+)"), ("user", r"\buid=(\S+)")):
+                for k, rx in (("call", r"\bsyscall=(\S+)"), ("exe", r"\bexe=(\S+)"), ("comm", r"\bcomm=(\S+)"), ("user", r"\buid=(\S+)")):
                     mm = re.search(rx, line)
                     ev[k] = mm.group(1) if mm else ev[k]
-            elif line.startswith("type=PATH") and not ev["file"]:
+            elif line.startswith("type=PATH") and not ev["file"] and "nametype=PARENT" not in line:
                 mm = re.search(r"\bname=(\S+)", line)
                 ev["file"] = mm.group(1) if mm else ""
-        if ev["serial"]:
+        if ev["serial"] and ev["call"] in OPENS and ev["file"] not in ("", "(null)"):     # not auditctl adding the rule, not a directory lookup
             events.append(ev)
     return events
 

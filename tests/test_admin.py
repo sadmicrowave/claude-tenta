@@ -134,7 +134,7 @@ class JobTests(AdminBase):
         self.tty = True
         code, _, _ = self.admin("approve", "--all")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"testcw approve --many job-a:{digest}"])
+        self.assertEqual(self.ssh.calls, [f"cw-worker approve --many job-a:{digest}"])
 
     def test_a_job_that_changed_after_you_viewed_it_is_not_approved_in_bulk(self):
         self.put_job("job-a")
@@ -162,7 +162,7 @@ class JobTests(AdminBase):
         self.answers.append("y")
         code, out, _ = self.admin("approve", "job-b")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"testcw approve job-b --sha256 {digest}"])
+        self.assertEqual(self.ssh.calls, [f"cw-worker approve job-b --sha256 {digest}"])
         self.assertEqual(self.results_followed, ["job-b"])
         self.assertIn(digest[:12], out)
 
@@ -191,7 +191,7 @@ class JobTests(AdminBase):
         self.put_result("old-job", status="awaiting_approval")
         code, _, _ = self.admin("approve", "old-job", "--yes", "--no-follow")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, ["testcw approve old-job --yes"])
+        self.assertEqual(self.ssh.calls, ["cw-worker approve old-job --yes"])
         self.assertEqual(jobs.Viewed(self.home).load()["old-job"], "")
 
     def test_a_job_that_is_nowhere_is_an_error(self):
@@ -206,9 +206,9 @@ class JobTests(AdminBase):
         self.assertEqual(self.ssh.calls, [])
 
     def test_passthrough_commands_call_the_workers_own_commands(self):
-        for args, expect in ((["status", "--hours", "48"], "testcw status --hours 48"), (["unlock"], "testcw unlock"), (["quarantine"], "testcw quarantine"),
-                             (["quarantine", "job-x"], "testcw quarantine job-x"), (["output", "job-x"], "testcw output job-x"), (["cancel", "job-x"], "testcw cancel job-x"),
-                             (["kill", "job-x", "--hard"], "testcw kill job-x --hard")):
+        for args, expect in ((["status", "--hours", "48"], "cw-worker status --hours 48"), (["unlock"], "cw-worker unlock"), (["quarantine"], "cw-worker quarantine"),
+                             (["quarantine", "job-x"], "cw-worker quarantine job-x"), (["output", "job-x"], "cw-worker output job-x"), (["cancel", "job-x"], "cw-worker cancel job-x"),
+                             (["kill", "job-x", "--hard"], "cw-worker kill job-x --hard")):
             self.ssh.calls.clear()
             self.assertEqual(self.admin(*args)[0], 0)
             self.assertEqual(self.ssh.calls, [expect])
@@ -301,7 +301,7 @@ class RetireAdoptTests(AdminBase):
         self.assertEqual(code, 0, err)
         self.repos.fetch_queue()
         self.assertNotIn("  careful:", self.repos.show_file("origin/main", "registry.yaml"))
-        self.assertTrue(any(c.startswith("sudo testcw-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))
 
     def test_the_profile_class_cannot_be_retired(self):
         code, _, err = self.admin("retire", "profile-run", "--yes")
@@ -355,7 +355,7 @@ class ReleaseTests(AdminBase):
         self.health(self.new)
         code, out, err = self.admin("apply", "--yes", "--no-verify")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.ssh.calls, [f"sudo testcw-update --rev {self.new}"])
+        self.assertEqual(self.ssh.calls, [f"sudo cw-update --rev {self.new}"])
         self.ssh.calls.clear()
         code, out, _ = self.admin("apply", "--yes", "--force")
         self.assertEqual(code, 0)
@@ -383,7 +383,7 @@ class ReleaseTests(AdminBase):
         with mock.patch.object(release, "health_checks", flaky):
             code, out, err = self.admin("apply")
         self.assertEqual(code, 1)
-        self.assertIn(f"sudo testcw-update --rev {self.rel[0]}", self.ssh.calls)
+        self.assertIn(f"sudo cw-update --rev {self.rel[0]}", self.ssh.calls)
         self.assertIn("Rolled back", err)
 
     def test_a_failed_check_without_a_terminal_tells_you_how_to_roll_back(self):
@@ -392,11 +392,11 @@ class ReleaseTests(AdminBase):
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 1)
         self.assertIn(f"cw-admin apply {self.rel[0][:9]} --no-verify", err)
-        self.assertEqual(self.ssh.calls, [f"sudo testcw-update --rev {self.new}"])
+        self.assertEqual(self.ssh.calls, [f"sudo cw-update --rev {self.new}"])
 
     def test_a_failing_install_stops_and_does_not_check(self):
         self.installed(self.rel[0])
-        self.ssh.rc["testcw-update"] = 1
+        self.ssh.rc["cw-update"] = 1
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 2)
         self.assertIn("install failed", err)

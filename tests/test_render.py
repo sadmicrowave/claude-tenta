@@ -109,7 +109,7 @@ class Wrappers(unittest.TestCase):
 
     def test_the_admin_entry_point_runs_the_cli_as_the_worker_through_sudo(self):
         text = render.sudo_wrapper(cfg(CW_IDENTITY_NAME="homecw", CW_SERVER_WORKER_USER="runner1"))
-        self.assertIn("exec sudo -p '[sudo] password for %p to run homecw: ' -u runner1 /opt/homecw/bin/homecw \"$@\"", text)
+        self.assertIn("exec sudo -p '[sudo] password for %p to run cw-worker: ' -u runner1 /opt/homecw/bin/homecw \"$@\"", text)
         self.assertNotIn("NOPASSWD", text)
 
 

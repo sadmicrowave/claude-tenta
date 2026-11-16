@@ -53,8 +53,8 @@ class Context:
     def from_config(cls, cfg):
         repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
         name = cfg.identity.name
-        return cls(repos, product=name, admin=f"{name}-admin", hints=[("on your computer", f"{name}-admin approve {{}}"), (f"on {name}", f"{name} approve {{}}")],
-                   own_tools=("cw-run", "cw-admin", "cw-setup", "cw-help", name, f"{name}-admin"), home=Path(cfg.paths.client_home).expanduser())
+        return cls(repos, product=name, admin="cw-admin", hints=[("on your computer", "cw-admin approve {}"), ("on the worker", "cw-worker approve {}")],
+                   own_tools=("cw-run", "cw-admin", "cw-setup", "cw-help", "cw-worker"), home=Path(cfg.paths.client_home).expanduser())
 
 
 def fail_from(e):

@@ -34,6 +34,16 @@ class Parse(unittest.TestCase):
         self.assertIn("(+1 more)", s)
         self.assertLessEqual(len(s), 300)
 
+    def test_loading_the_rule_is_not_a_read(self):
+        """The first real install tripped the alarm on its own auditctl: those records carry the key but are not opens of a decoy."""
+        loading = (
+            "----\n"
+            "type=PATH msg=audit(11/16/2026 14:46:31.725:26404) : item=0 name=/srv/cwworker/ inode=1 nametype=PARENT\n"
+            "type=SYSCALL msg=audit(11/16/2026 14:46:31.725:26404) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=cw-canary\n"
+            "----\n"
+            "type=SYSCALL msg=audit(11/16/2026 14:46:31.718:26400) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=cw-canary\n")
+        self.assertEqual(canarywatch.parse_events(loading), [])
+
     def test_unrelated_audit_noise_is_ignored(self):
         self.assertEqual(canarywatch.parse_events("----\ntype=SYSCALL msg=audit(1:2) : key=other\n"), [])
         self.assertEqual(canarywatch.parse_events(""), [])

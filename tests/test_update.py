@@ -55,8 +55,8 @@ class Install(InstallBase):
         self.assertEqual((lib / "cli.py").read_bytes(), (self.release / "src" / "cw" / "cli.py").read_bytes())
         self.assertEqual(mode(lib / "cli.py"), 0o644)
         self.assertEqual(mode(self.at("/opt/homecw/bin/homecw")), 0o755)
-        self.assertEqual(mode(self.at("/usr/local/bin/homecw")), 0o755)
-        self.assertIn("-u cwworker /opt/homecw/bin/homecw", self.at("/usr/local/bin/homecw").read_text())
+        self.assertEqual(mode(self.at("/usr/local/bin/cw-worker")), 0o755)
+        self.assertIn("-u cwworker /opt/homecw/bin/homecw", self.at("/usr/local/bin/cw-worker").read_text())
         for unit in render.UNITS:
             self.assertEqual(mode(self.at(f"/etc/systemd/system/homecw-{unit}")), 0o644)
         self.assertEqual(mode(self.at("/etc/sudoers.d/homecw")), 0o440)
@@ -226,7 +226,7 @@ class UpdateWrapper(InstallBase):
     def test_the_update_command_is_installed_root_run_with_a_fixed_environment(self):
         r = self.install()
         self.assertTrue(r.ok, r.errors)
-        w = self.at("/usr/local/sbin/homecw-update")
+        w = self.at("/usr/local/sbin/cw-update")
         self.assertEqual(mode(w), 0o755)
         text = w.read_text()
         self.assertIn("cd / || exit 1", text)
@@ -238,7 +238,7 @@ class UpdateWrapper(InstallBase):
 
     def test_the_wrapper_is_the_only_thing_the_read_only_sudo_rule_does_not_cover(self):
         self.install()
-        self.assertNotIn("homecw-update", self.at("/etc/sudoers.d/homecw").read_text())
+        self.assertNotIn("cw-update", self.at("/etc/sudoers.d/homecw").read_text())
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML is not installed")

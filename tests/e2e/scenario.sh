@@ -75,7 +75,7 @@ as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set 
 tail -8 /tmp/e2e-install2.out
 check "the second run finished successfully" test $rc -eq 0
 check "the worker account exists with no shell" bash -c "getent passwd $WORKER | grep -q nologin"
-check "the installed commands exist" bash -c "test -x /usr/local/bin/$NAME && test -x /usr/local/sbin/$NAME-update && test -f /opt/$NAME/lib/cw/cli.py"
+check "the installed commands exist" bash -c "test -x /usr/local/bin/cw-worker && test -x /usr/local/sbin/cw-update && test -f /opt/$NAME/lib/cw/cli.py"
 check "the composed registry is installed and says it is generated" grep -q GENERATED /etc/$NAME/registry.yaml
 check "the core classes are in it" grep -q "sys-status" /etc/$NAME/registry.yaml
 check "the policy is in it" grep -q "nsenter" /etc/$NAME/registry.yaml
@@ -133,7 +133,7 @@ fi
 
 step "Installing a release again is safe"
 rev=$(git -C $SRC rev-parse HEAD 2>/dev/null || true)
-check "the update tool re-installs the same release" bash -c "/usr/local/sbin/$NAME-update --local $SRC $rev | tail -3"
+check "the update tool re-installs the same release" bash -c "/usr/local/sbin/cw-update --local $SRC $rev | tail -3"
 check "and the worker is still healthy afterwards" bash -c "! systemctl --failed --no-legend | grep -q $NAME"
 
 step "Uninstalling removes the install, keeps the protections, and installing again works"
@@ -143,7 +143,7 @@ as_admin cw-setup uninstall --apply --yes >/tmp/e2e-uninstall.out 2>&1; rc=$?
 tail -6 /tmp/e2e-uninstall.out
 check "the uninstall finished successfully" test $rc -eq 0
 check "the code, configuration and state folders are gone" bash -c "! test -e /opt/$NAME && ! test -e /etc/$NAME && ! test -e /var/lib/$NAME"
-check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd/system/$NAME-* 2>/dev/null | grep -q . && ! test -e /usr/local/bin/$NAME && ! test -e /usr/local/sbin/$NAME-update && ! test -e /etc/sudoers.d/$NAME"
+check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd/system/$NAME-* 2>/dev/null | grep -q . && ! test -e /usr/local/bin/cw-worker && ! test -e /usr/local/sbin/cw-update && ! test -e /etc/sudoers.d/$NAME"
 check "no timer is left" bash -c "! systemctl list-timers --all --no-legend | grep -q $NAME"
 check "the protections stay: password SSH is still off and the firewall is still on" bash -c "sshd -T | grep -qx 'passwordauthentication no' && ufw status | grep -q 'Status: active'"
 check "the worker account stays (reinstalling reuses it)" bash -c "getent passwd $WORKER"

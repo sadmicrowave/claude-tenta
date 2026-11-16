@@ -97,7 +97,7 @@ class Lockdown:
                 else "a decoy credential was exposed in a job's output" if kind == "breach" and cls is not None
                 else "something read a decoy credential file")
         fields = [("What", what), ("Why", why_text(rules))] + ([("Job", job)] if cls is not None else [])
-        self.notifier.send(f"{self.product} {kind.upper()}", f"{what}. Review: cw-quarantine.", fields=fields,
+        self.notifier.send(f"{self.product} {kind.upper()}", f"{what}. Review it: cw-admin quarantine.", fields=fields,
                            tags="warning" if kind == "quarantine" else "rotating_light")
         if previous:
             self.notifier._log("lockdown already active; not announcing it again")

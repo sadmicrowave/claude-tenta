@@ -67,7 +67,7 @@ def desired_files(src, cfg):
         if "__pycache__" not in f.parts:
             files[f"{code}/lib/cw/{f.relative_to(pkg).as_posix()}"] = (f.read_bytes(), 0o644)
     files[render.wrapper_path(cfg)] = (render.cli_wrapper(cfg), 0o755)
-    files[f"{render.BIN_DIR}/{cfg.identity.name}"] = (render.sudo_wrapper(cfg), 0o755)
+    files[f"{render.BIN_DIR}/{render.WORKER_CMD}"] = (render.sudo_wrapper(cfg), 0o755)
     files[render.update_wrapper_path(cfg)] = (render.update_wrapper(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
         files[f"/etc/systemd/system/{name}"] = (text, 0o644)

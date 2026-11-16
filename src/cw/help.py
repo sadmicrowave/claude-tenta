@@ -22,7 +22,7 @@ SECTIONS = [
                                               ("cw-admin adopt | retire | proposals", "add or remove job classes"),
                                               ("cw-admin diff | apply", "see and install a release, with a health check and a way back")]),
     ("On the worker", "after SSH, or through cw-admin", [("<name> status | show | review | approve ...", "the worker's own commands (the name is your install's name)"),
-                                                          ("sudo <name>-update --rev <commit>", "install a release (cw-admin apply runs this for you)")]),
+                                                          ("sudo cw-update --rev <commit>", "install a release (cw-admin apply runs this for you)")]),
 ]
 
 

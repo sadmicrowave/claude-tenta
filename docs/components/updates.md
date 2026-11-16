@@ -12,7 +12,7 @@ Your own job classes live in your private repository, separate from the project,
 
 ### The update tool
 
-`sudo <name>-update --rev <commit>` · `--verified` · `--local <release checkout> <commit>`. The wrapper (`/usr/local/sbin/<name>-update`) runs from `/` with a cleared environment and a fixed
+`sudo cw-update --rev <commit>` · `--verified` · `--local <release checkout> <commit>`. The wrapper (`/usr/local/sbin/<name>-update`) runs from `/` with a cleared environment and a fixed
 `PATH` and `PYTHONPATH`, then `python3 -m cw.update`.
 
 | Mode | Source | Allowed when |

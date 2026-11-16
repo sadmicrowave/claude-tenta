@@ -22,7 +22,7 @@ def installed_host(name="claude-ballast"):
     for u in UNITS:
         h.put(f"/etc/systemd/system/{name}-{u}", "[Unit]\n")
     for p in (f"/etc/sudoers.d/{name}", f"/etc/sysctl.d/60-{name}-ipv6.conf", f"/etc/sysctl.d/61-{name}-userns.conf", f"/etc/audit/rules.d/60-{name}.rules",
-              f"/usr/local/bin/{name}", f"/usr/local/sbin/{name}-update"):
+              "/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update"):
         h.put(p, "x\n")
     for d in (f"/opt/{name}", f"/etc/{name}", f"/var/lib/{name}"):
         h.put(d + "/marker", "x")
@@ -50,7 +50,7 @@ class Removal(unittest.TestCase):
     def test_applying_removes_the_units_files_commands_and_folders(self):
         self.un().run_all()
         for p in ("/etc/sudoers.d/claude-ballast", "/etc/sysctl.d/60-claude-ballast-ipv6.conf", "/etc/sysctl.d/61-claude-ballast-userns.conf",
-                  "/etc/audit/rules.d/60-claude-ballast.rules", "/usr/local/bin/claude-ballast", "/usr/local/sbin/claude-ballast-update",
+                  "/etc/audit/rules.d/60-claude-ballast.rules", "/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update",
                   "/etc/systemd/system/claude-ballast-fetch.timer", "/etc/systemd/system/claude-ballast-update.service"):
             self.assertFalse(self.h.exists(p), p)
         for d in ("/opt/claude-ballast", "/etc/claude-ballast", "/var/lib/claude-ballast"):

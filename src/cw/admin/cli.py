@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import clihelp, config, registry
+from .. import clihelp, config, registry, render
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -60,7 +60,7 @@ class Context:
 
     # the commands on the server, run as the worker through its own sudo entry point (read-only ones need no password)
     def remote(self, *args):
-        return self.ssh.interactive(f"{self.name} {self.ssh.quote(args)}")
+        return self.ssh.interactive(f"{render.WORKER_CMD} {self.ssh.quote(args)}")
 
     def confirm(self, prompt, yes=False):
         if yes:
@@ -401,7 +401,7 @@ def apply(ctx, a):
     if not ctx.confirm(f"Install {release.short(sha)} on {ctx.ssh.host}?", a.yes):
         stop("Not installed", "You answered no.")
     prev = release.installed_rev(ctx.ssh, ctx.name)
-    rc = ctx.ssh.interactive(f"sudo {ctx.name}-update --rev {sha}")
+    rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {sha}")
     if rc:
         raise ClientError(f"The install failed on {ctx.ssh.host} (exit {rc})", "The update tool restores what it changed when it can. Read the messages above.", ["Fix the cause, then run apply again."])
     if not a.no_verify and not verify(ctx, sha, prev, a.yes):
@@ -438,7 +438,7 @@ def verify(ctx, sha, prev, yes):
     if ctx.ask(paint(f"\nPut the previous version ({release.short(prev)}) back now? [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
         emit("Left as it is", "To go back later:", tag="NOTE", color=YELLOW, run=back)
         return False
-    rc = ctx.ssh.interactive(f"sudo {ctx.name}-update --rev {prev}")
+    rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {prev}")
     after = release.health_checks(ctx.ssh, release.health_command(ctx.name, ctx.config_dir, ctx.code_dir), prev) if rc == 0 else []
     ok = bool(after) and all(x[1] for x in after)
     emit(f"Rolled back to {release.short(prev)}" if rc == 0 else "The rollback failed", "The worker passes its checks again." if ok else "It still fails some checks; read the list above and the worker's journal.",

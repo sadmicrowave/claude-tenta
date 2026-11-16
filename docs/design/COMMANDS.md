@@ -114,7 +114,7 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 | `<name> ...` (the worker's engine) | built and tested |
 | `cw-admin` Worker / Jobs / Security (status, check, review, approve, cancel, kill, quarantine, unlock, output) | built and tested |
 | `cw-admin` Registry (adopt, retire, proposals) and Release (diff, apply with health check and rollback) | built and tested |
-| root-run `<name>-update` (installs a release, then the validated registry; `cw-admin apply` calls it over `sudo`) | built and tested |
+| root-run `cw-update` (installs a release, then the validated registry; `cw-admin apply` calls it over `sudo`) | built and tested |
 | `cw-setup install` (one command from your computer: asks once, sets up both sides, adds the deploy keys with `gh`, sends a first job) | built and tested, including end to end |
 | `cw-setup demo` (the question and protection screens on sample content) | built and tested |
 | `cw-setup uninstall` (previews first, removes exactly what the installer put there, leaves the protections) | built and tested, including end to end |

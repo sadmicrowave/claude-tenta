@@ -39,7 +39,7 @@ branch; `proposals tidy` deletes merged branches. The `profile-run` class cannot
 ### Release
 
 `diff [rev]` and `apply [rev]` use a bare clone of the release source (`updates.source`, branch `updates.branch`) kept in the client home. A commit must be on that branch to be installable.
-`diff` lists the changed files with the root-run ones first and flagged. `apply` shows the diff, asks, runs `sudo <name>-update --rev <commit>` on the worker, then:
+`diff` lists the changed files with the root-run ones first and flagged. `apply` shows the diff, asks, runs `sudo cw-update --rev <commit>` on the worker, then:
 
 1. reads the worker's state in one call: the three timers, failed units, the installed revision, and that the installed registry is valid;
 2. if code changed, submits the `sys-status` class as a real end-to-end test job;
