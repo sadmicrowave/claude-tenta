@@ -203,6 +203,16 @@ class FirstJobRetries(unittest.TestCase):
         self.assertEqual(sum("still starting" in s for s in said), 2)
 
 
+class OldProcessor(InstallBase):
+    def test_the_claude_question_is_not_asked_where_claude_code_cannot_run(self):
+        self.ssh.files["/proc/cpuinfo"] = "processor : 0\nflags : fpu sse sse2 sse4_1\n"
+        inst = self.installer()
+        inst.run_all()
+        answers = dict(self.ssh.sent)[f"cat > {REMOTE}/answers.toml"].decode()
+        self.assertIn('auth = "none"', answers)
+        self.assertTrue(any("cannot run here" in line for line in self.said))
+
+
 class Rerun(InstallBase):
     """Running install again after a stopped run: earlier answers are the defaults, and a finished server setup is not repeated."""
 

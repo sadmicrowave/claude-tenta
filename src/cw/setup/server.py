@@ -77,6 +77,7 @@ class ServerSetup:
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
+        self.facts = detect_mod.Facts()
 
     # ---- helpers ----
     def note(self, step, status, detail=""):
@@ -98,6 +99,7 @@ class ServerSetup:
     # ---- steps ----
     def preflight(self):
         facts = detect_mod.detect(self.host)
+        self.facts = facts
         for what, value in facts.summary():
             self.say(f"  {what:<22} {value}")
         problem = facts.os_problem()
@@ -273,12 +275,22 @@ class ServerSetup:
             self.note("Claude sign-in", "skipped", "not used on this worker; every other job runs without it")
             return
         w, home = cfg.server.worker_user, cfg.paths.worker_home
+        if not self.facts.claude_capable:
+            self.note("Claude tool", "skipped", "this processor is too old for Claude Code; every other job runs without it")
+            return
         if self.host.exists(f"{home}/.local/bin/claude"):
             self.note("Claude tool", "ok", "already installed for the worker")
         elif self.approve_claude_install(w):
             if not self.host.run(["curl", "--version"]).ok and not self.dry_run:
                 self.run(["apt-get", "install", "-y", "curl"], step="install curl")
-            self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
+            try:
+                self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
+                if not self.dry_run and not self.host.run(["runuser", "-u", w, "--", f"{home}/.local/bin/claude", "--version"]).ok:
+                    raise SetupError("The Claude tool does not run on this machine", "It installed but `claude --version` failed.")
+            except SetupError as e:                      # a Claude tool that cannot be installed must never stop the rest of the worker from starting
+                self.note("Claude tool", "failed", f"{e.title}: {e.why}"[:240])
+                self.note("Claude sign-in", "skipped", "Claude jobs will not run on this worker; set claude.auth to none, or try a newer machine")
+                return
             self.note("Claude tool", "planned" if self.dry_run else "installed", f"{home}/.local/bin/claude")
         else:
             self.note("Claude tool", "skipped", "you chose not to install it; Claude jobs will not run until it is installed")

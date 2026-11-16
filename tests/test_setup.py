@@ -134,6 +134,19 @@ class DetectTests(unittest.TestCase):
         self.assertIsNone(f.os_problem())
         self.assertEqual(f.suggestions()["hardware.profile"], "small-server")
 
+    def test_a_processor_too_old_for_claude_code_is_reported_and_suggests_none(self):
+        """The real server was a 2010 Core 2 Duo: Claude Code's installer died there with "Illegal instruction"."""
+        h = FakeHost()
+        h.put("/proc/cpuinfo", "processor : 0\nmodel name : Intel(R) Core(TM)2 Duo\nflags : fpu sse sse2 ssse3 sse4_1\n")
+        f = detect.detect(h)
+        self.assertFalse(f.claude_capable)
+        self.assertEqual(f.suggestions()["claude.auth"], "none")
+        self.assertIn(("Claude Code", "cannot run here: this processor is too old for it"), f.summary())
+        h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 sse4_1 sse4_2 avx avx2\n")
+        self.assertTrue(detect.detect(h).claude_capable)
+        h.put("/proc/cpuinfo", "processor : 0\nFeatures : fp asimd\n")                      # not x86: nothing to check
+        self.assertTrue(detect.detect(h).claude_capable)
+
     def test_old_or_unsupported_systems_are_refused_in_plain_words(self):
         self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="20.04", systemd=True).os_problem())
         self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="22.04", systemd=True).os_problem())      # Python 3.10: no tomllib
@@ -688,6 +701,22 @@ class ClaudeSignIn(ServerTests):
         s, _ = self.run_with("none")
         self.assertEqual({k for k in self.secrets() if "ANTHROPIC" in k or "CLAUDE" in k}, set())
         self.assertTrue(any(step == "Claude sign-in" and status == "removed" for step, status, _ in s.report))
+
+    def test_an_installer_that_dies_does_not_stop_the_rest_of_the_setup(self):
+        """On the real server the installer was killed ("Illegal instruction"); that stopped the whole setup before the timers were started."""
+        real = self.h.run
+        self.h.run = lambda argv, **kw: Result(132, "Illegal instruction") if "claude.ai/install.sh" in " ".join(argv) else real(argv, **kw)
+        s, screen = self.run_with("account", token="sk-ant-oat01-" + "w" * 40)
+        statuses = {step: status for step, status, _ in s.report}
+        self.assertEqual((statuses["Claude tool"], statuses["Claude sign-in"]), ("failed", "skipped"))
+        self.assertEqual(screen.asked, [])                                  # no point asking for a token for a tool that cannot run
+        self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-fetch.timer"))        # the worker still started
+
+    def test_a_processor_too_old_for_claude_code_skips_the_tool_without_trying(self):
+        self.h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 ssse3 sse4_1\n")
+        s, screen = self.run_with("account", token="sk-ant-oat01-" + "v" * 40)
+        self.assertFalse(any("claude.ai/install.sh" in " ".join(c) for c in self.h.calls))
+        self.assertEqual({step: status for step, status, _ in s.report}["Claude tool"], "skipped")
 
     def test_a_preview_asks_for_nothing_and_changes_nothing(self):
         screen = self.Screen("sk-ant-oat01-" + "q" * 40)

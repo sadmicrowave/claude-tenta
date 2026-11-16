@@ -109,6 +109,8 @@ Jobs of kind `claude` run the `claude` tool on the worker, so they need a sign-i
 
 For account and api-key the server half installs the `claude` tool for the worker account with Anthropic's own installer (`curl -fsSL https://claude.ai/install.sh | bash`, run as the worker account, never as root; you are shown the command and can skip it), then stores the token or key in `secrets.env` (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, readable by root and the worker account only). It is never written to `cw.toml`, to the answers saved on your computer, or to any log, and the worker gives it only to Claude jobs, never to ordinary commands; only the sign-in you chose is ever handed over. Leaving the paste empty is allowed (Claude jobs then fail until you add it).
 
+Claude Code is a native program built for fairly recent processors. The installer checks the server's processor first (`/proc/cpuinfo` must list SSE4.2): on an older one (a 2010-era Core 2, for instance, where Anthropic's installer dies with "Illegal instruction") the question is not asked, `claude.auth` is set to `none`, and the setup says so. If the installer fails for any other reason the setup carries on and starts the worker; only Claude jobs are affected.
+
 To change a worker later, run `cw-setup install` again and choose differently: the old credential is removed from that worker (choosing none deletes whatever was stored). Each worker keeps its own choice, so one can use the API while another uses the account.
 
 ### Running install again

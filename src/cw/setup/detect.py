@@ -10,6 +10,7 @@ class Facts:
         self.os_id = self.os_version = self.sudo = ""
         self.ram_mb = self.cores = 0
         self.systemd = self.laptop = False
+        self.claude_capable = True
         self.thermal = "none"
         self.__dict__.update(kw)
 
@@ -31,6 +32,8 @@ class Facts:
     def suggestions(self):
         """{'section.key': value} to use as defaults in the questions."""
         s = {}
+        if not self.claude_capable:
+            s["claude.auth"] = "none"
         if self.laptop or (0 < self.ram_mb < 4096):
             s["hardware.profile"] = "old-laptop"
         elif self.ram_mb >= 16384 and self.cores >= 8:
@@ -41,7 +44,8 @@ class Facts:
 
     def summary(self):
         return [("Operating system", f"{self.os_id} {self.os_version}"), ("Memory", f"{self.ram_mb} MB"), ("Processor cores", str(self.cores)),
-                ("sudo", self.sudo or "unknown"), ("Temperature sensors", {"apple-smc": "readable (Apple SMC)", "lm-sensors": "readable", "none": "none found"}.get(self.thermal, self.thermal)), ("Portable (battery)", "yes" if self.laptop else "no")]
+                ("sudo", self.sudo or "unknown"), ("Temperature sensors", {"apple-smc": "readable (Apple SMC)", "lm-sensors": "readable", "none": "none found"}.get(self.thermal, self.thermal)), ("Portable (battery)", "yes" if self.laptop else "no")] + (
+            [] if self.claude_capable else [("Claude Code", "cannot run here: this processor is too old for it")])
 
 
 def detect(host):
@@ -51,6 +55,10 @@ def detect(host):
     mem = re.search(r"MemTotal:\s+(\d+)\s*kB", host.read("/proc/meminfo") or "")
     f.ram_mb = int(mem.group(1)) // 1024 if mem else 0
     f.cores = len(re.findall(r"^processor\s*:", host.read("/proc/cpuinfo") or "", re.M)) or 1
+    cpu = host.read("/proc/cpuinfo") or ""
+    flags = re.search(r"^flags\s*:\s*(.*)$", cpu, re.M)
+    # Claude Code ships as a native program built for newer processors: on one without SSE4.2 (a 2010-era Core 2, say) it dies with "Illegal instruction".
+    f.claude_capable = flags is None or "sse4_2" in flags.group(1).split()
     f.systemd = host.exists("/run/systemd/system")
     f.laptop = host.exists("/sys/class/power_supply/BAT0") or host.exists("/sys/class/power_supply/BAT1")
     out = host.run(["sudo", "--version"]).out.lower()

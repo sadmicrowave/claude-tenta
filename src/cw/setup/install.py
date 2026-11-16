@@ -225,6 +225,8 @@ class Installer:
         if self.ui is None:
             self.say("\nQuestions")
         given = {**self.given, **flat(conn)}
+        if not self.facts.claude_capable:
+            given["claude.auth"] = "none"                    # Claude Code cannot run on this processor: the question is not asked, the rest of the worker is unaffected
         pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
         rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions={**self.facts.suggestions(), **self.previous_answers()}, use_defaults=self.use_defaults,
                                           ui=self.ui, allow_back=self.ui is not None, pre_items=pre, advanced=self.advanced,
