@@ -19,11 +19,11 @@ from .config import NAME_RE, PATH_RE, USER_RE
 # gives every job its own host name and process list, so both protections are covered where it matters.
 # PrivateTmp is not set either, found on a real server: a job keeps running after the short fetch/step pass that started it, and systemd deletes that
 # pass's private /tmp when the pass ends. The job (and bubblewrap, which builds its jail under /tmp) then had no usable /tmp. The jail gives every job
-# its own empty /tmp anyway.
+# its own empty /tmp anyway. ProtectSystem=strict makes the shared /tmp read-only, so it is listed as writable below (the worker's own scratch space).
 SANDBOX = """\
 # Sandbox. See sandboxtest: the update tool checks these before keeping a changed unit file.
 ProtectSystem=strict
-ReadWritePaths={{state_root}} {{worker_home}} -/run/sudo -/run/sudo-rs
+ReadWritePaths={{state_root}} {{worker_home}} /tmp -/run/sudo -/run/sudo-rs
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ProtectClock=yes

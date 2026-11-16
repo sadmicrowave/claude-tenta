@@ -47,7 +47,7 @@ class Units(unittest.TestCase):
             self.assertNotIn("claude-ballast", text, name)                        # nothing of the original install leaks into another's units
         fetch = units["homecw-fetch.service"]
         for needle in ("User=runner1", "Environment=PYTHONPATH=/opt/homecw/lib", "Environment=CW_CONFIG=/etc/homecw/cw.toml",
-                       "ReadWritePaths=/var/lib/homecw /home/runner1 -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m cw.cli fetch"):
+                       "ReadWritePaths=/var/lib/homecw /home/runner1 /tmp -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m cw.cli fetch"):
             self.assertIn(needle, fetch)
         self.assertIn("OnUnitInactiveSec=45", units["homecw-fetch.timer"])
         self.assertIn("OnUnitInactiveSec=30min", units["homecw-update.timer"])
