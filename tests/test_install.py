@@ -32,6 +32,8 @@ class FakeProc:
 
     def poll(self):
         self.n += 1
+        if self.n == 1:
+            self.ssh.exists.add(REMOTE + "/.authenticated")                 # the password was entered: the remote shell leaves this marker
         if self.n == self.publish_after:
             self.ssh.files["/etc/claude-ballast/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
             self.ssh.files["/etc/claude-ballast/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
@@ -110,7 +112,9 @@ class HappyPath(InstallBase):
         # the server half ran under sudo, over a terminal, waiting for the keys, from exactly that commit
         remote, tty = self.ssh.popen_calls[0]
         self.assertTrue(tty)
-        self.assertTrue(remote.startswith(f"sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server"))
+        self.assertTrue(remote.startswith("sh -c "))
+        self.assertIn("sudo -p", remote)                                    # the password is asked first, with a prompt that says what it is
+        self.assertIn(f"-v && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server", remote)
         for piece in ("--apply", "--no-banner", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
             self.assertIn(piece, remote)
         # the keys went to GitHub with the right access, without anyone copying them

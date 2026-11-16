@@ -62,10 +62,19 @@ class ClientSetup:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
         self.cfg = config.Config(clean)
         path = self.config_path()
-        self.say(f"\n  Your configuration, written to {path}:\n\n    " + toml_out.dump(nested).replace("\n", "\n    "))
+        if self.ui is not None and not self.dry_run:
+            self.say(f"  Your configuration is written to {path}. Settings you did not change keep their defaults; the file lists only your answers.")
+        else:
+            self.say(f"\n  Your configuration, written to {path}:\n\n    " + toml_out.dump(nested).replace("\n", "\n    "))
         if not self.dry_run:
             self.host.write(path, toml_out.dump(nested), 0o600)
         self.note("configuration", "planned" if self.dry_run else "written", path)
+
+    def _sub(self, text):
+        if self.ui is not None and hasattr(self.ui, "sub"):
+            self.ui.sub(text)
+        else:
+            self.say("\n" + text)
 
     def config_path(self):
         return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-ballast" / "cw.toml")
@@ -131,15 +140,15 @@ class ClientSetup:
             self.note("registry", "seeded", "empty: the core classes come from the core pack")
 
     def run_all(self):
-        self.say("\nChecking this computer")
+        self._sub("Checking this computer")
         self.prerequisites()
-        self.say("\nConfiguration")
+        self._sub("Configuration")
         self.configure()
-        self.say("\nSSH to the server")
+        self._sub("SSH to the server")
         self.ssh_login()
-        self.say("\nPrivate repositories")
+        self._sub("Private repositories")
         self.create_repos()
         self.deploy_keys()
-        self.say("\nClones and registry")
+        self._sub("Clones and registry")
         self.clone_and_seed()
         return self.report

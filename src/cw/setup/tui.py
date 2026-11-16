@@ -225,6 +225,39 @@ class TuiPrompter:
     def rail(self, text="", code=BLUE):
         return self.sgr("┃ ", code) + text
 
+    def heading(self, text, step=None):
+        """A phase heading in the wizard's style, printed once into the scrollback: a blue rule with the title, optionally the step (`2 of 4`)."""
+        tag = f" {step} " if step else ""
+        rule = "━" * max(2, self.width - vlen(text) - vlen(tag) - 6)
+        self.write("\n" + self.sgr("━━ ", BLUE) + self.sgr(text, BLUE, BOLD) + (self.sgr(" ·" + tag, DIM) if tag else " ") + self.sgr(rule, DIM) + "\n")
+
+    def sub(self, text):
+        self.write("\n" + self.sgr("  ▸ ", BLUE) + self.sgr(text, BOLD) + "\n")
+
+    def box(self, title, tag, lines, code=BLUE):
+        """A static framed card in the scrollback (the protection card's sibling, for things that are not a choice)."""
+        inner = self.width - 4
+        a = lambda t: self.sgr(t, code)                                       # noqa: E731
+
+        def row(text=""):
+            return a("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + a("│")
+        out = [a("╭─ ") + self.sgr(title, code, BOLD) + a(" " + "─" * max(1, inner - vlen(title) - vlen(tag) - 4) + " ") + self.sgr(tag, code) + a(" ─╮"), row()]
+        for line in lines:
+            for t in (textwrap.wrap(line, inner - 2) or [""]):
+                out.append(row(t))
+        out += [row(), a("╰" + "─" * (inner + 2) + "╯")]
+        self.write("\n".join(out) + "\n")
+
+    def sudo_card(self, user, host):
+        """Shown just before the server's password prompt, so it is clear what is being asked for and why nothing appears while typing."""
+        self.box("Administrator password", "asked by the server, not by this tool",
+                 [self.sgr(f"Type the sudo password of {user} on {host}.", BOLD),
+                  self.sgr("Nothing is shown as you type, not even dots. That is normal; press Enter when done.", DIM),
+                  self.sgr("Only the server sees it. It is used once, to install the worker and its protections.", DIM)], code=AMBER)
+
+    def sudo_prompt(self, user, host):
+        return self.sgr(f"  ❯ password for {user}@{host}: ", AMBER, BOLD)
+
     def banner(self, subtitle):
         """The splash header, drawn once at the start (not part of the redrawn block)."""
         from . import brand

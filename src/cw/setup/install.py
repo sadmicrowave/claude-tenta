@@ -14,6 +14,7 @@ import io
 import re
 import subprocess
 import tarfile
+import shlex
 import time
 from pathlib import Path
 
@@ -183,7 +184,7 @@ class Installer:
 
     # ---- 3. this side ----
     def client_half(self, nested):
-        self.say("\nYour computer")
+        self._heading("Your computer", "2 of 4")
         c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory)
         c.run_all()
         self.report += c.report
@@ -195,19 +196,42 @@ class Installer:
         self.note("release sent to the server", "ok", f"commit {rev[:9]}, {size // 1024} KB")
         return d, rev
 
+    def _heading(self, text, step=None):
+        if self.ui is not None:
+            self.ui.heading(text, step)
+        else:
+            self.say("\n" + text)
+
     def server_half(self, d, rev):
-        self.say("\nThe server")
+        self._heading("The server", "3 of 4")
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
         base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))
             return
-        self.say(f"  The server will ask for {self.ssh.user or 'the administrator'}'s sudo password, and for a yes to each protection. Only the server sees the password.\n")
-        proc = self.ssh.popen(f"sudo {base} --apply --wait-for-keys {self.wait_for_keys}", tty=True)
+        user, host = self.ssh.user or "the administrator", self.cfg.server.host
+        if self.ui is not None:
+            self.ui.sudo_card(user, host)
+            prompt = self.ui.sudo_prompt(user, host)
+        else:
+            self.say(f"  The server will ask for {user}'s sudo password, and for a yes to each protection. Only the server sees the password.\n")
+            prompt = f"[sudo] password for {user}: "
+        # one remote shell: ask for the password first (`sudo -v`), leave a marker, then run the setup under the sudo that is already unlocked.
+        # Nothing else prints until the marker exists, so the password prompt is never interleaved with progress lines.
+        marker = f"{d}/.authenticated"
+        remote = f"sh -c {shlex.quote(f'sudo -p {shlex.quote(prompt)} -v && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
+        proc = self.ssh.popen(remote, tty=True)
         dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say)
         shown = False
+        authed = False
         while proc.poll() is None:
+            if not authed:
+                authed = self.ssh.capture(f"test -e {marker}").returncode == 0
+                if not authed:
+                    self._sleep(1)
+                    continue
+                self._heading("Setting up the server", "3 of 4")
             got = keys_mod.published(self.ssh, self.cfg.paths.config)
             if len(got) == 2 and not dk.complete:
                 if dk.available:
@@ -233,7 +257,7 @@ class Installer:
 
     # ---- 5. first job ----
     def first_job(self):
-        self.say("\nA first job")
+        self._heading("A first job", "4 of 4")
         ok = self.verify(self.cfg) if self.verify else True
         self.note("a job went through the whole loop", "ok" if ok else "failed")
         return ok

@@ -1,4 +1,4 @@
-"""cw-setup client | server | audit
+"""cw-setup install | uninstall | demo | client | server | audit
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)

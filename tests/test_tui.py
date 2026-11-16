@@ -87,6 +87,25 @@ def view(**over):
     return base
 
 
+class Scrollback(unittest.TestCase):
+    def test_the_password_card_says_what_is_asked_and_why_nothing_shows(self):
+        p, out = prompter()
+        p.sudo_card("agent", "worker.example")
+        text = out.getvalue()
+        for needle in ("Administrator password", "agent on worker.example", "Nothing is shown as you type", "Only the server sees it"):
+            self.assertIn(needle, text)
+        self.assertIn("password for agent" + "@" + "worker.example", p.sudo_prompt("agent", "worker.example"))
+
+    def test_headings_name_the_phase_and_step(self):
+        p, out = prompter()
+        p.heading("The server", "3 of 4")
+        p.sub("Configuration")
+        text = out.getvalue()
+        self.assertIn("The server", text)
+        self.assertIn("3 of 4", text)
+        self.assertIn("Configuration", text)
+
+
 class Progress(unittest.TestCase):
     def test_the_bar_fills_with_the_position(self):
         p, _ = prompter()
