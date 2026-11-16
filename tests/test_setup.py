@@ -720,6 +720,12 @@ class ClaudeSignIn(ServerTests):
         self.assertEqual(self.secrets()["CLAUDE_CODE_OAUTH_TOKEN"], new)
         self.assertNotIn(new, "\n".join(self.said))
 
+    def test_the_read_only_claude_class_comes_with_the_install_exactly_when_claude_is_used(self):
+        self.run_with("account", token="sk-ant-oat01-" + "p" * 40)
+        self.assertEqual(config.load(self.h.path("/etc/claude-ballast/cw.toml")).registry.packs, ["core", "claude"])
+        self.run_with("none")                                              # switching to none takes it away again
+        self.assertEqual(config.load(self.h.path("/etc/claude-ballast/cw.toml")).registry.packs, ["core"])
+
     def test_the_weekly_claude_update_timer_runs_only_where_claude_is_used(self):
         self.run_with("account", token="sk-ant-oat01-" + "t" * 40)
         self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))

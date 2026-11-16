@@ -143,6 +143,10 @@ class ServerSetup:
             self.ui.finish()
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+        uses_claude = (nested.get("claude") or {}).get("auth", "none") != "none"
+        if uses_claude or "registry" in nested:                   # the read-only Claude class comes with the install exactly when Claude is used
+            reg = nested.setdefault("registry", {})
+            reg["packs"] = [p for p in (reg.get("packs") or ["core"]) if p != "claude"] + (["claude"] if uses_claude else [])
         clean, problems = questions.validate_answers(nested)
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
