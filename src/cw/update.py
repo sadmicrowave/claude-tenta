@@ -71,6 +71,11 @@ def desired_files(src, cfg):
     files[render.update_wrapper_path(cfg)] = (render.update_wrapper(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
         files[f"/etc/systemd/system/{name}"] = (text, 0o644)
+    for pack in sorted(set(cfg.registry.packs) | set(cfg.policy.packs)):            # packs the configuration names and this release ships
+        root = src / "packs" / pack
+        if root.is_dir():
+            for f in sorted(p for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+                files[f"{cfg.paths.config}/packs/{pack}/{f.relative_to(root).as_posix()}"] = (f.read_bytes(), 0o644)
     return files
 
 
@@ -151,6 +156,13 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
         if "__pycache__" not in old.parts and rel not in wanted:
             old.unlink()
             report.removed.append(rel)
+    for pack in sorted({p[len(cfg.paths.config + "/packs/"):].split("/")[0] for p in files if p.startswith(cfg.paths.config + "/packs/")}):
+        pdir, proot = _dest(prefix, f"{cfg.paths.config}/packs/{pack}"), f"{cfg.paths.config}/packs/{pack}/"
+        for old in sorted(pdir.rglob("*")) if pdir.is_dir() else []:
+            rel = proot + old.relative_to(pdir).as_posix()
+            if old.is_file() and rel not in files:
+                old.unlink()
+                report.removed.append(rel)
     if report.units_changed and sandbox is not None:
         step_unit = files[f"{unit_prefix}{cfg.identity.name}-step.service"][0]
         out("Testing the unit sandbox before keeping it")
@@ -171,16 +183,17 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
 
 
 def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=print):
-    """Install the job registry the worker will trust: the queue repository's registry.yaml on its main branch, validated first.
+    """Compose and install the job registry the worker will trust: the packs the configuration names (installed by root under
+    <config>/packs) plus YOUR classes, limits and profiling rules from registry.yaml on the main branch of the queue repository.
 
     The queue clone belongs to the worker account and its contents are untrusted, so git runs AS the worker (never as root, whose hooks and
-    config it could otherwise influence) and root only receives the file's text. The text is parsed and validated before anything is written;
-    its packages are installed first; the previous registry is kept as registry.yaml.previous. A fresh install with no registry anywhere falls
-    back to the core pack shipped in the release. Returns 'unchanged', 'updated' or 'bootstrapped'; raises InstallError and writes nothing
-    when the registry is not valid. `run(argv) -> (returncode, output)`."""
-    from . import registry
+    config it could otherwise influence) and root only receives the file's text. Everything is checked before anything is written: the pack
+    manifests, your layer, name collisions, the policy, and the composed result. Packages are installed first; the previous registry is kept as
+    registry.yaml.previous. Returns 'unchanged', 'updated' or 'bootstrapped' (nothing was installed before); raises InstallError and writes
+    nothing when anything is wrong. `run(argv) -> (returncode, output)`."""
+    from . import packs, registry
     worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
-    dest, text, origin = _dest(prefix, cfg.path("registry")), None, "the queue repository"
+    dest, text = _dest(prefix, cfg.path("registry")), None
     if _dest(prefix, clone + "/.git").exists():
         as_worker = ["runuser", "-u", worker, "--", "git", "-C", clone]
         rc, msg = run(as_worker + ["fetch", "--quiet", "origin", main_branch])
@@ -188,29 +201,41 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
             raise InstallError(f"could not fetch the queue repository, so the registry was not updated: {msg.strip()[:200]}")
         rc, body = run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
         text = body if rc == 0 else None
-    if text is None:
-        if dest.exists():
-            return "unchanged"
-        core = Path(src) / "packs" / "core" / "registry.yaml"
-        if not core.is_file():
-            raise InstallError("there is no registry.yaml on the main branch of the queue repository and no core registry in this release")
-        text, origin = core.read_text(), "the core pack"
     try:
-        problems = registry.validate(registry.parse(text), cfg.path("tools"))
+        user = registry.parse(text) if text is not None else {}
     except Exception as e:                                   # not valid YAML
-        problems = [f"not valid YAML: {e}"]
+        raise InstallError(f"your registry.yaml is not valid, so nothing was installed: {e}")
+    mine = registry.validate(user, cfg.path("tools"), allow_empty=True)
+    if mine:
+        raise InstallError("your registry.yaml is not valid, so nothing was installed: " + "; ".join(mine[:5]))
+    osr = (_dest(prefix, "/etc/os-release").read_text() if _dest(prefix, "/etc/os-release").exists() else "")
+    m = re.search(r'^ID="?([^"\n]+)"?$', osr, re.M)
+    names = list(dict.fromkeys(list(cfg.registry.packs) + list(cfg.policy.packs)))
+    try:
+        loaded = packs.load_named(names, [_dest(prefix, f"{cfg.paths.config}/packs")], os_id=m.group(1).lower() if m else None)
+        reg, notes = packs.compose(loaded, cfg.registry.packs, cfg.policy.packs, user)
+    except packs.PackError as e:
+        raise InstallError("the registry was NOT installed: " + "; ".join(e.problems[:6]))
+    problems = registry.validate(reg, cfg.path("tools"))
     if problems:
-        raise InstallError(f"the registry from {origin} is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
-    if dest.exists() and dest.read_text() == text:
+        raise InstallError("the composed registry is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
+    import yaml
+    header = (f"# GENERATED by the update tool from packs ({', '.join(f'{n} {loaded[n].version}' for n in names)}) and your registry.yaml.\n"
+              "# Do not edit this file: change your registry.yaml in the queue repository, then run the update again.\n")
+    composed = header + yaml.safe_dump(reg, sort_keys=False, default_flow_style=False, width=110)
+    for n in notes:
+        out("NOTE     " + n)
+    if dest.exists() and dest.read_text() == composed:
         return "unchanged"
     if install_packages is not None:
-        ok, why = install_packages(text)
+        ok, why = install_packages(composed)
         if not ok:
             raise InstallError(f"the packages the registry needs could not be installed, so the registry was NOT installed: {why}")
-    if dest.exists():
+    existed = dest.exists()
+    if existed:
         _write_atomic(dest.with_name(dest.name + ".previous"), dest.read_bytes(), 0o644)
-    _write_atomic(dest, text, 0o644)
-    return "bootstrapped" if origin == "the core pack" else "updated"
+    _write_atomic(dest, composed, 0o644)
+    return "updated" if existed else "bootstrapped"
 
 
 def real_run(argv):

@@ -93,7 +93,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, **overrides):
             if repos_factory is None:
                 from ..client.repo import ClientRepos
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
-            setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", Path(a.source) / "packs" / "core" / "registry.yaml", ask=ask if interactive else None,
+            setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key)
         report = setup.run_all()
     except questions.WizardError as e:

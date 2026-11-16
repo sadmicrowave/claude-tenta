@@ -63,6 +63,7 @@ class Worker:
         self._spawn = spawn or self._default_spawn
         self.find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
         self.limits = registry.limits_of({})
+        self.policy = registry.policy_of({})
         self.state = Path(settings.state)
         for d in ("done", "approved", "notified", "work", "queued", "running", "fetching", "finished", "inbox", "quarantine", "output"):
             (self.state / d).mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,7 @@ class Worker:
     def load_registry(self):
         reg = registry.parse(self.s.registry_path.read_text())
         self.limits = registry.limits_of(reg)
+        self.policy = registry.policy_of(reg)
         return reg
 
     def mem_total(self):
@@ -167,12 +169,12 @@ class Worker:
         files, meta = {}, {}
         try:
             if kind == "command":
-                argv = jobs.build_argv(cls, params)
+                argv = jobs.build_argv(cls, params, self.policy)
                 files = jobs.check_files(job.get("files"), cls, self.limits)
             elif kind == "profile":
                 if params:
                     raise ValueError("profile-run takes argv, not params")
-                argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program)
+                argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy)
             elif kind == "claude":
                 prompt = job.get("prompt")
                 if not isinstance(prompt, str) or not 1 <= len(prompt) <= 8000:

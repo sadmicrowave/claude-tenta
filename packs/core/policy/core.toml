@@ -1,0 +1,23 @@
+# Off-limits rules every install has. Rules can only be added to, never loosened: no pack can allow what is denied here.
+
+[[deny.command]]
+names  = ["sudo", "su", "doas", "pkexec", "nsenter", "chroot"]
+reason = "a job must never gain privileges"
+locked = true
+
+[[deny.command]]
+names  = ["mount", "umount", "insmod", "modprobe", "rmmod"]
+reason = "a job must not change the machine's storage or kernel"
+locked = true
+
+[[deny.param]]
+regex  = '(^|/)\.\.(/|$)'
+reason = "paths that climb out of the job's folder are not allowed"
+
+[[require.approval]]
+when   = { network = true }
+reason = "the job can reach the network"
+
+[[require.approval]]
+when   = { kind = "claude" }
+reason = "the job sends material to a model"

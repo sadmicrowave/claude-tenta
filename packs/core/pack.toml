@@ -1,0 +1,7 @@
+name = "core"
+version = "0.1.0"
+description = "The job classes and off-limits rules every install starts with"
+kinds = ["classes", "policy"]
+
+[requires]
+os = ["ubuntu", "debian"]

@@ -28,6 +28,7 @@ class InstallBase(unittest.TestCase):
         self.release = self.tmp / "release"
         shutil.copytree(ROOT / "src", self.release / "src", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / "templates", self.release / "templates")
+        shutil.copytree(ROOT / "packs", self.release / "packs")
         self.prefix = self.tmp / "root"
         self.cfg = config.load(None, env={"CW_CONFIG": "", "CW_SERVER_ADMIN_USER": "cwadmin", "CW_IDENTITY_NAME": "homecw"})
         self.calls, self.sandboxed = [], []
@@ -242,16 +243,19 @@ class UpdateWrapper(InstallBase):
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML is not installed")
 class RegistryInstall(InstallBase):
-    GOOD = "classes:\n  echo:\n    tier: auto\n    cost: light\n    run: [/bin/echo, hi]\n"
+    MINE = "classes:\n  echo:\n    tier: auto\n    cost: light\n    run: [/bin/echo, hi]\n"
 
     def setUp(self):
         super().setUp()
-        self.cfg = config.load(None, env={"CW_CONFIG": "", "CW_SERVER_ADMIN_USER": "cwadmin", "CW_IDENTITY_NAME": "homecw"})
-        (self.release / "packs" / "core").mkdir(parents=True)
-        (self.release / "packs" / "core" / "registry.yaml").write_text(self.GOOD.replace("echo", "core-one"))
-        self.ran, self.queue_text = [], self.GOOD
-        self.at(self.cfg.path("queue_clone") + "/x").parent.mkdir(parents=True, exist_ok=True)
-        (self.at(self.cfg.path("queue_clone")) / ".git").mkdir(exist_ok=True)
+        pack = self.at("/etc/homecw/packs/core")
+        (pack / "classes").mkdir(parents=True)
+        (pack / "policy").mkdir()
+        (pack / "pack.toml").write_text('name = "core"\nversion = "1.0"\ndescription = "test"\nkinds = ["classes", "policy"]\n')
+        (pack / "classes" / "core.yaml").write_text("classes:\n  core-one:\n    tier: auto\n    cost: light\n    run: [/bin/echo, core]\n"
+                                                   "  netty:\n    tier: auto\n    cost: light\n    network: true\n    run: [/bin/echo, net]\n")
+        (pack / "policy" / "core.toml").write_text('[[deny.command]]\nnames = ["nsenter"]\nreason = "no"\n[[require.approval]]\nwhen = { network = true }\nreason = "reaches the network"\n')
+        self.ran, self.queue_text = [], self.MINE
+        (self.at(self.cfg.path("queue_clone")) / ".git").mkdir(parents=True, exist_ok=True)
 
     def fake_run(self, argv):
         self.ran.append(argv)
@@ -262,30 +266,59 @@ class RegistryInstall(InstallBase):
     fetch_result = (0, "")
 
     def go(self, **kw):
-        return update.install_registry(self.cfg, self.release, run=self.fake_run, prefix=self.prefix, **kw)
+        return update.install_registry(self.cfg, self.release, run=self.fake_run, prefix=self.prefix, out=self.said.append, **kw)
 
     def registry_file(self):
         return self.at(self.cfg.path("registry"))
 
-    def test_the_queue_repositorys_registry_is_installed_and_git_runs_as_the_worker(self):
-        self.assertEqual(self.go(), "updated")
-        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+    def installed(self):
+        import yaml
+        return yaml.safe_load(self.registry_file().read_text())
+
+    def test_packs_and_your_classes_are_composed_and_git_runs_as_the_worker(self):
+        self.assertEqual(self.go(), "bootstrapped")
+        reg = self.installed()
+        self.assertEqual(sorted(reg["classes"]), ["core-one", "echo", "netty"])
+        self.assertIn("GENERATED", self.registry_file().read_text())
         for argv in self.ran:
             self.assertEqual(argv[:5], ["runuser", "-u", "cwworker", "--", "git"])
         self.assertIn("origin/main:registry.yaml", self.ran[-1])
 
-    def test_the_same_registry_is_not_rewritten_and_a_change_keeps_the_previous_one(self):
+    def test_policy_is_in_the_installed_registry_and_forces_approval(self):
+        self.go()
+        reg = self.installed()
+        self.assertEqual(reg["classes"]["netty"]["tier"], "approve")
+        self.assertIn("nsenter", reg["policy"]["deny_commands"])
+        self.assertIn("sudo", reg["policy"]["deny_commands"])
+        self.assertTrue(any("netty" in n and "approval" in n for n in self.said))
+
+    def test_a_denied_program_in_your_classes_is_refused(self):
+        self.queue_text = "classes:\n  bad:\n    tier: auto\n    cost: light\n    run: [/usr/bin/nsenter, -t, '1']\n"
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("nsenter", str(e.exception))
+        self.assertFalse(self.registry_file().exists())
+
+    def test_redefining_a_pack_class_is_refused_not_silently_overridden(self):
+        self.queue_text = "classes:\n  core-one:\n    tier: auto\n    cost: light\n    run: [/bin/echo, mine]\n"
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("core-one", str(e.exception))
+        self.assertIn("pack 'core'", str(e.exception))
+
+    def test_the_same_result_is_not_rewritten_and_a_change_keeps_the_previous_one(self):
         self.go()
         self.assertEqual(self.go(), "unchanged")
-        self.queue_text = self.GOOD + "  other:\n    tier: auto\n    cost: light\n    run: [/bin/echo, x]\n"
+        before = self.registry_file().read_text()
+        self.queue_text = self.MINE + "  other:\n    tier: auto\n    cost: light\n    run: [/bin/echo, x]\n"
         self.assertEqual(self.go(), "updated")
-        self.assertEqual(self.at(self.cfg.path("registry") + ".previous").read_text(), self.GOOD)
+        self.assertEqual(self.at(self.cfg.path("registry") + ".previous").read_text(), before)
 
-    def test_an_invalid_registry_is_refused_and_nothing_is_written(self):
+    def test_an_invalid_layer_is_refused_and_nothing_is_written(self):
         self.queue_text = "classes:\n  bad:\n    tier: nonsense\n    run: not-a-list\n"
         with self.assertRaises(update.InstallError) as e:
             self.go()
-        self.assertIn("NOT installed", str(e.exception))
+        self.assertIn("nothing was installed", str(e.exception))
         self.assertFalse(self.registry_file().exists())
         self.queue_text = "classes: [unclosed"
         with self.assertRaises(update.InstallError):
@@ -293,10 +326,11 @@ class RegistryInstall(InstallBase):
 
     def test_an_invalid_new_registry_leaves_the_working_one_alone(self):
         self.go()
-        self.queue_text = "classes: {}\n"
+        good = self.registry_file().read_text()
+        self.queue_text = "classes:\n  bad:\n    tier: nonsense\n    run: x\n"
         with self.assertRaises(update.InstallError):
             self.go()
-        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+        self.assertEqual(self.registry_file().read_text(), good)
 
     def test_a_failed_fetch_stops_instead_of_installing_something_stale(self):
         self.fetch_result = (128, "Permission denied (publickey)")
@@ -305,31 +339,66 @@ class RegistryInstall(InstallBase):
         self.assertIn("Permission denied", str(e.exception))
         self.assertFalse(self.registry_file().exists())
 
-    def test_a_fresh_install_with_no_registry_anywhere_uses_the_core_pack(self):
+    def test_with_nothing_in_the_queue_repository_only_the_packs_are_installed(self):
         self.queue_text = None
         self.assertEqual(self.go(), "bootstrapped")
-        self.assertIn("core-one", self.registry_file().read_text())
+        self.assertEqual(sorted(self.installed()["classes"]), ["core-one", "netty"])
 
-    def test_no_registry_in_the_queue_repository_leaves_an_installed_one_alone(self):
+    def test_without_a_queue_clone_yet_the_packs_are_installed(self):
+        shutil.rmtree(self.at(self.cfg.path("queue_clone")))
+        self.assertEqual(self.go(), "bootstrapped")
+        self.assertEqual(self.ran, [])
+
+    def test_removing_your_registry_removes_your_classes_on_the_next_update(self):
         self.go()
         self.queue_text = None
-        self.assertEqual(self.go(), "unchanged")
-        self.assertEqual(self.registry_file().read_text(), self.GOOD)
+        self.assertEqual(self.go(), "updated")
+        self.assertNotIn("echo", self.installed()["classes"])
+
+    def test_a_missing_pack_is_named(self):
+        shutil.rmtree(self.at("/etc/homecw/packs/core"))
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("pack 'core' was not found", str(e.exception))
+
+    def test_a_pack_for_another_operating_system_is_refused(self):
+        p = self.at("/etc/homecw/packs/core/pack.toml")
+        p.write_text(p.read_text() + '[requires]\nos = ["debian"]\n')
+        self.at("/etc/os-release").parent.mkdir(parents=True, exist_ok=True)
+        self.at("/etc/os-release").write_text("ID=fedora\n")
+        with self.assertRaises(update.InstallError) as e:
+            self.go()
+        self.assertIn("fedora", str(e.exception))
 
     def test_packages_are_installed_first_and_a_failure_keeps_the_registry_out(self):
         seen = []
-        self.assertEqual(self.go(install_packages=lambda t: seen.append(t) or (True, "")), "updated")
-        self.assertEqual(seen, [self.GOOD])
+        self.assertEqual(self.go(install_packages=lambda t: seen.append(t) or (True, "")), "bootstrapped")
+        self.assertEqual(len(seen), 1)
         self.registry_file().unlink()
         with self.assertRaises(update.InstallError) as e:
             self.go(install_packages=lambda t: (False, "E: unable to locate package"))
         self.assertIn("unable to locate", str(e.exception))
         self.assertFalse(self.registry_file().exists())
 
-    def test_without_a_queue_clone_yet_the_core_pack_is_used(self):
-        shutil.rmtree(self.at(self.cfg.path("queue_clone")))
-        self.assertEqual(self.go(), "bootstrapped")
-        self.assertEqual(self.ran, [])
+
+class PacksShipped(InstallBase):
+    def test_the_packs_the_config_names_are_installed_root_owned_and_stale_files_go(self):
+        r = self.install()
+        self.assertTrue(r.ok, r.errors)
+        pack = self.at("/etc/homecw/packs/core")
+        self.assertTrue((pack / "pack.toml").is_file() and (pack / "classes" / "core.yaml").is_file() and (pack / "policy" / "core.toml").is_file())
+        self.assertEqual(mode(pack / "pack.toml"), 0o644)
+        (pack / "classes" / "old.yaml").write_text("classes: {}\n")
+        r = self.install()
+        self.assertIn("/etc/homecw/packs/core/classes/old.yaml", r.removed)
+        self.assertFalse((pack / "classes" / "old.yaml").exists())
+
+    def test_a_pack_the_release_does_not_ship_is_left_alone(self):
+        other = self.at("/etc/homecw/packs/third-party")
+        other.mkdir(parents=True)
+        (other / "pack.toml").write_text("x")
+        self.install()
+        self.assertTrue((other / "pack.toml").exists())
 
 
 class Fetch(unittest.TestCase):

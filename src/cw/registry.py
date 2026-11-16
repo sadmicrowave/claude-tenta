@@ -16,6 +16,7 @@ PLACEHOLDER = re.compile(r"^\{(\w+)\}$")
 POS_INT_KEYS = ("timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars")
 ENV_KEYS = ("PYTHONPATH", "NODE_PATH")              # the only variables a class may set, and only to folders under the tools folder
 MAX_OUT = 100_000
+BASELINE_DENY = ("sudo", "su", "doas", "pkexec")      # always refused, whatever any pack says: privilege tools have no place in a job
 
 # Size limits the client must know too. The installed registry's `limits:` section overrides any of these.
 LIMITS_DEFAULTS = {
@@ -53,6 +54,41 @@ def profiling_rules(reg):
             out[k] = merge(a[k], v) if isinstance(v, dict) and isinstance(a.get(k), dict) else v
         return out
     return merge(PROFILING_DEFAULTS, (reg or {}).get("profiling"))
+
+
+def policy_of(reg):
+    """The off-limits rules the worker enforces at job time: {'deny_commands': set of program names, 'deny_params': [(compiled regex, reason)]}.
+    The baseline is always included, so a registry with no policy section is still safe."""
+    section = (reg or {}).get("policy") or {}
+    deny = set(BASELINE_DENY) | set(section.get("deny_commands") or [])
+    params = []
+    for item in section.get("deny_params") or []:
+        try:
+            params.append((re.compile(item["regex"]), str(item.get("reason", "forbidden by policy"))))
+        except (re.error, KeyError, TypeError):
+            continue
+    return {"deny_commands": deny, "deny_params": params}
+
+
+def policy_problems(given):
+    if given is None:
+        return []
+    if not isinstance(given, dict):
+        return ["policy: must be a mapping"]
+    errs = [f"policy: unknown setting {k!r}" for k in given if k not in ("deny_commands", "deny_params")]
+    dc = given.get("deny_commands", [])
+    if not (isinstance(dc, list) and all(isinstance(x, str) for x in dc)):
+        errs.append("policy.deny_commands: must be a list of program names")
+    dp = given.get("deny_params", [])
+    if not (isinstance(dp, list) and all(isinstance(x, dict) and isinstance(x.get("regex"), str) for x in dp)):
+        errs.append("policy.deny_params: must be a list of {regex, reason}")
+    else:
+        for x in dp:
+            try:
+                re.compile(x["regex"])
+            except re.error:
+                errs.append(f"policy.deny_params: {x['regex']!r} is not a valid pattern")
+    return errs
 
 
 def limits_problems(given):
@@ -96,13 +132,16 @@ def _param_ok(spec):
     return ok
 
 
-def validate(reg, tools_root):
-    """Return a list of problems (empty = fine). `tools_root` is the folder a class's `env` paths must stay under."""
+def validate(reg, tools_root, allow_empty=False):
+    """Return a list of problems (empty = fine). `tools_root` is the folder a class's `env` paths must stay under. `allow_empty` accepts a
+    registry with no classes of its own (your private layer: the packs provide the rest)."""
     if not isinstance(reg, dict):
         return ["the registry must be a YAML mapping"]
-    errs = []
+    errs = policy_problems(reg.get("policy"))
     classes = reg.get("classes")
-    if not isinstance(classes, dict) or not classes:
+    if classes is None and allow_empty:
+        classes = {}
+    if not isinstance(classes, dict) or (not classes and not allow_empty):
         return ["classes: must be a non-empty mapping"]
     if "profiling" in reg and not isinstance(reg["profiling"], dict):
         errs.append("profiling: must be a mapping")

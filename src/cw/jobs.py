@@ -11,12 +11,12 @@ import shutil
 from datetime import datetime
 
 from .pkgspec import check_packages
-from .registry import PLACEHOLDER
+from .registry import BASELINE_DENY, PLACEHOLDER
 from .util import SAFE_PATH, now
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{3,63}$")
 FILE_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*")
-PROFILE_DENY = {"sudo", "su", "doas", "pkexec"}          # a profile run is an arbitrary command, so privilege tools are refused outright
+PROFILE_DENY = set(BASELINE_DENY)          # a profile run is an arbitrary command, so privilege tools are refused outright (policy can add more)
 MAX_AGE_S = 86400
 MAX_FUTURE_S = 300
 
@@ -63,7 +63,15 @@ def check_param(name, spec, value):
     return str(value)
 
 
-def build_argv(cls, params):
+def check_policy_params(values, policy):
+    """Refuse any parameter value (or profile argument) that matches a policy pattern. Raises ValueError with the policy's own reason."""
+    for value in values:
+        for rx, why in (policy or {}).get("deny_params", ()):
+            if rx.search(str(value)):
+                raise ValueError(f"not allowed: {why}")
+
+
+def build_argv(cls, params, policy=None):
     """The command to run: the class's template with each {placeholder} replaced by a validated parameter. Always a list."""
     specs = cls.get("params", {}) or {}
     if not isinstance(params, dict):
@@ -75,6 +83,7 @@ def build_argv(cls, params):
     for name, spec in specs.items():
         if name in params:
             vals[name] = check_param(name, spec, params[name])
+            check_policy_params([vals[name]], policy)
         elif not spec.get("optional"):
             raise ValueError(f"missing param: {name}")
     argv = []
@@ -122,7 +131,7 @@ def job_timeout(cls, job):
     return int(cls.get("timeout_s", 600 if kind == "claude" else 60))
 
 
-def build_profile(job, cls, limits, find_program=None, is_executable=None):
+def build_profile(job, cls, limits, find_program=None, is_executable=None, policy=None):
     """Validate a profile-run job: one exact command (argv list), optional small input files, optional timeout.
     Returns (argv, files, meta). `find_program` and `is_executable` default to looking at this machine."""
     find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
@@ -133,8 +142,10 @@ def build_profile(job, cls, limits, find_program=None, is_executable=None):
         raise ValueError("argv must be a list of 1-40 non-empty strings")
     first = argv[0]
     pkgs = check_packages(job.get("packages"))
-    if os.path.basename(first) in PROFILE_DENY:
+    denied = PROFILE_DENY | set((policy or {}).get("deny_commands", ()))
+    if os.path.basename(first) in denied:
         raise ValueError(f"{os.path.basename(first)} is not allowed in a profile run")
+    check_policy_params(argv[1:], policy)
     if "/" in first:
         if pkgs:
             raise ValueError("with packages, give the command by name (the program comes from the throwaway folder)")

@@ -376,7 +376,7 @@ class ClientTests(RepoFixture):
         h.replies["gh repo view"] = Result(1)
         self.said = []
         given = {"server.host": "worker.example", "server.admin_user": "me", "github.owner": "someone", **kw.pop("given", {})}
-        c = ClientSetup(h, self.tmp / "client-home", ROOT / "packs" / "core" / "registry.yaml", say=self.said.append, given=given, use_defaults=True,
+        c = ClientSetup(h, self.tmp / "client-home", say=self.said.append, given=given, use_defaults=True,
                         repos_factory=lambda cfg: self.repos, **kw)
         return h, c
 
@@ -398,7 +398,8 @@ class ClientTests(RepoFixture):
         self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/claude-worker/cw.toml")).github.owner, "someone")
         self.repos.fetch_queue()
         reg = self.repos.show_file("origin/main", "registry.yaml")
-        self.assertIn("sys-status", reg)
+        self.assertIn("classes:", reg)
+        self.assertNotIn("sys-status", reg)         # the core classes come from the core pack, not from your repository
 
     def test_deploy_keys_are_added_read_only_for_queue_and_with_write_for_results(self):
         h, c = self.make(dry_run=False, queue_key="/k/queue.pub", results_key="/k/results.pub")
@@ -439,7 +440,11 @@ class CorePackTests(unittest.TestCase):
             import yaml  # noqa: F401
         except ImportError:
             self.skipTest("PyYAML is not installed")
-        self.assertEqual(registry.validate(registry.parse((ROOT / "packs" / "core" / "registry.yaml").read_text()), "/opt/x/tools"), [])
+        from cw import packs
+        pack = packs.load_pack(ROOT / "packs" / "core")
+        reg, _ = packs.compose({"core": pack}, ["core"], ["core"], {})
+        self.assertEqual(registry.validate(reg, "/opt/x/tools"), [])
+        self.assertIn("sys-status", reg["classes"])
 
 
 class AuditTests(unittest.TestCase):

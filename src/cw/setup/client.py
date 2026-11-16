@@ -12,10 +12,16 @@ from . import questions, toml_out
 from .server import SetupError
 
 
+SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test a command with `cw-run offload profile`.\n"
+                 "# The core classes come from the core pack; do not copy them here (a class name can only be defined once).\n"
+                 "# Optional sections: limits (size limits) and profiling (what counts as a good fit for this machine).\n"
+                 "classes:\n")
+
+
 class ClientSetup:
-    def __init__(self, host, home, core_registry, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
+    def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
                  queue_key=None, results_key=None):
-        self.host, self.home, self.core_registry = host, Path(home), Path(core_registry)
+        self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key = repos_factory, queue_key, results_key
         self.report, self.cfg = [], None
@@ -115,8 +121,8 @@ class ClientSetup:
         if repos.remote_branch_exists(self.cfg.github.main_branch):
             self.note("registry", "exists", "left as it is")
         else:
-            repos.push_files(self.cfg.github.main_branch, {"registry.yaml": self.core_registry.read_text()}, "chore(registry): the core job classes")
-            self.note("registry", "seeded", "sys-status, profile-run")
+            repos.push_files(self.cfg.github.main_branch, {"registry.yaml": SEED_REGISTRY}, "chore(registry): your own job classes start here")
+            self.note("registry", "seeded", "empty: the core classes come from the core pack")
 
     def run_all(self):
         self.say("\nChecking this computer")

@@ -231,7 +231,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     reg = p.tree_file(tree, "registry.yaml")
     if reg is not None:
         try:
-            problems = registry.validate(registry.parse(reg), "/nonexistent-tools-root")
+            problems = registry.validate(registry.parse(reg), "/nonexistent-tools-root", allow_empty=True)
         except Exception as e:                                          # invalid YAML
             problems = [f"not valid YAML: {e}"]
         problems = [x for x in problems if "tools" not in x]
