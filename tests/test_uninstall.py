@@ -179,7 +179,7 @@ class FromYourComputer(unittest.TestCase):
         self.assertIn("CW_CONFIG=/etc/claude-worker/cw.toml", preview)
         self.assertEqual(self.ssh.sent[0][0], "tar -xf - -C /tmp/cw-install.AbC123")
         self.assertIn("rm -rf /tmp/cw-install.AbC123", self.ssh.captured)
-        self.assertIn("Nothing was removed", err)
+        self.assertIn("cw-setup uninstall --apply", err)
 
     def test_apply_asks_once_then_runs_the_removal_under_sudo_on_a_terminal(self):
         self.answers = ["y"]

@@ -108,7 +108,7 @@ def uninstall_command(a, host, ask, ssh_factory, say):
         if not a.apply:
             r = ssh.capture(base)
             say((r.stdout or "") + (r.stderr or ""))
-            emit("Nothing was removed", "That was a preview.", tag="PREVIEW", color=YELLOW, run_label="Remove it", run="cw-setup uninstall --apply" + "".join(" " + f for f in flags))
+            emit("To remove it", tag="NEXT", color=GREEN, run_label="Run", run="cw-setup uninstall --apply" + "".join(" " + f for f in flags))
             return 0 if r.returncode == 0 else 1
         if not a.yes:
             if not sys.stdin.isatty() or ask(paint(f"\n  Remove the {cfg.identity.name} install from {cfg.server.host}? Run the preview first if unsure. [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
