@@ -99,6 +99,18 @@ It reads the install's own `cw.toml`, so it respects a different name or folders
 **What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
 unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `cw-setup install` afterwards sets everything up again.
 
+### Claude sign-in
+
+Jobs of kind `claude` run the `claude` tool on the worker, so they need a sign-in there. Everything else on the worker works without one. The question `claude.auth` chooses, **per worker**:
+
+- **account**: your claude.ai subscription. On your own computer run `claude setup-token`, sign in in the browser, copy the token it prints, and paste it (hidden) when the server asks. The token is valid for about a year (Anthropic's documentation); a login that expires makes Claude jobs fail until it is renewed.
+- **api-key**: an Anthropic API key, billed per use.
+- **none** (the default): Claude is not required, every other job runs without it. Adding it lets the worker run Claude on files you attach, so long reading and summarising happens there instead of on your laptop.
+
+For account and api-key the server half installs the `claude` tool for the worker account with Anthropic's own installer (`curl -fsSL https://claude.ai/install.sh | bash`, run as the worker account, never as root; you are shown the command and can skip it), then stores the token or key in `secrets.env` (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, readable by root and the worker account only). It is never written to `cw.toml`, to the answers saved on your computer, or to any log, and the worker gives it only to Claude jobs, never to ordinary commands; only the sign-in you chose is ever handed over. Leaving the paste empty is allowed (Claude jobs then fail until you add it).
+
+To change a worker later, run `cw-setup install` again and choose differently: the old credential is removed from that worker (choosing none deletes whatever was stored). Each worker keeps its own choice, so one can use the API while another uses the account.
+
 ### Running install again
 
 Stopping an install, or running it again without uninstalling, never starts from a blank page:
@@ -112,7 +124,7 @@ Stopping an install, or running it again without uninstalling, never starts from
 `src/cw/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected. `cw-setup demo` shows every screen on sample content and saves nothing.
 
 - **Banner.** `cw-setup install`, `server`, `client` and `demo` open with an ASCII banner (`brand.py`: the mark, the name, the version); `--no-banner` hides it, and a narrow terminal gets a smaller one. A one-line `@cw-ballast` header stays on top of the progress bar.
-- **Short first pass.** Only the few questions without a safe default are asked (server address, your account, GitHub name, machine strength, IPv6, alerts). The rest are *advanced* and keep their defaults: press `A` on the review screen, or run with `--advanced`, to answer them too.
+- **Short first pass.** Only the few questions without a safe default are asked (server address, your account, GitHub name, machine strength, IPv6, alerts, Claude sign-in). The rest are *advanced* and keep their defaults: press `A` on the review screen, or run with `--advanced`, to answer them too.
 - **Questions.** A progress bar on top (`cw-setup install  ━━━━╸────  8 of 19 done`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
   question on a blue rail with a chip naming its section and its position, the plain-words reason, a `RISK` row saying what a wrong answer costs, a `CHOICES` list or `EXAMPLES` row, the input line, a hint, and **the keys, always listed underneath**.
 - **Choices.** A question with a fixed set of answers lists each one with its number and what it means, the current one marked `▸`. Type the name, its number, or part of the name and press Tab.

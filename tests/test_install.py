@@ -263,8 +263,8 @@ class WithTheScreen(InstallBase):
         from test_tui import typed
         from cw.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
-        self.assertEqual(total, 6)                                   # the server, your account on it, GitHub, the machine, IPv6, alerts: everything else has a safe default
-        events = typed("worker.example", "admin") + typed("someone", "", "", "") + ["enter"]       # the connection questions, the rest, then Enter on the review
+        self.assertEqual(total, 7)                                   # the server, your account on it, GitHub, the machine, IPv6, alerts, Claude sign-in: everything else has a safe default
+        events = typed("worker.example", "admin") + typed("someone", "", "", "", "") + ["enter"]       # the connection questions, the rest, then Enter on the review
         inst, term = self.installer_with_screen(events)
         inst.run_all()
         screen = term.screen.text()
@@ -280,7 +280,7 @@ class WithTheScreen(InstallBase):
 
     def test_the_defaults_land_in_the_answers_sent_to_the_server(self):
         from test_tui import typed
-        events = typed("worker.example", "admin") + typed("someone", "", "", "") + ["enter"]
+        events = typed("worker.example", "admin") + typed("someone", "", "", "", "") + ["enter"]
         inst, _ = self.installer_with_screen(events)
         inst.run_all()
         import tomllib
@@ -292,7 +292,7 @@ class WithTheScreen(InstallBase):
 
     def test_stepping_back_from_the_first_other_question_returns_to_the_connection_questions(self):
         from test_tui import typed
-        events = typed("worker.example", "admin") + ["up"] + ["enter", "enter"] + typed("someone", "", "", "") + ["enter"]
+        events = typed("worker.example", "admin") + ["up"] + ["enter", "enter"] + typed("someone", "", "", "", "") + ["enter"]
         inst, term = self.installer_with_screen(events)
         inst.run_all()
         self.assertEqual(len([c for c in self.ssh.calls if c == "true"]), 2)            # it connected again after the person went back

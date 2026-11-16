@@ -159,7 +159,7 @@ def class_network(cls):
 
 
 # ---- the environment a job sees ---------------------------------------------------------------------------------------------------
-def build_env(home, claude=False, extra_env=None, api_key=None):
+def build_env(home, claude=False, extra_env=None, api_key=None, oauth_token=None):
     """System directories only on PATH, so nothing a job or a package step writes into the worker's home can shadow a system program.
     A `claude` job also gets the worker's ~/.local/bin (where claude is installed), LAST so it can never shadow anything, and the API key.
     A class's own variables (extra_env) are added; its PATH, if any, goes in front (a throwaway tools folder, set deliberately)."""
@@ -170,6 +170,8 @@ def build_env(home, claude=False, extra_env=None, api_key=None):
             env["PATH"] = extra_env["PATH"] + ":" + env["PATH"]
     if claude and api_key:
         env["ANTHROPIC_API_KEY"] = api_key             # claude jobs only; commands never see it
+    if claude and oauth_token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token   # a claude.ai subscription token (from `claude setup-token`); claude jobs only
     return env
 
 
@@ -179,7 +181,7 @@ def _child_limits():
 
 
 # ---- running and watching one command ---------------------------------------------------------------------------------------------
-def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=None, network=True, extra_env=None, api_key=None,
+def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=None, network=True, extra_env=None, api_key=None, oauth_token=None,
                 sensors=None, require_netns=True, jail=None):
     """Run one job command in its own process group and watch it.
 
@@ -188,7 +190,7 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     Metrics are measured for every job, so results show what each one really cost. `claude` marks a job whose stdout is a JSON document
     with a `result` field."""
     limits, sensors = limits or {}, sensors or LinuxSensors()
-    env = build_env(home, claude, extra_env, api_key)
+    env = build_env(home, claude, extra_env, api_key, oauth_token)
     timeout = min(int(timeout), MAX_TIMEOUT)
     try:
         launch = (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, claude=claude, env=env, require=require_netns)

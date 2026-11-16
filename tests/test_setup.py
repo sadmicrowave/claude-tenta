@@ -601,3 +601,97 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudeSignIn(ServerTests):
+    """The Claude step: nothing for `none`; the tool and the stored sign-in otherwise."""
+
+    class Screen:
+        def __init__(self, token="", install=True):
+            self.token, self.install, self.cards, self.asked = token, install, [], []
+
+        total_hint = 0
+
+        def begin(self, *a, **k):
+            pass
+
+        def finish(self, *a, **k):
+            pass
+
+        def heading(self, *a, **k):
+            pass
+
+        def sub(self, *a, **k):
+            pass
+
+        def protection(self, info):
+            self.cards.append(info["id"])
+            return self.install if info["id"] == "claude-install" else True
+
+        def ask_secret(self, q):
+            self.asked.append(q)
+            return self.token
+
+    def run_with(self, auth, token="", install=True, **kw):
+        screen = self.Screen(token, install)
+        s = self.setup_obj(dry_run=False, ui=screen, given={"claude.auth": auth}, **kw)
+        s.run_all()
+        return s, screen
+
+    def secrets(self):
+        return config.read_env_file(self.h.path("/etc/claude-ballast/secrets.env"))
+
+    def test_none_installs_nothing_and_says_other_jobs_are_unaffected(self):
+        s, screen = self.run_with("none")
+        self.assertNotIn("claude-install", screen.cards)
+        self.assertEqual(screen.asked, [])
+        self.assertTrue(any(step == "Claude sign-in" and status == "skipped" and "every other job runs" in detail for step, status, detail in s.report))
+        self.assertFalse(self.h.ran("runuser -u cwworker -- env"))
+
+    def test_account_installs_the_tool_as_the_worker_and_stores_only_the_token_it_is_given(self):
+        token = "sk-ant-oat01-" + "x" * 40
+        s, screen = self.run_with("account", token=token)
+        self.assertIn("claude-install", screen.cards)
+        install = [c for c in self.h.calls if c[:4] == ["runuser", "-u", "cwworker", "--"] and "bash" in c]
+        self.assertEqual(len(install), 1)
+        self.assertIn("https://claude.ai/install.sh", install[0][-1])
+        self.assertEqual(self.secrets().get("CLAUDE_CODE_OAUTH_TOKEN"), token)
+        self.assertNotIn("ANTHROPIC_API_KEY", self.secrets())
+        self.assertNotIn(token, self.h.read("/etc/claude-ballast/cw.toml"))               # the configuration never holds it
+        self.assertNotIn(token, "\n".join(self.said))
+        self.assertEqual(oct(self.h.path("/etc/claude-ballast/secrets.env").stat().st_mode & 0o777), "0o640")
+
+    def test_api_key_goes_under_its_own_name_and_replaces_the_other_route(self):
+        s, screen = self.run_with("api-key", token="sk-ant-api03-" + "y" * 40)
+        self.assertIn("ANTHROPIC_API_KEY", self.secrets())
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
+
+    def test_skipping_the_install_or_leaving_the_token_empty_is_allowed_and_said(self):
+        s, screen = self.run_with("account", token="", install=False)
+        statuses = {step: status for step, status, _ in s.report}
+        self.assertEqual((statuses["Claude tool"], statuses["Claude sign-in"]), ("skipped", "skipped"))
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
+
+    def test_something_that_is_not_a_token_is_refused(self):
+        with self.assertRaises(server.SetupError):
+            self.run_with("account", token="two words here and more than twenty chars")
+
+    def test_a_token_that_is_already_stored_is_kept_and_not_asked_again(self):
+        self.run_with("account", token="sk-ant-oat01-" + "z" * 40)
+        s2, screen2 = self.run_with("account", token="")
+        self.assertEqual(screen2.asked, [])
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
+
+    def test_switching_to_none_deletes_what_was_stored(self):
+        self.run_with("api-key", token="sk-ant-api03-" + "k" * 40)
+        self.assertIn("ANTHROPIC_API_KEY", self.secrets())
+        s, _ = self.run_with("none")
+        self.assertEqual({k for k in self.secrets() if "ANTHROPIC" in k or "CLAUDE" in k}, set())
+        self.assertTrue(any(step == "Claude sign-in" and status == "removed" for step, status, _ in s.report))
+
+    def test_a_preview_asks_for_nothing_and_changes_nothing(self):
+        screen = self.Screen("sk-ant-oat01-" + "q" * 40)
+        s = self.setup_obj(dry_run=True, ui=screen, given={"claude.auth": "account"})
+        s.run_all()
+        self.assertEqual(screen.asked, [])
+        self.assertTrue(any("curl -fsSL https://claude.ai/install.sh" in line for line in self.said))

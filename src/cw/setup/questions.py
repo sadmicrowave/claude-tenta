@@ -43,6 +43,10 @@ QUESTIONS = [
        "Paste it. It is hidden as you type (shown as dots) because anyone who learns a private topic name can read your alerts.",
        risk="Use a long, random topic name. Access tokens never go here; they belong in secrets.env.",
        examples=["https://ntfy.sh/your-long-random-topic"], half="server", when=lambda a: a.get("alerts.kind", "none") != "none"),
+    _Q("claude.auth", "How should jobs that use Claude sign in?",
+       "Some jobs ask Claude, the AI assistant, to read files you attach and report back. Those jobs need a sign-in on this worker; nothing else on the worker uses one.",
+       risk="The sign-in is stored only on this worker, readable by the worker account, and handed only to Claude jobs, never to ordinary commands. Anyone who got it could use your Claude account, "
+            "so it is one more reason to keep the worker locked down.", half="server"),
     # ---- advanced: the defaults are right for almost everyone ----
     _Q("identity.name", "What should this install be called?",
        "Everything is named after it: the services and folders on the server (claude-ballast-step, /opt/claude-ballast, ...); the commands are always cw-worker and cw-update. Two installs on one machine need different names.",
@@ -96,6 +100,9 @@ CHOICES = {
     "alerts.kind": [("none", "No push alerts. Security events are only in the log and in `cw-admin status`."),
                     ("ntfy", "A push notification to your phone through ntfy (ntfy.sh or your own server)."),
                     ("webhook", "A short message posted to any https address you choose.")],
+    "claude.auth": [("account", "Your claude.ai subscription. You make a long-lived token once on your own computer with `claude setup-token` and paste it when the server asks; no API account is needed."),
+                    ("api-key", "An Anthropic API key (billed per use). Pasted once when the server asks and kept only on the worker."),
+                    ("none", "Claude is not required: every other kind of job runs without it. Adding it lets the worker run Claude on files you attach, so long reading and summarising happens there instead of on your laptop.")],
     "updates.mode": [("manual", "You install updates yourself with `cw-admin apply`, after reading what changes."),
                      ("signed-tags", "The server installs a new release by itself, but only a release tag signed by a key you trust.")],
     "network.lan_deny_out": [("yes", "Block it. The server can reach the internet but not your other devices."),
@@ -105,7 +112,7 @@ LABELS = {"identity.name": "Install name", "server.host": "Server address", "ser
           "github.owner": "GitHub account", "github.queue_repo": "Queue repository", "github.results_repo": "Results repository", "updates.source": "Release source",
           "updates.mode": "Updates", "hardware.profile": "Machine", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
           "network.lan_allow_out": "LAN exceptions", "network.dns_servers": "DNS servers", "network.ssh_from": "SSH allowed from", "access.sudo": "Passwordless commands",
-          "alerts.kind": "Alerts", "alerts.url": "Alert address"}
+          "alerts.kind": "Alerts", "alerts.url": "Alert address", "claude.auth": "Claude sign-in"}
 for _q in QUESTIONS:
     _q["label"] = LABELS.get(_q["key"], _q["key"].partition(".")[2].replace("_", " ").capitalize())
     _q["secret"] = _q["key"] == "alerts.url"          # a private topic address: typed hidden (as dots) and shown as "set"

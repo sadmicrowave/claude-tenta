@@ -22,6 +22,17 @@ class SetupError(Exception):
 
 
 EXIT_WAITING = 10          # the server half stopped because the repositories cannot be reached yet (the deploy keys are not added); run it again to continue
+CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"          # Anthropic's documented installer for Linux; it needs no root
+CLAUDE_QUESTIONS = {
+    "account": {"key": "claude.token", "title": "Paste your Claude token",
+                "why": "On your own computer, open a terminal and run `claude setup-token`. Sign in in the browser it opens, then copy the long token it prints and paste it here. It lasts about a year.",
+                "risk": "Anyone with this token can use your Claude account. It is stored only on this worker, readable by root and the worker account, and given only to Claude jobs.",
+                "examples": ["a long single line starting with sk-ant-"]},
+    "api-key": {"key": "claude.token", "title": "Paste your Anthropic API key",
+                "why": "Create one in the Anthropic Console (API keys) and paste it here. Jobs that use Claude are billed to that account per use.",
+                "risk": "Anyone with this key can spend on your API account. It is stored only on this worker, readable by root and the worker account, and given only to Claude jobs.",
+                "examples": ["a long single line starting with sk-ant-"]},
+}
 PREREQUISITES = (("python3-yaml", ["python3", "-c", "import yaml"]), ("git", ["git", "--version"]))
 
 
@@ -251,6 +262,83 @@ class ServerSetup:
             self.host.write(f"{cfg.paths.config}/hardening.json", json.dumps(results, indent=2, sort_keys=True) + "\n", 0o644)
         return results
 
+    # ---- Claude: the tool, and how its jobs sign in ----
+    def claude_step(self):
+        """Only when the install says jobs may use Claude (claude.auth is not none): install the `claude` tool for the worker account, then store the sign-in the person
+        gives. Everything else about the worker works without any of this."""
+        cfg = self.cfg
+        auth = cfg.claude.auth
+        if auth == "none":
+            self.forget_claude_secrets()
+            self.note("Claude sign-in", "skipped", "not used on this worker; every other job runs without it")
+            return
+        w, home = cfg.server.worker_user, cfg.paths.worker_home
+        if self.host.exists(f"{home}/.local/bin/claude"):
+            self.note("Claude tool", "ok", "already installed for the worker")
+        elif self.approve_claude_install(w):
+            if not self.host.run(["curl", "--version"]).ok and not self.dry_run:
+                self.run(["apt-get", "install", "-y", "curl"], step="install curl")
+            self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
+            self.note("Claude tool", "planned" if self.dry_run else "installed", f"{home}/.local/bin/claude")
+        else:
+            self.note("Claude tool", "skipped", "you chose not to install it; Claude jobs will not run until it is installed")
+        self.claude_secret(auth)
+
+    def forget_claude_secrets(self):
+        """Choosing none after having chosen a sign-in removes what was stored, so no old credential is left on the worker."""
+        path = self.cfg.path("secrets")
+        text = self.host.read(path)
+        if self.dry_run or not text or not any(k in config.read_env_file_text(text) for k in config.CLAUDE_SECRET_KEYS.values()):
+            return
+        for k in config.CLAUDE_SECRET_KEYS.values():
+            text = config.set_env_var(text, k, None)
+        self.host.write(path, text, 0o640)
+        self.host.run(["chown", f"root:{self.cfg.server.worker_user}", path])
+        self.note("Claude sign-in", "removed", "the stored token or key was deleted from the worker")
+
+    def approve_claude_install(self, worker):
+        info = {"id": "claude-install", "label": "Install", "tag": "downloads from claude.ai", "title": "Install Claude Code for the worker",
+                "why": "Jobs that use Claude run the `claude` command-line tool as the worker account. Anthropic's own installer puts it in the worker's home folder; it needs no root.",
+                "risk": "This downloads and runs Anthropic's installer script from claude.ai, as the worker account (not root). The tool updates itself afterwards. Skip it to install the tool yourself.",
+                "now": "not installed", "steps": [f"runuser -u {worker} -- {CLAUDE_INSTALL}"], "lockout": False}
+        if self.dry_run:
+            return True
+        if self.ui is not None:
+            return self.ui.protection(info)
+        self.say("    $ " + info["steps"][0])
+        return self.confirm("Install Claude Code for the worker?") if self.confirm else True
+
+    def claude_secret(self, auth):
+        cfg = self.cfg
+        key, path, w = config.CLAUDE_SECRET_KEYS[auth], cfg.path("secrets"), cfg.server.worker_user
+        if self.dry_run:
+            self.note("Claude sign-in", "planned", f"would ask for the {'token' if auth == 'account' else 'key'} and keep it in {path} as {key}")
+            return
+        text = self.host.read(path) or "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n"
+        if config.read_env_file_text(text).get(key):
+            self.note("Claude sign-in", "ok", f"{key} is already set")
+            return
+        value = self.read_secret(CLAUDE_QUESTIONS[auth])
+        if not value:
+            self.note("Claude sign-in", "skipped", "nothing was entered; Claude jobs fail until you add it (run cw-setup install again)")
+            return
+        if len(value) < 20 or any(c.isspace() for c in value):
+            raise SetupError("That does not look like a token", "It should be one long line with no spaces. Run cw-setup install again to enter it.")
+        other = next(k for a, k in config.CLAUDE_SECRET_KEYS.items() if a != auth)
+        text = config.set_env_var(config.set_env_var(text, other, None), key, value)
+        self.host.write(path, text, 0o640)
+        self.host.run(["chown", f"root:{w}", path])
+        self.note("Claude sign-in", "stored", f"{key} in {path}, readable only by root and the worker account")
+
+    def read_secret(self, q):
+        if self.ui is not None:
+            return self.ui.ask_secret(q)
+        import sys
+        if sys.stdin.isatty():
+            import getpass
+            return getpass.getpass(f"  {q['title']} (hidden; Enter to skip): ").strip()
+        return ""
+
     def start_timers(self):
         cfg = self.cfg
         timers = [cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
@@ -280,6 +368,8 @@ class ServerSetup:
         self.registry_step()
         self.say("\nHardening")
         self.hardening_step()
+        self.say("\nClaude")
+        self.claude_step()
         self.say("\nStarting")
         self.start_timers()
         return self.report

@@ -112,7 +112,8 @@ class Context:
         keeper = results.OutputKeeper(state)
         sensors = runner.LinuxSensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
-        w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY"),
+        w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY") if cfg.claude.auth == "api-key" else None,
+                   oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN") if cfg.claude.auth == "account" else None,       # only the chosen sign-in is ever given to a job
                    hostname=None, jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")

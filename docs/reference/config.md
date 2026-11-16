@@ -79,6 +79,12 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `ssh_from` | `["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]` | list | networks allowed to SSH in |
 | `ipv6` | `enabled` | `enabled` , `disabled` | disabled turns IPv6 off on the server (less to attack, and nothing to firewall); enabled keeps it and blocks unique-local addresses |
 
+## [claude]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `auth` | `none` | `account` , `api-key` , `none` | how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). The token or key itself lives only in secrets.env |
+
 ## [access]
 
 | Setting | Default | Allowed | What it does |

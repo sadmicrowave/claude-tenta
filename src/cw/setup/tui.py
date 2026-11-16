@@ -25,7 +25,7 @@ DOT = "•"
 BRAND = "@cw-ballast"
 
 SECTIONS = {"identity": "INSTALL", "server": "SERVER", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
-            "access": "ACCESS", "alerts": "ALERTS", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
+            "access": "ACCESS", "alerts": "ALERTS", "claude": "CLAUDE", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
 
 
 def strip(text):
@@ -399,6 +399,12 @@ class TuiPrompter:
                     continue
                 return result
 
+    def ask_secret(self, q):
+        """One hidden answer on its own screen (the dots show it was accepted). Returns the text, or '' when left empty."""
+        kind, text = self.ask({**q, "secret": True}, "", [], view={"items": [], "pos": 0, "total": 1, "can_back": False, "prefill": ""})
+        self.erase()
+        return text.strip()
+
     def draw_input(self, editor, placeholder):
         avail = self.width - 5
         text, pos = editor.shown(), editor.pos
@@ -470,8 +476,9 @@ class TuiPrompter:
     def card(self, info, choice, full):
         inner = self.width - 4
         a = lambda t: self.sgr(t, AMBER)                                      # noqa: E731
-        title = f"Protection {info['index']} of {info['total']}" if info.get("total") else "Protection"
-        tag = "could lock you out" if info.get("lockout") else "recommended"
+        label = info.get("label", "Protection")
+        title = f"{label} {info['index']} of {info['total']}" if info.get("total") else label
+        tag = "could lock you out" if info.get("lockout") else info.get("tag", "recommended")
         top = a("╭─ ") + self.sgr(title, AMBER, BOLD) + a(" " + "─" * max(1, inner - len(title) - len(tag) - 4) + " ") + self.sgr(tag, AMBER) + a(" ─╮")
 
         def row(text=""):

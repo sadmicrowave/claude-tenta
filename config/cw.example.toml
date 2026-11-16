@@ -50,6 +50,9 @@ dns_servers = []                # DNS servers it may use inside the LAN, e.g. ["
 ssh_from = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]   # networks allowed to SSH in
 ipv6 = "enabled"                # enabled | disabled. disabled turns IPv6 off on the server (a hardening choice: most home networks do not need it)
 
+[claude]
+auth = "none"                   # none | account | api-key. none: Claude is not used on this worker (every other job still runs) | account: a claude.ai subscription token | api-key: an Anthropic API key. The token or key itself goes in secrets.env
+
 [access]
 sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask
 

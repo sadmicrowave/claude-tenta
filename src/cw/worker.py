@@ -52,12 +52,13 @@ class Settings:
 
 class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
-                 home=None, api_key=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
+                 home=None, api_key=None, oauth_token=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
         self.sensors = sensors
         self.runner, self.clock = runner, clock
         self.log = log or (lambda msg: None)
         self.home, self.api_key, self.hostname = str(home or Path.home()), api_key, hostname
+        self.oauth_token = oauth_token
         self.jail = jail if jail is not None else Unshare()
         self.loadavg = loadavg or (lambda: os.getloadavg()[0])
         self.is_job_process = is_job_process or self._pid_is_job
@@ -287,7 +288,7 @@ class Worker:
         else:
             st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
                                                      marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
-                                                     api_key=self.api_key, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
+                                                     api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
         shaped, shape_note = results.shape_output(cls, out, self.limits["output_max_chars"])
         summarised = st == "error" and kind != "claude" and not cls.get("output_keys") and bool(out)
         if summarised:

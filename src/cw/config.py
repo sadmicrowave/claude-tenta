@@ -224,6 +224,11 @@ SCHEMA = {
         "ipv6": ("enabled", _enum("enabled", "disabled"),
                  "disabled turns IPv6 off on the server (less to attack, and nothing to firewall); enabled keeps it and blocks unique-local addresses"),
     },
+    "claude": {
+        "auth": ("none", _enum("account", "api-key", "none"),
+                 "how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). "
+                 "The token or key itself lives only in secrets.env"),
+    },
     "access": {
         "sudo": ("readonly-nopasswd", _enum("readonly-nopasswd", "password"),
                  "readonly-nopasswd: the admin may run the read-only commands (status, show, ...) without a password; password: always ask"),
@@ -246,6 +251,17 @@ SCHEMA = {
                     _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard applies"),
     },
 }
+CLAUDE_SECRET_KEYS = {"account": "CLAUDE_CODE_OAUTH_TOKEN", "api-key": "ANTHROPIC_API_KEY"}      # the name each sign-in route has in secrets.env
+
+
+def set_env_var(text, key, value):
+    """The text of a KEY=value file with `key` set (or removed when value is None), every other line left as it was."""
+    lines = [l for l in text.splitlines() if l.split("=", 1)[0].strip() != key]
+    if value is not None:
+        lines.append(f"{key}={value}")
+    return "\n".join(lines) + "\n"
+
+
 SECRETISH = re.compile(r"(?i)(token|passw|secret|api[_-]?key|credential)")
 
 
@@ -442,11 +458,15 @@ def load(path=None, env=None):
 # ---- secrets: KEY=value files kept apart from the config -----------------------------------------------------------------------
 def read_env_file(path):
     """Parse a KEY=value file (comments and blanks ignored, optional quotes). Returns {} if it does not exist."""
-    out = {}
     try:
         text = Path(path).read_text(encoding="utf-8")
     except OSError:
-        return out
+        return {}
+    return read_env_file_text(text)
+
+
+def read_env_file_text(text):
+    out = {}
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:

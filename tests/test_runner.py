@@ -87,6 +87,10 @@ class Environment(unittest.TestCase):
         self.assertEqual((env["PATH"], env["PYTHONPATH"]), ("/opt/t/bin:" + SAFE_PATH, "/opt/t/pip"))
         self.assertEqual(runner.build_env("/h", extra_env={"HOME": "/evil"})["HOME"], "/evil")        # a class may set its own variables
 
+    def test_the_subscription_token_goes_to_claude_jobs_only(self):
+        self.assertEqual(runner.build_env("/h", claude=True, oauth_token="t")["CLAUDE_CODE_OAUTH_TOKEN"], "t")
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", runner.build_env("/h", claude=False, oauth_token="t"))
+
     def test_the_api_key_goes_to_claude_jobs_only(self):
         self.assertEqual(runner.build_env("/h", claude=True, api_key="k")["ANTHROPIC_API_KEY"], "k")
         self.assertNotIn("ANTHROPIC_API_KEY", runner.build_env("/h", claude=False, api_key="k"))
