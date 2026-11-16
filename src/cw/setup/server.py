@@ -7,6 +7,7 @@ then the repository keys, then the hardening modules, then a check.
 import json
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 from .. import config, render, update
@@ -18,6 +19,10 @@ class SetupError(Exception):
     def __init__(self, title, why=None, steps=None):
         super().__init__(title)
         self.title, self.why, self.steps = title, why, steps or []
+
+
+EXIT_WAITING = 10          # the server half stopped because the repositories cannot be reached yet (the deploy keys are not added); run it again to continue
+PREREQUISITES = (("python3-yaml", ["python3", "-c", "import yaml"]), ("git", ["git", "--version"]))
 
 
 def alias_for(cfg, which):
@@ -51,11 +56,12 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
+        self.wait_for_keys, self._sleep, self._clock = wait_for_keys, sleep, clock
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -87,10 +93,17 @@ class ServerSetup:
             raise SetupError("This machine is not supported", problem)
         if not self.dry_run and not self.is_root():
             raise SetupError("Run this as root", "It creates accounts and installs system files.", ["sudo python3 -m cw.setup server"])
-        if not self.host.run(["python3", "-c", "import yaml"]).ok:
-            raise SetupError("PyYAML is missing", "The worker reads its job registry with it.", ["sudo apt-get install -y python3-yaml"])
         self.note("checked the machine", "ok", f"{facts.os_id} {facts.os_version}")
+        self.prerequisites()
         return facts
+
+    def prerequisites(self):
+        """Install what the worker itself needs that a fresh server may lack (the registry reader and git). Needs no question: they are not optional."""
+        missing = [pkg for pkg, probe in PREREQUISITES if not self.host.run(probe).ok]
+        if missing:
+            self.say("\n  The worker needs " + ", ".join(missing) + ", which this machine lacks.")
+            self.run(["apt-get", "install", "-y", *missing], step="install what the worker needs")
+        self.note("prerequisites", "installed" if missing and not self.dry_run else "planned" if missing else "ok", ", ".join(missing))
 
     def configure(self, facts):
         nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults)
@@ -158,31 +171,53 @@ class ServerSetup:
         if not self.dry_run:
             self.host.write(f"{keydir}/config", ssh_config_text(cfg), 0o600)
             self.host.run(["chown", f"{w}:{w}", f"{keydir}/config"])
+            for which, pub in pubs.items():           # public halves only: readable by the administrator, so cw-setup on their computer can add them to GitHub for them
+                if pub:
+                    self.host.write(f"{cfg.paths.config}/deploy-keys/{which}.pub", pub + "\n", 0o644)
         self.note("repository keys", "ready")
         return pubs
 
+    def reachable(self, which):
+        cfg, w = self.cfg, self.cfg.server.worker_user
+        # no --exit-code: a brand-new, empty repository is reachable too
+        return self.host.run(["runuser", "-u", w, "--", "git", "ls-remote", remote_url(cfg, which)]).ok
+
+    def wait_until_reachable(self, pending):
+        """Wait (up to wait_for_keys seconds) for the repositories to become reachable: the person, or cw-setup on their computer, is adding the deploy keys."""
+        self.say(f"\n  Waiting for the deploy keys to be added to GitHub (up to {self.wait_for_keys} s)...")
+        deadline, last = self._clock() + self.wait_for_keys, self._clock()
+        while pending and self._clock() < deadline:
+            self._sleep(5)
+            pending = [w for w in pending if not self.reachable(w)]
+            if pending and self._clock() - last >= 30:
+                last = self._clock()
+                self.say(f"    still waiting for: {', '.join(pending)}")
+        return pending
+
     def clones(self, pubs):
         cfg, w = self.cfg, self.cfg.server.worker_user
-        pending = False
-        for which, dest in (("queue", cfg.path("queue_clone")), ("results", cfg.path("results_clone"))):
+        todo = [(which, dest) for which, dest in (("queue", cfg.path("queue_clone")), ("results", cfg.path("results_clone")))]
+        pending = []
+        for which, dest in todo:
             if self.host.exists(dest + "/.git"):
                 self.note(f"{which} clone", "exists")
+            elif not self.dry_run and not self.reachable(which):
+                pending.append(which)
+        if pending and self.wait_for_keys:
+            pending = self.wait_until_reachable(pending)
+        for which, dest in todo:
+            if self.host.exists(dest + "/.git") or which in pending:
                 continue
-            test = ["git", "ls-remote", remote_url(cfg, which)]          # no --exit-code: a brand-new, empty repository is reachable too
-            if self.dry_run or not self.host.run(["runuser", "-u", w, "--", *test]).ok:
-                if not self.dry_run:
-                    pending = True
-                    continue
             if not self.dry_run:
                 self.run(["git", "clone", "--quiet", remote_url(cfg, which), dest], step=f"clone the {which} repository", as_user=w)
             self.note(f"{which} clone", "planned" if self.dry_run else "cloned")
         if pending:
-            self.say("\n  The server cannot reach your repositories yet. Add its two public keys on your own computer (they are shown below),")
-            self.say("  then run this command again; it continues from here.\n")
+            self.say("\n  The server cannot reach your repositories yet. Its two public keys must be added to GitHub (cw-setup on your computer does this for you")
+            self.say("  when GitHub's `gh` command is available; otherwise do it by hand). Then run this command again; it continues from here.\n")
             for fname, pub, cmd in deploy_key_commands(cfg, pubs):
                 self.say(f"    echo '{pub}' > {fname}\n    {cmd}\n")
             self.note("repository clones", "waiting", "add the deploy keys, then run again")
-        return pending
+        return bool(pending)
 
     def registry_step(self):
         """Install the job registry the worker will trust (the queue repository's, validated; the core pack on a brand-new install)."""
@@ -214,6 +249,10 @@ class ServerSetup:
         for t in timers:
             self.run(["systemctl", "enable", "--now", t], step="start the timers")
         self.note("timers", "planned" if self.dry_run else "running", ", ".join(timers))
+
+    @property
+    def waiting(self):
+        return any(status == "waiting" for _, status, _ in self.report)
 
     def run_all(self):
         """Returns the report. Raises SetupError for anything that must stop the wizard (the report so far is in self.report)."""

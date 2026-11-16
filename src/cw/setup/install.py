@@ -1,0 +1,215 @@
+"""cw-setup install: the whole setup from your own computer, in one command.
+
+  1. connect to the server over SSH (key login) and learn about it, so the questions start from sensible suggestions and an unsupported machine is refused up front;
+  2. ask every question once, here;
+  3. set up this side (your configuration, the two private repositories, the clones);
+  4. send the release to the server and run the server half there over `ssh -t` (you type the administrator's sudo password once, and only the server sees it);
+  5. while it runs, take the server's public deploy keys from where it publishes them and add them to GitHub with `gh`, so nothing is copied by hand;
+  6. send a first job through the whole loop and check the connection.
+
+Nothing is left behind on the server: the folder it received the release in, which also holds your answers, is removed when it finishes.
+"""
+import hashlib
+import io
+import re
+import subprocess
+import tarfile
+import time
+from pathlib import Path
+
+from .. import config
+from ..admin.ssh import Ssh
+from ..client.repo import ClientError
+from . import detect, keys as keys_mod, questions, toml_out
+from .client import ClientSetup
+from .remote import RemoteHost
+from .server import EXIT_WAITING, SetupError
+
+CONNECTION = {"server.host", "server.admin_user", "server.ssh_port"}
+REMOTE_DIR = re.compile(r"^/tmp/cw-install\.[A-Za-z0-9]{6,12}$")
+
+
+def flat(nested):
+    return {f"{s}.{k}": v for s, d in nested.items() for k, v in d.items()}
+
+
+def merge(*parts):
+    out = {}
+    for p in parts:
+        for section, values in p.items():
+            out.setdefault(section, {}).update(values)
+    return out
+
+
+def archive_source(source, run=subprocess.run):
+    """(tar bytes, revision, dirty): the committed files of the checkout (no history, no untracked or ignored files). A folder that is not a git checkout is
+    tarred as it is and identified by the hash of its contents."""
+    src = Path(source)
+    if (src / ".git").exists():
+        r = run(["git", "-C", str(src), "archive", "--format=tar", "HEAD"], capture_output=True)
+        if r.returncode:
+            raise SetupError("Could not package the release", (r.stderr or b"").decode("utf-8", "replace")[:200])
+        rev = run(["git", "-C", str(src), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        dirty = bool(run(["git", "-C", str(src), "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip())
+        return r.stdout, rev, dirty
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as t:
+        for d in ("src", "templates", "packs"):
+            if (src / d).is_dir():
+                t.add(src / d, arcname=d, filter=lambda i: None if "__pycache__" in i.name or i.name.startswith(".") else i)
+    data = buf.getvalue()
+    return data, hashlib.sha1(data).hexdigest(), False
+
+
+class Installer:
+    def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None):
+        self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
+        self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
+        self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
+        self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
+        self.ssh = self.cfg = self.facts = None
+        self.report = []
+
+    def note(self, step, status, detail=""):
+        self.report.append((step, status, detail))
+        self.say(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+
+    # ---- 1. connect and learn ----
+    def connect(self):
+        self.say("\nConnecting to the server")
+        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION)
+        if missing:
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+        c = conn.get("server", {})
+        self.ssh = self.ssh_factory(c["host"], c["admin_user"], c.get("ssh_port", 22))
+        try:
+            self.ssh.capture("true")
+        except ClientError as e:
+            raise SetupError(f"Cannot log in to {c['host']} over SSH", e.why, ["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}"])
+        self.facts = detect.detect(RemoteHost(self.ssh))
+        for what, value in self.facts.summary():
+            self.say(f"  {what:<22} {value}")
+        problem = self.facts.os_problem()
+        if problem:
+            raise SetupError("The server is not supported", problem)
+        self.note("connected to the server", "ok", f"{self.ssh.target}, {self.facts.os_id} {self.facts.os_version}")
+        return conn
+
+    # ---- 2. questions ----
+    def ask_everything(self, conn):
+        self.say("\nQuestions")
+        given = {**self.given, **flat(conn)}
+        client, m1 = questions.collect("client", ask=self.ask, say=self.say, given=given, use_defaults=self.use_defaults)
+        server, m2 = questions.collect("server", ask=self.ask, say=self.say, given={**given, **flat(client)}, suggestions=self.facts.suggestions(), use_defaults=self.use_defaults)
+        missing = m1 + m2
+        if missing:
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+        nested = merge(conn, client, server)
+        clean, problems = questions.validate_answers(nested)
+        if problems:
+            raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
+        self.cfg = config.Config(clean)
+        return nested
+
+    # ---- 3. this side ----
+    def client_half(self, nested):
+        self.say("\nYour computer")
+        c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory)
+        c.run_all()
+        self.report += c.report
+
+    # ---- 4. the server ----
+    def remote_dir(self):
+        r = self.ssh.capture("umask 077; mktemp -d /tmp/cw-install.XXXXXX")
+        d = (r.stdout or "").strip()
+        if r.returncode or not REMOTE_DIR.match(d):
+            raise SetupError("Could not make a working folder on the server", (r.stderr or d)[:200])
+        return d
+
+    def deliver(self, nested):
+        data, rev, dirty = self.archive(self.source)
+        if dirty:
+            self.say("\n  NOTE  You have uncommitted changes. The server gets the last COMMIT (" + rev[:9] + "); the changes are not included.")
+        d = self.remote_dir()
+        r = self.ssh.send(f"tar -xf - -C {d}", data)
+        if r.returncode:
+            raise SetupError("Could not send the release to the server", (r.stderr or b"").decode("utf-8", "replace")[:200])
+        self.ssh.send(f"cat > {d}/answers.toml", toml_out.dump(nested, full=True).encode())
+        self.note("release sent to the server", "ok", f"commit {rev[:9]}, {len(data) // 1024} KB")
+        return d, rev
+
+    def server_half(self, d, rev):
+        self.say("\nThe server")
+        # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
+        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --answers {d}/answers.toml --rev {rev} --source {d}"
+        if self.dry_run:
+            r = self.ssh.capture(base)
+            self.say((r.stdout or "") + (r.stderr or ""))
+            return
+        self.say(f"  The server will ask for {self.ssh.user or 'the administrator'}'s sudo password, and for a yes to each protection. Only the server sees the password.\n")
+        proc = self.ssh.popen(f"sudo {base} --apply --wait-for-keys {self.wait_for_keys}", tty=True)
+        dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say)
+        shown = False
+        while proc.poll() is None:
+            got = keys_mod.published(self.ssh, self.cfg.paths.config)
+            if len(got) == 2 and not dk.complete:
+                if dk.available:
+                    for which, status in dk.sync(got):
+                        if status not in ("added", "present"):
+                            self.say(f"  ERROR     could not add the {which} deploy key: {status}")
+                elif not shown:
+                    shown = True
+                    self.say("\n  `gh` is not available here, so add the server's keys to GitHub yourself:")
+                    for row in dk.manual_steps(got):
+                        self.say("  " + row)
+            self._sleep(self.poll_s)
+        rc = proc.returncode
+        if rc == EXIT_WAITING:
+            raise SetupError("The server is still waiting for its deploy keys", "They were not added in time.",
+                             ["Add them (see above), then run cw-setup install again; it continues from here."])
+        if rc != 0:
+            raise SetupError(f"The server setup stopped (exit {rc})", "Read the messages above. Running cw-setup install again continues where it left off.")
+        self.note("server setup", "done")
+
+    def cleanup(self, d):
+        if d and REMOTE_DIR.match(d):
+            try:
+                self.ssh.capture(f"rm -rf {d}")
+            except ClientError:
+                pass
+
+    # ---- 5. first job ----
+    def first_job(self):
+        self.say("\nA first job")
+        ok = self.verify(self.cfg) if self.verify else True
+        self.note("a job went through the whole loop", "ok" if ok else "failed")
+        return ok
+
+    def run_all(self):
+        conn = self.connect()
+        nested = self.ask_everything(conn)
+        self.client_half(nested)
+        d = None
+        try:
+            d, rev = self.deliver(nested)
+            self.server_half(d, rev)
+        finally:
+            self.cleanup(d)
+        if not self.dry_run:
+            self.first_job()
+        return self.report
+
+
+def default_verify(cfg, say=print, sleep=time.sleep, attempts=8, wait_s=15):
+    """Send `sys-status` and wait for its result; the worker needs a minute after its first start to publish what it can run, so try a few times."""
+    from ..admin import cli as admin_cli
+    from ..client import cli as client_cli
+    ok = False
+    for i in range(attempts):
+        if client_cli.main(["submit", "sys-status", "--wait", "--timeout", "200"]) == 0:
+            ok = True
+            break
+        say(f"  (the worker is still starting; trying again, {i + 1} of {attempts})")
+        sleep(wait_s)
+    return ok and admin_cli.main(["check"]) == 0

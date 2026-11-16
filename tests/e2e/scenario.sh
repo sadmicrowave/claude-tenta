@@ -28,7 +28,7 @@ runuser -u $ADMIN -- bash -c '[ -f ~/.ssh/id_ed25519 ] || { mkdir -p ~/.ssh && c
 # a stand-in for GitHub: github.com is this machine; user "git" owns the bare repositories
 grep -q 'github.com' /etc/hosts || echo '127.0.0.1 github.com' >> /etc/hosts
 id git >/dev/null 2>&1 || adduser --disabled-password --gecos "" git >/dev/null
-runuser -u git -- bash -c "mkdir -p ~/.ssh ~/$OWNER && chmod 700 ~/.ssh && for r in cw-queue cw-results; do git init -q --bare -b main ~/$OWNER/\$r.git; done; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
+runuser -u git -- bash -c "mkdir -p ~/.ssh ~/$OWNER && chmod 700 ~/.ssh ; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
 cat $H/$ADMIN/.ssh/id_ed25519.pub >> $H/git/.ssh/authorized_keys
 usermod -p '*' git; usermod -p '*' $ADMIN                      # no password, but not locked (sshd refuses locked accounts even for keys)
 printf 'Host *\n  StrictHostKeyChecking accept-new\n' > /etc/ssh/ssh_config.d/99-e2e.conf   # this machine's test setup: trust the stand-in hosts on first use
@@ -40,18 +40,40 @@ python3 -m venv --system-site-packages /opt/cwvenv && /opt/cwvenv/bin/pip instal
 chmod -R a+rX /opt/cwvenv $SRC
 check "pip installs the four commands" bash -c 'for c in cw-run cw-admin cw-setup cw-help; do test -x /opt/cwvenv/bin/$c || exit 1; done'
 
-step "cw-setup client (your computer)"
-as_admin cw-setup client --yes --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER >/tmp/e2e-client.out 2>&1; echo "client wizard exit $?"
+step "cw-setup install: the whole setup, from your computer, in one command"
+# What the person would do with GitHub's `gh`: here a stand-in that works on the bare repositories above (view, create, list and add deploy keys).
+cat > /usr/local/bin/gh <<'GH'
+#!/bin/bash
+H=/home; slug=""; file=""; write=0
+args=("$@"); i=0
+while [ $i -lt ${#args[@]} ]; do a=${args[$i]}; case "$a" in -R) i=$((i+1)); slug=${args[$i]};; -t|--json|--description) i=$((i+1));; --allow-write) write=1;; --private) ;; -*) ;; *) if [ -z "$sub" ]; then :; fi; last=$a;; esac; i=$((i+1)); done
+case "$1 $2 $3" in
+  "repo view"*) [ -d $H/git/$3.git ] ;;
+  "repo create"*) sudo -n -u git git init -q --bare -b main $H/git/$3.git && echo "https://github.com/$3" ;;
+  "repo deploy-key list") echo '[]' ;;
+  "repo deploy-key add") cat "$4" | sudo -n -u git tee -a $H/git/.ssh/authorized_keys >/dev/null; echo "key added to $slug (write=$write)" >> /tmp/e2e-gh.log ;;
+  *) echo "gh stand-in: unsupported: $*" >&2; exit 1 ;;
+esac
+GH
+chmod +x /usr/local/bin/gh
+echo "$ADMIN ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/e2e-$ADMIN; chmod 440 /etc/sudoers.d/e2e-$ADMIN      # this test machine has no one to type a sudo password
+chmod -R a+rX $SRC
+as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
+  --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-install.out 2>&1; rc=$?
+tail -45 /tmp/e2e-install.out
+check "the install command finished successfully" test $rc -eq 0
+check "it created the two private repositories itself" bash -c "test -d $H/git/$OWNER/cw-queue.git && test -d $H/git/$OWNER/cw-results.git"
+check "it added the server's two keys to GitHub, results with write access" bash -c "grep -q 'cw-queue (write=0)' /tmp/e2e-gh.log && grep -q 'cw-results (write=1)' /tmp/e2e-gh.log"
+check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'claude-worker-' $H/git/.ssh/authorized_keys | grep -qx 2"
+check "the working folder it used on the server was removed" bash -c "! ls -d /tmp/cw-install.* 2>/dev/null"
 check "the client configuration was written" test -f $H/$ADMIN/.config/claude-worker/cw.toml
 check "the registry was seeded on main of the queue repository" git -C $H/git/$OWNER/cw-queue.git cat-file -e main:registry.yaml
 
-step "cw-setup server (the worker), first run: it must stop and ask for the deploy keys"
-cd $SRC && PYTHONPATH=$SRC/src python3 -m cw.setup server --yes --apply "${SERVER_SET[@]}" >/tmp/e2e-server1.out 2>&1; echo "server wizard exit $?"
-check "it waits for the deploy keys instead of going on" grep -q "add the deploy keys" /tmp/e2e-server1.out
-check "it printed a read-only command for the queue key and a write command for the results key" bash -c 'grep -q "deploy-key add claude-worker-queue.pub" /tmp/e2e-server1.out && grep -q "allow-write" /tmp/e2e-server1.out'
-cat $H/$WORKER/.ssh/id_queue.pub $H/$WORKER/.ssh/id_results.pub >> $H/git/.ssh/authorized_keys     # what the person does with gh on their own computer
-step "cw-setup server, second run: it must carry on from there"
-cd $SRC && PYTHONPATH=$SRC/src python3 -m cw.setup server --yes --apply "${SERVER_SET[@]}" >/tmp/e2e-server2.out 2>&1; echo "server wizard exit $?"; tail -25 /tmp/e2e-server2.out
+step "Running the install again changes nothing and still works"
+as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
+  --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-install2.out 2>&1; rc=$?
+tail -8 /tmp/e2e-install2.out
+check "the second run finished successfully" test $rc -eq 0
 check "the worker account exists with no shell" bash -c "getent passwd $WORKER | grep -q nologin"
 check "the installed commands exist" bash -c "test -x /usr/local/bin/$NAME && test -x /usr/local/sbin/$NAME-update && test -f /opt/$NAME/lib/cw/cli.py"
 check "the composed registry is installed and says it is generated" grep -q GENERATED /etc/$NAME/registry.yaml

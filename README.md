@@ -11,9 +11,9 @@ Offload slow or heavy jobs from your laptop to a spare Linux machine on your hom
 - **Nothing is reachable from the internet.** The worker only makes outgoing connections to GitHub.
 
 ```bash
-cw-setup client                      # on your computer
-sudo env PYTHONPATH=src python3 -m cw.setup server --apply   # on the worker, from the checkout
-cw-run submit sys-status --wait
+git clone https://github.com/<project>/claude-worker.git && cd claude-worker
+python3 -m venv ~/.cw-venv && ~/.cw-venv/bin/pip install -e .
+~/.cw-venv/bin/cw-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job
 ```
 
 Start with [Getting started](docs/getting-started.md). The [documentation index](docs/README.md) explains how each part works, with a plain summary and a technical specification for each.

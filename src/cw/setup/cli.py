@@ -3,6 +3,8 @@
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
+  install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
+            half there, adds the deploy keys to GitHub for you, and sends a first job
 
 Options:  --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
@@ -19,7 +21,8 @@ from . import audit as audit_mod
 from . import questions
 from .client import ClientSetup
 from .host import Host
-from .server import ServerSetup, SetupError
+from .install import Installer, default_verify
+from .server import EXIT_WAITING, ServerSetup, SetupError
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -49,7 +52,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="cw-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit"):
+    for n in ("client", "server", "audit", "install"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -60,10 +63,28 @@ def build_parser():
         s.add_argument("--rev")
         s.add_argument("--queue-key")
         s.add_argument("--results-key")
+        s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
+        s.add_argument("--no-test", action="store_true")
     return ap
 
 
-def main(argv=None, host=None, ask=input, repos_factory=None, **overrides):
+def default_repos(cfg):
+    from ..client.repo import ClientRepos
+    return ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+
+
+def finish(a, report, dry):
+    if dry:
+        emit("Nothing was changed on the server", "That was a preview.", tag="PREVIEW", color=YELLOW, run_label="Do it for real", run="cw-setup install")
+    elif any(r[1] == "failed" for r in report):
+        emit("The setup finished but the first job did not come back", "Run cw-admin check and cw-admin status to see why.", tag="WARNING", color=YELLOW)
+        return 1
+    else:
+        emit("The worker is set up", tag="DONE", color=GREEN, run_label="Try it", run=["cw-run classes", "cw-run submit sys-status --wait", "cw-admin status"])
+    return 0
+
+
+def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, **overrides):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("help", "-h", "--help"):
         print(__doc__)
@@ -83,11 +104,20 @@ def main(argv=None, host=None, ask=input, repos_factory=None, **overrides):
             cfg = config.load()
             rows, bad = audit_mod.run(host, cfg, say=say)
             return 1 if bad else 0
-        given = load_answers(a.answers, a.set)
+        given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}
+        if a.cmd == "install":
+            from ..admin.ssh import Ssh
+            interactive = not a.yes and sys.stdin.isatty()
+            inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
+                             use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,
+                             verify=None if (a.no_test or a.dry_run) else (verify or (lambda cfg: default_verify(cfg, say=say))))
+            report = inst.run_all()
+            dry = a.dry_run
+            return finish(a, report, dry)
         interactive = not a.yes and sys.stdin.isatty()
         dry = not a.apply if a.cmd == "server" else a.dry_run
         if a.cmd == "server":
-            setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev,
+            setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
@@ -110,6 +140,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, **overrides):
         emit("Nothing was changed", "That was a preview.", tag="PREVIEW", color=YELLOW, run_label="Do it for real", run=f"cw-setup {a.cmd}" + (" --apply" if a.cmd == "server" else ""))
     elif waiting:
         emit("Almost there", *[f"{s}: {d}" for s, _, d in waiting], tag="WAITING", color=YELLOW)
+        return EXIT_WAITING if a.cmd == "server" else 0
     else:
         emit("Done", tag="DONE", color=GREEN)
     return 0

@@ -15,7 +15,7 @@ def _value(v):
     return json.dumps(v)          # a TOML basic string is a JSON string for everything the schema allows
 
 
-def dump(answers, header="Written by cw-setup. Change a value here, or run cw-setup again. Secrets never go in this file (see secrets.env)."):
+def dump(answers, header="Written by cw-setup. Change a value here, or run cw-setup again. Secrets never go in this file (see secrets.env).", full=False):
     """answers: {section: {key: value}} (already validated). Returns the TOML text; round-trips through config.validate."""
     out = [f"# {header}"]
     for section, fields in config.SCHEMA.items():
@@ -24,6 +24,9 @@ def dump(answers, header="Written by cw-setup. Change a value here, or run cw-se
             if key not in (answers.get(section) or {}):
                 continue
             v = answers[section][key]
+            if full:                           # every answer, even one equal to the default: used to hand a complete set of answers to another machine
+                lines.append(f"{key} = {_value(v)}")
+                continue
             if v == default or (isinstance(default, str) and "{" in default):      # a templated default ({name}) is only written when changed
                 expanded = default.replace("{name}", answers.get("identity", {}).get("name", "claude-worker")).replace(
                     "{worker_user}", answers.get("server", {}).get("worker_user", "cwworker")) if isinstance(default, str) else default

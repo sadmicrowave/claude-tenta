@@ -5,7 +5,8 @@ from . import ui
 from .ui import BOLD, CYAN, GREEN, paint
 
 SECTIONS = [
-    ("Set up", "run once", [("cw-setup client", "set up your computer: config, SSH key login, the two private repositories"),
+    ("Set up", "run once", [("cw-setup install", "everything, from your computer: both sides, the deploy keys, a first job"),
+                            ("cw-setup client", "set up your computer: config, SSH key login, the two private repositories"),
                             ("cw-setup server", "turn a clean Ubuntu or Debian machine into a worker (run as root on it)"),
                             ("cw-setup audit", "check a server against its configuration, read-only")]),
     ("Send work", "on your computer", [("cw-run submit <class>", "queue a job and wait for its result"),

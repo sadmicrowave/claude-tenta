@@ -2,6 +2,8 @@
 
 ## In plain words
 
+**`cw-setup install`** does all of it from your own computer in one command: it asks the questions once, sets up both sides, sends the release to the server, runs the server's setup there (you type your sudo password once), adds the server's deploy keys to GitHub for you, and sends a first job. The sections below describe the pieces it is made of, which you can also run one at a time.
+
 `cw-setup` does the setup for you by asking plain questions and then doing the work. There are two halves, because there are two computers.
 
 - **On your computer, `cw-setup client`:** asks for the worker's address, your account name on it, and your GitHub name; checks SSH works; creates the two private
@@ -18,8 +20,9 @@ Every answer has a safe default, and nothing is guessed: if a question needs an 
 ### Commands
 
 ```
+cw-setup install [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--wait-for-keys SECONDS] [--no-test]
 cw-setup client [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--queue-key FILE] [--results-key FILE]
-cw-setup server [--apply] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--rev COMMIT]
+cw-setup server [--apply] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--rev COMMIT] [--wait-for-keys SECONDS]
 cw-setup audit
 ```
 
@@ -55,3 +58,26 @@ printed) → deploy keys added if their files were passed → clones → the que
 
 `src/cw/setup/host.py` is the one place the wizard touches a machine (`run`, `read`, `write`, `exists`, `which`). Tests use a fake that records, which is how the dry run and the unit tests can
 show and check every step. The end-to-end test uses the real one ([testing](testing.md)).
+
+### `cw-setup install`, in order
+
+`src/cw/setup/install.py`.
+
+1. **Connect and learn.** Asks for the server's address, the admin account and the SSH port; checks key login (a failure says to run `ssh-copy-id`); reads the server's facts through a read-only SSH view (`remote.py`), which become the suggestions
+   (hardware profile from memory and battery, thermal support from the sensors) and refuse an unsupported system before anything changes.
+2. **Questions.** All of the client and server questions, once, on your computer. Every answer is then written to a complete answers file (`toml_out.dump(..., full=True)`), so the server never has to ask or guess.
+3. **Your side.** The client half ([above](#client-half-in-order)), with the repositories created by `gh` if they are missing.
+4. **Delivery.** The committed files of the checkout (`git archive HEAD`; uncommitted changes are not sent, and it says so) and the answers go through SSH into a private folder made with `mktemp` (mode 0700, name checked against a strict pattern before it is
+   used or removed).
+5. **The server half**, run as `sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<folder>/src python3 -m cw.setup server --apply --wait-for-keys N ...` over `ssh -t`, so sudo asks for its password on your terminal and only the server sees it. (No bytecode: root must not leave files in
+   that folder that the administrator cannot remove.)
+6. **Deploy keys, while it runs.** The server publishes the public halves to `<config>/deploy-keys/{queue,results}.pub` (mode 0644, public keys only). This side reads them over a second SSH connection and adds each with
+   `gh repo deploy-key add` (queue read-only, results `--allow-write`, titled `<name>-server`), skipping any that are already on the repository (`keys.py`). Without `gh` it prints each key and the exact settings page. The server's own wait loop notices as soon as the
+   repositories become reachable and carries on, so there is one sudo password and no second run.
+7. **Cleanup and a first job.** The working folder is removed. `sys-status` is sent and waited for (the worker needs a minute after its first start to publish its class list, so it retries), then `cw-admin check` runs.
+
+A preview (`--dry-run`) does steps 1 to 4 without creating repositories or changing your configuration, and runs the server half as a preview (no sudo, no changes).
+
+### Exit codes
+
+`cw-setup server` exits **10** when it stopped because the repositories cannot be reached yet (the deploy keys are not added); running it again continues. `cw-setup install` treats that as an error only if the keys were not added within `--wait-for-keys` seconds (default 900).

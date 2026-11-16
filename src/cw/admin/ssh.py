@@ -16,10 +16,10 @@ SHARE_FOR_S = 60
 
 
 class Ssh:
-    def __init__(self, host, user=None, port=22, *, run=subprocess.run, control_dir=None):
+    def __init__(self, host, user=None, port=22, *, run=subprocess.run, popen=subprocess.Popen, control_dir=None):
         if not host or host.startswith("-"):
             raise ClientError("No server address is configured", "server.host is empty or not an address.", example="cw-setup client")
-        self.host, self.user, self.port, self._run = host, user, int(port), run
+        self.host, self.user, self.port, self._run, self._popen = host, user, int(port), run, popen
         self.control_dir = control_dir or os.path.join(tempfile.gettempdir(), f"cw-ssh-{os.getuid()}")
 
     @property
@@ -46,6 +46,17 @@ class Ssh:
             raise ClientError(f"Could not connect to {self.host}", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
                               ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true")
         return r
+
+    def send(self, remote, data):
+        """Run `remote` with `data` (bytes) on its standard input, no terminal. Returns the CompletedProcess; raises ClientError if SSH itself failed."""
+        r = self._run(self.argv(remote, batch=True), input=data, capture_output=True)
+        if r.returncode == 255:
+            raise ClientError(f"Could not connect to {self.host}", None, ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true")
+        return r
+
+    def popen(self, remote, tty=True):
+        """Start `remote` on your terminal without waiting (so something else can happen while it runs). Returns the Popen."""
+        return self._popen(self.argv(remote, tty=tty))
 
     def interactive(self, remote):
         """Run `remote` on your terminal (sudo may ask for your password). Returns its exit code."""

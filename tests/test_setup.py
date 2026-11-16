@@ -383,16 +383,50 @@ class ServerTests(unittest.TestCase):
         self.setup_obj(dry_run=False).run_all()
         self.assertEqual(self.registry_calls, [])
 
-    def test_missing_pyyaml_is_explained(self):
+    def test_missing_prerequisites_are_installed_not_left_as_a_chore(self):
         self.h.replies["python3 -c import yaml"] = Result(1, "No module named yaml")
-        with self.assertRaises(server.SetupError) as e:
-            self.setup_obj(dry_run=True).run_all()
-        self.assertIn("python3-yaml", " ".join(e.exception.steps))
-
-    def test_an_empty_repository_counts_as_reachable(self):
         self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
-        for call in self.h.ran("runuser -u cwworker -- git ls-remote"):
-            self.assertNotIn("--exit-code", call)       # ls-remote --exit-code fails on a repository with no commits yet
+        self.assertTrue(self.h.ran("apt-get install -y python3-yaml"))
+        self.assertFalse(self.h.ran("apt-get install -y python3-yaml git"))        # git was there
+
+    def test_a_preview_names_the_missing_prerequisites_and_installs_nothing(self):
+        self.h.replies["python3 -c import yaml"] = Result(1, "No module named yaml")
+        s = self.setup_obj(dry_run=True)
+        s.run_all()
+        self.assertEqual(self.h.ran("apt-get"), [])
+        self.assertTrue(any("python3-yaml" in line for line in self.said))
+        self.assertTrue(any(r[0] == "prerequisites" and r[1] == "planned" for r in s.report))
+
+    def test_the_public_deploy_keys_are_published_for_the_administrator(self):
+        self.h.put(H + "/cwworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ claude-worker-queue\n")
+        self.h.put((H + "/cwworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR claude-worker-results\n")
+        self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
+        self.assertEqual(self.h.read("/etc/claude-worker/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ claude-worker-queue")
+        self.assertEqual(self.h.read("/etc/claude-worker/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR claude-worker-results")
+        self.assertEqual(oct(self.h.path("/etc/claude-worker/deploy-keys/queue.pub").stat().st_mode & 0o777), "0o644")
+
+    def test_it_waits_for_the_keys_and_carries_on_when_they_arrive(self):
+        calls = {"n": 0}
+
+        def ls_remote(argv):
+            calls["n"] += 1
+            return Result(0) if calls["n"] > 4 else Result(128, "Permission denied (publickey)")
+        self.h.replies["runuser -u cwworker -- git ls-remote"] = ls_remote
+        clock = {"t": 0}
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True, wait_for_keys=600, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
+        s.run_all()
+        self.assertFalse(s.waiting)
+        self.assertEqual(len(self.h.ran("runuser -u cwworker -- git clone")), 2)
+        self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said))
+        self.assertTrue(self.h.ran("systemctl enable --now claude-worker-fetch.timer"))
+
+    def test_it_gives_up_waiting_after_the_time_and_says_so(self):
+        self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied")
+        clock = {"t": 0}
+        s = self.setup_obj(dry_run=False, wait_for_keys=20, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
+        s.run_all()
+        self.assertTrue(s.waiting)
+        self.assertEqual(self.h.ran("systemctl enable"), [])
 
     def test_a_missing_admin_account_stops_with_the_command_to_create_it(self):
         self.h.replies["id me"] = Result(1, "no such user")

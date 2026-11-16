@@ -72,6 +72,8 @@ cw-setup client | server | audit
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
+  install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
+            half there, adds the deploy keys to GitHub for you, and sends a first job
 
 Options:  --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
