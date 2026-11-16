@@ -82,7 +82,11 @@ class Worker:
             return False
 
     def _default_spawn(self, jid):
-        return subprocess.Popen([*self.s.exec_argv, jid], start_new_session=True, stdin=subprocess.DEVNULL).pid
+        # The job outlives the short unit that started it. That unit has a private /tmp which systemd deletes when the unit stops, so a job left running
+        # inside it would find no usable temporary folder: it gets one of its own under the state folder instead.
+        tmp = self.state / "tmp"
+        tmp.mkdir(mode=0o700, exist_ok=True)
+        return subprocess.Popen([*self.s.exec_argv, jid], start_new_session=True, stdin=subprocess.DEVNULL, env={**os.environ, "TMPDIR": str(tmp)}).pid
 
     def load_registry(self):
         reg = registry.parse(self.s.registry_path.read_text())
