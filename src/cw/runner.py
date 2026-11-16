@@ -13,6 +13,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .jail import Refused, Unshare, isolate, netns_flags  # noqa: F401  (re-exported)
 from .util import SAFE_PATH
 
 MAX_TIMEOUT = 3600
@@ -21,10 +22,6 @@ FSIZE_LIMIT = 200 * 1024 * 1024        # no single file a job writes (including 
 
 class Killed(Exception):
     """Raised inside a running job's watcher when the worker is told to stop (SIGTERM)."""
-
-
-class Refused(Exception):
-    """The command was not started; the message says why."""
 
 
 def install_term_handler():
@@ -153,44 +150,12 @@ def read_text(path, limit=2_000_000):
 
 
 # ---- network isolation ----------------------------------------------------------------------------------------------------------
-_NETNS = []
-
-
-def netns_flags(refresh=False):
-    """Flags that run a command in its own, empty network namespace, or None if this machine cannot (probed once)."""
-    if _NETNS and not refresh:
-        return _NETNS[0]
-    found = None
-    for flags in (["--user", "--net", "--map-current-user"], ["--user", "--net", "--map-root-user"]):
-        try:
-            r = subprocess.run(["unshare", *flags, "cat", "/proc/net/dev"], capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            break
-        ifaces = [l.split(":")[0].strip() for l in r.stdout.splitlines()[2:] if ":" in l]
-        if r.returncode == 0 and ifaces == ["lo"]:
-            found = flags
-            break
-    _NETNS[:] = [found]
-    return found
+# The jails live in jail.py; these names stay importable from here.
 
 
 def class_network(cls):
     """True if jobs of this class may use the network. Default: no (only `claude` jobs need it unless declared)."""
     return bool(cls.get("network", cls.get("kind", "command") == "claude"))
-
-
-def isolate(argv, network, flags=None, require=True):
-    """Wrap argv so it runs with no network, unless the class needs it. FAILS CLOSED: if no namespace can be built the job is refused
-    (Refused), unless `require` is False, which runs it WITH the network and is for throwaway tests only."""
-    if network:
-        return argv
-    flags = netns_flags() if flags is None else flags
-    if flags:
-        return ["unshare", *flags, "--", *argv]
-    if require:
-        raise Refused("this machine cannot isolate jobs from the network, so a no-network job will not run "
-                      "(check that `unshare --user --net` works for the worker user)")
-    return argv
 
 
 # ---- the environment a job sees ---------------------------------------------------------------------------------------------------
@@ -215,7 +180,7 @@ def _child_limits():
 
 # ---- running and watching one command ---------------------------------------------------------------------------------------------
 def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=None, network=True, extra_env=None, api_key=None,
-                sensors=None, require_netns=True, netns=None):
+                sensors=None, require_netns=True, jail=None):
     """Run one job command in its own process group and watch it.
 
     Returns (status, exit_code, output, metrics, note). status: ok | error | timeout | killed | limit.
@@ -226,7 +191,7 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     env = build_env(home, claude, extra_env, api_key)
     timeout = min(int(timeout), MAX_TIMEOUT)
     try:
-        launch = isolate(argv, network, flags=netns, require=require_netns)
+        launch = (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, claude=claude, env=env, require=require_netns)
     except Refused as e:
         return "error", None, "", {}, f"not started: {e}"
     outp, errp = Path(f"{wd}.out"), Path(f"{wd}.err")   # beside the work dir, so the job never sees them

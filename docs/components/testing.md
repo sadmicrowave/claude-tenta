@@ -30,7 +30,7 @@ scripts/e2e-orbstack --delete   # remove the machine
 ```
 
 `tests/e2e/scenario.sh` can also be run as root on any fresh Ubuntu 24.04 or Debian 12 machine. It: installs the project with `pip`; runs `cw-setup client`; runs `cw-setup server` twice (the first run must stop for the deploy keys, the second must carry on);
-checks the accounts, installed commands, composed registry, timers, password-less SSH, the firewall, groups and permissions and `cw-setup audit`; sends `sys-status` and waits for the result; checks `cw-admin check` and `cw-admin status`;
+checks the accounts, installed commands, that the worker reports its isolation as ON, that `job-isolation` is satisfied, composed registry, timers, password-less SSH, the firewall, groups and permissions and `cw-setup audit`; sends `sys-status` and waits for the result; checks `cw-admin check` and `cw-admin status`;
 checks that `sudo` cannot be profiled and that a denied program cannot be installed; reads a decoy credential and expects a lockdown; and re-installs the release.
 
 GitHub is simulated: `github.com` resolves to the machine itself, where an SSH user called `git` holds the two bare repositories, so every clone, fetch and push uses real keys, including the worker's own deploy keys.

@@ -9,7 +9,7 @@ Modules are plain classes registered with @module, so a pack can add its own the
 """
 import shlex
 
-from .. import firewall
+from .. import firewall, jail
 
 ROOT_EQUIVALENT = ("lxd", "docker", "disk", "libvirt", "kvm")      # a member can become root without a password
 WORKER_FORBIDDEN = ROOT_EQUIVALENT + ("sudo", "admin", "wheel", "adm")
@@ -226,20 +226,60 @@ class StatePermissions(Module):
 
 
 @module
-class NetnsRequired(Module):
-    id, title = "netns-required", "Jobs really are cut off from the network"
-    why = "Most jobs run in an empty network namespace. This proves the machine can build one, because without it the cut-off is only on paper."
-    risk = "None. It only tests; a failure is explained, not auto-fixed."
+class JobIsolation(Module):
+    id, title = "job-isolation", "Jobs run in a jail"
+    why = ("Every job runs with no network, no capabilities, no new privileges, its own process tree, and no view of the worker's home folder "
+           "(where its repository keys live) or of this install's configuration. This installs the tool that does it (bubblewrap) and, on Ubuntu "
+           "24.04 and newer, puts the kernel's user-namespace restriction back on for everyone else.")
+    risk = "None for logins. Until it works, jobs are refused rather than run without a jail."
+    SYSCTL = "kernel.apparmor_restrict_unprivileged_userns"
+
+    def sysctl_path(self, cfg):
+        return f"/etc/sysctl.d/61-{cfg.identity.name}-userns.conf"
+
+    def sysctl_value(self, host):
+        r = host.run(["sysctl", "-n", self.SYSCTL])
+        return r.out.strip() if r.ok else None
+
+    def probe(self, host, cfg):
+        """(ok, why). Runs a real jailed command as the worker account, exactly as a job would."""
+        if cfg.isolation.method == "unshare":
+            r = host.run(["runuser", "-u", cfg.server.worker_user, "--", "unshare", "--user", "--net", "--map-current-user", "cat", "/proc/net/dev"])
+            names = [line.split(":")[0].strip() for line in r.out.splitlines()[2:] if ":" in line]
+            return (r.ok and names == ["lo"]), ("isolation works" if r.ok and names == ["lo"] else (r.out.strip().splitlines() or ["unshare failed"])[-1][:160])
+        path = host.which("bwrap") or "/usr/bin/bwrap"
+        if not host.exists(path):
+            return False, "bubblewrap is not installed"
+        mode = host.run(["stat", "-c", "%a", path]).out.strip()
+        if mode and int(mode, 8) & 0o4000:
+            return False, "bubblewrap is installed setuid, which is refused"
+        probe = jail.Bwrap(path=path, hide=[cfg.paths.config]).probe_argv("/tmp")
+        r = host.run(["runuser", "-u", cfg.server.worker_user, "--", *probe])
+        names = [line.split(":")[0].strip() for line in r.out.splitlines()[2:] if ":" in line]
+        if not r.ok:
+            return False, "a test jail could not be created: " + ((r.out.strip().splitlines() or ["no message"])[-1][:160])
+        return (names == ["lo"]), ("a jail can be created for the worker" if names == ["lo"] else "a test jail still had a network interface")
 
     def check(self, host, cfg):
-        r = host.run(["runuser", "-u", cfg.server.worker_user, "--", "unshare", "--user", "--net", "--map-current-user", "cat", "/proc/net/dev"])
-        if not r.ok:
-            return Check(False, "the worker account cannot build a no-network namespace: " + (r.out.strip().splitlines() or ["unknown"])[-1][:120])
-        names = [line.split(":")[0].strip() for line in r.out.splitlines()[2:] if ":" in line]
-        return Check(names == ["lo"], "isolation works" if names == ["lo"] else "the namespace still has a network interface")
+        ok, why = self.probe(host, cfg)
+        if not ok:
+            return Check(False, why)
+        if cfg.isolation.method == "bwrap" and self.sysctl_value(host) == "0":
+            return Check(False, "jails work, but user namespaces are open to every account (" + self.SYSCTL + " = 0)")
+        return Check(True, why)
 
     def plan(self, host, cfg):
-        return []
+        steps = []
+        if cfg.isolation.method == "bwrap" and not host.exists(host.which("bwrap") or "/usr/bin/bwrap"):
+            steps.append(Action("run", argv=["apt-get", "install", "-y", "bubblewrap"], why="the tool that builds the jail"))
+        if cfg.isolation.method == "bwrap" and self.sysctl_value(host) == "0":
+            text = (f"# Written by cw-setup. Ubuntu's default: only programs with an AppArmor profile (such as bubblewrap) may use unprivileged user namespaces.\n"
+                    f"{self.SYSCTL} = 1\n")
+            steps += [Action("write", path=self.sysctl_path(cfg), text=text), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=1"])]
+        return steps
+
+    def revert(self, host, cfg):
+        return [Action("remove", path=self.sysctl_path(cfg)), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=0"])]
 
 
 def run_module(mod, host, cfg, *, dry_run=True, out=print, confirm=None):

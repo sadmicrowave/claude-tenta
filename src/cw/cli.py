@@ -23,6 +23,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from . import alerts, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import jail as jail_mod
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from .pkgspec import check_packages
@@ -112,7 +113,7 @@ class Context:
         sensors = runner.LinuxSensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
         w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY"),
-                   hostname=None)
+                   hostname=None, jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json")
@@ -437,8 +438,8 @@ def cmd_status(ctx, hours=12):
 
     def line(ok, name, stat, why):
         put(f"  {mark(ok)} {paint(name.ljust(11), BOLD, stream=out)}{paint(stat.ljust(sw), BOLD, GREEN if ok else RED, stream=out)}", why, 2 + 6 + 11 + sw)
-    iso_on = bool(w.netns if w.netns is not None else runner.netns_flags())
-    line(iso_on, "Isolation", "ON" if iso_on else "OFF", "jobs cannot reach the network or your files" if iso_on else "jobs that need isolation are REFUSED until it works")
+    iso_on = w.jail.ready()
+    line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
     cw = ctx.canary_status
     try:
         st = json.loads(Path(cw).read_text())

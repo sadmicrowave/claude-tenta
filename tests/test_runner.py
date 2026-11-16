@@ -15,7 +15,8 @@ from cw import runner  # noqa: E402
 from cw.util import SAFE_PATH  # noqa: E402
 
 PY = sys.executable
-NO_NETNS, NETNS = False, ["--user", "--net"]
+NO_NETNS, NETNS = False, ["--user", "--net"]          # flag lists for the legacy isolate() function
+from cw import jail as jail_mod  # noqa: E402
 
 
 class FakeSensors:
@@ -36,7 +37,7 @@ def run(code, **kw):
     wd = Path(tempfile.mkdtemp())
     kw.setdefault("home", str(wd))
     kw.setdefault("sensors", FakeSensors())
-    kw.setdefault("netns", NO_NETNS)
+    kw.setdefault("jail", jail_mod.NoJail())
     kw.setdefault("require_netns", False)
     kw.setdefault("network", True)
     timeout = kw.pop("timeout", 20)
@@ -71,7 +72,7 @@ class Isolation(unittest.TestCase):
         flags = runner.netns_flags(refresh=True)
         if not flags:
             self.skipTest("this machine cannot create a network namespace")
-        (status, rc, out, *_), _ = run("print(open('/proc/net/dev').read())", network=False, netns=flags, require_netns=True)
+        (status, rc, out, *_), _ = run("print(open('/proc/net/dev').read())", network=False, jail=jail_mod.Unshare(flags), require_netns=True)
         names = [l.split(":")[0].strip() for l in out.splitlines()[2:] if ":" in l]
         self.assertEqual((status, names), ("ok", ["lo"]))
 
@@ -126,7 +127,7 @@ class Running(unittest.TestCase):
 
     def test_a_missing_program_is_an_error_not_a_crash(self):
         status, rc, out, *_ = runner.run_command(["/no/such/program"], 5, tempfile.mkdtemp(), home="/tmp", sensors=FakeSensors(),
-                                                  netns=NO_NETNS, require_netns=False)
+                                                  jail=jail_mod.NoJail(), require_netns=False)
         self.assertEqual((status, rc), ("error", None))
         self.assertIn("not found", out)
 
@@ -152,7 +153,7 @@ class Running(unittest.TestCase):
         wd = Path(tempfile.mkdtemp())
         code = f"import time; open({str(wd / 'big')!r}, 'wb').write(b'x' * 3_000_000); time.sleep(30)"
         status, _, _, _, note = runner.run_command([PY, "-c", code], 30, wd, home=str(wd), limits={"max_disk_mb": 1}, sensors=FakeSensors(temp=40),
-                                                    netns=NO_NETNS, require_netns=False)
+                                                    jail=jail_mod.NoJail(), require_netns=False)
         self.assertEqual(status, "limit")
         self.assertIn("MB limit", note)
 

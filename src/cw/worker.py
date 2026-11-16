@@ -24,7 +24,8 @@ from . import guard, jobs, profiling, registry, results
 from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
-from .runner import MAX_TIMEOUT, class_network, kill_group, netns_flags, run_command
+from .jail import Unshare
+from .runner import MAX_TIMEOUT, class_network, kill_group, run_command
 from .util import SAFE_PATH, iso, now
 
 
@@ -51,13 +52,13 @@ class Settings:
 
 class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
-                 home=None, api_key=None, hostname=None, netns=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
+                 home=None, api_key=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
         self.sensors = sensors
         self.runner, self.clock = runner, clock
         self.log = log or (lambda msg: None)
         self.home, self.api_key, self.hostname = str(home or Path.home()), api_key, hostname
-        self.netns = netns
+        self.jail = jail if jail is not None else Unshare()
         self.loadavg = loadavg or (lambda: os.getloadavg()[0])
         self.is_job_process = is_job_process or self._pid_is_job
         self._spawn = spawn or self._default_spawn
@@ -286,7 +287,7 @@ class Worker:
         else:
             st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
                                                      marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
-                                                     api_key=self.api_key, sensors=self.sensors, require_netns=self.s.require_netns, netns=self.netns)
+                                                     api_key=self.api_key, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
         shaped, shape_note = results.shape_output(cls, out, self.limits["output_max_chars"])
         summarised = st == "error" and kind != "claude" and not cls.get("output_keys") and bool(out)
         if summarised:
@@ -478,8 +479,8 @@ class Worker:
         except OSError:
             return False
         digest, total = hashlib.sha256(raw).hexdigest(), self.mem_total()
-        isolated = bool(self.netns if self.netns is not None else netns_flags())
-        stamp, mark = f"{digest}:{total}:{isolated}", self._p("registry.sha")
+        isolated = self.jail.ready()
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}", self._p("registry.sha")
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -491,7 +492,7 @@ class Worker:
                 "packages": c.get("packages"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
         info = {"updated": iso(self.clock()), "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
-                "profiling": registry.profiling_rules(reg), "limits": registry.limits_of(reg), "job_network_isolation": isolated}
+                "profiling": registry.profiling_rules(reg), "limits": registry.limits_of(reg), "job_network_isolation": isolated, "job_jail": self.jail.name}
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
             return True

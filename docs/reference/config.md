@@ -59,7 +59,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `require_netns` | `true` | bool | refuse to run a no-network job if the machine cannot isolate it (leave on) |
-| `method` | `unshare` | `unshare` , `systemd-run` | how a job is cut off from the network |
+| `method` | `bwrap` | `bwrap` , `unshare` | how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method) |
 
 ## [alerts]
 
@@ -119,4 +119,4 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `modules` | `["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]` | list | hardening modules the wizard applies |
+| `modules` | `["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]` | list | hardening modules the wizard applies |

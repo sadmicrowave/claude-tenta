@@ -42,12 +42,12 @@ def only_loopback(proc_net_dev):
     return names == ["lo"]
 
 
-def checks(home, state, queue_repo, helper=None, have=os.path.exists, python="/usr/bin/python3"):
+def checks(home, state, queue_repo, helper=None, have=os.path.exists, python="/usr/bin/python3", jail_argv=None):
     """[(name, argv, expect)]; expect(returncode, output) -> bool. An entry (name, None, reason) is skipped with that reason."""
     ok0 = lambda rc, out: rc == 0                                                       # noqa: E731
     out = [
         ("the worker starts", [python, "-m", "cw.cli", "status"], ok0),
-        ("a no-network namespace can be built", ["/usr/bin/unshare", "--user", "--net", "--map-current-user", "cat", "/proc/net/dev"],
+        ("a no-network jail can be built", jail_argv or ["/usr/bin/unshare", "--user", "--net", "--map-current-user", "cat", "/proc/net/dev"],
          lambda rc, o: rc == 0 and only_loopback(o)),
         ("state and home folders are writable",
          ["/bin/sh", "-c", f"touch {state}/.sandbox-test && rm {state}/.sandbox-test && touch {home}/.sandbox-test && rm {home}/.sandbox-test"], ok0),
@@ -104,7 +104,11 @@ def test_unit(unit_text, cfg, runner=run_in_sandbox, have=os.path.exists, helper
     if not any(p.startswith(("Protect", "Private")) for p in props):
         out("that unit has no sandbox settings; nothing to test")
         return 0
-    plan = checks(cfg.paths.worker_home, cfg.path("state"), cfg.path("queue_clone"), helper=helper, have=have)
+    jail_argv = None
+    if cfg.isolation.method == "bwrap":                 # prove the jail still works under the unit's own sandbox settings
+        from . import jail
+        jail_argv = jail.Bwrap(hide=[cfg.paths.config]).probe_argv(cfg.path("state"))
+    plan = checks(cfg.paths.worker_home, cfg.path("state"), cfg.path("queue_clone"), helper=helper, have=have, jail_argv=jail_argv)
     results = run_all(props, runner=runner, plan=plan)
     width = max(len(n) for n, _, _ in results)
     mark = {"ok": "OK  ", "fail": "FAIL", "skip": "SKIP"}

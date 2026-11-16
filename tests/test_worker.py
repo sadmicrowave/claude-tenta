@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
 from cw import gitio, guard, runner, util  # noqa: E402
 from support import REGISTRY, IP, Base, sh  # noqa: E402
+from cw import jail as jail_mod  # noqa: E402
 
 
 class Lifecycle(Base):
@@ -431,7 +432,7 @@ class RegistryInfo(Base):
         self.assertEqual(info["mem_total_mb"], 8000)
         self.assertIn("profile-run", info["classes"])
         self.assertEqual(info["classes"]["profile-run"]["tier"], "approve")
-        self.assertFalse(info["job_network_isolation"])                                          # netns=False was injected
+        self.assertFalse(info["job_network_isolation"])                                          # a NoJail was injected
         n = sh("git", "rev-list", "--count", "main", cwd=self.tmp / "results.git")
         self.assertFalse(self.w.publish_registry_info(reg))
         self.assertEqual(sh("git", "rev-list", "--count", "main", cwd=self.tmp / "results.git"), n)
@@ -456,7 +457,7 @@ class Isolation(Base):
     def test_with_the_real_runner_a_no_network_job_is_refused_when_isolation_is_unavailable(self):
         marker = self.tmp / "ran"
         self.registry_path.write_text(f"classes:\n  touchy:\n    tier: auto\n    cost: light\n    run: [{sys.executable}, -c, \"open('{marker}', 'w')\"]\n")
-        self.make_worker(runner=runner.run_command)                                              # the real runner; netns=False means "cannot isolate"
+        self.make_worker(runner=runner.run_command)                                              # the real runner; NoJail means "cannot isolate"
         self.job("job-0001", "touchy")
         self.run_all()
         res = self.result("job-0001")
@@ -466,7 +467,7 @@ class Isolation(Base):
 
     def test_with_the_real_runner_a_job_runs_and_its_output_comes_back(self):
         self.registry_path.write_text(f"classes:\n  real:\n    tier: auto\n    cost: light\n    run: [{sys.executable}, -c, \"print(6 * 7)\"]\n    network: true\n")
-        self.make_worker(runner=runner.run_command)
+        self.make_worker(runner=runner.run_command, jail=jail_mod.Unshare(False))      # the older method lets a network class through even with no namespace
         self.job("job-0001", "real")
         self.run_all()
         self.assertEqual((self.result("job-0001")["status"], self.result("job-0001")["output"].strip()), ("ok", "42"))

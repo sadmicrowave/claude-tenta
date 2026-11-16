@@ -51,7 +51,7 @@ class Checks(unittest.TestCase):
 
     def test_the_plan_covers_what_a_job_needs_and_skips_what_the_machine_lacks(self):
         names = [n for n, *_ in sandboxtest.checks("/home/w", "/var/lib/x/state", "/var/lib/x/queue", helper="/usr/local/sbin/h", have=lambda p: True)]
-        for needed in ("the worker starts", "a no-network namespace can be built", "state and home folders are writable", "a private /tmp works",
+        for needed in ("the worker starts", "a no-network jail can be built", "state and home folders are writable", "a private /tmp works",
                        "GitHub can be reached over SSH", "sudo works for the thermal helper", "the sandbox is in force (the root file system is read-only)"):
             self.assertIn(needed, names)
         skipped = {n: r for n, a, r in sandboxtest.checks("/h", "/s", "/q", have=lambda p: False) if a is None}
@@ -85,7 +85,7 @@ class Running(unittest.TestCase):
     def test_test_unit_returns_the_exit_code_and_prints_a_readable_list(self):
         lines = []
         loopback = "Inter-|   Receive\n face |bytes\n    lo: 0 0 0\n"
-        runner = lambda props, argv: (0, loopback if argv[0].endswith("unshare") else "")   # noqa: E731
+        runner = lambda props, argv: (0, loopback if argv[0].endswith(("unshare", "bwrap")) else "")   # noqa: E731
         code = sandboxtest.test_unit(UNIT, cfg(), runner=runner, have=lambda p: False, out=lines.append)
         self.assertEqual(code, 0)
         self.assertTrue(any(l.startswith("  OK    the worker starts") for l in lines))

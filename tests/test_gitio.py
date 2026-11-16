@@ -55,7 +55,7 @@ class Repos(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.tmp / "queue.git"), "rev-parse", "--verify", "-q", f"refs/heads/{branch}"], capture_output=True).returncode == 0
 
     def results_log(self):
-        return sh("git", "log", "--format=%an|%s", "main", cwd=self.tmp / "results.git").splitlines()
+        return sh("git", "log", "--topo-order", "--format=%an|%s", "main", cwd=self.tmp / "results.git").splitlines()      # --topo-order: newest first even when commits share a second
 
 
 class Jobs(Repos):

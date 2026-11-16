@@ -14,16 +14,17 @@ from .config import NAME_RE, PATH_RE, USER_RE
 # (sandboxtest) before keeping a changed unit file. Deliberately not set, because each would break jobs today: NoNewPrivileges (the thermal
 # classes use sudo), ProtectKernelTunables (fan control writes under /sys), RestrictNamespaces (network isolation uses unshare),
 # SystemCallFilter, PrivateDevices.
+# Also not set, found by running the jail inside a unit with these settings: ProtectHostname (its seccomp filter stops the jail from giving a job
+# its own host name) and ProtectKernelLogs (a /proc with hidden files cannot have a fresh /proc mounted inside the jail). The jail already
+# gives every job its own host name and process list, so both protections are covered where it matters.
 SANDBOX = """\
 # Sandbox. See sandboxtest: the update tool checks these before keeping a changed unit file.
 ProtectSystem=strict
 ReadWritePaths={{state_root}} {{worker_home}} -/run/sudo -/run/sudo-rs
 PrivateTmp=yes
 ProtectKernelModules=yes
-ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
-ProtectHostname=yes
 LockPersonality=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

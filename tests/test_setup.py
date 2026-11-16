@@ -234,12 +234,55 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(status, "failed")
         self.assertIn("unable to locate", detail)
 
-    def test_netns_check_reports_but_never_changes_anything(self):
-        mod, h = hardening.MODULES["netns-required"], self.h
-        h.replies["runuser"] = Result(1, "unshare: unshare failed: Operation not permitted")
-        status, detail = hardening.run_module(mod, h, self.cfg, dry_run=False, out=lambda s: None)
-        self.assertEqual(status, "failed")
-        self.assertIn("Operation not permitted", detail)
+    def test_job_isolation_installs_bubblewrap_and_restores_the_userns_restriction(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.replies["sysctl -n kernel.apparmor_restrict_unprivileged_userns"] = Result(0, "0\n")
+        h.replies["runuser"] = Result(0, "Inter-|   Receive\n face |bytes\n    lo: 0 0 0\n")
+        h.put("/usr/bin/bwrap", "")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        c = mod.check(h, self.cfg)
+        self.assertFalse(c.ok)
+        self.assertIn("open to every account", c.detail)
+        steps = [a.show() for a in mod.plan(h, self.cfg)]
+        self.assertTrue(any("kernel.apparmor_restrict_unprivileged_userns = 1" in s for s in steps))
+        self.assertIn("sysctl -w kernel.apparmor_restrict_unprivileged_userns=1", steps)
+        self.assertFalse(any("apt-get" in s for s in steps))                      # already installed
+
+    def test_job_isolation_is_satisfied_when_jails_work_and_the_restriction_is_on(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.replies["sysctl -n kernel.apparmor_restrict_unprivileged_userns"] = Result(0, "1\n")
+        h.replies["runuser"] = Result(0, "Inter-|   Receive\n face |bytes\n    lo: 0 0 0\n")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        h.put("/usr/bin/bwrap", "")
+        self.assertTrue(mod.check(h, self.cfg).ok)
+
+    def test_job_isolation_on_debian_has_no_sysctl_to_set(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.replies["sysctl -n"] = Result(255, "cannot stat")
+        h.replies["runuser"] = Result(0, "Inter-|   Receive\n face |bytes\n    lo: 0 0 0\n")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        h.put("/usr/bin/bwrap", "")
+        self.assertTrue(mod.check(h, self.cfg).ok)
+        self.assertEqual(mod.plan(h, self.cfg), [])
+
+    def test_job_isolation_refuses_a_setuid_bubblewrap_and_installs_a_missing_one(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.put("/usr/bin/bwrap", "")
+        h.replies["stat -c %a"] = Result(0, "4755\n")
+        self.assertIn("setuid", mod.check(h, self.cfg).detail)
+        h2 = FakeHost()
+        steps = [a.show() for a in mod.plan(h2, self.cfg)]
+        self.assertIn("apt-get install -y bubblewrap", steps)
+        self.assertIn("not installed", mod.check(h2, self.cfg).detail)
+
+    def test_job_isolation_reports_a_jail_that_cannot_be_built(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.put("/usr/bin/bwrap", "")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        h.replies["runuser"] = Result(1, "bwrap: No permissions to create a new namespace\n")
+        c = mod.check(h, self.cfg)
+        self.assertFalse(c.ok)
+        self.assertIn("No permissions to create a new namespace", c.detail)
 
     def test_state_permissions_flags_world_readable_state(self):
         mod, h = hardening.MODULES["state-permissions"], self.h

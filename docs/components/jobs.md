@@ -57,7 +57,7 @@ what you saw, so `cw-admin approve --all` can approve several jobs at once, but 
 
 A fixed program search path (never the worker's home), a hard timeout (`timeout_s`, never more than an hour), memory (`max_rss_mb`), disk (`max_disk_mb`), a
 cap on the size of any one file written, and no network unless the class declares `network: true` (which also forces approval under the core policy).
-If the machine cannot build an empty network namespace, a no-network job is **refused**, not run with the network (`isolation.require_netns`).
+Every job runs inside a **jail** ([security](security.md)): its own process tree and host name, system folders read-only, only its own work folder writable, an empty temporary home, and none of the install's configuration visible. A job whose class does not declare `network: true` also has no network. If the jail cannot be built, the job is **refused**, never run unjailed (`isolation.require_netns`).
 
 ### What is published
 

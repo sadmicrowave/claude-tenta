@@ -15,6 +15,7 @@ from unittest import mock
 os.environ["HOME"] = tempfile.mkdtemp(prefix="cw-test-home-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cw import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
+from cw import jail as jail_mod  # noqa: E402
 from cw.client import cli  # noqa: E402
 from cw.client.repo import ClientRepos  # noqa: E402
 
@@ -116,7 +117,7 @@ class Base(unittest.TestCase):
 
     def make_worker(self, **over):
         kw = dict(seclog=self.seclog, sensors=self.sensors, runner=self.runner, log=self.logged.append, home=self.home, hostname="zzhost",
-                  netns=False, is_job_process=lambda pid, jid: False, spawn=lambda jid: self.spawned.append(jid) or 4242, loadavg=lambda: self.load,
+                  jail=jail_mod.NoJail(), is_job_process=lambda pid, jid: False, spawn=lambda jid: self.spawned.append(jid) or 4242, loadavg=lambda: self.load,
                   find_program=lambda n: "/usr/bin/" + n if n in ("ls", "jq") else None)
         kw.update(over)
         self.w = worker.Worker(self.settings, self.io, self.lockdown, self.keeper, self.pk, **kw)

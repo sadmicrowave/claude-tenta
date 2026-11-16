@@ -208,7 +208,7 @@ SCHEMA = {
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
-        "method": ("unshare", _enum("unshare", "systemd-run"), "how a job is cut off from the network"),
+        "method": ("bwrap", _enum("bwrap", "unshare"), "how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method)"),
     },
     "alerts": {
         "kind": ("none", _enum("none", "ntfy", "webhook"), "where security alerts are sent"),
@@ -242,7 +242,7 @@ SCHEMA = {
     "registry": {"packs": (["core"], _list_of(_str(IDENT_RE, "a pack name")), "job-class packs to install")},
     "policy": {"packs": (["core"], _list_of(_str(IDENT_RE, "a pack name")), "off-limits rule packs to apply")},
     "hardening": {
-        "modules": (["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"],
+        "modules": (["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"],
                     _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard applies"),
     },
 }

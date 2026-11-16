@@ -37,7 +37,7 @@ and physical access.
 | Policy | `packs.py`, `registry.py` | denied programs and parameter patterns; approval forced by rule; rules can only be added to |
 | Digest-pinned approval | `cli.py` (worker), `admin/jobs.py` | approval carries the file's SHA-256 |
 | Snapshot of each job | `worker.py` | edits to the repository copy are ignored |
-| No-network execution | `runner.py` | `unshare --user --net`; **fails closed** when `isolation.require_netns` is true |
+| Job jail | `jail.py`, `runner.py` | bubblewrap: no network (unless the class needs it), no capabilities, no new privileges, own process tree and host name, read-only system folders, an empty home and no view of the install's configuration; **fails closed** when the jail cannot be built (`isolation.require_netns`) |
 | Resource limits | `runner.py`, `worker.py` | timeout, memory, disk, file size, capacity, load, temperature |
 | Output shaping | `results.py` | only declared fields; failures reduced to error lines |
 | Output guard | `guard.py` | rules below; a hit withholds, logs, alerts and locks |
@@ -78,6 +78,8 @@ Folders: code and config are root-owned; state is `0750` worker-owned; `secrets.
 ### Known limits
 
 - The scan is pattern matching and will miss a leak shaped differently; the no-network rule is what contains it.
-- User namespaces must be creatable by the worker for `unshare` isolation (a `systemd-run` method is planned, see the review).
+- **The jail shares the kernel.** bubblewrap is a namespace sandbox, not a virtual machine; a kernel bug in namespaces is still reachable. Capabilities are dropped, no new privileges are allowed and Ubuntu's AppArmor profile stops a jailed job from creating further namespaces with powers, but it is the same class of protection as before, only tighter.
+- **bubblewrap has had vulnerabilities**, mostly in its setuid mode, which this tool refuses to use. Keep the package updated (the `unattended-upgrades` module does it).
+- **No cgroup limits.** Memory, time and temperature are watched by the worker's loop, not enforced by the kernel.
 - A thermal or privileged helper that needs `sudo` cannot run inside the no-network namespace; see the review for the planned helper-unit design.
 - The tripwire needs kernel audit; container-style machines do not have it.

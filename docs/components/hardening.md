@@ -37,9 +37,9 @@ and check again. Steps never go through a shell, and the same steps are what is 
 | `auditd-canaries` | auditd and the canary timer are active | blocked, with a reason, on a machine with no kernel audit |
 | `unattended-upgrades` | package installed and switched on | |
 | `state-permissions` | state folder and `secrets.env` are not readable by other accounts | |
-| `netns-required` | the worker can build an empty network namespace | report only |
+| `job-isolation` | a real jailed command runs as the worker and sees only loopback; `bwrap` is not setuid; on Ubuntu 24.04+ `kernel.apparmor_restrict_unprivileged_userns` is `1` | installs `bubblewrap` if missing; writes `61-<name>-userns.conf` and sets the sysctl back to `1` (Ubuntu's default) |
 
-`hardening.modules` in `cw.toml` chooses which are offered; the default set is `ssh-keys-only`, `ufw-lan-egress`, `auditd-canaries`,
+`hardening.modules` in `cw.toml` chooses which are offered; the default set is `job-isolation`, `ssh-keys-only`, `ufw-lan-egress`, `auditd-canaries`,
 `no-root-equivalent-groups`, `unattended-upgrades`.
 
 ### The firewall

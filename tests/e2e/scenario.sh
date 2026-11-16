@@ -78,6 +78,8 @@ check "cw-run submit sys-status came back with a result" test $rc -eq 0
 grep -i -E "load average|up " /tmp/e2e-job.out | head -2
 check "cw-admin can reach the worker over SSH" as_admin cw-admin check
 check "cw-admin status reads the worker without a password" as_admin cw-admin status
+check "the worker reports its isolation as ON" bash -c "as_admin cw-admin status 2>&1 | grep -E 'Isolation +ON'"
+check "the job-isolation hardening module is satisfied" bash -c "grep -q 'job-isolation' /etc/$NAME/hardening.json && python3 -c \"import json; d=json.load(open('/etc/$NAME/hardening.json')); raise SystemExit(0 if d['job-isolation']['status'] in ('applied','satisfied') else 1)\""
 
 step "Safety: what must be refused"
 as_admin cw-run offload profile --what test --expect test --est-time 1 --est-mem 10 -- sudo id >/tmp/e2e-sudo.out 2>&1
