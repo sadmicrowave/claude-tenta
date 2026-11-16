@@ -52,6 +52,7 @@ ipv6 = "enabled"                # enabled | disabled. disabled turns IPv6 off on
 
 [claude]
 auth = "none"                   # none | account | api-key. none: Claude is not used on this worker (every other job still runs) | account: a claude.ai subscription token | api-key: an Anthropic API key. The token or key itself goes in secrets.env
+update_days = 7                 # days between automatic updates of the claude tool (it cannot update itself inside a job's jail)
 
 [access]
 sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask

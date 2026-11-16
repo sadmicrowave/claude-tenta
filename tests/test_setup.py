@@ -675,6 +675,14 @@ class ClaudeSignIn(ServerTests):
         self.assertNotIn(token, "\n".join(self.said))
         self.assertEqual(oct(self.h.path("/etc/claude-ballast/secrets.env").stat().st_mode & 0o777), "0o640")
 
+    def test_the_weekly_claude_update_timer_runs_only_where_claude_is_used(self):
+        self.run_with("account", token="sk-ant-oat01-" + "t" * 40)
+        self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))
+
+    def test_no_claude_update_timer_without_claude(self):
+        self.run_with("none")
+        self.assertFalse(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))
+
     def test_api_key_goes_under_its_own_name_and_replaces_the_other_route(self):
         s, screen = self.run_with("api-key", token="sk-ant-api03-" + "y" * 40)
         self.assertIn("ANTHROPIC_API_KEY", self.secrets())

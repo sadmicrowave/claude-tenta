@@ -327,6 +327,16 @@ class Status(CliBase):
         self.assertIn("No usable temporary", out)
         self.assertRegex(out, r"Step\s+OK")
 
+    def test_status_shows_the_claude_tool_and_is_honest_about_the_older_release(self):
+        from cw import claudeupdate
+        import time as _t
+        claudeupdate.save(self.w.state, {"ts": int(_t.time()), "kind": "native", "before": "2.1.325", "after": "2.1.325", "ok": True, "note": ""})
+        self.assertRegex(self.run_cli("status")[1], r"Claude\s+2\.1\.325")
+        claudeupdate.save(self.w.state, {"ts": int(_t.time()), "kind": "legacy", "before": "2.1.112", "after": "2.1.112", "ok": False, "note": "x"})
+        out = self.run_cli("status")[1]
+        self.assertRegex(out, r"Claude\s+OLDER 2\.1\.112")
+        self.assertIn("newer ones need a newer machine", out)
+
     def test_hours_are_clamped(self):
         self.assertIn("LAST 168 HOURS", self.run_cli("status", "--hours", "9999")[1])
         self.assertIn("LAST 1 HOURS", self.run_cli("status", "--hours", "0")[1])

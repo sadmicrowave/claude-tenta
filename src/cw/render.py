@@ -36,7 +36,8 @@ SystemCallArchitectures=native"""
 # Read-only subcommands the admin may run as the worker without a password (access.sudo = "readonly-nopasswd"). Each is matched exactly.
 READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "quarantine *", "output", "output *")
 
-UNITS = ("fetch.service", "fetch.timer", "step.service", "step.timer", "canary.service", "canary.timer", "update.service", "update.timer")
+UNITS = ("fetch.service", "fetch.timer", "step.service", "step.timer", "canary.service", "canary.timer", "update.service", "update.timer",
+         "claude-update.service", "claude-update.timer")
 BIN_DIR = "/usr/local/bin"
 SBIN_DIR = "/usr/local/sbin"
 WORKER_CMD = "cw-worker"        # the command names never contain the install name, so they stay the same when the install is renamed
@@ -46,7 +47,7 @@ _PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 _CHECKS = {
     "name": NAME_RE, "worker_user": USER_RE, "admin_user": USER_RE, "alias": re.compile(r"^[A-Z][A-Z0-9_]{2,40}$"),
     "state_root": PATH_RE, "worker_home": PATH_RE, "lib": PATH_RE, "config": PATH_RE, "code": PATH_RE,
-    "fetch_s": re.compile(r"^\d{1,4}$"), "step_s": re.compile(r"^\d{1,4}$"), "canary_s": re.compile(r"^\d{1,4}$"), "update_min": re.compile(r"^\d{1,4}$"),
+    "fetch_s": re.compile(r"^\d{1,4}$"), "step_s": re.compile(r"^\d{1,4}$"), "canary_s": re.compile(r"^\d{1,4}$"), "update_min": re.compile(r"^\d{1,4}$"), "claude_update_days": re.compile(r"^\d{1,2}$"),
     "commands": re.compile(r"^[A-Za-z0-9._/ *,-]+$"),
 }
 
@@ -77,7 +78,7 @@ def values_for(cfg):
     return {"name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
             "state_root": cfg.paths.state_root, "worker_home": cfg.paths.worker_home, "lib": f"{cfg.paths.code}/lib", "config": cfg.paths.config,
             "code": cfg.paths.code, "fetch_s": cfg.schedule.fetch_s, "step_s": cfg.schedule.step_s, "canary_s": cfg.schedule.canary_s,
-            "update_min": cfg.schedule.update_min, "commands": ""}
+            "update_min": cfg.schedule.update_min, "claude_update_days": int(cfg.claude.update_days), "commands": ""}
 
 
 def alias_for(cfg):

@@ -113,6 +113,8 @@ Current Claude Code is a native program built for fairly recent processors. The 
 
 To change a worker later, run `cw-setup install` again and choose differently: the old credential is removed from that worker (choosing none deletes whatever was stored). Each worker keeps its own choice, so one can use the API while another uses the account.
 
+**Keeping the Claude tool patched.** Jobs only ever run `claude` inside a jail where its folder is read-only, so the tool can never update itself there. Whenever Claude is in use (`claude.auth` is not none) the worker therefore gets a weekly timer (`claude-update`, every `claude.update_days` days, default 7) that runs as the worker account outside any jail and runs `claude update`; `status` shows the tool's version and when it was last checked (`Claude` row), and flags an update that failed or stopped running. The one exception is the older release installed on processors too old for the current program: it is pinned, and nothing newer can run there (every release after 2.1.112 is native only), so the timer reports it as `OLDER` instead of installing something that would crash. The honest fix for that case is a newer machine for Claude jobs; until then the jail (no secrets in the job's home, read-only tools, the worker's firewall) is what limits what a flaw in the old release could do.
+
 ### Running install again
 
 Stopping an install, or running it again without uninstalling, never starts from a blank page:

@@ -84,6 +84,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `auth` | `none` | `account` , `api-key` , `none` | how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). The token or key itself lives only in secrets.env |
+| `update_days` | `7` | float | days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail) |
 
 ## [access]
 

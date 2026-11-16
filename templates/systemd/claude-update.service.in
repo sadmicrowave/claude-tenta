@@ -1,0 +1,13 @@
+[Unit]
+Description={{name}} Claude Code update (keeps the claude tool the worker runs current)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{worker_user}}
+Type=oneshot
+TimeoutStartSec=15min
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+{{sandbox}}
+ExecStart=/usr/bin/python3 -m cw.cli claude-update

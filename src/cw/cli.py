@@ -22,7 +22,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import alerts, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import alerts, claudeupdate, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -463,6 +463,17 @@ def cmd_status(ctx, hours=12):
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what})")
+    cu = claudeupdate.load(w.state)
+    if cu:
+        when = f"{int((time.time() - cu['ts']) / 86400)} days ago" if time.time() - cu["ts"] > 86400 else "today"
+        if cu["kind"] == "legacy":
+            line(False, "Claude", f"OLDER {cu['after'] or '?'}", f"pinned older release, cannot be updated on this processor (newer ones need a newer machine)")
+        elif not cu["ok"]:
+            line(False, "Claude", "UPDATE FAILED", f"{cu['note'] or 'see the journal'}  (last tried {when})")
+        elif time.time() - cu["ts"] > 21 * 86400:
+            line(False, "Claude", f"{cu['after']} STALE", f"not updated for {int((time.time() - cu['ts']) / 86400)} days; the update timer may have stopped")
+        else:
+            line(True, "Claude", cu["after"] or "OK", f"{cu['kind']} install, checked for updates {when}")
     total, avail = w.sensors.meminfo() if w.sensors else (0, None)
     if total and avail is not None:
         good = avail > total * 0.1
@@ -513,6 +524,19 @@ def run_pass(ctx, which):
         raise
     record_pass(ctx.w.state, which, True)
     return 0
+
+
+def cmd_claude_update(ctx, cfg):
+    """The weekly pass that keeps the claude tool patched (see claudeupdate). Does nothing where Claude is not used."""
+    if cfg.claude.auth == "none":
+        return 0
+    res = claudeupdate.update(cfg.paths.worker_home)
+    claudeupdate.save(ctx.w.state, res)
+    record_pass(ctx.w.state, "claude-update", res["ok"], res["note"])
+    changed = res["before"] != res["after"]
+    emit("Claude tool " + ("updated" if changed else "checked"), f"{res['kind']} install, version {res['after'] or 'unknown'}" + (f" (was {res['before']})" if changed else ""),
+         res["note"] or None, tag="OK" if res["ok"] else "NOTE", color=GREEN if res["ok"] else YELLOW)
+    return 0 if res["ok"] or res["kind"] == "legacy" else 1
 
 
 # ---- root-run helpers ----------------------------------------------------------------------------------------------------------
@@ -575,6 +599,8 @@ def main(argv=None, ctx=None, cfg=None):
             perms.tighten_modes([ctx.w.state, ctx.w.io.queue, ctx.w.io.results], ctx.w.state / perms.MODES_MARKER)
         if cmd in ("fetch", "step"):
             return run_pass(ctx, cmd)
+        if cmd == "claude-update":
+            return cmd_claude_update(ctx, cfg or config.load())
         if cmd == "exec" and len(args) == 1:
             return cmd_exec(ctx, args[0])
         if cmd == "run":

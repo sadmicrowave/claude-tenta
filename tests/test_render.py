@@ -74,10 +74,20 @@ class Units(unittest.TestCase):
     def test_a_hostile_configuration_value_cannot_reach_a_unit(self):
         c = cfg()
         bad = type("C", (), {})()
-        bad.__dict__.update({k: getattr(c, k) for k in ("identity", "server", "paths", "schedule", "access")})
+        bad.__dict__.update({k: getattr(c, k) for k in ("identity", "server", "paths", "schedule", "access", "claude")})
         bad.paths = c.paths.__class__("paths", {**c.paths.as_dict(), "state_root": "/var/x\nExecStartPre=/bin/evil"})
         with self.assertRaises(render.RenderError):
             render.unit_files(bad, TEMPLATES)
+
+
+class ClaudeUpdateUnit(unittest.TestCase):
+    def test_the_weekly_update_unit_runs_as_the_worker_under_the_same_sandbox(self):
+        units = render.unit_files(cfg(CW_CLAUDE_UPDATE_DAYS="7"), TEMPLATES)
+        svc, timer = units["claude-ballast-claude-update.service"], units["claude-ballast-claude-update.timer"]
+        self.assertIn("ExecStart=/usr/bin/python3 -m cw.cli claude-update", svc)
+        self.assertIn("User=cwworker", svc)
+        self.assertIn("ProtectSystem=strict", svc)
+        self.assertIn("OnUnitInactiveSec=7d", timer)
 
 
 class Sudoers(unittest.TestCase):

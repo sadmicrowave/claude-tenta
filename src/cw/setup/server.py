@@ -375,7 +375,8 @@ class ServerSetup:
 
     def start_timers(self):
         cfg = self.cfg
-        timers = [cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
+        timers = ([cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
+                  + ([cfg.unit("claude-update.timer")] if cfg.claude.auth != "none" else []))
         for t in timers:
             self.run(["systemctl", "enable", "--now", t], step="start the timers")
         self.note("timers", "planned" if self.dry_run else "running", ", ".join(timers))
