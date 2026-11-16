@@ -333,6 +333,26 @@ class ServerTests(unittest.TestCase):
                                   systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0,
                                   registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped", **kw)
 
+    def test_the_configuration_with_the_private_alert_address_is_not_world_readable_nor_echoed(self):
+        topic = "https://ntfy.example/very-private-topic-name"
+        s = self.setup_obj(dry_run=False, given={"alerts.kind": "ntfy", "alerts.url": topic})
+        s.run_all()
+        path = "/etc/claude-ballast/cw.toml"
+        self.assertEqual(self.h.path(path).stat().st_mode & 0o777, 0o640)
+        self.assertTrue(self.h.ran(f"chown root:cwworker {path}"))
+        self.assertIn(topic, self.h.read(path))                                   # the worker needs it
+        self.assertNotIn("very-private-topic-name", "\n".join(self.said))       # but it is never printed
+
+    def test_commands_named_after_an_earlier_install_are_removed(self):
+        for p in ("/usr/local/bin/claude-ballast", "/usr/local/sbin/claude-ballast-update"):
+            self.h.put(p, "old wrapper\n")
+        s = self.setup_obj(dry_run=False)
+        s.run_all()
+        self.assertFalse(self.h.exists("/usr/local/bin/claude-ballast"))
+        self.assertFalse(self.h.exists("/usr/local/sbin/claude-ballast-update"))
+        self.assertTrue(self.h.exists("/usr/local/bin/cw-worker"))
+        self.assertTrue(self.h.exists("/usr/local/sbin/cw-update"))
+
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()
@@ -564,6 +584,19 @@ class AuditTests(unittest.TestCase):
         self.assertGreaterEqual(len(bad), 4)
         self.assertEqual([c for c in h.calls if c[0] in ("apt-get", "ufw", "gpasswd", "chmod") and c[:2] != ["ufw", "status"]], [])
         self.assertTrue(any("password logins are on" in r[2] for r in rows))
+
+
+    def test_audit_flags_a_configuration_file_everyone_can_read(self):
+        h, cfg = FakeHost(), cfg_of()
+        path = cfg.path("config_file")
+        h.put(path, "[alerts]\nurl = \"https://ntfy.example/x\"\n")
+        h.path(path).chmod(0o644)
+        rows, _ = audit.run(h, cfg, say=lambda s: None)
+        row = next(r for r in rows if r[0].startswith("configuration file is private"))
+        self.assertFalse(row[1])
+        h.path(path).chmod(0o640)
+        rows, _ = audit.run(h, cfg, say=lambda s: None)
+        self.assertTrue(next(r for r in rows if r[0].startswith("configuration file is private"))[1])
 
 
 class CliTests(unittest.TestCase):

@@ -9,6 +9,12 @@ def run(host, cfg, say=print):
     rows = []
     problem = config.secrets_file_problem(cfg.path("secrets"))
     rows.append(("secrets file is private", problem is None, problem or "ok"))
+    cfg_file = cfg.path("config_file")
+    try:
+        open_mode = host.path(cfg_file).stat().st_mode & 0o007
+    except OSError:
+        open_mode = 0
+    rows.append(("configuration file is private (it holds the alert address)", not open_mode, "ok" if not open_mode else f"{cfg_file} can be read by every account; run: chmod 640 {cfg_file}"))
     for mid, title, check in hardening.audit(host, cfg):
         rows.append((f"{mid}: {title}", check.ok, check.detail))
     unknown = [m for m in cfg.hardening.modules if m not in hardening.MODULES]

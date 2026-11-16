@@ -369,6 +369,12 @@ class ReleaseTests(AdminBase):
         self.assertEqual(self.ssh.calls, [])
         self.assertIn("already at this version", err)
 
+    def test_the_connection_check_runs_the_real_worker_command_not_one_named_after_the_install(self):
+        runs = []
+        self.ssh._run = lambda argv, **k: runs.append(argv) or subprocess.CompletedProcess(argv, 0, "", "")
+        self.assertEqual(cli.cmd_check(self.ctx, None), 0)
+        self.assertEqual(runs[-1][-1], "cw-worker status")                    # `<install name> status` was an old install's command and could still exist and pass
+
     def test_a_failed_check_offers_the_rollback_and_does_it_on_yes(self):
         self.installed(self.rel[0])
         self.health(self.new, failed=2)

@@ -152,9 +152,10 @@ class ServerSetup:
         text = toml_out.dump(nested)
         path = self.cfg.path("config_file")
         self.say(f"\n  The configuration, written to {path}:\n")
-        self.say("    " + text.replace("\n", "\n    "))
+        shown = re.sub(r"(?m)^(url\s*=\s*\"https?://[^/\"]*/)[^\"]*", r"\1<hidden>", text)          # a private alert address is not echoed to the screen or a log
+        self.say("    " + shown.replace("\n", "\n    "))
         if not self.dry_run:
-            self.host.write(path, text, 0o644)
+            self.host.write(path, text, 0o640)                     # the alert address in it is private; the owner and group are set once the worker account exists
         self.note("configuration", "planned" if self.dry_run else "written", path)
 
     def accounts_and_folders(self):
@@ -176,7 +177,22 @@ class ServerSetup:
             if not self.dry_run:
                 self.host.write(secrets, "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n", 0o640)
                 self.host.run(["chown", f"root:{w}", secrets])
+        if not self.dry_run:
+            self.host.run(["chown", f"root:{w}", cfg.path("config_file")])               # readable by root and the worker account only (it holds the private alert address)
         self.note("folders", "ok")
+
+    def remove_legacy_commands(self):
+        """Earlier installs named the commands after the install (`<name>` and `<name>-update`). The update wrapper is a root-run installer, so a copy that nothing
+        uses any more is removed rather than left lying around."""
+        n = self.cfg.identity.name
+        gone = [p for p in (f"/usr/local/bin/{n}", f"/usr/local/sbin/{n}-update")
+                if p not in (f"{render.BIN_DIR}/{render.WORKER_CMD}", f"{render.SBIN_DIR}/{render.UPDATE_CMD}") and self.host.exists(p)]
+        for p in gone:
+            self.say(f"    (remove the old command {p})")
+            if not self.dry_run:
+                self.host.remove(p)
+        if gone:
+            self.note("old command names", "planned" if self.dry_run else "removed", ", ".join(gone))
 
     def install_code(self):
         cfg = self.cfg
@@ -402,6 +418,7 @@ class ServerSetup:
         self.accounts_and_folders()
         self.say("\nCode")
         self.install_code()
+        self.remove_legacy_commands()
         self.say("\nRepository access")
         pubs = self.deploy_keys()
         if self.clones(pubs):

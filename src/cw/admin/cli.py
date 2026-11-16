@@ -89,11 +89,11 @@ def cmd_check(ctx, a):
         emit("Set up SSH key login first", "Password logins are not used by cw-admin.", tag="FIX", color=YELLOW, run=f"ssh-copy-id {ctx.ssh.target}")
         return 1
     print(f"{paint('OK  ', BOLD, GREEN, stream=out)}  key login works without a password")
-    r = ctx.ssh._run(ctx.ssh.argv(f"{ctx.name} status", batch=True), capture_output=True, text=True)
+    r = ctx.ssh._run(ctx.ssh.argv(f"{render.WORKER_CMD} status", batch=True), capture_output=True, text=True)
     if r.returncode:
-        print(f"{paint('NOTE', BOLD, YELLOW, stream=out)}  `{ctx.name} status` asked for a password or failed; read-only commands normally need none (access.sudo)")
+        print(f"{paint('NOTE', BOLD, YELLOW, stream=out)}  `{render.WORKER_CMD} status` asked for a password or failed; read-only commands normally need none (access.sudo)")
     else:
-        print(f"{paint('OK  ', BOLD, GREEN, stream=out)}  `{ctx.name}` read-only commands work without a password")
+        print(f"{paint('OK  ', BOLD, GREEN, stream=out)}  `{render.WORKER_CMD}` read-only commands work without a password")
     print()
     return 0
 
