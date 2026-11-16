@@ -109,13 +109,28 @@ class Installer:
     def config_file(self):
         return str(Path(self.machine.env.get("HOME", "~")).expanduser() / ".config" / "claude-ballast" / "cw.toml")
 
+    def answers_file(self):
+        return str(self.home / "install-answers.toml")
+
     def previous_answers(self):
-        """The answers of an earlier run (the configuration it wrote), as defaults for this one: running install again never starts from a blank page."""
-        try:
-            raw = tomllib.loads(self.machine.read(self.config_file()) or "")
-        except (OSError, ValueError):
-            return {}
-        return {k: v for k, v in flat(raw).items() if k in questions.BY_KEY}
+        """The answers of an earlier run, as defaults for this one: running install again never starts from a blank page. They come from the configuration the
+        client half wrote and from the full set of answers saved at the end of the questions (the server's questions are not in the client's configuration)."""
+        out = {}
+        for path in (self.config_file(), self.answers_file()):
+            try:
+                raw = tomllib.loads(self.machine.read(path) or "")
+            except (OSError, ValueError):
+                continue
+            out.update({k: v for k, v in flat(raw).items() if k in questions.BY_KEY})
+        return out
+
+    def save_answers(self, nested):
+        """Keep every answer except secrets (those live only in the server's secrets file) so the next run can offer them again."""
+        if self.dry_run:
+            return
+        keep = {sec: {k: v for k, v in vals.items() if not questions.BY_KEY.get(f"{sec}.{k}", {}).get("secret")} for sec, vals in nested.items()}
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.machine.write(self.answers_file(), toml_out.dump(keep, full=True), 0o600)
 
     @property
     def state_file(self):
@@ -227,6 +242,7 @@ class Installer:
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
         self.cfg = config.Config(clean)
+        self.save_answers(nested)
         return nested
 
     def settle(self):

@@ -196,6 +196,14 @@ class Rerun(InstallBase):
         inst.run_all()
         self.assertEqual(inst.progress(), {})
 
+    def test_the_servers_answers_are_remembered_too_but_not_secrets(self):
+        inst = self.installer(given={"hardware.profile": "workstation", "network.ipv6": "disabled", "alerts.kind": "ntfy", "alerts.url": "https://ntfy.example/private-topic"})
+        inst.run_all()
+        prev = self.installer(given={}).previous_answers()
+        self.assertEqual((prev["hardware.profile"], prev["network.ipv6"], prev["alerts.kind"]), ("workstation", "disabled", "ntfy"))
+        self.assertNotIn("alerts.url", prev)
+        self.assertNotIn("private-topic", self.machine.read(inst.answers_file()))
+
     def test_the_earlier_answers_are_the_defaults(self):
         self.finished_server_but_not_the_job()
         again = self.installer(given={})
