@@ -21,6 +21,7 @@ Every answer has a safe default, and nothing is guessed: if a question needs an 
 
 ```
 cw-setup install [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--wait-for-keys SECONDS] [--no-test]
+cw-setup uninstall [--apply] [--yes] [--keep-data] [--remove-account]
 cw-setup client [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--queue-key FILE] [--results-key FILE]
 cw-setup server [--apply] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--rev COMMIT] [--wait-for-keys SECONDS]
 cw-setup audit
@@ -81,3 +82,19 @@ A preview (`--dry-run`) does steps 1 to 4 without creating repositories or chang
 ### Exit codes
 
 `cw-setup server` exits **10** when it stopped because the repositories cannot be reached yet (the deploy keys are not added); running it again continues. `cw-setup install` treats that as an error only if the keys were not added within `--wait-for-keys` seconds (default 900).
+
+### `cw-setup uninstall`
+
+`src/cw/setup/uninstall.py`. From your computer: `cw-setup uninstall` shows what it would remove (a preview that needs no password and changes nothing); `cw-setup uninstall --apply` asks once, then runs the removal on the server over `ssh -t` under `sudo`. The removal code comes from your
+checkout (delivered like an install, then removed), never from the install being removed, so it works however old or broken that install is. On the server itself it is `python3 -m cw.setup uninstall --here [--apply]`.
+
+It reads the install's own `cw.toml`, so it respects a different name or folders, and lists only what is actually there:
+
+1. stops and disables the timers, stops the services, ends any job still running as the worker account;
+2. removes the unit files and reloads systemd;
+3. removes the sudoers rule, the IPv6 and user-namespace sysctl files, the decoy-watching audit rule (and reloads the audit rules), and the commands;
+4. removes the code, configuration and state folders (`--keep-data` keeps the state folder: the clones, the security log, kept outputs);
+5. with `--remove-account`, removes the worker account and its home folder.
+
+**What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
+unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `cw-setup install` afterwards sets everything up again.

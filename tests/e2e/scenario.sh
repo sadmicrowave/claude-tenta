@@ -136,5 +136,23 @@ rev=$(git -C $SRC rev-parse HEAD 2>/dev/null || true)
 check "the update tool re-installs the same release" bash -c "/usr/local/sbin/$NAME-update --local $SRC $rev | tail -3"
 check "and the worker is still healthy afterwards" bash -c "! systemctl --failed --no-legend | grep -q $NAME"
 
+step "Uninstalling removes the install, keeps the protections, and installing again works"
+as_admin cw-setup uninstall >/tmp/e2e-uninstall-preview.out 2>&1
+check "the uninstall preview lists what it would remove and changes nothing" bash -c "grep -q 'What stays' /tmp/e2e-uninstall-preview.out && test -d /opt/$NAME"
+as_admin cw-setup uninstall --apply --yes >/tmp/e2e-uninstall.out 2>&1; rc=$?
+tail -6 /tmp/e2e-uninstall.out
+check "the uninstall finished successfully" test $rc -eq 0
+check "the code, configuration and state folders are gone" bash -c "! test -e /opt/$NAME && ! test -e /etc/$NAME && ! test -e /var/lib/$NAME"
+check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd/system/$NAME-* 2>/dev/null | grep -q . && ! test -e /usr/local/bin/$NAME && ! test -e /usr/local/sbin/$NAME-update && ! test -e /etc/sudoers.d/$NAME"
+check "no timer is left" bash -c "! systemctl list-timers --all --no-legend | grep -q $NAME"
+check "the protections stay: password SSH is still off and the firewall is still on" bash -c "sshd -T | grep -qx 'passwordauthentication no' && ufw status | grep -q 'Status: active'"
+check "the worker account stays (reinstalling reuses it)" bash -c "getent passwd $WORKER"
+check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/cw-queue.git cat-file -e main:registry.yaml
+as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
+  --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-reinstall.out 2>&1; rc=$?
+tail -6 /tmp/e2e-reinstall.out
+check "installing again after an uninstall finished successfully" test $rc -eq 0
+check "the timers are running again" bash -c "systemctl is-active $NAME-fetch.timer $NAME-step.timer $NAME-canary.timer | sort -u | grep -qx active"
+
 printf '\n=== %d passed, %d failed\n' "$PASS" "$FAIL"
 exit "$FAIL"

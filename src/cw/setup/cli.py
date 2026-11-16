@@ -3,6 +3,7 @@
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
+  uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
 
@@ -21,7 +22,8 @@ from . import audit as audit_mod
 from . import questions
 from .client import ClientSetup
 from .host import Host
-from .install import Installer, default_verify
+from .install import Installer, default_verify, deliver_source, remove_remote_dir
+from .uninstall import Uninstall, load_config
 from .server import EXIT_WAITING, ServerSetup, SetupError
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -52,7 +54,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="cw-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install"):
+    for n in ("client", "server", "audit", "install", "uninstall"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -65,12 +67,61 @@ def build_parser():
         s.add_argument("--results-key")
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
         s.add_argument("--no-test", action="store_true")
+        s.add_argument("--here", action="store_true")
+        s.add_argument("--keep-data", action="store_true")
+        s.add_argument("--remove-account", action="store_true")
     return ap
 
 
 def default_repos(cfg):
     from ..client.repo import ClientRepos
     return ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+
+
+def uninstall_command(a, host, ask, ssh_factory, say):
+    """On the server itself (--here, run as root): remove it. From your computer: confirm once, then run exactly that on the server over ssh -t."""
+    flags = (["--keep-data"] if a.keep_data else []) + (["--remove-account"] if a.remove_account else [])
+    if a.here:
+        cfg = load_config()
+        interactive = not a.yes and sys.stdin.isatty()
+        run = Uninstall(host, cfg, say=say, dry_run=not a.apply, keep_data=a.keep_data, remove_account=a.remove_account,
+                        confirm=None if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: False))
+        report = run.run_all()
+        status = report[-1][1] if report else ""
+        if status == "planned":
+            emit("Nothing was removed", "That was a preview.", tag="PREVIEW", color=YELLOW)
+        elif status == "removed":
+            emit("Removed", f"The {cfg.identity.name} install is gone from this machine.", tag="DONE", color=GREEN)
+        elif status == "declined":
+            emit("Not removed", "You answered no.", tag="STOPPED", color=YELLOW)
+            return 1
+        return 0
+    from ..admin.ssh import Ssh
+    cfg = config.load()
+    cfg.require("server.host", "server.admin_user")
+    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
+    # The code that does the removal comes with this checkout, not from the install being removed, so it works however old or broken that install is.
+    d, rev, _ = deliver_source(ssh, a.source, say=say)
+    try:
+        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CW_CONFIG={cfg.paths.config}/cw.toml python3 -m cw.setup uninstall --here " + " ".join(flags)
+        if not a.apply:
+            r = ssh.capture(base)
+            say((r.stdout or "") + (r.stderr or ""))
+            emit("Nothing was removed", "That was a preview.", tag="PREVIEW", color=YELLOW, run_label="Remove it", run="cw-setup uninstall --apply" + "".join(" " + f for f in flags))
+            return 0 if r.returncode == 0 else 1
+        if not a.yes:
+            if not sys.stdin.isatty() or ask(paint(f"\n  Remove the {cfg.identity.name} install from {cfg.server.host}? Run the preview first if unsure. [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
+                emit("Not removed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
+                return 1
+        rc = ssh.interactive(f"sudo {base} --apply --yes")
+    finally:
+        remove_remote_dir(ssh, d)
+    if rc:
+        emit("The removal stopped", f"Exit {rc}. Read the messages above.", tag="ERROR", color=RED)
+        return 1
+    emit("Removed", f"The {cfg.identity.name} install is gone from {cfg.server.host}. Your repositories and your computer's configuration were not touched.", tag="DONE", color=GREEN,
+         run_label="Set it up again", run="cw-setup install")
+    return 0
 
 
 def finish(a, report, dry):
@@ -104,6 +155,8 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             cfg = config.load()
             rows, bad = audit_mod.run(host, cfg, say=say)
             return 1 if bad else 0
+        if a.cmd == "uninstall":
+            return uninstall_command(a, host, ask, ssh_factory, say)
         given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}
         if a.cmd == "install":
             from ..admin.ssh import Ssh

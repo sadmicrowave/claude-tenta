@@ -61,6 +61,35 @@ def archive_source(source, run=subprocess.run):
     return data, hashlib.sha1(data).hexdigest(), False
 
 
+def remote_dir(ssh):
+    """A private (mode 0700) working folder on the server. The name is checked against a strict pattern before it is ever used or removed."""
+    r = ssh.capture("umask 077; mktemp -d /tmp/cw-install.XXXXXX")
+    d = (r.stdout or "").strip()
+    if r.returncode or not REMOTE_DIR.match(d):
+        raise SetupError("Could not make a working folder on the server", (r.stderr or d)[:200])
+    return d
+
+
+def deliver_source(ssh, source, archive=archive_source, say=print):
+    """Send the committed files of the checkout to a fresh working folder on the server. Returns (folder, revision)."""
+    data, rev, dirty = archive(source)
+    if dirty:
+        say("\n  NOTE  You have uncommitted changes. The server gets the last COMMIT (" + rev[:9] + "); the changes are not included.")
+    d = remote_dir(ssh)
+    r = ssh.send(f"tar -xf - -C {d}", data)
+    if r.returncode:
+        raise SetupError("Could not send the release to the server", (r.stderr or b"").decode("utf-8", "replace")[:200])
+    return d, rev, len(data)
+
+
+def remove_remote_dir(ssh, d):
+    if d and REMOTE_DIR.match(d):
+        try:
+            ssh.capture(f"rm -rf {d}")
+        except ClientError:
+            pass
+
+
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
                  wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None):
@@ -120,23 +149,10 @@ class Installer:
         self.report += c.report
 
     # ---- 4. the server ----
-    def remote_dir(self):
-        r = self.ssh.capture("umask 077; mktemp -d /tmp/cw-install.XXXXXX")
-        d = (r.stdout or "").strip()
-        if r.returncode or not REMOTE_DIR.match(d):
-            raise SetupError("Could not make a working folder on the server", (r.stderr or d)[:200])
-        return d
-
     def deliver(self, nested):
-        data, rev, dirty = self.archive(self.source)
-        if dirty:
-            self.say("\n  NOTE  You have uncommitted changes. The server gets the last COMMIT (" + rev[:9] + "); the changes are not included.")
-        d = self.remote_dir()
-        r = self.ssh.send(f"tar -xf - -C {d}", data)
-        if r.returncode:
-            raise SetupError("Could not send the release to the server", (r.stderr or b"").decode("utf-8", "replace")[:200])
+        d, rev, size = deliver_source(self.ssh, self.source, self.archive, self.say)
         self.ssh.send(f"cat > {d}/answers.toml", toml_out.dump(nested, full=True).encode())
-        self.note("release sent to the server", "ok", f"commit {rev[:9]}, {len(data) // 1024} KB")
+        self.note("release sent to the server", "ok", f"commit {rev[:9]}, {size // 1024} KB")
         return d, rev
 
     def server_half(self, d, rev):
@@ -173,11 +189,7 @@ class Installer:
         self.note("server setup", "done")
 
     def cleanup(self, d):
-        if d and REMOTE_DIR.match(d):
-            try:
-                self.ssh.capture(f"rm -rf {d}")
-            except ClientError:
-                pass
+        remove_remote_dir(self.ssh, d)
 
     # ---- 5. first job ----
     def first_job(self):

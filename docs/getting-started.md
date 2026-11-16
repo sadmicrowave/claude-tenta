@@ -70,6 +70,16 @@ cw-admin status
 | the worker locked itself | `cw-admin quarantine`, then `cw-admin unlock` |
 | check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/claude-worker/lib python3 -m cw.setup audit` |
 
+## Removing it
+
+```bash
+cw-setup uninstall             # a preview: lists exactly what would be removed, changes nothing
+cw-setup uninstall --apply     # asks once, then removes it (your sudo password, on the server)
+```
+
+The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `cw-setup install` sets it all up again.
+See [the setup wizard](components/setup.md#cw-setup-uninstall) for the options (`--keep-data`, `--remove-account`).
+
 ## If something goes wrong
 
 Every command explains itself: what went wrong, why, how to fix it, and a command to copy. `cw-help` lists everything. The [components](components/overview.md) pages explain how each part works.
