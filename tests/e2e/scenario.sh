@@ -84,7 +84,6 @@ check "no service has failed" bash -c "! systemctl --failed --no-legend | grep -
 check "password SSH is off" bash -c "sshd -T | grep -qx 'passwordauthentication no'"
 check "the firewall is on" bash -c "ufw status | grep -q 'Status: active'"
 check "the worker has no root-equivalent groups" bash -c "! id -nG $WORKER | grep -Eqw 'sudo|lxd|docker|disk'"
-check "the configuration (it holds the private alert address) is not world readable" bash -c "! stat -c %a /etc/$NAME/cw.toml | grep -q '[0-7][0-7][1-7]'"
 check "the state folder is not world readable" bash -c "! stat -c %a /var/lib/$NAME/state | grep -q '[0-7][0-7][1-7]'"
 AUDIT_OK=1; case "$(systemctl is-enabled auditd 2>/dev/null)" in masked*) AUDIT_OK="allow-auditd";; esac
 audit_run() { (cd $SRC && PYTHONPATH=$SRC/src CW_CONFIG=/etc/$NAME/cw.toml python3 -m cw.setup audit 2>&1); }

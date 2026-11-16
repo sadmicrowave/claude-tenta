@@ -16,11 +16,10 @@ Nothing needs to be reachable from the internet. The worker only makes outgoing 
 git clone https://github.com/<project>/claude-ballast.git
 cd claude-ballast
 python3 -m venv ~/.cw-venv && ~/.cw-venv/bin/pip install -e .
-export PATH="$HOME/.cw-venv/bin:$PATH"
-cw-help
+~/.cw-venv/bin/cw-setup install
 ```
 
-(`-e` keeps the commands tied to the checkout, which is where the worker's release comes from.)
+(`-e` keeps the commands tied to the checkout, which is where the worker's release comes from.) That one command is the only time you type a path: the install links `cw-run`, `cw-admin`, `cw-setup` and `cw-help` into `~/.local/bin` (never over a file already there) and, if that folder is not on your PATH, offers to add one marked line to your shell's startup file. Open a new terminal tab afterwards and the commands work from anywhere. (A terminal that was already open does not see the change; `source ~/.zshrc` or a new tab does.)
 
 ## 2. Set everything up, from your computer
 

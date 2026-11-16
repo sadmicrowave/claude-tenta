@@ -65,7 +65,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `kind` | `none` | `none` , `ntfy` , `webhook` | where security alerts are sent |
-| `url` | *(not set)* | text | https address to post alerts to; any access token goes in secrets.env |
+| `url` | *(not set)* | text | https address to post alerts to. A private topic address is kept in secrets.env as CW_ALERT_URL (the installer does this), not here; this setting is the fallback |
 | `remind_hours` | `[1, 6, 24]` | floatlist | hours after a lockdown starts at which a reminder is sent |
 | `remind_repeat_h` | `24` | float | then repeat the reminder this often |
 

@@ -96,7 +96,9 @@ class Strictness(unittest.TestCase):
 
     def test_cross_checks(self):
         self.assertIn("different accounts", " ".join(problems('[server]\nadmin_user = "same"\nworker_user = "same"\n')))
-        self.assertIn("alerts.url is required", " ".join(problems('[alerts]\nkind = "ntfy"\n')))
+        self.assertEqual(problems('[alerts]\nkind = "ntfy"\n'), [])                     # the worker loads it: the address is in secrets.env
+        clean, errs = config.validate({"alerts": {"kind": "ntfy"}})                       # but the wizard's own check still insists on one
+        self.assertIn("alerts.url is required", " ".join(errs))
         self.assertIn("three different folders", " ".join(problems('[paths]\ncode = "/opt/x"\nconfig = "/opt/x"\n')))
         self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/cw"\nstate_root = "/srv/cw/state"\n')))
 

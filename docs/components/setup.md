@@ -99,6 +99,10 @@ It reads the install's own `cw.toml`, so it respects a different name or folders
 **What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
 unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `cw-setup install` afterwards sets everything up again.
 
+### Commands on your PATH
+
+The client half links the four commands (`cw-run`, `cw-admin`, `cw-setup`, `cw-help`) into `~/.local/bin`, so they work from any new terminal without typing where they live. A file already in that folder with one of those names is never overwritten (the step says which and how to remove it). If `~/.local/bin` is not on your `PATH`, a card asks permission to add two lines (a comment saying where they came from, and the `export`) to the end of your shell's startup file (`.zshrc`, `.bashrc`, or fish's config; an unknown shell is only told what to add); nothing is changed without a yes, and running the install again adds nothing twice. Nothing happens when the commands are already reachable, in a preview, or when this Python has no `cw-*` commands next to it. (When the project is published to PyPI, `pipx install claude-ballast` will do the same job and this step will find the commands already on the PATH.)
+
 ### Claude sign-in
 
 Jobs of kind `claude` run the `claude` tool on the worker, so they need a sign-in there. Everything else on the worker works without one. The question `claude.auth` chooses, **per worker**:

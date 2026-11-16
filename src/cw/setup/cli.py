@@ -221,7 +221,10 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
-                                ui=screen_, advanced=a.advanced)
+                                ui=screen_, advanced=a.advanced,
+                                confirm_card=(screen_.protection if screen_ is not None else
+                                              ((lambda info: ask(f"  {info['title']}? [y/N] ").strip().lower() == "y") if interactive else None)),
+                                **({"scripts_dir": overrides.pop("scripts_dir")} if "scripts_dir" in overrides else {}))
         with (screen_.session() if screen_ is not None else contextlib.nullcontext()):
             report = setup.run_all()
     except questions.WizardError as e:

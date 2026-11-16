@@ -1,5 +1,7 @@
 """cw-setup audit: look at a server and say what drifted from the configuration. Read-only: it changes nothing, and runs without root
 (a check that needs root says so instead of guessing)."""
+import re
+
 from .. import config
 from . import hardening
 
@@ -9,12 +11,10 @@ def run(host, cfg, say=print):
     rows = []
     problem = config.secrets_file_problem(cfg.path("secrets"))
     rows.append(("secrets file is private", problem is None, problem or "ok"))
-    cfg_file = cfg.path("config_file")
-    try:
-        open_mode = host.path(cfg_file).stat().st_mode & 0o007
-    except OSError:
-        open_mode = 0
-    rows.append(("configuration file is private (it holds the alert address)", not open_mode, "ok" if not open_mode else f"{cfg_file} can be read by every account; run: chmod 640 {cfg_file}"))
+    text = host.read(cfg.path("config_file")) or ""
+    leaked = re.search(r'(?m)^url\s*=\s*"https?://', text) is not None
+    rows.append(("the private alert address is kept out of the configuration file", not leaked,
+                 "ok" if not leaked else f"{cfg.path('config_file')} holds it and is readable by every account; run cw-setup install again, which moves it to the secrets file"))
     for mid, title, check in hardening.audit(host, cfg):
         rows.append((f"{mid}: {title}", check.ok, check.detail))
     unknown = [m for m in cfg.hardening.modules if m not in hardening.MODULES]

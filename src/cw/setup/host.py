@@ -47,6 +47,19 @@ class Host:
         os.chmod(tmp, mode)
         os.replace(tmp, dest)
 
+    def link_target(self, p):
+        """None if nothing is there; else the real path the thing at `p` leads to (a dangling link is its own, unresolvable, answer: '')."""
+        path = self.path(p)
+        if not os.path.lexists(path):
+            return None
+        real = os.path.realpath(path)
+        return real if os.path.exists(real) else ""
+
+    def symlink(self, p, target):
+        dest = self.path(p)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(str(target), dest)
+
     def remove(self, p):
         self.path(p).unlink(missing_ok=True)
 

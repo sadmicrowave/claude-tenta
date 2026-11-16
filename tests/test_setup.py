@@ -333,15 +333,19 @@ class ServerTests(unittest.TestCase):
                                   systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0,
                                   registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped", **kw)
 
-    def test_the_configuration_with_the_private_alert_address_is_not_world_readable_nor_echoed(self):
+    def test_the_private_alert_address_goes_to_the_secrets_file_and_never_into_cw_toml(self):
         topic = "https://ntfy.example/very-private-topic-name"
         s = self.setup_obj(dry_run=False, given={"alerts.kind": "ntfy", "alerts.url": topic})
         s.run_all()
-        path = "/etc/claude-ballast/cw.toml"
-        self.assertEqual(self.h.path(path).stat().st_mode & 0o777, 0o640)
-        self.assertTrue(self.h.ran(f"chown root:cwworker {path}"))
-        self.assertIn(topic, self.h.read(path))                                   # the worker needs it
-        self.assertNotIn("very-private-topic-name", "\n".join(self.said))       # but it is never printed
+        toml = self.h.read("/etc/claude-ballast/cw.toml")
+        self.assertNotIn("very-private-topic-name", toml)
+        self.assertIn('kind = "ntfy"', toml)
+        secrets = config.read_env_file(self.h.path("/etc/claude-ballast/secrets.env"))
+        self.assertEqual(secrets["CW_ALERT_URL"], topic)
+        self.assertEqual(self.h.path("/etc/claude-ballast/secrets.env").stat().st_mode & 0o777, 0o640)
+        self.assertEqual(self.h.path("/etc/claude-ballast/cw.toml").stat().st_mode & 0o777, 0o644)        # nothing private in it, so the admin can read it
+        self.assertNotIn("very-private-topic-name", "\n".join(self.said))
+        config.load(self.h.path("/etc/claude-ballast/cw.toml"), env={"CW_CONFIG": ""})                    # and the worker can still load it without the address
 
     def test_commands_named_after_an_earlier_install_are_removed(self):
         for p in ("/usr/local/bin/claude-ballast", "/usr/local/sbin/claude-ballast-update"):
@@ -586,17 +590,16 @@ class AuditTests(unittest.TestCase):
         self.assertTrue(any("password logins are on" in r[2] for r in rows))
 
 
-    def test_audit_flags_a_configuration_file_everyone_can_read(self):
+    def test_audit_flags_an_alert_address_left_in_the_readable_configuration(self):
         h, cfg = FakeHost(), cfg_of()
         path = cfg.path("config_file")
-        h.put(path, "[alerts]\nurl = \"https://ntfy.example/x\"\n")
-        h.path(path).chmod(0o644)
+        name = "the private alert address is kept out of the configuration file"
+        h.put(path, '[alerts]\nkind = "ntfy"\nurl = "https://ntfy.example/x"\n')
         rows, _ = audit.run(h, cfg, say=lambda s: None)
-        row = next(r for r in rows if r[0].startswith("configuration file is private"))
-        self.assertFalse(row[1])
-        h.path(path).chmod(0o640)
+        self.assertFalse(next(r for r in rows if r[0] == name)[1])
+        h.put(path, '[alerts]\nkind = "ntfy"\n')
         rows, _ = audit.run(h, cfg, say=lambda s: None)
-        self.assertTrue(next(r for r in rows if r[0].startswith("configuration file is private"))[1])
+        self.assertTrue(next(r for r in rows if r[0] == name)[1])
 
 
 class CliTests(unittest.TestCase):

@@ -13,7 +13,7 @@ Offload slow or heavy jobs from your laptop to a spare Linux machine on your hom
 ```bash
 git clone https://github.com/<project>/claude-ballast.git && cd claude-ballast
 python3 -m venv ~/.cw-venv && ~/.cw-venv/bin/pip install -e .
-~/.cw-venv/bin/cw-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job
+~/.cw-venv/bin/cw-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job, and puts cw-run, cw-admin... on your PATH (open a new terminal tab)
 ```
 
 Start with [Getting started](docs/getting-started.md). The [documentation index](docs/README.md) explains how each part works, with a plain summary and a technical specification for each.

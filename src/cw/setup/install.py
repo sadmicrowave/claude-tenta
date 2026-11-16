@@ -261,11 +261,21 @@ class Installer:
     # ---- 3. this side ----
     def client_half(self, nested):
         self._heading("Your computer", "2 of 4")
-        c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory)
+        c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory,
+                        confirm_card=self.confirm_card)
         c.run_all()
         self.report += c.report
 
     # ---- Claude sign-in, on this computer, right after the questions ----
+    def confirm_card(self, info):
+        """Ask permission for a change outside this tool: an amber card on a terminal screen, a y/N question at a plain terminal, otherwise no (nothing is changed unasked)."""
+        if self.ui is not None:
+            return self.ui.protection(info)
+        if self.ask is not None:
+            self.say("    $ " + info["steps"][0])
+            return self.ask(f"  {info['title']}? [y/N] ").strip().lower() == "y"
+        return False
+
     def local_claude(self):
         """A `claude` on this computer that really runs, or None. The one on PATH can be broken (an npm install whose native program never downloaded), so the
         copy Anthropic's installer puts in ~/.local/bin is tried too."""

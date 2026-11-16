@@ -92,6 +92,7 @@ class ServerSetup:
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
         self.facts = detect_mod.Facts()
+        self.alert_url = ""
 
     # ---- helpers ----
     def note(self, step, status, detail=""):
@@ -149,13 +150,16 @@ class ServerSetup:
         if unknown:
             raise SetupError("Unknown hardening module", ", ".join(unknown), [f"Known: {', '.join(hardening.MODULES)}"])
         self.cfg = config.Config(clean)
-        text = toml_out.dump(nested)
+        self.alert_url = (nested.get("alerts") or {}).get("url") or ""
+        public = {sec: {k: v for k, v in vals.items() if not (sec == "alerts" and k == "url")} for sec, vals in nested.items()}
+        text = toml_out.dump(public)                              # nothing private is written here: the alert address goes to secrets.env
         path = self.cfg.path("config_file")
         self.say(f"\n  The configuration, written to {path}:\n")
-        shown = re.sub(r"(?m)^(url\s*=\s*\"https?://[^/\"]*/)[^\"]*", r"\1<hidden>", text)          # a private alert address is not echoed to the screen or a log
-        self.say("    " + shown.replace("\n", "\n    "))
+        self.say("    " + text.replace("\n", "\n    "))
+        if self.alert_url:
+            self.say("    (the alert address is private, so it is kept in the secrets file, not here)")
         if not self.dry_run:
-            self.host.write(path, text, 0o640)                     # the alert address in it is private; the owner and group are set once the worker account exists
+            self.host.write(path, text, 0o644)
         self.note("configuration", "planned" if self.dry_run else "written", path)
 
     def accounts_and_folders(self):
@@ -177,9 +181,16 @@ class ServerSetup:
             if not self.dry_run:
                 self.host.write(secrets, "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n", 0o640)
                 self.host.run(["chown", f"root:{w}", secrets])
-        if not self.dry_run:
-            self.host.run(["chown", f"root:{w}", cfg.path("config_file")])               # readable by root and the worker account only (it holds the private alert address)
+        self.store_alert_address(secrets)
         self.note("folders", "ok")
+
+    def store_alert_address(self, secrets):
+        """The alert address is a private topic name (anyone who knows it can read the alerts), so it lives in the secrets file with the other secrets."""
+        if self.dry_run or not self.alert_url:
+            return
+        text = self.host.read(secrets) or "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n"
+        self.host.write(secrets, config.set_env_var(text, "CW_ALERT_URL", self.alert_url), 0o640)
+        self.host.run(["chown", f"root:{self.cfg.server.worker_user}", secrets])
 
     def remove_legacy_commands(self):
         """Earlier installs named the commands after the install (`<name>` and `<name>-update`). The update wrapper is a root-run installer, so a copy that nothing

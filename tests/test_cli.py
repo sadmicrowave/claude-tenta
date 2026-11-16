@@ -365,6 +365,15 @@ class FromConfig(unittest.TestCase):
         self.assertEqual(w.io.job_sources[0][0], "origin/jobs")
         self.assertEqual((w.api_key, w.oauth_token), ("key_1", None))               # api-key: the token that is also in the file is not given out
 
+    def test_the_alert_address_comes_from_the_secrets_file(self):
+        cfg = self.cfg(extra='[alerts]\nkind = "ntfy"\n')                    # no address in cw.toml: it loads, and the notifier gets it from secrets.env
+        (self.root / "etc").mkdir(exist_ok=True)
+        sec = self.root / "etc" / "secrets.env"
+        sec.write_text("CW_ALERT_URL=https://ntfy.example/from-secrets\n")
+        sec.chmod(0o640)
+        ctx = cli.Context.from_config(cfg, env={})
+        self.assertEqual(ctx.notifier.url, "https://ntfy.example/from-secrets")
+
     def test_only_the_chosen_sign_in_reaches_the_worker(self):
         for auth, want in (("account", (None, "tok_1")), ("none", (None, None))):
             cfg = self.cfg(extra=f'[claude]\nauth = "{auth}"\n')

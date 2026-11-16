@@ -4,12 +4,16 @@ private GitHub repositories under your account, seeds the registry with the core
 It never types a password and never touches your GitHub login: repository creation goes through the `gh` command you already signed in
 to, and without it the exact steps are printed for you to do by hand.
 """
+import os
 import shlex
+import sys
 from pathlib import Path
 
 from .. import config
 from . import questions, toml_out
 from .server import SetupError
+
+COMMANDS = ("cw-run", "cw-admin", "cw-setup", "cw-help")
 
 
 SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test a command with `cw-run offload profile`.\n"
@@ -20,12 +24,20 @@ SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None, ui=None, advanced=False):
+                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto"):
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
         self.advanced = advanced
+        self.confirm_card = confirm_card                    # info -> bool: show a card (or question) asking permission to change something outside this tool
+        self.scripts_dir = self.find_scripts_dir() if scripts_dir == "auto" else scripts_dir
         self.report, self.cfg = [], None
+
+    @staticmethod
+    def find_scripts_dir():
+        """The folder holding the cw-* commands of the Python running this (a virtual environment's bin folder), or None when they are not installed there."""
+        d = Path(sys.executable).parent
+        return d if all((d / c).exists() for c in COMMANDS) else None
 
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
@@ -139,11 +151,83 @@ class ClientSetup:
             repos.push_files(self.cfg.github.main_branch, {"registry.yaml": SEED_REGISTRY}, "chore(registry): your own job classes start here")
             self.note("registry", "seeded", "empty: the core classes come from the core pack")
 
+    def commands_on_path(self):
+        """Make `cw-run`, `cw-admin`, `cw-setup` and `cw-help` work from any new terminal, without typing where they live. They are linked into ~/.local/bin
+        (never over a file that is already there), and if that folder is not on the PATH, one marked line is added to the shell's startup file, with permission."""
+        src = self.scripts_dir
+        if src is None:
+            self.note("commands on your PATH", "skipped", "this Python has no cw-* commands next to it (it was not installed with pip)")
+            return
+        env = self.host.env
+        home = Path(env.get("HOME", "~")).expanduser()
+        link_dir = home / ".local" / "bin"
+        if all(self.on_path(c, src / c) for c in COMMANDS):
+            self.note("commands on your PATH", "ok", "already available in any terminal")
+            return
+        kept = []
+        for c in COMMANDS:
+            link, target = link_dir / c, src / c
+            here = self.host.link_target(link)
+            if here is not None and here == os.path.realpath(target):
+                continue
+            if here is not None:                                                   # something else is there: never overwritten
+                kept.append(c)
+                continue
+            self.say(f"    $ ln -s {target} {link}")
+            if not self.dry_run:
+                self.host.symlink(link, target)
+        if kept:
+            self.note("commands on your PATH", "partial", f"{link_dir}/{kept[0]} already exists and is something else, so it was left alone" + ("" if len(kept) == 1 else f" (and {len(kept) - 1} more)")
+                      + f"; remove it to use this one: rm {link_dir}/{kept[0]}")
+        else:
+            self.note("commands on your PATH", "planned" if self.dry_run else "linked", f"{link_dir}")
+        if str(link_dir) in env.get("PATH", "").split(":"):
+            if not self.dry_run:
+                self.say("    Already on your PATH: open a new terminal tab and cw-run, cw-admin, cw-setup and cw-help work.")
+            return
+        self.path_line(link_dir, home)
+
+    def on_path(self, command, target):
+        for d in self.host.env.get("PATH", "").split(":"):
+            found = self.host.link_target(Path(d) / command) if d else None
+            if found:
+                return found == os.path.realpath(target)
+        return False
+
+    def path_line(self, link_dir, home):
+        shell = Path(self.host.env.get("SHELL", "")).name
+        rc = home / {"zsh": ".zshrc", "bash": ".bashrc", "fish": ".config/fish/config.fish"}.get(shell, "")
+        line = f'export PATH="{link_dir}:$PATH"' if shell != "fish" else f"fish_add_path {link_dir}"
+        if shell not in ("zsh", "bash", "fish"):
+            self.say(f"    {link_dir} is not on your PATH. Add it in your shell's startup file:\n      {line}")
+            return
+        marker = "# added by cw-setup: the cw-* commands"
+        current = self.host.read(rc) or ""
+        if marker in current or str(link_dir) in current:
+            self.say(f"    {rc} already mentions {link_dir}: open a new terminal tab.")
+            return
+        info = {"id": "path-line", "label": "Change", "tag": "edits your shell startup file", "title": f"Put {link_dir} on your PATH",
+                "why": "The cw commands are linked into that folder, but it is not on your PATH, so a terminal would say \"command not found\".",
+                "risk": f"Adds two lines to the end of {rc} (a comment saying where they came from, and the export). Nothing else in the file is changed. Skip it to add the line yourself.",
+                "now": "not on the PATH", "steps": [f"echo '{line}' >> {rc}"], "lockout": False}
+        if self.dry_run:
+            self.say(f"    (would add to {rc}: {line})")
+            return
+        yes = self.confirm_card(info) if self.confirm_card else False
+        if not yes:
+            self.say(f"    Add this line to {rc} yourself, then open a new terminal tab:\n      {line}")
+            return
+        mode = (self.host.path(rc).stat().st_mode & 0o777) if self.host.exists(rc) else 0o644
+        self.host.write(rc, current + ("" if current.endswith("\n") or not current else "\n") + f"{marker}\n{line}\n", mode)
+        self.note("shell startup file", "updated", f"{rc}: open a new terminal tab to use the commands")
+
     def run_all(self):
         self._sub("Checking this computer")
         self.prerequisites()
         self._sub("Configuration")
         self.configure()
+        self._sub("Commands on your PATH")
+        self.commands_on_path()
         self._sub("SSH to the server")
         self.ssh_login()
         self._sub("Private repositories")

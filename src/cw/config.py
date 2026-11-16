@@ -212,7 +212,7 @@ SCHEMA = {
     },
     "alerts": {
         "kind": ("none", _enum("none", "ntfy", "webhook"), "where security alerts are sent"),
-        "url": (None, _url, "https address to post alerts to; any access token goes in secrets.env"),
+        "url": (None, _url, "https address to post alerts to. A private topic address is kept in secrets.env as CW_ALERT_URL (the installer does this), not here; this setting is the fallback"),
         "remind_hours": ([1, 6, 24], _hours, "hours after a lockdown starts at which a reminder is sent"),
         "remind_repeat_h": (24, _num(1, 168), "then repeat the reminder this often"),
     },
@@ -276,7 +276,7 @@ def _peek(raw, section, key):
     return value if isinstance(value, str) else SCHEMA[section][key][0]
 
 
-def validate(raw):
+def validate(raw, require_alert_url=True):
     """raw (the parsed TOML or {}) -> (clean nested dict with defaults filled in, [problems]). Never raises."""
     problems, clean = [], {}
     raw = raw if isinstance(raw, dict) else {}
@@ -310,7 +310,7 @@ def validate(raw):
     srv = clean["server"]
     if srv["admin_user"] and srv["admin_user"] == srv["worker_user"]:
         problems.append("server.admin_user and server.worker_user must be different accounts")
-    if clean["alerts"]["kind"] != "none" and not clean["alerts"]["url"]:
+    if require_alert_url and clean["alerts"]["kind"] != "none" and not clean["alerts"]["url"]:
         problems.append(f"alerts.url is required when alerts.kind is {clean['alerts']['kind']!r}")
     if not clean["isolation"]["require_netns"] and os.environ.get("CW_ALLOW_UNSAFE") != "1":
         problems.append("isolation.require_netns = false would let a no-network job run WITH network whenever isolation fails, so it is not "
@@ -450,7 +450,7 @@ def load(path=None, env=None):
             raise ConfigError([f"cannot read {path}: {e.strerror}"])
         except tomllib.TOMLDecodeError as e:
             raise ConfigError([f"{path} is not valid TOML: {e}"])
-    clean, problems = validate(_env_overrides(raw, env))
+    clean, problems = validate(_env_overrides(raw, env), require_alert_url=False)         # the address is in secrets.env (read where the notifier is built)
     if problems:
         raise ConfigError(problems)
     return Config(clean, str(path) if path else None)

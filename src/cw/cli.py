@@ -105,7 +105,7 @@ class Context:
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
-        url = cfg.alerts.url if cfg.alerts.kind != "none" else ""
+        url = (secrets.get("CW_ALERT_URL") or cfg.alerts.url) if cfg.alerts.kind != "none" else ""
         notifier = alerts.Notifier(url=url or "", token=secrets.get("CW_ALERT_TOKEN", ""), log=_log, product=name)
         seclog = guard.SecurityLog(state / "security.log")
         lock = alerts.Lockdown(state, notifier, seclog, product=name, remind_at=cfg.alerts.remind_hours, repeat_h=cfg.alerts.remind_repeat_h)
@@ -321,7 +321,7 @@ def cmd_prune_results(ctx, days=14, force=False):
 def cmd_test_alert(ctx):
     n = ctx.notifier
     if not n or not n.url.startswith("https://"):
-        emit("No phone alert address is set", "alerts.url is empty in the configuration.", tag="NOTE", color=YELLOW)
+        emit("No phone alert address is set", "CW_ALERT_URL is not in the secrets file and alerts.url is empty in the configuration.", tag="NOTE", color=YELLOW)
         return 0
     why = guard.why_text(["private_ip"])
     n.send(f"{ctx.product} TEST", "test alert", fields=[("What", "this is only a test of the phone alert"), ("Why", why), ("Job", "test-0001")], tags="white_check_mark")
