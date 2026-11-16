@@ -22,7 +22,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import alerts, claudeupdate, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import alerts, approvals, claudeupdate, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -112,9 +112,19 @@ class Context:
         keeper = results.OutputKeeper(state)
         sensors = runner.LinuxSensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
+        approvers = cfg.path("approvers")
+
+        def signed_approval(jid, digest):
+            raw = io.approval_bytes(jid)
+            if raw is None:
+                return False
+            ok, why = approvals.check(raw.decode("utf-8", "replace"), jid, digest, approvers)
+            if not ok:
+                _log(f"an approval for {jid} was found but not accepted: {why}")
+            return ok
         w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY") if cfg.claude.auth == "api-key" else None,
                    oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN") if cfg.claude.auth == "account" else None,       # only the chosen sign-in is ever given to a job
-                   hostname=None, jail=jail_mod.from_config(cfg))
+                   signed_approval=signed_approval, approvers_file=approvers, hostname=None, jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json")

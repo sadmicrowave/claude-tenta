@@ -102,6 +102,7 @@ check "cw-admin can reach the worker over SSH" as_admin cw-admin check
 check "cw-admin status reads the worker without a password" as_admin cw-admin status
 check "status shows the fetch and step passes healthy" bash -c "as_admin cw-admin status 2>&1 | grep -E 'Fetch +OK' && as_admin cw-admin status 2>&1 | grep -E 'Step +OK'"
 check "no fetch or step pass has failed in the journal" bash -c "! journalctl -u $NAME-fetch.service -u $NAME-step.service --no-pager -o cat 2>&1 | grep -E 'Traceback|Failed to start'"
+check "the worker trusts the administrator's approval key (approvals are signed on the administrator's computer)" bash -c "grep -q 'namespaces=\"cw-approval\"' /etc/$NAME/approvers && as_admin test -f /home/$ADMIN/.cw/approval/key"
 check "the worker reports its isolation as ON" bash -c "as_admin cw-admin status 2>&1 | grep -E 'Isolation +ON'"
 check "the job-isolation hardening module is satisfied" bash -c "grep -q 'job-isolation' /etc/$NAME/hardening.json && python3 -c \"import json; d=json.load(open('/etc/$NAME/hardening.json')); raise SystemExit(0 if d['job-isolation']['status'] in ('applied','satisfied') else 1)\""
 

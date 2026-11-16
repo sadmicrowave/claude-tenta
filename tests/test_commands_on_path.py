@@ -108,5 +108,51 @@ class OnPath(unittest.TestCase):
         self.assertEqual([r for r in s.report if r[0] == "commands on your PATH"][-1][1], "skipped")
 
 
+class ApprovalKey(OnPath):
+    """The key that signs approvals on this computer."""
+
+    def make(self, **kw):
+        s = self.setup_obj(**kw)
+        s.home = self.home / ".cw"                                   # where the client keeps its files
+        return s
+
+    def test_a_key_is_made_once_with_no_passphrase_when_nobody_is_there_to_ask(self):
+        s = self.make()
+        s.approval_key()
+        key = self.home / ".cw" / "approval" / "key"
+        self.assertTrue(key.exists() and key.with_name("key.pub").exists())
+        self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.home / ".cw" / "approval").stat().st_mode & 0o777, 0o700)
+        first = key.read_bytes()
+        again = self.make()
+        again.approval_key()
+        self.assertEqual(key.read_bytes(), first)                    # an existing key is never replaced
+        self.assertEqual([r for r in again.report if r[0] == "approval key"][-1][1], "ok")
+
+    def test_on_a_terminal_ssh_keygen_is_run_on_it_so_a_passphrase_can_be_typed(self):
+        calls = []
+
+        def fake(argv):
+            calls.append(argv)
+            Path(argv[argv.index("-f") + 1]).write_text("k")
+            Path(argv[argv.index("-f") + 1] + ".pub").write_text("ssh-ed25519 AAAA cw-approval")
+            return 0, ""
+        s = self.make()
+        s.ask, s.interactive = (lambda q: ""), fake
+        s.approval_key()
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("-N", calls[0])                             # no passphrase is forced: ssh-keygen asks
+        self.assertTrue(any("passphrase" in line for line in self.said))
+
+    def test_a_preview_makes_nothing_and_a_failure_is_said_not_fatal(self):
+        s = self.make(dry_run=True)
+        s.approval_key()
+        self.assertFalse((self.home / ".cw" / "approval").exists())
+        s = self.make()
+        s.ask, s.interactive = (lambda q: ""), (lambda argv: (1, ""))
+        s.approval_key()
+        self.assertEqual([r for r in s.report if r[0] == "approval key"][-1][1], "failed")
+
+
 if __name__ == "__main__":
     unittest.main()

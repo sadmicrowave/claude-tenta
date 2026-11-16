@@ -726,6 +726,34 @@ class ClaudeSignIn(ServerTests):
         self.run_with("none")                                              # switching to none takes it away again
         self.assertEqual(config.load(self.h.path("/etc/claude-ballast/cw.toml")).registry.packs, ["core"])
 
+    def test_the_approver_key_is_installed_root_owned_and_replaces_an_older_one(self):
+        import subprocess as sp
+        import tempfile as tf
+        from cw import approvals
+        d = Path(tf.mkdtemp())
+        pubs = []
+        for n in ("a", "b"):
+            sp.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(d / n)], check=True)
+            pubs.append((d / f"{n}.pub").read_text())
+        for pub in pubs:
+            s = self.setup_obj(dry_run=False, approver_pubkey=pub)
+            s.run_all()
+        text = self.h.read("/etc/claude-ballast/approvers")
+        self.assertEqual(approvals.fingerprints(text), [approvals.fingerprint(pubs[1])])
+        self.assertEqual(self.h.path("/etc/claude-ballast/approvers").stat().st_mode & 0o777, 0o644)
+        self.assertIn('namespaces="cw-approval"', text)
+        self.assertFalse(self.h.exists("/etc/claude-ballast/allowed_signers"))         # the release-signing file is a different one
+
+    def test_no_approver_key_given_means_no_approvers_file(self):
+        self.setup_obj(dry_run=False).run_all()
+        self.assertFalse(self.h.exists("/etc/claude-ballast/approvers"))
+
+    def test_something_that_is_not_a_key_is_refused_without_stopping_the_setup(self):
+        s = self.setup_obj(dry_run=False, approver_pubkey="not a key at all")
+        s.run_all()
+        self.assertEqual({st: v for st, v, _ in s.report}["approver key"], "failed")
+        self.assertFalse(self.h.exists("/etc/claude-ballast/approvers"))
+
     def test_the_weekly_claude_update_timer_runs_only_where_claude_is_used(self):
         self.run_with("account", token="sk-ant-oat01-" + "t" * 40)
         self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))

@@ -10,7 +10,7 @@ from unittest import mock
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from cw import clihelp
+from cw import approvals, clihelp
 from cw.admin import cli, jobs, regedit, release
 from cw.admin.ssh import Ssh
 from cw.client.repo import ClientError
@@ -119,6 +119,78 @@ class AdminBase(RepoFixture):
         with redirect_stdout(out), redirect_stderr(err):
             code = cli.main(list(args), ctx=self.ctx)
         return code, out.getvalue(), err.getvalue()
+
+
+class SignedApprovals(AdminBase):
+    """Approving here: signed with a key on this computer and published; nothing is run on the worker."""
+
+    def setUp(self):
+        super().setUp()
+        keydir = self.home / "approval"
+        keydir.mkdir(parents=True)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(keydir / "key")], check=True)
+        self.pub = (keydir / "key.pub").read_text()
+        self.signers = self.tmp / "approvers"
+        self.signers.write_text(approvals.with_approver("", self.pub))
+        self.put_job("job-b")
+        self.digest = jobs.digest_of(jobs.job_bytes(self.repos, "job-b"))
+        self.tty = True
+
+    def worker_publishes(self, **info):
+        (self.repos.results / "registry.json").write_text(json.dumps(info))
+
+    def published(self, jid):
+        self.repos.fetch_queue()
+        return self.repos.show_file(f"origin/{approvals.BRANCH}", approvals.path_in_repo(jid))
+
+    def test_the_approval_is_signed_here_pinned_to_the_reviewed_file_and_nothing_runs_on_the_worker(self):
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
+        self.answers.append("y")
+        code, out, err = self.admin("approve", "job-b")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.ssh.calls, [])                                           # no login, no sudo
+        text = self.published("job-b")
+        self.assertTrue(approvals.check(text, "job-b", self.digest, self.signers)[0])
+        self.assertFalse(approvals.check(text, "job-b", "0" * 64, self.signers)[0])
+        self.assertIn("No login", out + err)
+
+    def test_approve_all_signs_every_viewed_job(self):
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
+        self.put_result("job-b", status="awaiting_approval")
+        self.admin("review")
+        self.answers.append("y")
+        code, _, _ = self.admin("approve", "--all")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.ssh.calls, [])
+        self.assertTrue(approvals.check(self.published("job-b"), "job-b", self.digest, self.signers)[0])
+
+    def test_a_worker_that_trusts_a_different_key_is_an_error_not_a_silent_fallback(self):
+        self.worker_publishes(approvers=["SHA256:somebodyelse"])
+        self.answers.append("y")
+        code, out, err = self.admin("approve", "job-b")
+        self.assertNotEqual(code, 0)
+        self.assertIn("does not trust your approval key", out + err)
+        self.assertIsNone(self.published("job-b"))
+
+    def test_ssh_forces_the_old_way(self):
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
+        self.answers.append("y")
+        self.admin("approve", "job-b", "--ssh")
+        self.assertEqual(self.ssh.calls, [f"cw-worker approve job-b --sha256 {self.digest}"])
+        self.assertIsNone(self.published("job-b"))
+
+    def test_a_worker_that_does_not_say_which_keys_it_trusts_gets_the_old_way(self):
+        self.worker_publishes(capacity=4)                                               # an older release
+        self.answers.append("y")
+        self.admin("approve", "job-b")
+        self.assertEqual(len(self.ssh.calls), 1)
+
+    def test_without_an_approval_key_nothing_changes(self):
+        (self.home / "approval" / "key").unlink()
+        self.worker_publishes(approvers=[])
+        self.answers.append("y")
+        self.admin("approve", "job-b")
+        self.assertEqual(len(self.ssh.calls), 1)
 
 
 class JobTests(AdminBase):

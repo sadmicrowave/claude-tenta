@@ -262,7 +262,8 @@ class Installer:
     def client_half(self, nested):
         self._heading("Your computer", "2 of 4")
         c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory,
-                        confirm_card=self.confirm_card)
+                        confirm_card=self.confirm_card, interactive=self.interactive,
+                        **({"ask": self.ask} if self.ask is not None and self.ui is None else {}))
         c.run_all()
         self.report += c.report
 
@@ -354,6 +355,10 @@ class Installer:
     def deliver(self, nested):
         d, rev, size = deliver_source(self.ssh, self.source, self.archive, self.say)
         self.ssh.send(f"cat > {d}/answers.toml", toml_out.dump(nested, full=True).encode())
+        pub = self.machine.read(str(self.home / "approval" / "key.pub"))
+        self.approver_sent = bool(pub and pub.strip())
+        if self.approver_sent:
+            self.ssh.send(f"cat > {d}/approver.pub", pub.encode())                       # a public key: it only lets the worker CHECK approvals
         if self.claude_secret:
             self.ssh.send(f"umask 077; cat > {d}/claude.secrets", f"{self.claude_secret[0]}={self.claude_secret[1]}\n".encode())
         self.note("release sent to the server", "ok", f"commit {rev[:9]}, {size // 1024} KB")
@@ -368,7 +373,9 @@ class Installer:
     def server_half(self, d, rev):
         self._heading("The server", "3 of 4")
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
-        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}" + (f" --secrets-file {d}/claude.secrets" if self.claude_secret else "")
+        base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
+                + (f" --secrets-file {d}/claude.secrets" if self.claude_secret else "")
+                + (f" --approver-file {d}/approver.pub" if getattr(self, "approver_sent", False) else ""))
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))

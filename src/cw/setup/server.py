@@ -11,7 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import config, render, update
+from .. import approvals, config, render, update
 from . import detect as detect_mod
 from . import hardening, questions, toml_out
 
@@ -80,13 +80,14 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
         self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
         self.advanced = advanced
+        self.approver_pubkey = approver_pubkey          # the administrator's approval PUBLIC key: lets this worker check approvals signed on their own computer
         self.claude_secrets = claude_secrets or {}          # {KEY: value} handed over by the installer on the administrator's computer, so nothing is asked here
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
@@ -195,6 +196,22 @@ class ServerSetup:
         text = self.host.read(secrets) or "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n"
         self.host.write(secrets, config.set_env_var(text, "CW_ALERT_URL", self.alert_url), 0o640)
         self.host.run(["chown", f"root:{self.cfg.server.worker_user}", secrets])
+
+    def install_approver(self):
+        """Give the worker the key whose signed approvals it will accept (root-owned, in its own file: a key trusted for release tags is never trusted for this)."""
+        if not self.approver_pubkey:
+            return
+        path = self.cfg.path("approvers")
+        try:
+            text = approvals.with_approver(self.host.read(path), self.approver_pubkey)
+        except ValueError as e:
+            self.note("approver key", "failed", str(e))
+            return
+        if self.dry_run:
+            self.note("approver key", "planned", f"approvals signed with {approvals.fingerprint(self.approver_pubkey)} will be accepted")
+            return
+        self.host.write(path, text, 0o644)
+        self.note("approver key", "installed", f"approvals signed with {approvals.fingerprint(self.approver_pubkey)} are accepted; no login is needed to approve jobs")
 
     def remove_legacy_commands(self):
         """Earlier installs named the commands after the install (`<name>` and `<name>-update`). The update wrapper is a root-run installer, so a copy that nothing
@@ -434,6 +451,7 @@ class ServerSetup:
         self.say("\nCode")
         self.install_code()
         self.remove_legacy_commands()
+        self.install_approver()
         self.say("\nRepository access")
         pubs = self.deploy_keys()
         if self.clones(pubs):

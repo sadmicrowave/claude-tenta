@@ -345,6 +345,26 @@ class ClaudeSignInHere(InstallBase):
         self.assertNotIn("--secrets-file", self.ssh.popen_calls[-1][0])
 
 
+class ApproverKeyDelivery(InstallBase):
+    def test_the_public_key_goes_to_the_server_and_the_command_says_where(self):
+        pub = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAI" + "PUBLICKEY" * 4 + " cw-approval"
+        (self.tmp / "client-home" / "approval").mkdir(parents=True)
+        self.machine.put(str(self.tmp / "client-home" / "approval" / "key.pub"), pub + "\n")
+        inst = self.installer()
+        inst.ssh = self.ssh
+        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
+        self.assertEqual(dict(self.ssh.sent)[f"cat > {d}/approver.pub"], (pub + "\n").encode())
+        inst.cfg = config.Config(config.validate({"server": {"host": "worker.example", "admin_user": "admin"}})[0])
+        inst.server_half(d, rev)
+        self.assertIn(f"--approver-file {d}/approver.pub", self.ssh.popen_calls[-1][0])
+
+    def test_without_a_key_nothing_is_sent(self):
+        inst = self.installer()
+        inst.ssh = self.ssh
+        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
+        self.assertFalse(any("approver.pub" in remote for remote, _ in self.ssh.sent))
+
+
 class Rerun(InstallBase):
     """Running install again after a stopped run: earlier answers are the defaults, and a finished server setup is not repeated."""
 

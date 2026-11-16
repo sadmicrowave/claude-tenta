@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from .. import config
-from . import questions, toml_out
+from . import ptyrun, questions, toml_out
 from .server import SetupError
 
 COMMANDS = ("cw-run", "cw-admin", "cw-setup", "cw-help")
@@ -24,11 +24,12 @@ SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto"):
+                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None):
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
         self.advanced = advanced
+        self.interactive = interactive or ptyrun.run_capture          # runs a command on the person's own terminal (so a passphrase can be typed)
         self.confirm_card = confirm_card                    # info -> bool: show a card (or question) asking permission to change something outside this tool
         self.scripts_dir = self.find_scripts_dir() if scripts_dir == "auto" else scripts_dir
         self.report, self.cfg = [], None
@@ -151,6 +152,30 @@ class ClientSetup:
             repos.push_files(self.cfg.github.main_branch, {"registry.yaml": SEED_REGISTRY}, "chore(registry): your own job classes start here")
             self.note("registry", "seeded", "empty: the core classes come from the core pack")
 
+    def approval_key(self):
+        """The key that signs approvals on this computer (see cw.approvals). Made once; it is what lets you approve jobs here without logging in to the worker.
+        On a terminal ssh-keygen asks for a passphrase (Enter for none), which then protects every approval; otherwise the key has none."""
+        d = self.home / "approval"
+        key, pub = d / "key", d / "key.pub"
+        if self.host.exists(key) and self.host.exists(pub):
+            self.note("approval key", "ok", f"{key}")
+            return
+        if self.dry_run:
+            self.note("approval key", "planned", f"{key}")
+            return
+        os.makedirs(self.host.path(d), mode=0o700, exist_ok=True)
+        argv = ["ssh-keygen", "-q", "-t", "ed25519", "-C", "cw-approval", "-f", str(self.host.path(key))]
+        if self.ask is not None or self.ui is not None:
+            self.say("    This key signs the approvals you give from this computer. A passphrase protects it (you type it when you approve); press Enter for none.")
+            rc, _ = self.interactive(argv)
+            ok = rc == 0
+        else:
+            ok = self.host.run(argv + ["-N", ""]).ok
+        if not ok or not self.host.exists(pub):
+            self.note("approval key", "failed", "ssh-keygen did not make it; approvals will have to be given over SSH (cw-admin approve --ssh)")
+            return
+        self.note("approval key", "created", f"{key}")
+
     def commands_on_path(self):
         """Make `cw-run`, `cw-admin`, `cw-setup` and `cw-help` work from any new terminal, without typing where they live. They are linked into ~/.local/bin
         (never over a file that is already there), and if that folder is not on the PATH, one marked line is added to the shell's startup file, with permission."""
@@ -226,6 +251,8 @@ class ClientSetup:
         self.prerequisites()
         self._sub("Configuration")
         self.configure()
+        self._sub("Approval key")
+        self.approval_key()
         self._sub("Commands on your PATH")
         self.commands_on_path()
         self._sub("SSH to the server")

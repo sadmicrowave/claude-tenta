@@ -10,6 +10,7 @@ worker's own git work, with a bounded wait so a hung holder cannot hang everythi
 import fcntl
 import json
 import os
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -124,6 +125,12 @@ class GitIO:
             return inbox.read_bytes()
         src = self.job_listing().get(jid)
         return self.git_bytes(self.queue, "show", f"{src[0]}:{src[1]}") if src else None
+
+    def approval_bytes(self, jid):
+        """The signed approval file for a job from the approvals branch of the queue repo, or None. Only read here; trusting it is approvals.check's job."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", jid or ""):
+            return None
+        return self.git_bytes(self.queue, "show", f"origin/approvals:approvals/{jid}.json")
 
     def published_result(self, jid):
         """The result file this worker last published for a job (from its own results clone), or None."""

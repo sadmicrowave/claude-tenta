@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from datetime import timedelta
@@ -12,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from cw import gitio, guard, runner, util  # noqa: E402
+from cw import approvals, gitio, guard, runner, util  # noqa: E402
 from support import REGISTRY, IP, Base, sh  # noqa: E402
 from cw import jail as jail_mod  # noqa: E402
 
@@ -77,6 +78,78 @@ class Lifecycle(Base):
         self.assertEqual(self.w.orphan_inbox({}), [self.state / "inbox" / "job-0001.json"])
         self.w.execute("job-0001")
         self.assertEqual(self.result("job-0001")["status"], "ok")
+
+
+class SignedApproval(Base):
+    """Approving from the administrator's own computer: a signed approval is published next to the job, and the worker checks it against its approver key."""
+
+    def setUp(self):
+        super().setUp()
+        self.keys = Path(tempfile.mkdtemp())
+        self.pub = self.keygen("key")
+        self.signers = self.keys / "approvers"
+        self.signers.write_text(approvals.with_approver("", self.pub))
+        self.make_worker(signed_approval=self.verifier)
+
+    def keygen(self, name):
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.keys / name)], check=True)
+        return (self.keys / f"{name}.pub").read_text()
+
+    def verifier(self, jid, digest):
+        raw = self.io.approval_bytes(jid)
+        return raw is not None and approvals.check(raw.decode(), jid, digest, self.signers)[0]
+
+    def digest(self, jid):
+        import hashlib
+        return hashlib.sha256((self.state / "inbox" / f"{jid}.json").read_bytes()).hexdigest()
+
+    def publish_approval(self, jid, digest, key="key"):
+        record = approvals.make_record(jid, digest)
+        text = approvals.bundle(record, approvals.sign(record, self.keys / key))
+        req = self.tmp / "requester"
+        remote = subprocess.run(["git", "-C", str(self.tmp / "queue.git"), "rev-parse", "--verify", "-q", "refs/heads/approvals"], capture_output=True).returncode == 0
+        sh("git", "checkout", "-q", "-B", "approvals", "origin/approvals" if remote else "origin/main", cwd=req)
+        (req / "approvals").mkdir(exist_ok=True)
+        (req / "approvals" / f"{jid}.json").write_text(text)
+        sh("git", "add", "-A", cwd=req)
+        sh("git", "commit", "-q", "-m", f"approve {jid}", cwd=req)
+        sh("git", "push", "-q", "origin", "HEAD:refs/heads/approvals", cwd=req)
+
+    def test_a_signed_approval_lets_the_waiting_job_run_without_anyone_logging_in(self):
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.assertEqual(self.result("job-0001")["status"], "awaiting_approval")
+        self.assertEqual(self.spawned, [])
+        self.publish_approval("job-0001", self.digest("job-0001"))
+        self.w.fetch()
+        self.assertEqual(self.spawned, ["job-0001"])
+        self.w.execute("job-0001")
+        self.assertEqual(self.result("job-0001")["status"], "ok")
+
+    def test_whoever_can_push_to_the_queue_repo_cannot_approve_with_a_key_of_their_own(self):
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.keygen("intruder")
+        self.publish_approval("job-0001", self.digest("job-0001"), key="intruder")
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])
+        self.assertTrue(any("not accepted" in m or "signature" in m for m in self.logged) or self.result("job-0001")["status"] == "awaiting_approval")
+        self.assertEqual(self.result("job-0001")["status"], "awaiting_approval")
+
+    def test_an_approval_of_another_version_of_the_job_does_not_count(self):
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.publish_approval("job-0001", "0" * 64)
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])
+
+    def test_a_worker_with_no_approver_key_never_accepts_a_signed_approval(self):
+        self.signers.unlink()
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.publish_approval("job-0001", self.digest("job-0001"))
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])
 
 
 class Rejections(Base):

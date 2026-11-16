@@ -418,7 +418,7 @@ class Config:
             "dispatcher": f"{p.code}/dispatcher.py", "tools": f"{p.code}/tools",
             "state": f"{p.state_root}/state", "queue_clone": f"{p.state_root}/queue", "results_clone": f"{p.state_root}/results",
             "registry": f"{p.config}/registry.yaml", "secrets": f"{p.config}/secrets.env", "installed_rev": f"{p.config}/installed-rev",
-            "allowed_signers": f"{p.config}/allowed_signers", "config_file": f"{p.config}/cw.toml",
+            "allowed_signers": f"{p.config}/allowed_signers", "approvers": f"{p.config}/approvers", "config_file": f"{p.config}/cw.toml",
             "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}", "source_clone": f"{p.state_root}-src",
             "client_queue": str(Path(p.client_home).expanduser() / "queue"), "client_results": str(Path(p.client_home).expanduser() / "results"),
         }

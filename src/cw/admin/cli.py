@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import clihelp, config, registry, render
+from .. import approvals, clihelp, config, registry, render
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -136,6 +136,41 @@ def cmd_approve(ctx, a):
     return approve_all(ctx, a) if a.all else approve_one(ctx, a)
 
 
+# ---- approving from this computer: sign here, publish, nothing to log in to ----
+def approval_key(ctx):
+    return ctx.home / "approval" / "key"
+
+
+def use_signed(ctx, a):
+    """True when approvals should be signed here. False means the SSH way: you chose it (--ssh), no approval key was ever made here, or the worker is an older
+    release that does not publish which keys it trusts. If a key exists but this worker does not trust it, that is an error, not a silent fallback."""
+    if getattr(a, "ssh", False) or not approval_key(ctx).exists():
+        return False
+    info = ctx.repos.registry_info() or {}
+    if "approvers" not in info:
+        return False
+    pub = Path(str(approval_key(ctx)) + ".pub")
+    mine = approvals.fingerprint(pub.read_text()) if pub.exists() else None
+    if mine not in info["approvers"]:
+        raise ClientError(f"{ctx.name} does not trust your approval key yet",
+                          "Approvals are signed here and checked on the worker against a key it was set up with. This worker has " + ("a different one" if info["approvers"] else "none") + ".",
+                          ["Run the install again; it gives the worker your key: cw-setup install", "Or approve this one by logging in to the worker: add --ssh"], example="cw-setup install")
+    return True
+
+
+def sign_and_publish(ctx, items):
+    """items: [(job id, the SHA-256 of the exact job file that was reviewed)]. Signs each approval with the key here (it asks for its passphrase if it has one)
+    and publishes them to the queue repository for the worker to pick up."""
+    files = {}
+    for jid, digest in items:
+        record = approvals.make_record(jid, digest)
+        try:
+            files[approvals.path_in_repo(jid)] = approvals.bundle(record, approvals.sign(record, approval_key(ctx)))
+        except ValueError as e:
+            raise ClientError("Could not sign the approval", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one cw-setup made? Run: cw-setup install"])
+    ctx.repos.push_files(approvals.BRANCH, files, "approve " + ", ".join(j for j, _ in items))
+
+
 def approve_all(ctx, a):
     ready, skipped = jobs.classify(jobs.waiting(ctx.repos), ctx.viewed.load(), lambda j: jobs.job_bytes(ctx.repos, j))
     if not ready and not skipped:
@@ -150,7 +185,12 @@ def approve_all(ctx, a):
         raise ClientError("None of the waiting jobs have been viewed", "Review them first; that is what lets them be approved together.", example="cw-admin review")
     if not ctx.confirm(f"Approve these {len(ready)} job(s)?", a.yes):
         stop("Not approved", "You answered no. They stay waiting.")
-    rc = ctx.remote("approve", "--many", *[f"{j}:{d}" for j, d in ready])
+    if use_signed(ctx, a):
+        sign_and_publish(ctx, ready)
+        emit("Approved", f"{len(ready)} job(s), signed on this computer. No login to {ctx.name} was needed.", tag="APPROVED", color=GREEN)
+        rc = 0
+    else:
+        rc = ctx.remote("approve", "--many", *[f"{j}:{d}" for j, d in ready])
     if rc == 0:
         emit("Queued", f"{ctx.name} runs them one after another; you can go away.", tag="NEXT", color=CYAN, run_label="Check later", run="cw-run jobs")
     return rc
@@ -174,7 +214,12 @@ def approve_one(ctx, a):
     print("\n" + paint(f"Job file digest {digest[:12]}...  (approval is pinned to this exact file)", DIM, stream=sys.stdout))
     if not ctx.confirm("Approve this exact job?", a.yes):
         stop("Not approved", "You answered no. The job stays waiting.")
-    rc = ctx.remote("approve", jid, "--sha256", digest)
+    if use_signed(ctx, a):
+        sign_and_publish(ctx, [(jid, digest)])
+        emit("Approved", f"{jid}, signed on this computer. No login to {ctx.name} was needed; it picks the job up within a minute.", tag="APPROVED", color=GREEN)
+        rc = 0
+    else:
+        rc = ctx.remote("approve", jid, "--sha256", digest)
     return follow(ctx, a, rc, jid)
 
 
@@ -491,6 +536,7 @@ def build_parser():
     s.add_argument("id", nargs="?", help="the job id (cw-run jobs lists them)")
     s.add_argument("--all", action="store_true", help="approve every waiting job you have viewed and that has not changed since")
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
+    s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
     yes(s)
     s = sp.add_parser("cancel", add_help=False)
     s.add_argument("id", help="the job id")
