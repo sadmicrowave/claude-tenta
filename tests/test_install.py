@@ -18,8 +18,8 @@ from cw.setup import install, keys, toml_out
 from cw.setup.host import Result
 from cw.setup.server import EXIT_WAITING, SetupError
 
-QUEUE_PUB = "ssh-ed25519 QQQQQQQQ claude-worker-queue"
-RESULTS_PUB = "ssh-ed25519 RRRRRRRR claude-worker-results"
+QUEUE_PUB = "ssh-ed25519 QQQQQQQQ claude-ballast-queue"
+RESULTS_PUB = "ssh-ed25519 RRRRRRRR claude-ballast-results"
 REMOTE = "/tmp/cw-install.AbC123"
 GIVEN = {"server.host": "worker.example", "server.admin_user": "admin", "github.owner": "someone"}
 
@@ -33,8 +33,8 @@ class FakeProc:
     def poll(self):
         self.n += 1
         if self.n == self.publish_after:
-            self.ssh.files["/etc/claude-worker/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
-            self.ssh.files["/etc/claude-worker/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
+            self.ssh.files["/etc/claude-ballast/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
+            self.ssh.files["/etc/claude-ballast/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
         if self.n >= self.polls:
             self.returncode = self.rc
             return self.rc
@@ -102,7 +102,7 @@ class HappyPath(InstallBase):
         inst = self.installer()
         inst.run_all()
         # this side
-        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-worker/cw.toml"))
+        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
         # the release and the answers went to a private folder on the server, and only there
         sent = dict(self.ssh.sent)
         self.assertEqual(sent[f"tar -xf - -C {REMOTE}"], b"TARDATA")
@@ -117,21 +117,21 @@ class HappyPath(InstallBase):
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 2)
         by_repo = {a[a.index("-R") + 1]: a for a in adds}
-        self.assertNotIn("--allow-write", by_repo["someone/cw-queue"])
-        self.assertIn("--allow-write", by_repo["someone/cw-results"])
-        self.assertEqual(by_repo["someone/cw-queue"][by_repo["someone/cw-queue"].index("-t") + 1], "claude-worker-server")
+        self.assertNotIn("--allow-write", by_repo["someone/claude-ballast-queue"])
+        self.assertIn("--allow-write", by_repo["someone/claude-ballast-results"])
+        self.assertEqual(by_repo["someone/claude-ballast-queue"][by_repo["someone/claude-ballast-queue"].index("-t") + 1], "claude-ballast-server")
         # the working folder was removed and the first job was sent
         self.assertIn(f"rm -rf {REMOTE}", self.ssh.calls)
         self.assertEqual(self.verified, ["someone"])
-        self.assertTrue(any("deploy key for someone/cw-queue" in line and "read-only" in line for line in self.said))
-        self.assertTrue(any("deploy key for someone/cw-results" in line and "read and write" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/claude-ballast-queue" in line and "read-only" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/claude-ballast-results" in line and "read and write" in line for line in self.said))
 
     def test_a_key_that_is_already_on_github_is_not_added_twice(self):
-        self.machine.replies["gh repo deploy-key list -R someone/cw-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
+        self.machine.replies["gh repo deploy-key list -R someone/claude-ballast-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
         self.installer().run_all()
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 1)
-        self.assertIn("someone/cw-results", adds[0])
+        self.assertIn("someone/claude-ballast-results", adds[0])
         self.assertTrue(any("PRESENT" in line for line in self.said))
 
     def test_the_answers_sent_to_the_server_are_complete_and_valid(self):
@@ -208,7 +208,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=ssh).run_all()
         self.assertIn("not supported", e.exception.why)
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-worker/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
         self.assertEqual(ssh.sent, [])
         self.assertEqual(self.ran_local("gh"), [])
 
@@ -216,7 +216,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=FakeSsh(connect=False)).run_all()
         self.assertIn("ssh-copy-id admin" + "@" + "worker.example", " ".join(e.exception.steps))
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-worker/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
 
     def test_missing_connection_answers_are_named(self):
         inst = install.Installer(self.tmp, ssh_factory=lambda *a: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=True)
@@ -256,9 +256,9 @@ class WithoutGh(InstallBase):
         self.installer().run_all()
         self.assertEqual(self.ran_local("gh "), [])
         text = "\n".join(self.said)
-        self.assertIn("https://github.com/someone/cw-queue/settings/keys", text)
+        self.assertIn("https://github.com/someone/claude-ballast-queue/settings/keys", text)
         self.assertIn("leave write access OFF", text)
-        self.assertIn("https://github.com/someone/cw-results/settings/keys", text)
+        self.assertIn("https://github.com/someone/claude-ballast-results/settings/keys", text)
         self.assertIn("'Allow write access' ticked", text)
         self.assertIn(QUEUE_PUB, text)
         self.assertEqual(text.count("gh` is not available"), 1)
@@ -271,7 +271,7 @@ class Preview(InstallBase):
         self.assertEqual(self.ssh.popen_calls, [])
         self.assertEqual(self.ran_local("gh repo create"), [])
         self.assertEqual(self.ran_local("gh repo deploy-key add"), [])
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-worker/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
         previews = [c for c in self.ssh.calls if c.startswith("env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=")]
         self.assertEqual(len(previews), 1)
         self.assertNotIn("sudo", previews[0])
@@ -343,9 +343,9 @@ class DeployKeyUnits(unittest.TestCase):
 
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
-        ssh.files["/etc/claude-worker/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
-        ssh.files["/etc/claude-worker/deploy-keys/results.pub"] = "not a key\n"
-        self.assertEqual(keys.published(ssh, "/etc/claude-worker"), {"queue": "ssh-ed25519 AAA c"})
+        ssh.files["/etc/claude-ballast/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
+        ssh.files["/etc/claude-ballast/deploy-keys/results.pub"] = "not a key\n"
+        self.assertEqual(keys.published(ssh, "/etc/claude-ballast"), {"queue": "ssh-ed25519 AAA c"})
 
     def test_complete_needs_both_keys(self):
         dk = keys.DeployKeys(self.cfg(), lambda a: Result(0, "[]"), lambda n: "gh")

@@ -179,7 +179,7 @@ class Planning(unittest.TestCase):
         for needle in ("INSTALL REQUIRED", "software homecw does not have", "THROWAWAY folder", "`homecw-admin apply`", "NO network", "apt-get install"):
             self.assertIn(needle, text)
         self.assertEqual(p.plan_text(p.plan([])), "")
-        self.assertNotIn("claude-worker", text)
+        self.assertNotIn("claude-ballast", text)
 
 
 class Preparing(unittest.TestCase):

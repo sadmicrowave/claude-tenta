@@ -1,10 +1,10 @@
-# cw.example.toml: every setting, with its default. Copy to ~/.config/claude-worker/cw.toml (your computer) or
-# /etc/claude-worker/cw.toml (the server). The setup wizard writes this file for you; you rarely edit it by hand.
+# cw.example.toml: every setting, with its default. Copy to ~/.config/claude-ballast/cw.toml (your computer) or
+# /etc/claude-ballast/cw.toml (the server). The setup wizard writes this file for you; you rarely edit it by hand.
 # Only documentation values appear here (example.com, 192.0.2.0/24). Secrets (API keys, alert tokens) go in secrets.env, never here.
 # Any setting can also be set with an environment variable CW_<SECTION>_<KEY>, e.g. CW_SERVER_HOST=worker.example.lan
 
 [identity]
-name = "claude-worker"          # prefix for services, folders and commands on this install
+name = "claude-ballast"          # prefix for services, folders and commands on this install
 
 [server]
 host = "worker.example.lan"     # name or address the client connects to over SSH
@@ -14,8 +14,8 @@ ssh_port = 22
 
 [github]
 owner = "your-github-handle"    # account that owns the two private repos
-queue_repo = "cw-queue"         # private repo holding jobs
-results_repo = "cw-results"     # private repo holding results
+queue_repo = "claude-ballast-queue"         # private repo holding jobs
+results_repo = "claude-ballast-results"     # private repo holding results
 jobs_branch = "jobs"
 data_branch = "data"
 main_branch = "main"
@@ -61,7 +61,7 @@ update_min = 15                 # minutes between checks for a new signed releas
 
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
-# source = "https://github.com/your-github-handle/claude-worker.git"   # where releases are fetched from; required to install or update
+# source = "https://github.com/your-github-handle/claude-ballast.git"   # where releases are fetched from; required to install or update
 branch = "main"                 # an explicit revision must be on this branch before it may be installed
 
 [registry]

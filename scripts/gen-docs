@@ -27,7 +27,7 @@ def show(v):
 
 def config_page():
     out = [HEADER, "# Configuration reference\n",
-           "Every setting of `cw.toml`, with its default. The file is read from `~/.config/claude-worker/cw.toml` on your computer and "
+           "Every setting of `cw.toml`, with its default. The file is read from `~/.config/claude-ballast/cw.toml` on your computer and "
            "`/etc/<name>/cw.toml` on the server (or the path in `CW_CONFIG`). Any setting can also be set by an environment variable named "
            "`CW_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never "
            "silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.\n",

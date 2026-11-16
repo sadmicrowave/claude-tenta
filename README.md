@@ -1,4 +1,4 @@
-# claude-worker
+# Claude Ballast
 
 Offload slow or heavy jobs from your laptop to a spare Linux machine on your home network, using two private GitHub repositories as the mailbox.
 
@@ -11,7 +11,7 @@ Offload slow or heavy jobs from your laptop to a spare Linux machine on your hom
 - **Nothing is reachable from the internet.** The worker only makes outgoing connections to GitHub.
 
 ```bash
-git clone https://github.com/<project>/claude-worker.git && cd claude-worker
+git clone https://github.com/<project>/claude-ballast.git && cd claude-ballast
 python3 -m venv ~/.cw-venv && ~/.cw-venv/bin/pip install -e .
 ~/.cw-venv/bin/cw-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job
 ```

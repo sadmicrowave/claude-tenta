@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claude-worker"
+name = "claude-ballast"
 version = "0.0.1"
 description = "Offload slow jobs from a laptop to a spare Linux machine on your home network"
 readme = "README.md"

@@ -25,7 +25,7 @@ approval is tied to the exact job file you looked at.
 | `cw-run` | your computer | queue jobs, read results, test commands (`offload`) |
 | `cw-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
 | `cw-setup` | both | the wizard: `client`, `server`, `audit` |
-| `<name>` (default `claude-worker`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
+| `<name>` (default `claude-ballast`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
 | `<name>-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
 | `canary-watch` | the worker, as root | raises the alarm when auditd sees a decoy credential file being read |
 

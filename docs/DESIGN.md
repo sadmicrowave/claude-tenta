@@ -19,9 +19,9 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
 
 | Thing | Where | Public? |
 |---|---|---|
-| This repo (`claude-worker`): source, wizard, packs, docs | GitHub, public | yes |
-| `<user>/cw-queue` (jobs mailbox + the user's own registry) | created by the wizard, private | no |
-| `<user>/cw-results` (results mailbox) | created by the wizard, private | no |
+| This repo (`claude-ballast`): source, wizard, packs, docs | GitHub, public | yes |
+| `<user>/claude-ballast-queue` (jobs mailbox + the user's own registry) | created by the wizard, private | no |
+| `<user>/claude-ballast-results` (results mailbox) | created by the wizard, private | no |
 
 The wizard creates the two private repos under the user's account (with `gh` if present, otherwise it prints exact steps), adds a read-only
 deploy key to the queue repo and a write deploy key to the results repo, and writes the names into `cw.toml`. The software is installed
@@ -34,7 +34,7 @@ Three layers, later wins: built-in defaults, `cw.toml` (non-secret, one per inst
 Secrets (API key, ntfy token) live only in `secrets.env` (mode 0600, root:worker), are never rendered into units or commands, and are
 loaded through `EnvironmentFile=`.
 
-`cw.toml` lives at `~/.config/claude-worker/cw.toml` on the client and `/etc/claude-worker/cw.toml` on the server. Both are gitignored.
+`cw.toml` lives at `~/.config/claude-ballast/cw.toml` on the client and `/etc/claude-ballast/cw.toml` on the server. Both are gitignored.
 A JSON Schema (`config/cw.schema.json`) validates it; the same validation runs in the wizard, in `cw check`, and before any template render.
 Every value that reaches a shell, a unit file, a sudoers line or a firewall rule must match a strict pattern from the schema
 (hostnames, usernames, paths, ports, CIDRs); nothing is interpolated unvalidated.
@@ -49,8 +49,8 @@ admin_user  = "cwadmin"               # human admin on the server (needs a passw
 worker_user = "cwworker"              # unprivileged user that runs jobs
 [github]
 owner       = "your-github-handle"
-queue_repo  = "cw-queue"
-results_repo= "cw-results"
+queue_repo  = "claude-ballast-queue"
+results_repo= "claude-ballast-results"
 [paths]
 code   = "/opt/cw"
 state  = "/var/lib/cw"
@@ -90,7 +90,7 @@ packs/<name>/policy/*.toml    off-limits rules
 packs/<name>/hardening/<id>/  module.toml + check + apply + revert
 ```
 
-Search path: built-in `packs/`, then `~/.config/claude-worker/packs/` (client side drafts) and, on the server, only packs that were
+Search path: built-in `packs/`, then `~/.config/claude-ballast/packs/` (client side drafts) and, on the server, only packs that were
 **applied** (installed root-owned under `/etc/<name>/packs/`, hash recorded). The server never loads a pack from a repo directly.
 
 Rules that keep extensibility from becoming a hole:
@@ -179,7 +179,7 @@ Whichever is chosen is recorded in `cw.toml` and verified by `cw-setup audit`. N
 
 - `scripts/privacy-check` runs as `pre-commit` and `commit-msg` hooks, in CI, and with `--history` before any push. Generic rules catch private IPs,
   MACs, e-mails, `.local` hostnames, keys, tokens, ntfy topics and home paths. A personal denylist outside the repo
-  (`~/.config/claude-worker-dev/denylist`) catches your own handle, names and hostnames without publishing them.
+  (`~/.config/claude-ballast-dev/denylist`) catches your own handle, names and hostnames without publishing them.
 - It also refuses to commit unless the git author is a `users.noreply.github.com` address.
 - Documentation and tests use reserved example values only (`192.0.2.0/24`, `example.com`).
 - `.gitignore` excludes `cw.toml`, `secrets.env`, state, results, jobs and keys.

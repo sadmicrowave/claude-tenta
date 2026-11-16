@@ -44,7 +44,7 @@ class Units(unittest.TestCase):
         self.assertEqual(sorted(units), sorted(f"homecw-{u}" for u in render.UNITS))
         for name, text in units.items():
             self.assertNotIn("{{", text, name)
-            self.assertNotIn("claude-worker", text, name)                        # nothing of the original install leaks into another's units
+            self.assertNotIn("claude-ballast", text, name)                        # nothing of the original install leaks into another's units
         fetch = units["homecw-fetch.service"]
         for needle in ("User=runner1", "Environment=PYTHONPATH=/opt/homecw/lib", "Environment=CW_CONFIG=/etc/homecw/cw.toml",
                        "ReadWritePaths=/var/lib/homecw /home/runner1 -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m cw.cli fetch"):
@@ -56,7 +56,7 @@ class Units(unittest.TestCase):
     def test_the_fetch_and_step_units_carry_the_same_sandbox_and_it_is_the_tested_one(self):
         units = render.unit_files(cfg(), TEMPLATES)
         sandbox_lines = lambda t: [l for l in t.splitlines() if re.match(r"^(Protect|Private|Restrict|ReadWritePaths|LockPersonality|SystemCall)", l)]   # noqa: E731
-        a, b = sandbox_lines(units["claude-worker-fetch.service"]), sandbox_lines(units["claude-worker-step.service"])
+        a, b = sandbox_lines(units["claude-ballast-fetch.service"]), sandbox_lines(units["claude-ballast-step.service"])
         self.assertEqual(a, b)
         self.assertIn("ProtectSystem=strict", a)
         keys = {l.split("=")[0] for l in a}
@@ -65,7 +65,7 @@ class Units(unittest.TestCase):
 
     def test_the_root_run_units_are_not_sandboxed_and_carry_no_secrets(self):
         units = render.unit_files(cfg(), TEMPLATES)
-        for name in ("claude-worker-canary.service", "claude-worker-update.service"):
+        for name in ("claude-ballast-canary.service", "claude-ballast-update.service"):
             self.assertNotIn("ProtectSystem", units[name])
             self.assertNotIn("EnvironmentFile", units[name])
         for name, text in units.items():

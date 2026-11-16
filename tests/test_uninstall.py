@@ -17,7 +17,7 @@ from cw.setup.uninstall import Uninstall
 UNITS = ("fetch.timer", "step.timer", "canary.timer", "update.timer", "fetch.service", "step.service", "canary.service", "update.service")
 
 
-def installed_host(name="claude-worker"):
+def installed_host(name="claude-ballast"):
     h = FakeHost()
     for u in UNITS:
         h.put(f"/etc/systemd/system/{name}-{u}", "[Unit]\n")
@@ -42,18 +42,18 @@ class Removal(unittest.TestCase):
         r = self.un(dry_run=True).run_all()
         self.assertEqual(r[-1][1], "planned")
         self.assertEqual([c for c in self.h.calls if c[0] in ("systemctl", "rm", "pkill", "userdel", "augenrules")], [])
-        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-worker"))
+        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-ballast"))
         text = "\n".join(self.said)
-        for needle in ("systemctl disable --now claude-worker-fetch.timer", "rm -rf /opt/claude-worker", "rm -rf /var/lib/claude-worker", "What stays:"):
+        for needle in ("systemctl disable --now claude-ballast-fetch.timer", "rm -rf /opt/claude-ballast", "rm -rf /var/lib/claude-ballast", "What stays:"):
             self.assertIn(needle, text)
 
     def test_applying_removes_the_units_files_commands_and_folders(self):
         self.un().run_all()
-        for p in ("/etc/sudoers.d/claude-worker", "/etc/sysctl.d/60-claude-worker-ipv6.conf", "/etc/sysctl.d/61-claude-worker-userns.conf",
-                  "/etc/audit/rules.d/60-claude-worker.rules", "/usr/local/bin/claude-worker", "/usr/local/sbin/claude-worker-update",
-                  "/etc/systemd/system/claude-worker-fetch.timer", "/etc/systemd/system/claude-worker-update.service"):
+        for p in ("/etc/sudoers.d/claude-ballast", "/etc/sysctl.d/60-claude-ballast-ipv6.conf", "/etc/sysctl.d/61-claude-ballast-userns.conf",
+                  "/etc/audit/rules.d/60-claude-ballast.rules", "/usr/local/bin/claude-ballast", "/usr/local/sbin/claude-ballast-update",
+                  "/etc/systemd/system/claude-ballast-fetch.timer", "/etc/systemd/system/claude-ballast-update.service"):
             self.assertFalse(self.h.exists(p), p)
-        for d in ("/opt/claude-worker", "/etc/claude-worker", "/var/lib/claude-worker"):
+        for d in ("/opt/claude-ballast", "/etc/claude-ballast", "/var/lib/claude-ballast"):
             self.assertTrue(self.h.ran(f"rm -rf {d}"), d)
         for later in ("systemctl daemon-reload", "augenrules --load"):
             self.assertTrue(self.h.ran(later), later)
@@ -61,12 +61,12 @@ class Removal(unittest.TestCase):
     def test_timers_stop_before_their_files_go_and_daemon_reload_follows(self):
         self.un().run_all()
         calls = [" ".join(c) for c in self.h.calls]
-        self.assertLess(calls.index("systemctl disable --now claude-worker-step.timer"), calls.index("systemctl daemon-reload"))
+        self.assertLess(calls.index("systemctl disable --now claude-ballast-step.timer"), calls.index("systemctl daemon-reload"))
 
     def test_keep_data_leaves_the_state_folder(self):
         self.un(keep_data=True).run_all()
-        self.assertFalse(self.h.ran("rm -rf /var/lib/claude-worker"))
-        self.assertTrue(self.h.ran("rm -rf /opt/claude-worker"))
+        self.assertFalse(self.h.ran("rm -rf /var/lib/claude-ballast"))
+        self.assertTrue(self.h.ran("rm -rf /opt/claude-ballast"))
         self.assertTrue(any("(--keep-data)" in line for line in self.said))
 
     def test_the_worker_account_is_removed_only_when_asked(self):
@@ -80,7 +80,7 @@ class Removal(unittest.TestCase):
     def test_the_protections_are_never_touched(self):
         self.un(remove_account=True).run_all()
         flat = " ".join(" ".join(c) for c in self.h.calls)
-        for protected in ("ufw", "sshd", "unattended", "apt-get", "sysctl -w", "ssh.conf", "10-claude-worker.conf"):
+        for protected in ("ufw", "sshd", "unattended", "apt-get", "sysctl -w", "ssh.conf", "10-claude-ballast.conf"):
             self.assertNotIn(protected, flat)
         self.assertTrue(any("key-only SSH" in line for line in self.said))
 
@@ -88,7 +88,7 @@ class Removal(unittest.TestCase):
         r = self.un(confirm=lambda p: False).run_all()
         self.assertEqual(r[-1][1], "declined")
         self.assertEqual(self.h.ran("rm -rf"), [])
-        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-worker"))
+        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-ballast"))
 
     def test_nothing_installed_is_said_plainly(self):
         r = Uninstall(FakeHost(), self.cfg, say=self.said.append, dry_run=False, confirm=lambda p: True).run_all()
@@ -97,13 +97,13 @@ class Removal(unittest.TestCase):
 
     def test_only_what_is_there_is_listed(self):
         h = FakeHost()
-        h.put("/etc/systemd/system/claude-worker-fetch.timer", "x")
-        h.put("/opt/claude-worker/x", "x")
+        h.put("/etc/systemd/system/claude-ballast-fetch.timer", "x")
+        h.put("/opt/claude-ballast/x", "x")
         Uninstall(h, self.cfg, say=self.said.append, dry_run=True).run_all()
         text = "\n".join(self.said)
-        self.assertIn("claude-worker-fetch.timer", text)
-        self.assertNotIn("claude-worker-step.timer", text)
-        self.assertNotIn("/var/lib/claude-worker", text)
+        self.assertIn("claude-ballast-fetch.timer", text)
+        self.assertNotIn("claude-ballast-step.timer", text)
+        self.assertNotIn("/var/lib/claude-ballast", text)
 
     def test_a_different_name_and_folders_are_respected(self):
         cfg = cfg_of(identity={"name": "homecw"}, paths={"code": "/srv/hc-code", "state_root": "/srv/hc-state", "config": "/srv/hc-conf"})
@@ -114,10 +114,10 @@ class Removal(unittest.TestCase):
         for d in ("/srv/hc-code", "/srv/hc-state", "/srv/hc-conf"):
             self.assertTrue(h.ran(f"rm -rf {d}"), d)
         self.assertFalse(h.exists("/etc/sudoers.d/homecw"))
-        self.assertFalse(h.ran("rm -rf /opt/claude-worker"))
+        self.assertFalse(h.ran("rm -rf /opt/claude-ballast"))
 
     def test_a_removal_that_fails_stops_and_says_which(self):
-        self.h.replies["rm -rf /opt/claude-worker"] = Result(1, "Device or resource busy")
+        self.h.replies["rm -rf /opt/claude-ballast"] = Result(1, "Device or resource busy")
         with self.assertRaises(SetupError) as e:
             self.un().run_all()
         self.assertIn("Device or resource busy", e.exception.why)
@@ -153,7 +153,7 @@ class FromYourComputer(unittest.TestCase):
     def setUp(self):
         import os
         from pathlib import Path
-        self.cfgdir = Path(os.environ["HOME"]) / ".config" / "claude-worker"
+        self.cfgdir = Path(os.environ["HOME"]) / ".config" / "claude-ballast"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
         (self.cfgdir / "cw.toml").write_text('[server]\nhost = "worker.example"\nadmin_user = "admin"\n[github]\nowner = "someone"\n')
         self.ssh, self.answers = FakeSsh(), []
@@ -176,7 +176,7 @@ class FromYourComputer(unittest.TestCase):
         self.assertNotIn("sudo", preview)
         self.assertNotIn("--apply", preview)
         self.assertIn("PYTHONPATH=/tmp/cw-install.AbC123/src", preview)              # the removal code comes from this checkout, not from the install being removed
-        self.assertIn("CW_CONFIG=/etc/claude-worker/cw.toml", preview)
+        self.assertIn("CW_CONFIG=/etc/claude-ballast/cw.toml", preview)
         self.assertEqual(self.ssh.sent[0][0], "tar -xf - -C /tmp/cw-install.AbC123")
         self.assertIn("rm -rf /tmp/cw-install.AbC123", self.ssh.captured)
         self.assertIn("cw-setup uninstall --apply", err)
@@ -189,7 +189,7 @@ class FromYourComputer(unittest.TestCase):
             code, err = self.run_cli("--apply", "--keep-data")
         self.assertEqual(code, 0)
         call = self.ssh.interactive_calls[0]
-        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/cw-install.AbC123/src CW_CONFIG=/etc/claude-worker/cw.toml python3 -m cw.setup uninstall --here"))
+        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/cw-install.AbC123/src CW_CONFIG=/etc/claude-ballast/cw.toml python3 -m cw.setup uninstall --here"))
         self.assertIn("rm -rf /tmp/cw-install.AbC123", self.ssh.captured)
         for piece in ("--keep-data", "--apply", "--yes"):
             self.assertIn(piece, call)

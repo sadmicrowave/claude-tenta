@@ -13,8 +13,8 @@ Nothing needs to be reachable from the internet. The worker only makes outgoing 
 ## 1. Install on your computer
 
 ```bash
-git clone https://github.com/<project>/claude-worker.git
-cd claude-worker
+git clone https://github.com/<project>/claude-ballast.git
+cd claude-ballast
 python3 -m venv ~/.cw-venv && ~/.cw-venv/bin/pip install -e .
 export PATH="$HOME/.cw-venv/bin:$PATH"
 cw-help
@@ -69,7 +69,7 @@ cw-admin status
 | find out whether a slow command is worth sending | `cw-run offload fit -- <command>` |
 | install a new release | `cw-admin diff`, then `cw-admin apply` |
 | the worker locked itself | `cw-admin quarantine`, then `cw-admin unlock` |
-| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/claude-worker/lib python3 -m cw.setup audit` |
+| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/claude-ballast/lib python3 -m cw.setup audit` |
 
 ## Removing it
 

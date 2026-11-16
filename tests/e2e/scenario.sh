@@ -7,7 +7,7 @@
 # Use scripts/e2e-orbstack to run it in a disposable OrbStack machine. Exit status is the number of failed checks.
 set -uo pipefail
 SRC=${SRC:-/opt/cw-src}
-H=/home; NAME=claude-worker; ADMIN=cwadmin; WORKER=cwworker; OWNER=someone
+H=/home; NAME=claude-ballast; ADMIN=cwadmin; WORKER=cwworker; OWNER=someone
 export DEBIAN_FRONTEND=noninteractive
 PASS=0; FAIL=0
 step() { printf '\n=== %s\n' "$*"; }
@@ -62,12 +62,12 @@ as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set 
   --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-install.out 2>&1; rc=$?
 tail -45 /tmp/e2e-install.out
 check "the install command finished successfully" test $rc -eq 0
-check "it created the two private repositories itself" bash -c "test -d $H/git/$OWNER/cw-queue.git && test -d $H/git/$OWNER/cw-results.git"
-check "it added the server's two keys to GitHub, results with write access" bash -c "grep -q 'cw-queue (write=0)' /tmp/e2e-gh.log && grep -q 'cw-results (write=1)' /tmp/e2e-gh.log"
-check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'claude-worker-' $H/git/.ssh/authorized_keys | grep -qx 2"
+check "it created the two private repositories itself" bash -c "test -d $H/git/$OWNER/claude-ballast-queue.git && test -d $H/git/$OWNER/claude-ballast-results.git"
+check "it added the server's two keys to GitHub, results with write access" bash -c "grep -q 'claude-ballast-queue (write=0)' /tmp/e2e-gh.log && grep -q 'claude-ballast-results (write=1)' /tmp/e2e-gh.log"
+check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'claude-ballast-' $H/git/.ssh/authorized_keys | grep -qx 2"
 check "the working folder it used on the server was removed" bash -c "! ls -d /tmp/cw-install.* 2>/dev/null"
-check "the client configuration was written" test -f $H/$ADMIN/.config/claude-worker/cw.toml
-check "the registry was seeded on main of the queue repository" git -C $H/git/$OWNER/cw-queue.git cat-file -e main:registry.yaml
+check "the client configuration was written" test -f $H/$ADMIN/.config/claude-ballast/cw.toml
+check "the registry was seeded on main of the queue repository" git -C $H/git/$OWNER/claude-ballast-queue.git cat-file -e main:registry.yaml
 
 step "Running the install again changes nothing and still works"
 as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
@@ -147,7 +147,7 @@ check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd
 check "no timer is left" bash -c "! systemctl list-timers --all --no-legend | grep -q $NAME"
 check "the protections stay: password SSH is still off and the firewall is still on" bash -c "sshd -T | grep -qx 'passwordauthentication no' && ufw status | grep -q 'Status: active'"
 check "the worker account stays (reinstalling reuses it)" bash -c "getent passwd $WORKER"
-check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/cw-queue.git cat-file -e main:registry.yaml
+check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/claude-ballast-queue.git cat-file -e main:registry.yaml
 as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
   --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-reinstall.out 2>&1; rc=$?
 tail -6 /tmp/e2e-reinstall.out

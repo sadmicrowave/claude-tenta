@@ -20,7 +20,7 @@ DEFAULT_NEXT_STEPS = "Review: cw-admin quarantine\nThen clear: cw-admin unlock"
 class Notifier:
     """Sends an alert to the log, to syslog and, if configured, to an https push endpoint (ntfy style). A failing channel never raises."""
 
-    def __init__(self, url="", token="", opener=None, log=None, syslog=True, product="claude-worker"):
+    def __init__(self, url="", token="", opener=None, log=None, syslog=True, product="claude-ballast"):
         self.url, self.token, self.product = url or "", token or "", product
         self._open = opener or (lambda req: urllib.request.urlopen(req, timeout=8).close())
         self._log = log or (lambda msg: None)
@@ -59,7 +59,7 @@ def reminders_due(elapsed_h, remind_at, repeat_h):
 class Lockdown:
     """The lock file, its reminders, and the two alerts. While `locked()` is true no job may start."""
 
-    def __init__(self, state, notifier, seclog, product="claude-worker", next_steps=DEFAULT_NEXT_STEPS,
+    def __init__(self, state, notifier, seclog, product="claude-ballast", next_steps=DEFAULT_NEXT_STEPS,
                  remind_at=(1, 6, 24), repeat_h=24, clock=now):
         self.state, self.notifier, self.seclog = Path(state), notifier, seclog
         self.product, self.next_steps = product, next_steps

@@ -175,7 +175,7 @@ def _hours(v):
 # section -> key -> (default, check, plain-words description). A default of None means "not set yet": the wizard fills it in.
 SCHEMA = {
     "identity": {
-        "name": ("claude-worker", _str(NAME_RE, "3 to 24 lowercase letters, digits or -, starting with a letter"),
+        "name": ("claude-ballast", _str(NAME_RE, "3 to 24 lowercase letters, digits or -, starting with a letter"),
                  "prefix for services, folders and commands on this install"),
     },
     "server": {
@@ -186,8 +186,8 @@ SCHEMA = {
     },
     "github": {
         "owner": (None, _str(GH_OWNER_RE, "a GitHub user or organisation name"), "account that owns the two private repos"),
-        "queue_repo": ("cw-queue", _str(GH_REPO_RE, "a repository name"), "private repo holding jobs"),
-        "results_repo": ("cw-results", _str(GH_REPO_RE, "a repository name"), "private repo holding results"),
+        "queue_repo": ("{name}-queue", _str(GH_REPO_RE, "a repository name"), "private repo holding jobs"),
+        "results_repo": ("{name}-results", _str(GH_REPO_RE, "a repository name"), "private repo holding results"),
         "jobs_branch": ("jobs", _str(BRANCH_RE, "a branch name"), "branch the client pushes job files to"),
         "data_branch": ("data", _str(BRANCH_RE, "a branch name"), "branch holding exclusions and other kept data"),
         "main_branch": ("main", _str(BRANCH_RE, "a branch name"), "branch holding the registry"),
@@ -414,7 +414,7 @@ def default_config_path(env=None):
     env = os.environ if env is None else env
     if env.get("CW_CONFIG"):
         return Path(env["CW_CONFIG"])
-    for p in (Path.home() / ".config" / "claude-worker" / "cw.toml", Path("/etc/claude-worker/cw.toml")):
+    for p in (Path.home() / ".config" / "claude-ballast" / "cw.toml", Path("/etc/claude-ballast/cw.toml")):
         if p.exists():
             return p
     return None

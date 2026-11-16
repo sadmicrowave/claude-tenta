@@ -13,7 +13,7 @@ Passwords, API keys and alert tokens never go in this file. They go in a separat
 ### Where it is read from, in order of precedence
 
 1. Built-in defaults.
-2. `cw.toml`: `CW_CONFIG` if set, otherwise `~/.config/claude-worker/cw.toml`, otherwise `/etc/claude-worker/cw.toml`.
+2. `cw.toml`: `CW_CONFIG` if set, otherwise `~/.config/claude-ballast/cw.toml`, otherwise `/etc/claude-ballast/cw.toml`.
 3. Environment variables `CW_<SECTION>_<KEY>`, for example `CW_SERVER_HOST=worker.example.lan`. Lists are comma-separated.
 
 ### Rules

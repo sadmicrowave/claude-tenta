@@ -28,7 +28,7 @@ SECTIONS = [
 
 def main(argv=None):
     out = sys.stdout
-    print(f"\n{paint('claude-worker', BOLD, GREEN, stream=out)}  {paint('offload slow jobs to a spare machine on your network', BOLD, stream=out)}")
+    print(f"\n{paint('claude-ballast', BOLD, GREEN, stream=out)}  {paint('offload slow jobs to a spare machine on your network', BOLD, stream=out)}")
     for title, where, rows in SECTIONS:
         print(f"\n{paint(title.upper(), BOLD, CYAN, stream=out)}  ({where})")
         width = max(len(r[0]) for r in rows)

@@ -41,7 +41,7 @@ def stop(title, *details, code=1, tag="STOPPED", color=YELLOW, **kw):
 
 
 class Context:
-    def __init__(self, repos, ssh, source, *, name="claude-worker", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
+    def __init__(self, repos, ssh, source, *, name="claude-ballast", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
                  run_result=None, main_branch="main", sleep=time.sleep):
         self.repos, self.ssh, self.source, self.name = repos, ssh, source, name
         self.config_dir, self.code_dir = config_dir or f"/etc/{name}", code_dir or f"/opt/{name}"

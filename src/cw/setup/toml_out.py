@@ -28,7 +28,7 @@ def dump(answers, header="Written by cw-setup. Change a value here, or run cw-se
                 lines.append(f"{key} = {_value(v)}")
                 continue
             if v == default or (isinstance(default, str) and "{" in default):      # a templated default ({name}) is only written when changed
-                expanded = default.replace("{name}", answers.get("identity", {}).get("name", "claude-worker")).replace(
+                expanded = default.replace("{name}", answers.get("identity", {}).get("name", "claude-ballast")).replace(
                     "{worker_user}", answers.get("server", {}).get("worker_user", "cwworker")) if isinstance(default, str) else default
                 if v == expanded:
                     continue

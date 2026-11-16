@@ -3,7 +3,7 @@
 ## Set up
 
 ```bash
-git clone <your fork> && cd claude-worker
+git clone <your fork> && cd claude-ballast
 python3 -m venv .venv && .venv/bin/pip install -e . pyyaml
 scripts/privacy-check --install-hook         # blocks commits that contain personal or environment data
 .venv/bin/python -m unittest discover -s tests

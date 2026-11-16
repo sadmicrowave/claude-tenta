@@ -52,7 +52,7 @@ written to `cw.toml` (`toml_out.py`).
 
 ### Client half, in order
 
-Tools check (`git`, `ssh`, optional `gh`) → configuration written to `~/.config/claude-worker/cw.toml` → SSH key login test → repositories created private (or the manual steps are
+Tools check (`git`, `ssh`, optional `gh`) → configuration written to `~/.config/claude-ballast/cw.toml` → SSH key login test → repositories created private (or the manual steps are
 printed) → deploy keys added if their files were passed → clones → the queue repository's `main` is seeded with an empty `registry.yaml` for **your own** classes (never overwritten if it exists).
 
 ### Everything goes through a `Host`

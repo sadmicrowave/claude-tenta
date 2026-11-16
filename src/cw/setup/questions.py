@@ -12,7 +12,7 @@ _Q = lambda key, title, why, **kw: dict(key=key, title=title, why=why, **kw)    
 
 # (key, question, why it matters)   half = which half of the wizard asks it; 'both' asks in either
 QUESTIONS = [
-    _Q("identity.name", "What should this install be called?", "Every service, folder and command is named after it (claude-worker, claude-worker-update, ...). Keep the default unless you run two installs on one machine.", half="both"),
+    _Q("identity.name", "What should this install be called?", "Every service, folder and command is named after it (claude-ballast, claude-ballast-update, ...). Keep the default unless you run two installs on one machine.", half="both"),
     _Q("server.host", "What is the server's name or address?", "Your computer connects to it over SSH, for example worker.example or 192.0.2.10.", half="client", required=True),
     _Q("server.admin_user", "Which account on the server is yours?", "The account you log in to the server with. It must already exist and have your SSH key. Its sudo password is what protects every change, so a stolen key alone is not enough.", half="both", required=True),
     _Q("server.worker_user", "What should the account that runs jobs be called?", "Created for you with no sudo and no login shell, so nothing a job does can reach your own account.", half="server"),
@@ -107,7 +107,7 @@ def default_for(key, suggestions=None):
     if suggestions and key in suggestions:
         return suggestions[key]
     default = config.SCHEMA[section][name][0]
-    return default.replace("{name}", "claude-worker").replace("{worker_user}", "cwworker") if isinstance(default, str) else default
+    return default.replace("{name}", "claude-ballast").replace("{worker_user}", "cwworker") if isinstance(default, str) else default
 
 
 def show(value):

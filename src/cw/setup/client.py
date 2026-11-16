@@ -67,7 +67,7 @@ class ClientSetup:
         self.note("configuration", "planned" if self.dry_run else "written", path)
 
     def config_path(self):
-        return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-worker" / "cw.toml")
+        return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-ballast" / "cw.toml")
 
     def ssh_login(self):
         cfg, target = self.cfg, f"{self.cfg.server.admin_user}@{self.cfg.server.host}"
@@ -93,7 +93,7 @@ class ClientSetup:
             if self.gh and self.host.run(["gh", "repo", "view", slug]).ok:
                 self.note(f"{which} repository", "exists", slug)
             elif self.gh:
-                self.run(["gh", "repo", "create", slug, "--private", "--description", f"claude-worker {which} (private)"], f"create {slug}")
+                self.run(["gh", "repo", "create", slug, "--private", "--description", f"claude-ballast {which} (private)"], f"create {slug}")
                 self.note(f"{which} repository", "planned" if self.dry_run else "created", f"{slug} (private)")
             else:
                 self.note(f"{which} repository", "manual", slug)

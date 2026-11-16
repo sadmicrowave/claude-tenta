@@ -31,7 +31,7 @@ def problems(text, env=None):
 class Defaults(unittest.TestCase):
     def test_built_in_defaults_are_valid_and_complete(self):
         c = config.load(None, env={"CW_CONFIG": ""})
-        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("claude-worker", "cwworker", True))
+        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("claude-ballast", "cwworker", True))
         self.assertEqual((c.hardware.capacity, c.hardware.max_load, c.hardware.max_temp_c), (4, 3.0, 75))
         self.assertEqual(c.alerts.remind_hours, [1, 6, 24])
 
@@ -137,8 +137,8 @@ class Requirements(unittest.TestCase):
         with self.assertRaises(config.ConfigError):
             c.queue_url
         c2 = load_text('[github]\nowner = "alice"\n')
-        self.assertEqual(c2.queue_url, "git@github.com:alice/cw-queue.git")
-        self.assertEqual(c2.results_url, "git@github.com:alice/cw-results.git")
+        self.assertEqual(c2.queue_url, "git@github.com:alice/claude-ballast-queue.git")
+        self.assertEqual(c2.results_url, "git@github.com:alice/claude-ballast-results.git")
 
 
 class ExampleFile(unittest.TestCase):

@@ -3,7 +3,7 @@
 
 # Configuration reference
 
-Every setting of `cw.toml`, with its default. The file is read from `~/.config/claude-worker/cw.toml` on your computer and `/etc/<name>/cw.toml` on the server (or the path in `CW_CONFIG`). Any setting can also be set by an environment variable named `CW_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
+Every setting of `cw.toml`, with its default. The file is read from `~/.config/claude-ballast/cw.toml` on your computer and `/etc/<name>/cw.toml` on the server (or the path in `CW_CONFIG`). Any setting can also be set by an environment variable named `CW_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
 
 `{name}` and `{worker_user}` in a default are filled in from the settings of the same name.
 
@@ -12,7 +12,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `name` | `claude-worker` | text | prefix for services, folders and commands on this install |
+| `name` | `claude-ballast` | text | prefix for services, folders and commands on this install |
 
 ## [server]
 
@@ -28,8 +28,8 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `owner` | *(not set)* | text | account that owns the two private repos |
-| `queue_repo` | `cw-queue` | text | private repo holding jobs |
-| `results_repo` | `cw-results` | text | private repo holding results |
+| `queue_repo` | `{name}-queue` | text | private repo holding jobs |
+| `results_repo` | `{name}-results` | text | private repo holding results |
 | `jobs_branch` | `jobs` | text | branch the client pushes job files to |
 | `data_branch` | `data` | text | branch holding exclusions and other kept data |
 | `main_branch` | `main` | text | branch holding the registry |

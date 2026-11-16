@@ -9,7 +9,7 @@
 Two layers of rules:
   1. GENERIC patterns below (private IPs, MAC addresses, emails, *.local hosts, key material, tokens). Documentation must use the
      reserved example values: 192.0.2.x / 198.51.100.x / 203.0.113.x, example.com, host.example.
-  2. YOUR OWN denylist: one case-insensitive regex per line in $CW_PRIVACY_DENYLIST (default ~/.config/claude-worker-dev/denylist,
+  2. YOUR OWN denylist: one case-insensitive regex per line in $CW_PRIVACY_DENYLIST (default ~/.config/claude-ballast-dev/denylist,
      outside the repo, so the list of things you want hidden is never itself published). Put your GitHub handle, real name, e-mail,
      employer, hostnames, LAN subnet, and so on there.
 
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or ".")
-DENYLIST = Path(os.environ.get("CW_PRIVACY_DENYLIST", Path.home() / ".config/claude-worker-dev/denylist"))
+DENYLIST = Path(os.environ.get("CW_PRIVACY_DENYLIST", Path.home() / ".config/claude-ballast-dev/denylist"))
 
 GENERIC = {
     "private-ip": re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"),

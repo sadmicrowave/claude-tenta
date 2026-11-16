@@ -107,7 +107,7 @@ class QuestionTests(unittest.TestCase):
 
 class TomlTests(unittest.TestCase):
     def test_only_chosen_values_are_written_and_they_load_back_identically(self):
-        nested = {"identity": {"name": "claude-worker"}, "server": {"admin_user": "me", "ssh_port": 2222}, "github": {"owner": "someone"},
+        nested = {"identity": {"name": "claude-ballast"}, "server": {"admin_user": "me", "ssh_port": 2222}, "github": {"owner": "someone"},
                   "network": {"lan_allow_out": ["192.0.2.0/24"], "ipv6": "disabled", "lan_deny_out": True}}
         text = toml_out.dump(nested)
         self.assertNotIn("identity", text)
@@ -166,7 +166,7 @@ class HardeningTests(unittest.TestCase):
         h.replies["systemctl reload ssh"] = lambda a: state.update(on=True) or Result(0)
         status, _ = hardening.run_module(mod, h, self.cfg, dry_run=False, out=lambda s: None, confirm=lambda p: True)
         self.assertEqual(status, "applied")
-        self.assertIn("PasswordAuthentication no", h.read("/etc/ssh/sshd_config.d/10-claude-worker.conf"))
+        self.assertIn("PasswordAuthentication no", h.read("/etc/ssh/sshd_config.d/10-claude-ballast.conf"))
         order = [" ".join(c) for c in h.calls if c[0] in ("sshd", "systemctl") and c[1] in ("-t", "reload")]
         self.assertEqual(order, ["sshd -t", "systemctl reload ssh"])
 
@@ -176,7 +176,7 @@ class HardeningTests(unittest.TestCase):
         h.replies["sshd -T"] = Result(0, "passwordauthentication yes\n")
         status, _ = hardening.run_module(mod, h, self.cfg, dry_run=True, out=shown.append)
         self.assertEqual(status, "planned")
-        self.assertFalse(h.exists("/etc/ssh/sshd_config.d/10-claude-worker.conf"))
+        self.assertFalse(h.exists("/etc/ssh/sshd_config.d/10-claude-ballast.conf"))
         self.assertTrue(any("PasswordAuthentication no" in s for s in shown))
 
     def test_declining_applies_nothing(self):
@@ -323,21 +323,21 @@ class ServerTests(unittest.TestCase):
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()
-        self.assertFalse(self.h.exists("/etc/claude-worker/cw.toml"))
+        self.assertFalse(self.h.exists("/etc/claude-ballast/cw.toml"))
         self.assertEqual([c for c in self.h.calls if c[0] in ("useradd", "install", "ssh-keygen", "apt-get") or c[:2] == ["systemctl", "enable"]], [])
         text = "\n".join(self.said)
-        for needle in ("useradd --system", "ssh-keygen", "systemctl enable --now claude-worker-fetch.timer", "[github]"):
+        for needle in ("useradd --system", "ssh-keygen", "systemctl enable --now claude-ballast-fetch.timer", "[github]"):
             self.assertIn(needle, text)
 
     def test_apply_creates_accounts_installs_the_code_and_writes_the_config(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()
         self.assertTrue(self.h.ran("useradd --system --create-home --home-dir " + H + "/cwworker --shell /usr/sbin/nologin cwworker"))
-        self.assertEqual(config.load(self.h.path("/etc/claude-worker/cw.toml")).github.owner, "someone")
-        self.assertTrue(self.h.exists("/opt/claude-worker/lib/cw/cli.py"))
-        self.assertTrue(self.h.exists("/usr/local/bin/claude-worker"))
-        self.assertEqual(self.h.read("/etc/claude-worker/installed-rev").strip(), "a" * 40)
-        self.assertIn("Host github-claude-worker-queue", self.h.read(H + "/cwworker/.ssh/config"))
+        self.assertEqual(config.load(self.h.path("/etc/claude-ballast/cw.toml")).github.owner, "someone")
+        self.assertTrue(self.h.exists("/opt/claude-ballast/lib/cw/cli.py"))
+        self.assertTrue(self.h.exists("/usr/local/bin/claude-ballast"))
+        self.assertEqual(self.h.read("/etc/claude-ballast/installed-rev").strip(), "a" * 40)
+        self.assertIn("Host github-claude-ballast-queue", self.h.read(H + "/cwworker/.ssh/config"))
 
     def test_it_waits_for_deploy_keys_before_cloning_and_hardening(self):
         self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied (publickey)")
@@ -346,16 +346,16 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(any(r[1] == "waiting" for r in report))
         self.assertEqual(self.h.ran("systemctl enable"), [])
         self.assertTrue(any("gh repo deploy-key add" in line and "--allow-write" in line for line in self.said))
-        self.assertTrue(any("claude-worker-queue.pub" in line and "--allow-write" not in line for line in self.said))
+        self.assertTrue(any("claude-ballast-queue.pub" in line and "--allow-write" not in line for line in self.said))
 
     def test_with_keys_in_place_it_clones_hardens_and_starts_the_timers(self):
         s = self.setup_obj(dry_run=False, confirm=lambda p: True)
         s.run_all()
         self.assertEqual(len(self.h.ran("runuser -u cwworker -- git clone")), 2)
-        self.assertIn("git@github-claude-worker-queue:someone/cw-queue.git", " ".join(self.h.ran("runuser -u cwworker -- git clone")[0]))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-worker-fetch.timer"))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-worker-step.timer"))
-        self.assertTrue(self.h.exists("/etc/claude-worker/hardening.json"))
+        self.assertIn("git@github-claude-ballast-queue:someone/claude-ballast-queue.git", " ".join(self.h.ran("runuser -u cwworker -- git clone")[0]))
+        self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-fetch.timer"))
+        self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-step.timer"))
+        self.assertTrue(self.h.exists("/etc/claude-ballast/hardening.json"))
         self.assertEqual([c for c in self.h.calls if c[:2] == ["systemctl", "enable"] and "update.timer" in " ".join(c)], [])
 
     def test_the_registry_is_installed_after_the_clones_and_before_hardening(self):
@@ -376,7 +376,7 @@ class ServerTests(unittest.TestCase):
         with self.assertRaises(server.SetupError) as e:
             s.run_all()
         self.assertIn("not valid", e.exception.why)
-        self.assertFalse(self.h.exists("/etc/claude-worker/hardening.json"))
+        self.assertFalse(self.h.exists("/etc/claude-ballast/hardening.json"))
 
     def test_the_registry_is_not_installed_while_waiting_for_deploy_keys(self):
         self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied")
@@ -398,12 +398,12 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(any(r[0] == "prerequisites" and r[1] == "planned" for r in s.report))
 
     def test_the_public_deploy_keys_are_published_for_the_administrator(self):
-        self.h.put(H + "/cwworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ claude-worker-queue\n")
-        self.h.put((H + "/cwworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR claude-worker-results\n")
+        self.h.put(H + "/cwworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ claude-ballast-queue\n")
+        self.h.put((H + "/cwworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR claude-ballast-results\n")
         self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
-        self.assertEqual(self.h.read("/etc/claude-worker/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ claude-worker-queue")
-        self.assertEqual(self.h.read("/etc/claude-worker/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR claude-worker-results")
-        self.assertEqual(oct(self.h.path("/etc/claude-worker/deploy-keys/queue.pub").stat().st_mode & 0o777), "0o644")
+        self.assertEqual(self.h.read("/etc/claude-ballast/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ claude-ballast-queue")
+        self.assertEqual(self.h.read("/etc/claude-ballast/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR claude-ballast-results")
+        self.assertEqual(oct(self.h.path("/etc/claude-ballast/deploy-keys/queue.pub").stat().st_mode & 0o777), "0o644")
 
     def test_it_waits_for_the_keys_and_carries_on_when_they_arrive(self):
         calls = {"n": 0}
@@ -418,7 +418,7 @@ class ServerTests(unittest.TestCase):
         self.assertFalse(s.waiting)
         self.assertEqual(len(self.h.ran("runuser -u cwworker -- git clone")), 2)
         self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-worker-fetch.timer"))
+        self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-fetch.timer"))
 
     def test_it_gives_up_waiting_after_the_time_and_says_so(self):
         self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied")
@@ -477,7 +477,7 @@ class ClientTests(RepoFixture):
         h, c = self.make(dry_run=True)
         c.run_all()
         self.assertEqual(h.ran("gh repo create"), [])
-        self.assertTrue(any("gh repo create someone/cw-queue --private" in s for s in self.said))
+        self.assertTrue(any("gh repo create someone/claude-ballast-queue --private" in s for s in self.said))
         self.assertFalse(h.exists(h.env["HOME"] + "/.config"))
 
     def test_apply_writes_config_creates_private_repos_and_seeds_the_registry(self):
@@ -488,7 +488,7 @@ class ClientTests(RepoFixture):
         c.run_all()
         self.assertEqual(len(h.ran("gh repo create")), 2)
         self.assertTrue(all("--private" in " ".join(x) for x in h.ran("gh repo create")))
-        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/claude-worker/cw.toml")).github.owner, "someone")
+        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/claude-ballast/cw.toml")).github.owner, "someone")
         self.repos.fetch_queue()
         reg = self.repos.show_file("origin/main", "registry.yaml")
         self.assertIn("classes:", reg)
@@ -575,7 +575,7 @@ class CliTests(unittest.TestCase):
         code, err = self.run_cli("server", "--yes", "--set", "server.admin_user=me", "--set", "github.owner=someone", "--rev", "a" * 40, host=h)
         self.assertEqual(code, 0)
         self.assertIn("Nothing was changed", err)
-        self.assertFalse(h.exists("/etc/claude-worker/cw.toml"))
+        self.assertFalse(h.exists("/etc/claude-ballast/cw.toml"))
 
     def test_an_answers_file_and_set_are_combined_and_checked(self):
         f = Path(tempfile.mkdtemp()) / "a.toml"
