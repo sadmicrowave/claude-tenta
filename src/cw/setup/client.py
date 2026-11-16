@@ -20,10 +20,11 @@ SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None, ui=None):
+                 queue_key=None, results_key=None, ui=None, advanced=False):
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
+        self.advanced = advanced
         self.report, self.cfg = [], None
 
     def note(self, step, status, detail=""):
@@ -49,8 +50,8 @@ class ClientSetup:
 
     def configure(self):
         if self.ui is not None:
-            self.ui.begin(title="cw-setup client")
-        nested, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, ui=self.ui,
+            self.ui.begin(title="client")
+        nested, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, ui=self.ui, advanced=self.advanced,
                                             confirm="Show what would be done?" if self.dry_run else "Set up this computer now?")
         if self.ui is not None:
             self.ui.finish()

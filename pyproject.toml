@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-ballast"
-version = "0.0.1"
+version = "0.1.0"
 description = "Offload slow jobs from a laptop to a spare Linux machine on your home network"
 readme = "README.md"
 license = { text = "Apache-2.0" }

@@ -23,23 +23,24 @@ class FakeUi:
 class Blank(unittest.TestCase):
     def test_a_blank_optional_answer_is_not_asked_twice_across_two_calls(self):
         ui, blanks = FakeUi(), set()
-        conn, _ = questions.collect("client", ui=ui, only={"server.host", "server.admin_user", "server.ssh_port"})
+        conn, _ = questions.collect("client", ui=ui, only={"server.host", "server.admin_user", "server.ssh_port"}, advanced=True)
         given = {f"{s}.{k}": v for s, d in conn.items() for k, v in d.items()}
-        client, _ = questions.collect("client", ui=ui, given=given, blanks=blanks)
-        self.assertIn("updates.source", blanks)
-        questions.collect("server", ui=ui, given={**given, **{f"{s}.{k}": v for s, d in client.items() for k, v in d.items()}, **{k: "" for k in blanks}})
-        self.assertEqual(ui.asked.count("updates.source"), 1)
+        given["alerts.kind"] = "ntfy"                      # so the alert address (an optional answer with no default) applies
+        client, _ = questions.collect(("client", "server"), ui=ui, given=given, blanks=blanks, only={"alerts.url"}, advanced=True)
+        self.assertIn("alerts.url", blanks)
+        questions.collect("server", ui=ui, given={**given, **{k: "" for k in blanks}}, only={"alerts.url"}, advanced=True)
+        self.assertEqual(ui.asked.count("alerts.url"), 1)
 
     def test_one_flow_over_both_halves_asks_each_question_once(self):
         ui = FakeUi()
-        questions.collect(("client", "server"), ui=ui, given={"server.host": "h.example", "server.admin_user": "admin", "server.ssh_port": 22})
+        questions.collect(("client", "server"), ui=ui, given={"server.host": "h.example", "server.admin_user": "admin", "server.ssh_port": 22}, advanced=True)
         self.assertEqual(len(ui.asked), len(set(ui.asked)))
-        self.assertEqual(len(ui.asked), questions.count_to_ask(("client", "server"), {"server.host": "h.example", "server.admin_user": "admin", "server.ssh_port": 22}))
+        self.assertEqual(len(ui.asked), questions.count_to_ask(("client", "server"), {"server.host": "h.example", "server.admin_user": "admin", "server.ssh_port": 22}, advanced=True))
 
     def test_without_blanks_collection_nothing_changes(self):
         nested, missing = questions.collect("client", use_defaults=True, given={"server.host": "h.example", "server.admin_user": "a", "github.owner": "o"})
         self.assertEqual(missing, [])
-        self.assertNotIn("source", nested.get("updates", {}))
+        self.assertNotIn("url", nested.get("alerts", {}))
 
 
 if __name__ == "__main__":

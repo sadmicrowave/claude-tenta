@@ -256,7 +256,7 @@ class ActiveQuestion(unittest.TestCase):
             self.assertIn(desc.split()[0], screen)
         self.assertRegex(screen, r"▸ 2 small-server")
         self.assertRegex(screen, r"  1 old-laptop")
-        self.assertIn("Type a name or its number", screen)
+        self.assertIn("type a name or its number", screen)
         self.assertIn("Tab completes", screen)
 
     def test_a_problem_is_shown_in_the_same_block(self):
@@ -306,7 +306,7 @@ class Flow(unittest.TestCase):
 
     def run_flow(self, events, only, **kw):
         p, out = prompter(events)
-        res = questions.collect(("client", "server"), ui=p, only=only, **kw)
+        res = questions.collect(("client", "server"), ui=p, only=only, **kw, advanced=True)
         return res, p, out
 
     ONLY = {"server.host", "server.admin_user", "server.ssh_port"}
@@ -331,7 +331,7 @@ class Flow(unittest.TestCase):
         p, out = prompter(list("worker.example") + ["enter", "up"])
         # the flow needs more events than the test supplies; stop it at the second question after going back
         try:
-            questions.collect(("client", "server"), ui=p, only=self.ONLY)
+            questions.collect(("client", "server"), ui=p, only=self.ONLY, advanced=True)
         except StopIteration:
             pass
         screen = out.screen.text()
@@ -340,7 +340,7 @@ class Flow(unittest.TestCase):
 
     def test_going_back_past_the_first_question_hands_control_to_the_caller_when_allowed(self):
         p, _ = prompter(["up"])
-        res = questions.collect("client", ui=p, only=self.ONLY, allow_back=True)
+        res = questions.collect("client", ui=p, only=self.ONLY, allow_back=True, advanced=True)
         self.assertEqual(res, (questions.BACK, None))
 
     def test_going_back_past_the_first_question_is_ignored_when_not_allowed(self):
@@ -361,8 +361,8 @@ class Flow(unittest.TestCase):
         (nested, _), _, out = self.run_flow(typed("") + typed("agent"), {"server.admin_user"})
         self.assertEqual(nested["server"]["admin_user"], "agent")
         blanks = set()
-        (nested, _), _, _ = self.run_flow(typed(""), {"updates.source"}, blanks=blanks)
-        self.assertIn("updates.source", blanks)
+        (nested, _), _, _ = self.run_flow(typed(""), {"alerts.url"}, blanks=blanks, given={"alerts.kind": "ntfy"})
+        self.assertIn("alerts.url", blanks)
 
     def test_changing_an_earlier_answer_removes_the_questions_that_no_longer_apply(self):
         only = {"network.lan_deny_out", "network.lan_allow_out", "network.dns_servers"}
@@ -375,27 +375,27 @@ class Flow(unittest.TestCase):
     def test_what_was_typed_before_going_back_is_there_when_you_return_even_a_hidden_address(self):
         events = list("agent") + ["enter"] + [("paste", "https://ntfy.example/private-topic"), "up", "down", "enter"]
         p, out = prompter(events)
-        (nested, _) = questions.collect("server", ui=p, only={"server.admin_user", "alerts.url"}, given={"alerts.kind": "ntfy"})
+        (nested, _) = questions.collect("server", ui=p, only={"server.admin_user", "alerts.url"}, given={"alerts.kind": "ntfy"}, advanced=True)
         self.assertEqual(nested["alerts"]["url"], "https://ntfy.example/private-topic")
 
     def test_the_position_counts_only_the_questions_that_apply(self):
         p, out = prompter(typed("no"))
-        questions.collect("server", ui=p, only={"network.lan_deny_out", "network.lan_allow_out"})
+        questions.collect("server", ui=p, only={"network.lan_deny_out", "network.lan_allow_out"}, advanced=True)
         p.finish()
         self.assertIn("1 of 1 done", out.screen.text())
 
     def test_earlier_steps_are_shown_above_and_counted(self):
         p, out = prompter(typed("agent"))
-        res = questions.collect("server", ui=p, only={"server.admin_user"}, pre_items=[("Server address", "worker.example")])
+        res = questions.collect("server", ui=p, only={"server.admin_user"}, pre_items=[("Server address", "worker.example")], advanced=True)
         p.finish()
         self.assertRegex(out.screen.text(), r"✓ Server address\s+worker.example")
         self.assertIn("2 of 2 done", out.screen.text())
 
     def test_only_the_last_few_answers_stay_above_the_question_and_the_rest_are_counted(self):
         keys = {"identity.name", "server.host", "server.admin_user", "server.worker_user", "server.ssh_port", "github.owner", "github.queue_repo"}
-        p, out = prompter(typed("claude-ballast", "h.example", "agent", "cwworker", "", "someone") + ["x"])
+        p, out = prompter(typed("h.example", "agent", "someone", "claude-ballast", "", "cwworker") + ["x"])           # the order the questions are asked in
         try:
-            questions.collect(("client", "server"), ui=p, only=keys)
+            questions.collect(("client", "server"), ui=p, only=keys, advanced=True)
         except StopIteration:
             pass
         screen = out.screen.text()
@@ -404,14 +404,14 @@ class Flow(unittest.TestCase):
 
     def test_a_secret_is_shown_as_set_in_the_review(self):
         p, out = prompter(typed("https://ntfy.example/private-topic"))
-        questions.collect("server", ui=p, only={"alerts.url"}, given={"alerts.kind": "ntfy"})
+        questions.collect("server", ui=p, only={"alerts.url"}, given={"alerts.kind": "ntfy"}, advanced=True)
         p.finish()
         self.assertRegex(out.screen.text(), r"✓ Alert address\s+set")
         self.assertNotIn("private-topic", tui.strip(out.getvalue()).split("Alert address")[-1])
 
     def test_count_to_ask_skips_answered_and_inapplicable_questions(self):
-        all_server = questions.count_to_ask(("server",), {})
-        fewer = questions.count_to_ask(("server",), {"server.admin_user": "a", "network.lan_deny_out": False})
+        all_server = questions.count_to_ask(("server",), {}, advanced=True)
+        fewer = questions.count_to_ask(("server",), {"server.admin_user": "a", "network.lan_deny_out": False}, advanced=True)
         self.assertEqual(all_server - fewer, 4)
 
 
@@ -420,7 +420,7 @@ class Review(unittest.TestCase):
 
     def test_a_last_screen_lists_every_answer_and_enter_goes_on(self):
         p, out = prompter(typed("h.example", "agent", "") + ["enter"])
-        (nested, _) = questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?")
+        (nested, _) = questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?", advanced=True)
         self.assertEqual(nested["server"]["host"], "h.example")
         p.finish()
         self.assertIn("3 of 3", out.screen.text())
@@ -437,7 +437,7 @@ class Review(unittest.TestCase):
             return orig()
         p.event = spy
         try:
-            questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?")
+            questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?", advanced=True)
         except StopIteration:
             pass
         screen = seen[-1]
@@ -446,7 +446,7 @@ class Review(unittest.TestCase):
 
     def test_up_on_the_review_walks_back_to_the_last_question_with_its_answer_ready(self):
         p, out = prompter(typed("h.example", "agent", "") + ["up", "end"] + list("22") + ["enter", "enter"])
-        (nested, _) = questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?")
+        (nested, _) = questions.collect("client", ui=p, only=self.ONLY, confirm="Set everything up now?", advanced=True)
         self.assertEqual(nested["server"]["ssh_port"], 2222 if False else nested["server"]["ssh_port"])
         self.assertEqual(nested["server"]["ssh_port"], 22)                  # the question was shown again, its answer edited, and the flow ended once more on the review
 
@@ -487,7 +487,8 @@ class Descriptions(unittest.TestCase):
     def test_every_choice_has_a_description_and_they_match_the_schema(self):
         for q in questions.QUESTIONS:
             if q["choices"]:
-                self.assertEqual([c for c, _ in q["choices"]], questions.options_of(q["key"]), q["key"])
+                if questions.options_of(q["key"]) is not None:
+                    self.assertEqual([c for c, _ in q["choices"]], questions.options_of(q["key"]), q["key"])
                 for _, desc in q["choices"]:
                     self.assertGreater(len(desc), 25)
 

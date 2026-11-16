@@ -56,12 +56,13 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
         self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
+        self.advanced = advanced
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -107,8 +108,8 @@ class ServerSetup:
 
     def configure(self, facts):
         if self.ui is not None:
-            self.ui.begin(title="cw-setup server")
-        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults, ui=self.ui,
+            self.ui.begin(title="server")
+        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults, ui=self.ui, advanced=self.advanced,
                                             confirm="Show what would be done?" if self.dry_run else "Set up the server now?")
         if self.ui is not None:
             self.ui.finish()

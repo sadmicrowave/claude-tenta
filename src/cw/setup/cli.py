@@ -8,10 +8,11 @@
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
 
-Options:  --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
+Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
 """
 import argparse
+import contextlib
 import sys
 import tomllib
 from pathlib import Path
@@ -69,6 +70,8 @@ def build_parser():
         s.add_argument("--results-key")
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
         s.add_argument("--no-test", action="store_true")
+        s.add_argument("--advanced", action="store_true")
+        s.add_argument("--no-banner", action="store_true")
         s.add_argument("--here", action="store_true")
         s.add_argument("--keep-data", action="store_true")
         s.add_argument("--remove-account", action="store_true")
@@ -82,9 +85,9 @@ def default_repos(cfg):
 
 def demo(ui, say):
     """The question screens (with the same keys as the real thing: Enter, the up arrow to go back, Tab) and both kinds of protection frame, on sample content."""
-    ui.begin(title="cw-setup demo")
+    ui.begin(title="demo")
     asked = {"hardware.profile", "network.ipv6", "alerts.kind", "alerts.url", "updates.mode"}
-    questions.collect(("client", "server"), ui=ui, only=asked, confirm="That was the question screens. Continue to the protection screens?")
+    questions.collect(("client", "server"), ui=ui, only=asked, advanced=True, confirm="That was the question screens. Continue to the protection screens?")
     ui.finish()
     samples = [("ssh-keys-only", ["write /etc/ssh/sshd_config.d/10-example.conf (mode 644):\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n    PermitRootLogin no", "sshd -t", "systemctl reload ssh"],
                 "password logins are on"),
@@ -168,6 +171,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         return 2
     host = host or Host()
     say = lambda text="": print(text, file=sys.stderr)       # noqa: E731
+    live = []                                                  # the terminal screen in use, if any, so an error can clear it before it is printed
     try:
         if a.cmd == "audit":
             cfg = config.load()
@@ -178,7 +182,9 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             if ui is None:
                 emit("The demo needs a real terminal", "It draws screens and reads keys, so it cannot run in a pipe or with NO_COLOR set.", tag="ERROR", color=RED)
                 return 2
-            demo(ui, say)
+            ui.banner("demo")
+            with ui.session():
+                demo(ui, say)
             return 0
         if a.cmd == "uninstall":
             return uninstall_command(a, host, ask, ssh_factory, say)
@@ -186,18 +192,27 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         if a.cmd == "install":
             from ..admin.ssh import Ssh
             interactive = not a.yes and sys.stdin.isatty()
+            screen_ = tui.make(interactive=interactive)
+            live.append(screen_)
+            if screen_ is not None and not a.no_banner:
+                screen_.banner("install preview" if a.dry_run else "install")
             inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
-                             ui=tui.make(interactive=interactive),
+                             ui=screen_, advanced=a.advanced,
                              use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,
                              verify=None if (a.no_test or a.dry_run) else (verify or (lambda cfg: default_verify(cfg, say=say))))
-            report = inst.run_all()
+            with (screen_.session() if screen_ is not None else contextlib.nullcontext()):
+                report = inst.run_all()
             dry = a.dry_run
             return finish(a, report, dry)
         interactive = not a.yes and sys.stdin.isatty()
         dry = not a.apply if a.cmd == "server" else a.dry_run
+        screen_ = tui.make(interactive=interactive)
+        live.append(screen_)
+        if screen_ is not None and not a.no_banner:
+            screen_.banner(a.cmd)
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
-                                ui=tui.make(interactive=interactive),
+                                ui=screen_, advanced=a.advanced,
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
@@ -205,21 +220,32 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
-                                ui=tui.make(interactive=interactive))
-        report = setup.run_all()
+                                ui=screen_, advanced=a.advanced)
+        with (screen_.session() if screen_ is not None else contextlib.nullcontext()):
+            report = setup.run_all()
     except questions.WizardError as e:
+        for _s in live:
+            _s is not None and _s.erase()
         emit("Those answers cannot be used", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
         return 2
     except SetupError as e:
+        for _s in live:
+            _s is not None and _s.erase()
         emit(e.title, e.why, tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
         return 1
     except ClientError as e:                    # a failed SSH connection or git step on this side: said in plain words, never a traceback
+        for _s in live:
+            _s is not None and _s.erase()
         emit(e.title, e.why, tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
         return 2
     except config.ConfigError as e:
+        for _s in live:
+            _s is not None and _s.erase()
         emit("The configuration has problems", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
         return 1
     except KeyboardInterrupt:
+        for _s in live:
+            _s is not None and _s.erase()
         emit("Stopped", "Nothing is half-done: running the same command again continues from here.", tag="STOPPED", color=YELLOW)
         return 130
     waiting = [r for r in report if r[1] == "waiting"]

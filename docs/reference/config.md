@@ -99,7 +99,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `mode` | `manual` | `manual` , `signed-tags` | manual = you apply; signed-tags = install only tags signed by your key |
-| `source` | *(not set)* | text | https address of the project repository releases are fetched from (your fork, or the project itself) |
+| `source` | `https://github.com/sadmicrowave/claude-ballast.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
 | `branch` | `main` | text | branch an explicit revision must be on before it may be installed |
 
 ## [registry]

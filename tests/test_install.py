@@ -111,7 +111,7 @@ class HappyPath(InstallBase):
         remote, tty = self.ssh.popen_calls[0]
         self.assertTrue(tty)
         self.assertTrue(remote.startswith(f"sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server"))
-        for piece in ("--apply", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
+        for piece in ("--apply", "--no-banner", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
             self.assertIn(piece, remote)
         # the keys went to GitHub with the right access, without anyone copying them
         adds = self.ran_local("gh repo deploy-key add")
@@ -161,18 +161,24 @@ class HappyPath(InstallBase):
 
 
 class WithTheScreen(InstallBase):
-    def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
-        from test_tui import prompter, typed
-        from cw.setup import questions
-        total = questions.count_to_ask(("client", "server"), {})
-        events = typed("worker.example", "admin", "") + typed("", "", "someone") + typed(*[""] * (total - 6)) + ["enter"]       # the connection questions, the rest, then Enter on the review
+    def installer_with_screen(self, events):
+        from test_tui import prompter
         ui, term = prompter(events)
         inst = install.Installer(self.tmp, ssh_factory=lambda h, u, p: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=False, ask=None, ui=ui,
                                  repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None, verify=lambda cfg: True, home=self.tmp / "client-home",
                                  archive=lambda src: (b"TARDATA", "a" * 40, False))
+        return inst, term
+
+    def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
+        from test_tui import typed
+        from cw.setup import questions
+        total = questions.count_to_ask(("client", "server"), {})
+        self.assertEqual(total, 6)                                   # the server, your account on it, GitHub, the machine, IPv6, alerts: everything else has a safe default
+        events = typed("worker.example", "admin") + typed("someone", "", "", "") + ["enter"]       # the connection questions, the rest, then Enter on the review
+        inst, term = self.installer_with_screen(events)
         inst.run_all()
         screen = term.screen.text()
-        self.assertIn("cw-setup install", screen)
+        self.assertIn("@cw-ballast", screen)
         self.assertIn(f"{total} of {total} done", screen)
         for label, value in (("Server address", "worker.example"), ("Admin account", "admin"), ("GitHub account", "someone")):
             self.assertRegex(screen, rf"✓ {label}\s+{value}")
@@ -182,19 +188,35 @@ class WithTheScreen(InstallBase):
         self.assertIn("connected to the server", said)
         self.assertEqual(len(self.ssh.popen_calls), 1)
 
+    def test_the_defaults_land_in_the_answers_sent_to_the_server(self):
+        from test_tui import typed
+        events = typed("worker.example", "admin") + typed("someone", "", "", "") + ["enter"]
+        inst, _ = self.installer_with_screen(events)
+        inst.run_all()
+        import tomllib
+        data = tomllib.loads(dict(self.ssh.sent)[f"cat > {REMOTE}/answers.toml"].decode())
+        clean, problems = config.validate(data)
+        self.assertEqual(problems, [])
+        self.assertEqual(clean["server"]["ssh_port"], 22)                              # not asked, so the default
+        self.assertEqual(clean["github"]["queue_repo"], "claude-ballast-queue")          # derived from the install name
+
     def test_stepping_back_from_the_first_other_question_returns_to_the_connection_questions(self):
-        from test_tui import prompter, typed
-        from cw.setup import questions
-        total = questions.count_to_ask(("client", "server"), {})
-        # answer the three connection questions, press up on the next question (back to the connection pass), keep the three (Enter, Enter, Enter), then finish
-        events = typed("worker.example", "admin", "") + ["up"] + ["enter", "enter", "enter"] + typed("", "", "someone") + typed(*[""] * (total - 6)) + ["enter"]
-        ui, term = prompter(events)
-        inst = install.Installer(self.tmp, ssh_factory=lambda h, u, p: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=False, ask=None, ui=ui,
-                                 repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None, verify=lambda cfg: True, home=self.tmp / "client-home",
-                                 archive=lambda src: (b"TARDATA", "a" * 40, False))
+        from test_tui import typed
+        events = typed("worker.example", "admin") + ["up"] + ["enter", "enter"] + typed("someone", "", "", "") + ["enter"]
+        inst, term = self.installer_with_screen(events)
         inst.run_all()
         self.assertEqual(len([c for c in self.ssh.calls if c == "true"]), 2)            # it connected again after the person went back
         self.assertEqual(len(self.ssh.popen_calls), 1)
+
+    def test_advanced_settings_are_asked_only_when_asked_for(self):
+        from test_tui import typed
+        from cw.setup import questions
+        every = questions.count_to_ask(("client", "server"), {}, advanced=True)
+        self.assertGreater(every, 15)
+        inst, term = self.installer_with_screen(typed("worker.example", "admin", "2222") + typed("someone") + typed(*[""] * (every - 4)) + ["enter"])
+        inst.advanced = True
+        inst.run_all()
+        self.assertIn("SSH port", term.screen.text())
 
     def test_without_a_terminal_nothing_changes_in_what_is_printed(self):
         self.installer().run_all()

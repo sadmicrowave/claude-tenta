@@ -22,6 +22,7 @@ GREEN, GREEN_BTN, RED, DIM, BOLD = "38;5;41", "48;5;28;38;5;255;1", "38;5;203", 
 WINDOW = 4                           # answered questions kept on screen above the active one; the rest are summarised
 BAR = 24
 DOT = "•"
+BRAND = "@cw-ballast"
 
 SECTIONS = {"identity": "INSTALL", "server": "SERVER", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
             "access": "ACCESS", "alerts": "ALERTS", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
@@ -130,6 +131,10 @@ class Keyboard:
         import termios
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
 
+    def flush(self):
+        import termios
+        termios.tcflush(self.fd, termios.TCIFLUSH)
+
     def _wait(self, t):
         import select
         return bool(select.select([self.fd], [], [], t)[0])
@@ -185,7 +190,7 @@ class Keyboard:
 class TuiPrompter:
     def __init__(self, out=None, width=None, rows=None, keys=None, color=True):
         self.out, self._width, self._rows, self._keys, self.color = out or sys.stdout, width, rows, keys, color
-        self.title, self.review, self.rawtext = "cw-setup", None, {}
+        self.title, self.review, self.rawtext, self.total_hint = "setup", None, {}, 0
         self.row = 0                           # lines from the top of the block being drawn to the cursor
         self._kb = None
 
@@ -220,7 +225,13 @@ class TuiPrompter:
     def rail(self, text="", code=BLUE):
         return self.sgr("┃ ", code) + text
 
-    def begin(self, total=0, title="cw-setup"):
+    def banner(self, subtitle):
+        """The splash header, drawn once at the start (not part of the redrawn block)."""
+        from . import brand
+        cols = self._width or shutil.get_terminal_size((80, 24)).columns
+        self.write("\n".join(brand.banner(cols, brand.spaced(subtitle), color=self.color)) + "\n")
+
+    def begin(self, total=0, title="setup"):
         self.title = title
 
     # ---- keys ----
@@ -228,6 +239,32 @@ class TuiPrompter:
         if self._keys is not None:
             return next(self._keys)
         return self._kb.read()
+
+    def session(self):
+        """For the whole run: keep the terminal from echoing keys that are typed while nothing is waiting for them (a connection check, an install step), which would
+        scribble over the screen. A no-op when keys are injected or there is no terminal."""
+        outer = self
+
+        class Quiet:
+            def __enter__(self):
+                self.fd = None
+                if outer._keys is None:
+                    import termios
+                    try:
+                        self.fd = sys.stdin.fileno()
+                        self.old = termios.tcgetattr(self.fd)
+                        new = termios.tcgetattr(self.fd)
+                        new[3] &= ~termios.ECHO
+                        termios.tcsetattr(self.fd, termios.TCSADRAIN, new)
+                    except (termios.error, OSError, ValueError):
+                        self.fd = None
+                return self
+
+            def __exit__(self, *exc):
+                if self.fd is not None:
+                    import termios
+                    termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+        return Quiet()
 
     def listening(self):
         """Hold the terminal for key events (and ask it to mark pastes) while a screen is up. A no-op when keys are injected."""
@@ -237,6 +274,7 @@ class TuiPrompter:
             def __enter__(self):
                 if outer._keys is None:
                     outer._kb = Keyboard().__enter__()
+                    outer._kb.flush()                       # anything typed before the screen appeared is ignored, so an accidental Enter never answers it
                     outer.write("\x1b[?2004h")
                 return self
 
@@ -251,7 +289,7 @@ class TuiPrompter:
     def progress(self, pos, total):
         n = round(BAR * pos / total) if total else 0
         bar = (self.sgr("━" * (n - 1) + "╸", BLUE) if n else "") + self.sgr("─" * (BAR - n), DIM)
-        left = " " + self.sgr(self.title, BOLD)
+        left = " " + self.sgr(BRAND, BLUE, BOLD) + self.sgr("  " + self.title, DIM)
         right = bar + self.sgr(f"  {min(pos, total)} of {total} done", DIM)
         return left + " " * max(2, self.width - vlen(left) - vlen(right)) + right
 
@@ -268,6 +306,11 @@ class TuiPrompter:
             out.append(self.rail(self.sgr("✓ ", GREEN) + self.sgr(label.ljust(24), DIM) + (value if len(value) <= room else value[:room - 1] + "…")))
         return out
 
+    def labelled(self, label, code, text, hang=10):
+        """A row with a coloured label on the left and wrapped text beside it: RISK, CHOICES, EXAMPLES."""
+        lines = textwrap.wrap(text, max(20, self.width - 4 - hang)) or [""]
+        return [self.rail(self.sgr(label.ljust(hang), code, BOLD) + lines[0])] + [self.rail(" " * hang + line) for line in lines[1:]]
+
     def controls(self, can_back, options):
         parts = ([("↑", "back")] if can_back else []) + [("Enter", "next")] + ([("Tab", "completes")] if options else []) + [("Ctrl-C", "stop")]
         return self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in parts))
@@ -278,10 +321,10 @@ class TuiPrompter:
         out = []
         for n, (value, desc) in enumerate(rows, 1):
             on = value == current
-            lead = self.sgr("▸ " if on else "  ", GREEN) + self.sgr(f"{n} ", DIM) + (self.sgr(value.ljust(name_w), BOLD) if on else value.ljust(name_w)) + "  "
-            lines = textwrap.wrap(desc, max(20, width - name_w - 8)) or [""]
+            lead = "  " + self.sgr("▸ " if on else "  ", GREEN) + self.sgr(f"{n} ", DIM) + (self.sgr(value.ljust(name_w), BOLD) if on else value.ljust(name_w)) + "  "
+            lines = textwrap.wrap(desc, max(20, width - name_w - 10)) or [""]
             out.append(self.rail(lead + self.sgr(lines[0], DIM)))
-            out += [self.rail(" " * (name_w + 6) + self.sgr(line, DIM)) for line in lines[1:]]
+            out += [self.rail(" " * (name_w + 8) + self.sgr(line, DIM)) for line in lines[1:]]
         return out
 
     # ---- a question ----
@@ -297,14 +340,16 @@ class TuiPrompter:
         head += self.answered_lines(items) + ([self.rail()] if items else [])
         head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + self.sgr(f"  {pos + 1} of {total}", DIM)), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
         head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)]
+        if q.get("risk"):
+            head += [self.rail()] + self.labelled("RISK", AMBER, q["risk"])
         if q.get("choices"):
-            head += [self.rail()] + self.choice_lines(q, (prefill or shown or "").strip())
+            head += [self.rail()] + self.labelled("CHOICES", BLUE, "type a name or its number, or press Tab") + self.choice_lines(q, (prefill or shown or "").strip())
+        elif q.get("examples"):
+            head += [self.rail()] + self.labelled("EXAMPLES", BLUE, "  ·  ".join(q["examples"]))
         if problem:
             head += [self.rail(), self.rail(self.sgr("That did not work: " + problem, RED))]
         head.append(self.rail())
         hint = ("Enter keeps: " + shown) if shown else ("this one needs an answer" if q.get("required") else "Enter leaves it empty")
-        if q.get("choices"):
-            hint = "Type a name or its number" + (f" · Enter keeps: {shown}" if shown else "")
         tail = [self.rail(self.sgr("─" * min(44, w), DIM)), self.rail(self.sgr(hint, DIM)), self.controls(can_back, options), ]
         self.emit(head + [self.rail()] + tail)             # the empty rail line is where the answer is typed; the underline, hint and keys sit below it
         self.write(f"\x1b[{len(tail) + 1}A\r")
@@ -331,12 +376,15 @@ class TuiPrompter:
         col = 4 + (pos - start)
         self.write("\r\x1b[2K" + line + "\r" + (f"\x1b[{col}C" if col else ""))
 
-    def confirm(self, items, total, message):
-        """The last screen before anything happens: every answer, then Enter to go on or the up arrow to change one. Returns 'go' or 'back'."""
+    def confirm(self, items, total, message, hidden=0):
+        """The last screen before anything happens: every answer, then Enter to go on or the up arrow to change one. If `hidden` advanced settings are using their defaults,
+        A reviews them. Returns 'go', 'back' or 'advanced'."""
         self.erase()
-        room = max(3, self.rows - 9)                       # the block must fit on the screen, or it could not be redrawn
-        keys = self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in (("Enter", "start"), ("↑", "change an answer"), ("Ctrl-C", "stop"))))
-        lines = [self.progress(total, total), ""] + self.answered_lines(items, everything=True, limit=room) + [self.rail(), self.rail(self.sgr(message, BOLD)), self.rail(), keys]
+        room = max(3, self.rows - 11)                      # the block must fit on the screen, or it could not be redrawn
+        pairs = [("Enter", "start"), ("↑", "change an answer")] + ([("A", f"review the {hidden} advanced settings")] if hidden else []) + [("Ctrl-C", "stop")]
+        keys = self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in pairs))
+        note = [self.rail(self.sgr(f"+ {hidden} advanced settings use their defaults", DIM))] if hidden else []
+        lines = [self.progress(total, total), ""] + self.answered_lines(items, everything=True, limit=room) + note + [self.rail(), self.rail(self.sgr(message, BOLD)), self.rail(), keys]
         with self.listening():
             self.emit(lines)
             while True:
@@ -344,12 +392,15 @@ class TuiPrompter:
                 if k == "ctrl-c":
                     self.erase()
                     raise KeyboardInterrupt
-                if k in ("enter",):
+                if k == "enter":
                     self.erase()
                     return "go"
                 if k in ("up", "shift-tab"):
                     self.erase()
                     return "back"
+                if hidden and isinstance(k, str) and k.lower() == "a":
+                    self.erase()
+                    return "advanced"
 
     def finish(self):
         """Leave the progress bar and every answer on screen as a short review (the last set of answers a question flow produced)."""

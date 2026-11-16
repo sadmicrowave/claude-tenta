@@ -509,6 +509,9 @@ class Fetch(unittest.TestCase):
 
     def test_the_source_must_be_configured_and_an_unreachable_one_is_explained(self):
         c = config.load(None, env={"CW_CONFIG": "", "CW_PATHS_STATE_ROOT": str(self.tmp / "var2")})
+        clean = c.to_dict()
+        clean["updates"]["source"] = None                      # the default is the project itself; here, none at all
+        c = config.Config(clean)
         with self.assertRaises(config.ConfigError):
             update.fetch_release(c, rev=self.c1)
         with self.assertRaises(update.InstallError) as cm:

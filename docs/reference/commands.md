@@ -77,7 +77,7 @@ cw-setup client | server | audit
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
 
-Options:  --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
+Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
 ```
 

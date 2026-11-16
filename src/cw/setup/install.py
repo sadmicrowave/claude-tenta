@@ -92,13 +92,13 @@ def remove_remote_dir(ssh, d):
 
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False):
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
         self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
         self.ssh = self.cfg = self.facts = None
-        self.ui = ui
+        self.ui, self.advanced = ui, advanced
         self.report = []
         self.held = []                  # lines kept back while the question screen is up (printing in the middle of it would corrupt the redraw)
 
@@ -124,10 +124,11 @@ class Installer:
         self.held = []
         self.asked = False
         if self.ui is not None:
-            self.ui.begin(title="cw-setup install")
+            self.ui.begin(title="install")
+            self.ui.total_hint = questions.count_to_ask(("client", "server"), self.given, advanced=self.advanced)
         else:
             self.say("\nConnecting to the server")
-        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui)
+        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced)
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
         c = conn.get("server", {})
@@ -135,7 +136,8 @@ class Installer:
         try:
             self.ssh.capture("true")
         except ClientError as e:
-            raise SetupError(f"Cannot log in to {c['host']} over SSH", e.why, ["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}"])
+            raise SetupError(f"Cannot log in to {c['host']} over SSH", e.why, ["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}",
+                                                                      "If SSH is not on port 22, run this again with --advanced, which asks for the port."])
         self.facts = detect.detect(RemoteHost(self.ssh))
         for what, value in self.facts.summary():
             self.out(f"  {what:<22} {value}")
@@ -154,7 +156,7 @@ class Installer:
         given = {**self.given, **flat(conn)}
         pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
         rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions=self.facts.suggestions(), use_defaults=self.use_defaults,
-                                          ui=self.ui, allow_back=self.ui is not None, pre_items=pre,
+                                          ui=self.ui, allow_back=self.ui is not None, pre_items=pre, advanced=self.advanced,
                                           confirm="Show what would be done?" if self.dry_run else "Set everything up now?")
         if rest is questions.BACK:
             return questions.BACK
@@ -196,7 +198,7 @@ class Installer:
     def server_half(self, d, rev):
         self.say("\nThe server")
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
-        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --answers {d}/answers.toml --rev {rev} --source {d}"
+        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))

@@ -26,6 +26,7 @@ IDENT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")                     # absolute, no spaces, no quotes, no shell characters
 RESERVED_USERS = {"root", "daemon", "bin", "sys", "nobody", "www-data", "ubuntu", "debian"}
 PROTECTED_PATHS = {"/", "/etc", "/var", "/var/lib", "/usr", "/usr/local", "/usr/bin", "/usr/sbin", "/opt", "/home", "/root", "/boot", "/bin", "/sbin", "/lib", "/tmp"}
+PROJECT_URL = "https://github.com/sadmicrowave/claude-ballast.git"      # privacy-ok: the project's own public home, the default place updates come from
 RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
 # Hardware profiles fill in capacity, load and temperature limits the user did not set explicitly.
@@ -235,7 +236,7 @@ SCHEMA = {
     },
     "updates": {
         "mode": ("manual", _enum("manual", "signed-tags"), "manual = you apply; signed-tags = install only tags signed by your key"),
-        "source": (None, _url, "https address of the project repository releases are fetched from (your fork, or the project itself)"),
+        "source": (PROJECT_URL, _url, "https address of the project repository releases are fetched from (your fork, or the project itself)"),
         "branch": ("main", _str(BRANCH_RE, "a branch name"), "branch an explicit revision must be on before it may be installed"),
     },
     "registry": {"packs": (["core"], _list_of(_str(IDENT_RE, "a pack name")), "job-class packs to install")},
