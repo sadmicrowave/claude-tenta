@@ -14,7 +14,8 @@ from cw.setup.host import Result
 from cw.setup.server import SetupError
 from cw.setup.uninstall import Uninstall
 
-UNITS = ("fetch.timer", "step.timer", "canary.timer", "update.timer", "fetch.service", "step.service", "canary.service", "update.service")
+from cw import render  # noqa: E402
+UNITS = render.UNITS          # the real list: an uninstall that forgets a unit is exactly what this guards against
 
 
 def installed_host(name="claude-ballast"):

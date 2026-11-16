@@ -10,12 +10,12 @@ What it does NOT do, on purpose:
   * with --keep-data the state folder (the clones of the two repositories, the security log, kept outputs) stays.
 Your GitHub repositories and your computer's own configuration are never touched.
 """
-from .. import config
+from .. import config, render
 from . import hardening
 from .host import Result
 from .server import SetupError
 
-UNIT_PARTS = ("fetch.timer", "step.timer", "canary.timer", "update.timer", "fetch.service", "step.service", "canary.service", "update.service")
+UNIT_PARTS = tuple(sorted(render.UNITS, key=lambda u: not u.endswith(".timer")))          # every unit the installer can write, timers first (the shared list, so a new unit can never be left behind)
 
 
 class Uninstall:
