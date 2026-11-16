@@ -91,6 +91,8 @@ class InstallBase(RepoFixture):
     def installer(self, ssh=None, **kw):
         ssh = ssh or self.ssh
         kw.setdefault("archive", lambda src: (b"TARDATA", "a" * 40, False))
+        self.interactive_calls = []
+        kw.setdefault("interactive", lambda argv: self.interactive_calls.append(argv) or 0)       # never runs a real command on the machine the tests run on
         return install.Installer(self.tmp, ssh_factory=lambda h, u, p: ssh, local=self.machine, say=self.said.append, given={**GIVEN, **kw.pop("given", {})},
                                  use_defaults=True, repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None,
                                  verify=kw.pop("verify", lambda cfg: self.verified.append(cfg.github.owner) or True), home=self.tmp / "client-home", **kw)
@@ -211,6 +213,110 @@ class OldProcessor(InstallBase):
         answers = dict(self.ssh.sent)[f"cat > {REMOTE}/answers.toml"].decode()
         self.assertIn('auth = "account"', answers)
         self.assertTrue(any("needs an older release here" in line for line in self.said))
+
+
+class ClaudeSignInHere(InstallBase):
+    """The sign-in happens on this computer, right after the questions: setup-token, then a hidden paste, and the token goes only to the server."""
+
+    TOKEN = "sk-ant-oat01-" + "a" * 40
+
+    class Screen:
+        def __init__(self, tokens, install=True):
+            self.tokens, self.install, self.cards, self.asked, self.headings = list(tokens), install, [], [], []
+
+        def heading(self, text, step=None):
+            self.headings.append(text)
+
+        def sub(self, text):
+            pass
+
+        def protection(self, info):
+            self.cards.append(info["id"])
+            return self.install
+
+        def ask_secret(self, q):
+            self.asked.append(q)
+            return self.tokens.pop(0) if self.tokens else ""
+
+    def signed_in(self, auth="account", tokens=None, install=True, dry=False):
+        screen = self.Screen([self.TOKEN] if tokens is None else tokens, install)
+        inst = self.installer(ui=None, dry_run=dry)
+        inst.ui = screen                                            # only the sign-in uses it here, so the whole question flow need not be driven
+        inst.cfg = config.Config(config.validate({"claude": {"auth": auth}})[0])
+        inst.ssh = self.ssh
+        inst.claude_signin()
+        return inst, screen
+
+    def test_account_runs_setup_token_here_then_asks_for_the_token(self):
+        inst, screen = self.signed_in()
+        self.assertEqual(self.interactive_calls, [["claude", "setup-token"]])
+        self.assertEqual(len(screen.asked), 1)
+        self.assertIn("just printed above", screen.asked[0]["why"])
+        self.assertEqual(inst.claude_secret, ("CLAUDE_CODE_OAUTH_TOKEN", self.TOKEN))
+        self.assertNotIn(self.TOKEN, "\n".join(self.said))
+
+    def test_the_token_goes_to_the_server_in_its_own_private_file_and_nowhere_else(self):
+        inst, _ = self.signed_in()
+        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
+        sent = dict(self.ssh.sent)
+        secret_cmd = f"umask 077; cat > {d}/claude.secrets"
+        self.assertEqual(sent[secret_cmd], f"CLAUDE_CODE_OAUTH_TOKEN={self.TOKEN}\n".encode())
+        self.assertNotIn(self.TOKEN.encode(), sent[f"cat > {d}/answers.toml"])                  # never in the answers
+        self.assertFalse(any(self.TOKEN in line for line in self.said))
+
+    def test_a_broken_claude_here_offers_the_installer_then_uses_the_copy_it_installs(self):
+        broken = {"claude --version": Result(1, "Error: claude native binary not installed.")}
+        self.machine.replies.update(broken)
+        home_claude = str(Path(self.machine.env["HOME"]) / ".local" / "bin" / "claude")
+        self.machine.replies[f"{home_claude} --version"] = Result(1, "not yet")
+        installed = []
+
+        def after_install(argv, **kw):
+            return None
+        inst, screen = self.signed_in()
+        self.assertIn("claude-install-here", screen.cards)
+        self.assertTrue(self.ran_local("bash -c curl -fsSL https://claude.ai/install.sh | bash"))
+        self.assertEqual(self.interactive_calls, [])                  # the copy it installed still does not run in this fake, so no sign-in was launched
+
+    def test_declining_the_install_still_allows_pasting_a_token_made_elsewhere(self):
+        self.machine.replies["claude --version"] = Result(1, "broken")
+        self.machine.replies[f"{Path(self.machine.env['HOME']) / '.local' / 'bin' / 'claude'} --version"] = Result(1, "not installed")
+        inst, screen = self.signed_in(install=False)
+        self.assertFalse(self.ran_local("bash -c curl"))
+        self.assertEqual(self.interactive_calls, [])
+        self.assertEqual(inst.claude_secret[1], self.TOKEN)
+
+    def test_api_key_is_only_pasted_nothing_is_run_here(self):
+        inst, screen = self.signed_in(auth="api-key")
+        self.assertEqual(self.interactive_calls, [])
+        self.assertEqual(inst.claude_secret[0], "ANTHROPIC_API_KEY")
+
+    def test_none_and_a_preview_do_nothing(self):
+        for auth, dry in (("none", False), ("account", True)):
+            inst, screen = self.signed_in(auth=auth, dry=dry)
+            self.assertEqual((self.interactive_calls, screen.asked, inst.claude_secret), ([], [], None))
+
+    def test_an_empty_paste_sends_no_secret_and_says_what_that_means(self):
+        inst, _ = self.signed_in(tokens=[""])
+        self.assertIsNone(inst.claude_secret)
+        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
+        self.assertFalse(any("claude.secrets" in remote for remote, _ in self.ssh.sent))
+        self.assertTrue(any("keeps any sign-in it already has" in line for line in self.said))
+
+    def test_something_that_is_not_a_token_is_asked_for_again(self):
+        inst, screen = self.signed_in(tokens=["two words", self.TOKEN])
+        self.assertEqual(len(screen.asked), 2)
+        self.assertEqual(inst.claude_secret[1], self.TOKEN)
+
+    def test_the_server_command_carries_the_secrets_file_only_when_there_is_one(self):
+        inst, _ = self.signed_in()
+        inst.ui = None
+        inst.cfg = config.Config(config.validate({"server": {"host": "worker.example", "admin_user": "admin"}, "claude": {"auth": "account"}})[0])
+        inst.server_half(REMOTE, "a" * 40)
+        self.assertIn(f"--secrets-file {REMOTE}/claude.secrets", self.ssh.popen_calls[-1][0])
+        inst.claude_secret = None
+        inst.server_half(REMOTE, "a" * 40)
+        self.assertNotIn("--secrets-file", self.ssh.popen_calls[-1][0])
 
 
 class Rerun(InstallBase):

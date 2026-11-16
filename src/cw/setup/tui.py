@@ -369,9 +369,10 @@ class TuiPrompter:
         self.erase()
         w = self.width - 4
         section = SECTIONS.get(q["key"].partition(".")[0], "SETUP")
-        head = [self.progress(pos, total), ""]
+        bare = view.get("bare")                                  # a single stand-alone question (a pasted secret): no progress bar, no "1 of 1"
+        head = [] if bare else [self.progress(pos, total), ""]
         head += self.answered_lines(items) + ([self.rail()] if items else [])
-        head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + self.sgr(f"  {pos + 1} of {total}", DIM)), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
+        head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + ("" if bare else self.sgr(f"  {pos + 1} of {total}", DIM))), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
         head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)]
         if q.get("risk"):
             head += [self.rail()] + self.labelled("RISK", AMBER, q["risk"])
@@ -401,7 +402,7 @@ class TuiPrompter:
 
     def ask_secret(self, q):
         """One hidden answer on its own screen (the dots show it was accepted). Returns the text, or '' when left empty."""
-        kind, text = self.ask({**q, "secret": True}, "", [], view={"items": [], "pos": 0, "total": 1, "can_back": False, "prefill": ""})
+        kind, text = self.ask({**q, "secret": True}, "", [], view={"items": [], "pos": 0, "total": 1, "can_back": False, "prefill": "", "bare": True})
         self.erase()
         return text.strip()
 

@@ -675,6 +675,15 @@ class ClaudeSignIn(ServerTests):
         self.assertNotIn(token, "\n".join(self.said))
         self.assertEqual(oct(self.h.path("/etc/claude-ballast/secrets.env").stat().st_mode & 0o777), "0o640")
 
+    def test_a_token_from_the_installer_is_stored_without_asking_and_replaces_an_older_one(self):
+        old = "sk-ant-oat01-" + "o" * 40
+        new = "sk-ant-oat01-" + "n" * 40
+        self.run_with("account", token=old)
+        s, screen = self.run_with("account", token="", claude_secrets={"CLAUDE_CODE_OAUTH_TOKEN": new})
+        self.assertEqual(screen.asked, [])
+        self.assertEqual(self.secrets()["CLAUDE_CODE_OAUTH_TOKEN"], new)
+        self.assertNotIn(new, "\n".join(self.said))
+
     def test_the_weekly_claude_update_timer_runs_only_where_claude_is_used(self):
         self.run_with("account", token="sk-ant-oat01-" + "t" * 40)
         self.assertTrue(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))

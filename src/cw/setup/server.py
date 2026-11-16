@@ -38,6 +38,17 @@ CLAUDE_QUESTIONS = {
 PREREQUISITES = (("python3-yaml", ["python3", "-c", "import yaml"]), ("git", ["git", "--version"]))
 
 
+def read_secret(ui, q):
+    """One hidden answer: on the terminal screen when there is one, else hidden at a plain terminal, else '' (nobody to ask)."""
+    if ui is not None:
+        return ui.ask_secret(q)
+    import sys
+    if sys.stdin.isatty():
+        import getpass
+        return getpass.getpass(f"  {q['title']} (hidden; Enter to skip): ").strip()
+    return ""
+
+
 def alias_for(cfg, which):
     """The ssh host alias a clone uses, so each repository has its own deploy key (GitHub allows a key on one repository only)."""
     return f"github-{cfg.identity.name}-{which}"
@@ -69,13 +80,14 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
         self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
         self.advanced = advanced
+        self.claude_secrets = claude_secrets or {}          # {KEY: value} handed over by the installer on the administrator's computer, so nothing is asked here
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -349,10 +361,11 @@ class ServerSetup:
             self.note("Claude sign-in", "planned", f"would ask for the {'token' if auth == 'account' else 'key'} and keep it in {path} as {key}")
             return
         text = self.host.read(path) or "# Secrets only (API keys, alert tokens). Never put these in cw.toml.\n"
-        if config.read_env_file_text(text).get(key):
+        value = self.claude_secrets.get(key, "")                 # one just given always replaces what is stored
+        if not value and config.read_env_file_text(text).get(key):
             self.note("Claude sign-in", "ok", f"{key} is already set")
             return
-        value = self.read_secret(CLAUDE_QUESTIONS[auth])
+        value = value or self.read_secret(CLAUDE_QUESTIONS[auth])
         if not value:
             self.note("Claude sign-in", "skipped", "nothing was entered; Claude jobs fail until you add it (run cw-setup install again)")
             return
@@ -365,13 +378,7 @@ class ServerSetup:
         self.note("Claude sign-in", "stored", f"{key} in {path}, readable only by root and the worker account")
 
     def read_secret(self, q):
-        if self.ui is not None:
-            return self.ui.ask_secret(q)
-        import sys
-        if sys.stdin.isatty():
-            import getpass
-            return getpass.getpass(f"  {q['title']} (hidden; Enter to skip): ").strip()
-        return ""
+        return read_secret(self.ui, q)
 
     def start_timers(self):
         cfg = self.cfg

@@ -26,7 +26,7 @@ from ..client.repo import ClientError
 from . import detect, keys as keys_mod, questions, toml_out
 from .client import ClientSetup
 from .remote import RemoteHost
-from .server import EXIT_WAITING, SetupError
+from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, read_secret
 
 CONNECTION = {"server.host", "server.admin_user", "server.ssh_port"}
 REMOTE_DIR = re.compile(r"^/tmp/cw-install\.[A-Za-z0-9]{6,12}$")
@@ -93,15 +93,20 @@ def remove_remote_dir(ssh, d):
             pass
 
 
+CLAUDE_ON_THIS_COMPUTER = "curl -fsSL https://claude.ai/install.sh | bash"
+
+
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None):
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
         self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
         self.ssh = self.cfg = self.facts = None
         self.ui, self.advanced = ui, advanced
+        self.interactive = interactive or (lambda argv: subprocess.call(argv))          # runs a command on the person's own terminal (their browser sign-in)
+        self.claude_secret = None                                                      # (KEY, value) from the sign-in below; goes to the server, never to a file here
         self.report = []
         self.held = []                  # lines kept back while the question screen is up (printing in the middle of it would corrupt the redraw)
 
@@ -260,10 +265,71 @@ class Installer:
         c.run_all()
         self.report += c.report
 
+    # ---- Claude sign-in, on this computer, right after the questions ----
+    def local_claude(self):
+        """A `claude` on this computer that really runs, or None. The one on PATH can be broken (an npm install whose native program never downloaded), so the
+        copy Anthropic's installer puts in ~/.local/bin is tried too."""
+        home = Path(self.machine.env.get("HOME", "~")).expanduser()
+        for exe in (self.machine.which("claude") or "claude", str(home / ".local" / "bin" / "claude")):
+            if self.machine.run([exe, "--version"], timeout=30).ok:
+                return exe
+        return None
+
+    def offer_local_claude_install(self):
+        info = {"id": "claude-install-here", "label": "Install", "tag": "downloads from claude.ai", "title": "Install Claude Code on this computer",
+                "why": "The sign-in token is made by Claude Code's own `setup-token` command, which needs a working Claude Code on this computer. The one here is missing or does not run.",
+                "risk": "This downloads and runs Anthropic's installer script from claude.ai as you (no sudo). Skip it if you would rather paste a token you made on another machine.",
+                "now": "not usable", "steps": [CLAUDE_ON_THIS_COMPUTER], "lockout": False}
+        if self.ui is not None:
+            yes = self.ui.protection(info)
+        elif self.ask is not None:
+            self.say("    $ " + CLAUDE_ON_THIS_COMPUTER)
+            yes = self.ask("  Install Claude Code on this computer? [y/N] ").strip().lower() == "y"
+        else:
+            yes = False
+        if yes:
+            r = self.machine.run(["bash", "-c", CLAUDE_ON_THIS_COMPUTER], timeout=600)
+            if not r.ok:
+                self.say("  The installer said: " + r.out.strip()[-300:])
+        return yes
+
+    def claude_signin(self):
+        """When the install uses Claude (claude.auth is account or api-key): make the sign-in here and hold it for the server. For `account` this runs
+        `claude setup-token` on this computer, which opens the browser, then asks for the token it printed. Nothing is written to a file on this computer."""
+        auth = self.cfg.claude.auth
+        if auth == "none" or self.dry_run:
+            return
+        key = config.CLAUDE_SECRET_KEYS[auth]
+        self._heading("Claude sign-in")
+        q = dict(CLAUDE_QUESTIONS[auth])
+        if auth == "account":
+            exe = self.local_claude() or (self.offer_local_claude_install() and self.local_claude())
+            if exe:
+                self.say("  Opening Claude's sign-in. Finish it in your browser; it then prints a long token here.\n")
+                if self.interactive([exe, "setup-token"]) == 0:
+                    q["why"] = "Copy the long token that was just printed above and paste it here. Leave it empty to keep a sign-in the server already has."
+                else:
+                    self.say("  `claude setup-token` did not finish. You can paste a token made another way.")
+            else:
+                self.say("  Claude Code does not run on this computer, so make the token on a machine where it does: `claude setup-token`, then paste it below.")
+        for _ in range(3):
+            token = (read_secret(self.ui, q) or "").strip()
+            if not token or (len(token) >= 20 and not any(c.isspace() for c in token)):
+                break
+            self.say("  That does not look like a token (one long line, no spaces). Try again, or leave it empty to skip.")
+            token = ""
+        if token:
+            self.claude_secret = (key, token)
+            self.note("Claude sign-in", "ok", "token received; it goes only to the server")
+        else:
+            self.say("  Nothing entered: the server keeps any sign-in it already has; otherwise Claude jobs will not run until one is added (run cw-setup install again).")
+
     # ---- 4. the server ----
     def deliver(self, nested):
         d, rev, size = deliver_source(self.ssh, self.source, self.archive, self.say)
         self.ssh.send(f"cat > {d}/answers.toml", toml_out.dump(nested, full=True).encode())
+        if self.claude_secret:
+            self.ssh.send(f"umask 077; cat > {d}/claude.secrets", f"{self.claude_secret[0]}={self.claude_secret[1]}\n".encode())
         self.note("release sent to the server", "ok", f"commit {rev[:9]}, {size // 1024} KB")
         return d, rev
 
@@ -276,7 +342,7 @@ class Installer:
     def server_half(self, d, rev):
         self._heading("The server", "3 of 4")
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
-        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
+        base = f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}" + (f" --secrets-file {d}/claude.secrets" if self.claude_secret else "")
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))
@@ -368,6 +434,7 @@ class Installer:
         if self.resumable() and self.wants_to_resume():
             return self.resume_first_job()
         nested = self.settle()
+        self.claude_signin()
         self.client_half(nested)
         d = None
         try:

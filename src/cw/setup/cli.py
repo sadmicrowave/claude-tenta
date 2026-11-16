@@ -69,6 +69,7 @@ def build_parser():
         s.add_argument("--queue-key")
         s.add_argument("--results-key")
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
+        s.add_argument("--secrets-file", help="a KEY=value file of sign-in secrets from the installer (server only)")
         s.add_argument("--no-test", action="store_true")
         s.add_argument("--advanced", action="store_true")
         s.add_argument("--no-banner", action="store_true")
@@ -212,7 +213,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             screen_.banner(a.cmd)
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
-                                ui=screen_, advanced=a.advanced,
+                                claude_secrets=config.read_env_file(a.secrets_file) if a.secrets_file else None, ui=screen_, advanced=a.advanced,
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
