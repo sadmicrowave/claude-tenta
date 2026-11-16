@@ -332,6 +332,11 @@ class RegistryInstall(InstallBase):
             self.go()
         self.assertEqual(self.registry_file().read_text(), good)
 
+    def test_a_brand_new_empty_queue_repository_is_not_an_error(self):
+        self.fetch_result = (128, "fatal: couldn't find remote ref main")
+        self.assertEqual(self.go(), "bootstrapped")
+        self.assertEqual(sorted(self.installed()["classes"]), ["core-one", "netty"])
+
     def test_a_failed_fetch_stops_instead_of_installing_something_stale(self):
         self.fetch_result = (128, "Permission denied (publickey)")
         with self.assertRaises(update.InstallError) as e:

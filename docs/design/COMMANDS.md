@@ -116,3 +116,11 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 | `cw-admin` Registry (adopt, retire, proposals) and Release (diff, apply with health check and rollback) | built and tested |
 | root-run `<name>-update` (installs a release, then the validated registry; `cw-admin apply` calls it over `sudo`) | built and tested |
 | `cw-setup client / server / audit` (questions, config writer, hardening modules, deploy keys, core registry pack) | built and tested; the clean-VM end-to-end run remains |
+
+## End-to-end test
+
+`scripts/e2e-orbstack` runs `tests/e2e/scenario.sh` in a disposable Ubuntu machine (OrbStack). It installs from a checkout, runs `cw-setup client` and then
+`cw-setup server` twice (the first run must stop and ask for the deploy keys, the second must carry on), sends `sys-status` through the whole loop,
+checks that `sudo` cannot be profiled and that a denied program cannot be installed, and re-installs the release. GitHub is simulated by an SSH user on the
+same machine (`github.com` resolves to it), so every clone, fetch and push uses real keys. The decoy-credential tripwire needs kernel audit, which
+container-style machines do not have; there the scenario says SKIP and the hardening module reports why. Run it on a full VM to cover that case.

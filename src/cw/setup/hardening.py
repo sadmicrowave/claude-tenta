@@ -168,6 +168,12 @@ class AuditdCanaries(Module):
            "one, and the worker locks itself down.")
     risk = "None. It only watches."
 
+    def preflight(self, host, cfg):
+        if host.run(["systemctl", "is-enabled", "auditd"]).out.strip().startswith("masked"):
+            return ("this machine has no kernel audit (auditd is masked, which is how container-style machines are set up), so the tripwire cannot work here; "
+                    "use a full virtual machine or real hardware")
+        return None
+
     def check(self, host, cfg):
         a = host.run(["systemctl", "is-active", "auditd"])
         t = host.run(["systemctl", "is-active", cfg.unit("canary.timer")])
@@ -175,7 +181,7 @@ class AuditdCanaries(Module):
         return Check(not bad, ", ".join(f"{b} is not running" for b in bad) if bad else "auditd and the canary timer are running")
 
     def plan(self, host, cfg):
-        return [Action("run", argv=["apt-get", "install", "-y", "auditd"]), Action("run", argv=["systemctl", "enable", "--now", "auditd"]),
+        return [Action("run", argv=["apt-get", "install", "-y", "auditd"]), Action("run", argv=["systemctl", "start", "auditd"], why="auditd is enabled by its package; it has no unit to enable"),
                 Action("run", argv=["systemctl", "enable", "--now", cfg.unit("canary.timer")])]
 
 

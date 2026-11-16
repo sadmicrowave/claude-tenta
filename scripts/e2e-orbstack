@@ -1,0 +1,14 @@
+#!/bin/bash
+# Run tests/e2e/scenario.sh in a DISPOSABLE OrbStack Ubuntu machine and show the result.
+#   scripts/e2e-orbstack            create the machine if needed, copy the current checkout in, run the scenario (the machine is kept)
+#   scripts/e2e-orbstack --fresh    delete the machine first, so everything starts from a clean Ubuntu
+#   scripts/e2e-orbstack --delete   delete the machine and stop
+# The machine only gets a copy of the tracked files (git archive), never your home folder's contents. Everything the scenario does happens inside it.
+set -euo pipefail
+M=${CW_E2E_MACHINE:-cw-e2e}; IMAGE=${CW_E2E_IMAGE:-ubuntu:24.04}
+cd "$(dirname "$0")/.."
+command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&2; exit 2; }
+if [ "${1:-}" = "--delete" ] || [ "${1:-}" = "--fresh" ]; then orb delete -f "$M" 2>/dev/null || true; [ "${1:-}" = "--delete" ] && exit 0; fi
+orb list 2>/dev/null | awk '{print $1}' | grep -qx "$M" || orb create "$IMAGE" "$M"
+git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/cw-src && mkdir -p /opt/cw-src && tar -xf - -C /opt/cw-src'
+orb -m "$M" -u root bash /opt/cw-src/tests/e2e/scenario.sh

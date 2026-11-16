@@ -168,7 +168,7 @@ class ServerSetup:
             if self.host.exists(dest + "/.git"):
                 self.note(f"{which} clone", "exists")
                 continue
-            test = ["git", "ls-remote", "--exit-code", remote_url(cfg, which)]
+            test = ["git", "ls-remote", remote_url(cfg, which)]          # no --exit-code: a brand-new, empty repository is reachable too
             if self.dry_run or not self.host.run(["runuser", "-u", w, "--", *test]).ok:
                 if not self.dry_run:
                     pending = True

@@ -197,9 +197,10 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
     if _dest(prefix, clone + "/.git").exists():
         as_worker = ["runuser", "-u", worker, "--", "git", "-C", clone]
         rc, msg = run(as_worker + ["fetch", "--quiet", "origin", main_branch])
-        if rc:
+        empty = rc != 0 and "couldn't find remote ref" in msg           # a brand-new repository with nothing pushed yet is not an error
+        if rc and not empty:
             raise InstallError(f"could not fetch the queue repository, so the registry was not updated: {msg.strip()[:200]}")
-        rc, body = run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
+        rc, body = (1, "") if empty else run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
         text = body if rc == 0 else None
     try:
         user = registry.parse(text) if text is not None else {}

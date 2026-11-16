@@ -11,5 +11,11 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 dependencies = []          # standard library only: the config loader must run on a fresh server
 
+[project.scripts]
+cw-run = "cw.client.cli:main"
+cw-admin = "cw.admin.cli:main"
+cw-setup = "cw.setup.cli:main"
+cw-help = "cw.help:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -172,7 +172,7 @@ def load_pack(path):
         if kind in kinds and not has:
             problems.append(f"pack.toml: kinds lists {kind!r} but there is no {sub}/ folder with files in it")
     if "classes" in kinds and (path / "classes").is_dir():
-        for f in sorted((path / "classes").glob("*.yaml")):
+        for f in sorted(x for x in (path / "classes").glob("*.yaml") if not x.name.startswith(".")):
             try:
                 import yaml
                 data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
@@ -188,7 +188,7 @@ def load_pack(path):
                     problems.append(f"classes/{f.name}: class {cname!r} is defined twice in this pack")
                 pack.classes[cname] = spec
     if "policy" in kinds and (path / "policy").is_dir():
-        for f in sorted((path / "policy").glob("*.toml")):
+        for f in sorted(x for x in (path / "policy").glob("*.toml") if not x.name.startswith(".")):     # hidden files (editor or macOS leftovers) are never loaded
             try:
                 pack.policy.add(parse_policy(f.read_text(encoding="utf-8"), f"policy/{f.name}"))
             except PackError as e:

@@ -44,6 +44,12 @@ class LoadTests(unittest.TestCase):
             packs.load_pack(Path(root) / name)
         return " | ".join(e.exception.problems)
 
+    def test_hidden_files_are_never_loaded(self):
+        root = make_pack(kinds=("classes", "policy"))
+        (root / "mine" / "classes" / "._c.yaml").write_bytes(b"\xa3\x00 not yaml")
+        (root / "mine" / "policy" / "._p.toml").write_bytes(b"\xa3\x00 not toml")
+        self.assertEqual(sorted(packs.load_pack(root / "mine").classes), ["one"])
+
     def test_the_manifest_is_strict(self):
         root = make_pack(extra_manifest='colour = "red"\n')
         self.assertIn("unknown key 'colour'", self.problems(root))

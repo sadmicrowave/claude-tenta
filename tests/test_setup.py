@@ -215,6 +215,15 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("ufw --force enable", plan)
         self.assertFalse(any("fc00::/7" in p for p in plan))
 
+    def test_the_tripwire_explains_a_machine_with_no_kernel_audit(self):
+        mod, h = hardening.MODULES["auditd-canaries"], self.h
+        h.replies["systemctl is-active"] = Result(3, "inactive\n")
+        h.replies["systemctl is-enabled auditd"] = Result(1, "masked-runtime\n")
+        status, detail = hardening.run_module(mod, h, self.cfg, dry_run=False, out=lambda s: None, confirm=lambda p: True)
+        self.assertEqual(status, "blocked")
+        self.assertIn("no kernel audit", detail)
+        self.assertEqual(h.ran("apt-get"), [])
+
     def test_a_failing_step_stops_and_says_which(self):
         mod, h = hardening.MODULES["unattended-upgrades"], self.h
         h.replies["dpkg -s"] = Result(1)
@@ -334,6 +343,11 @@ class ServerTests(unittest.TestCase):
         with self.assertRaises(server.SetupError) as e:
             self.setup_obj(dry_run=True).run_all()
         self.assertIn("python3-yaml", " ".join(e.exception.steps))
+
+    def test_an_empty_repository_counts_as_reachable(self):
+        self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
+        for call in self.h.ran("runuser -u cwworker -- git ls-remote"):
+            self.assertNotIn("--exit-code", call)       # ls-remote --exit-code fails on a repository with no commits yet
 
     def test_a_missing_admin_account_stops_with_the_command_to_create_it(self):
         self.h.replies["id me"] = Result(1, "no such user")
