@@ -136,6 +136,8 @@ class DetectTests(unittest.TestCase):
 
     def test_old_or_unsupported_systems_are_refused_in_plain_words(self):
         self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="20.04", systemd=True).os_problem())
+        self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="22.04", systemd=True).os_problem())      # Python 3.10: no tomllib
+        self.assertIsNone(detect.Facts(os_id="ubuntu", os_version="24.04", systemd=True).os_problem())
         self.assertIn("not supported", detect.Facts(os_id="fedora", os_version="40", systemd=True).os_problem())
         self.assertIn("systemd", detect.Facts(os_id="debian", os_version="12", systemd=False).os_problem())
 

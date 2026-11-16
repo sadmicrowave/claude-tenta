@@ -1,0 +1,52 @@
+# Running it: `cw-admin`
+
+## In plain words
+
+`cw-admin` is how you, the administrator, look after the worker from your own computer. It connects over SSH with your key (it never asks you to type a password into it;
+`sudo` asks you itself when something needs it). Its commands are grouped by what you are doing:
+
+- **Worker:** `status` (is it healthy, what is it doing, what did it do lately) and `check` (does the connection work).
+- **Jobs:** `review` shows waiting jobs; `approve` approves the one you looked at; `cancel` and `kill` stop a job.
+- **Security:** `quarantine` shows results the guard held back, `unlock` clears a lockdown once you have looked, `output` shows the full output of a failed command.
+- **Registry:** `adopt` turns a tested command into a job class; `retire` removes a class; `proposals` lists, merges and tidies waiting changes.
+- **Release:** `diff` shows what installing a version would change; `apply` installs it, checks the worker still works, and offers to put the old version back if not.
+
+Anything that changes something shows you what it will do and asks first.
+
+## Technical specification
+
+### How it talks to the worker
+
+`admin/ssh.py`: `ssh` with `BatchMode` for captured commands (fails fast if key login is not set up) and a terminal for interactive ones (so `sudo` can ask for the password).
+A connection may be shared for at most 60 seconds so that one command that makes several calls asks once; nothing remembers a password or keeps a long-lived connection. A host
+beginning with `-` is refused. The worker's commands are run as `<name> <command>` through the worker's own `sudo` entry point; the read-only ones (`status`, `show`, `review`,
+`quarantine`, `output`) are allowed without a password when `access.sudo = "readonly-nopasswd"`, everything else asks.
+
+### Reviewing and approving
+
+`review` fetches the job files and the published results, prints what each would do, and records `{job id: SHA-256 of the file you were shown}` in `<client home>/viewed.json`.
+`approve <id>` prints the job, shows its digest, asks, and sends `approve <id> --sha256 <digest>`. `approve --all` takes only the jobs that are viewed **and unchanged**
+(it lists each as READY or SKIPPED with the reason). If a job's file is gone from the queue repository but the worker kept its own snapshot, approval happens on the worker, so what you
+read is exactly what it holds. In a terminal, approving then waits and prints the result (`--no-follow` returns at once).
+
+### Registry changes
+
+`adopt <profile-job>` previews a proposal from a profile result, asks once, writes the branch, squash-merges it into `main`, then runs `apply`. `retire <class>` shows the class and its
+comments, asks, removes it on a branch, merges it and applies. `proposals` lists branches of the queue repository with whether each is already merged; `proposals merge <branch>` (or `--all`)
+shows the commits, builds **one** squash commit authored as the branch's author with a `Merged-Branch` trailer, **validates a registry change before pushing**, pushes `main`, and deletes the
+branch; `proposals tidy` deletes merged branches. The `profile-run` class cannot be retired.
+
+### Release
+
+`diff [rev]` and `apply [rev]` use a bare clone of the release source (`updates.source`, branch `updates.branch`) kept in the client home. A commit must be on that branch to be installable.
+`diff` lists the changed files with the root-run ones first and flagged. `apply` shows the diff, asks, runs `sudo <name>-update --rev <commit>` on the worker, then:
+
+1. reads the worker's state in one call: the three timers, failed units, the installed revision, and that the installed registry is valid;
+2. if code changed, submits the `sys-status` class as a real end-to-end test job;
+3. if anything fails, says so and, in a terminal, offers to install the previous revision (`--yes` or no terminal never rolls back by itself; it prints the command).
+
+`--force` installs even when nothing differs; `--no-verify` skips the checks.
+
+### Exit codes and output
+
+Errors use exit 2 with a title, the reason, steps and a command to copy. A "no" answer is exit 1. Status messages go to standard error.

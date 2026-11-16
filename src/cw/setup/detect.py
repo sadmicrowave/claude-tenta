@@ -1,7 +1,8 @@
 """What the wizard can learn about a server before it asks anything, so the questions start from sensible suggestions."""
 import re
 
-SUPPORTED = {"ubuntu": (22, 4), "debian": (12, 0)}
+# The minimum is set by Python: the configuration loader needs 3.11 (tomllib). Ubuntu 24.04 ships 3.12, Debian 12 ships 3.11; Ubuntu 22.04 ships 3.10.
+SUPPORTED = {"ubuntu": (24, 4), "debian": (12, 0)}
 
 
 class Facts:
@@ -15,7 +16,7 @@ class Facts:
     def os_problem(self):
         """Plain-words reason this machine is not supported, or None."""
         if self.os_id not in SUPPORTED:
-            return f"{self.os_id or 'this operating system'} is not supported yet (Ubuntu 22.04 or newer and Debian 12 or newer are)"
+            return f"{self.os_id or 'this operating system'} is not supported yet (Ubuntu 24.04 or newer and Debian 12 or newer are)"
         want = SUPPORTED[self.os_id]
         try:
             major, _, minor = self.os_version.partition(".")

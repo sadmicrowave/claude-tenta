@@ -9,7 +9,7 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
    answers to `cw.toml`, and applies the matching hardening while it builds the machine: key-only SSH, no root-equivalent groups for the admin
    account, isolation that fails closed, restricted file modes, sandboxed units. A user never has to know which commands to run, or in what order.
 2. **Questions in, config out.** The wizard's job is to turn answers into a config file and then converge the machine to it. `cw-setup apply`
-   can be re-run at any time and is idempotent; `cw-admin audit` reports drift from the config.
+   can be re-run at any time and is idempotent; `cw-setup audit` reports drift from the config.
 3. **Every root-run change is verified.** After installing a new version the tool runs a self-test job end to end and offers an automatic
    rollback to the previous version if it fails, so hardening can never silently strand the worker.
 4. **Quiet is not safe.** Alerts are short and carry no environment detail; a locked worker sends reminders (default after 1, 6, 24 hours, then daily,
@@ -134,7 +134,7 @@ Each module is a small Python class in `src/cw/setup/hardening.py` (id, title, p
 `preflight` (a reason not to apply it now, such as no SSH key installed), `plan` (the exact steps, as data) and `revert`. This replaced the earlier idea of
 per-module scripts: steps as data can be shown before they run, run against a fake machine in tests, and never go through a shell. The wizard runs `check` for every module,
 explains the ones that fail, asks one question each, shows the exact commands, applies, re-runs `check`, and records the result in
-`/etc/<name>/hardening.json`. `cw-admin audit` re-runs all checks any time and reports drift.
+`/etc/<name>/hardening.json`. `cw-setup audit` re-runs all checks any time and reports drift.
 
 Initial set, from the review: `ssh-keys-only`, `no-root-equivalent-groups`, `ufw-lan-egress` (generated from config, IPv4 and IPv6),
 `netns-required`, `auditd-canaries`, `unattended-upgrades`, `state-permissions`, `unit-sandboxing`, `tcp-listeners-audit`.
@@ -162,16 +162,18 @@ supports `--dry-run`, can be resumed (state in `cw-setup.state`), and is idempot
 
 ## Sudo ergonomics (replaces `sudoers-session`)
 
+*Decided and built: option 2 (read-only commands without a password, everything else asks), `access.sudo = "readonly-nopasswd"`. `cw-admin` shares one SSH connection for at most a minute so a single command asks once. Options 1 and 3 remain ideas.*
+
 Problem: many back-to-back admin commands each prompt for the sudo password. The current fix does not work on sudo-rs and, where it does,
 gives root to every process of the admin user for 15 minutes. Options, in order of preference:
 
-1. **One session, many commands (default).** `cw-admin session` opens a single `ssh -t` with one shell on the server; sudo then caches the
+1. **One session, many commands (an idea, not built).** A `session` command would open a single `ssh -t` with one shell on the server; sudo then caches the
    password for that terminal using its normal timeout, and `cw-admin` runs its batch inside it. Works on sudo and sudo-rs, no sudoers change.
 2. **Narrow NOPASSWD for read-only wrappers.** `cw-status`, `cw-show`, `cw-review` run as the worker user and change nothing; allow exactly those
    (full path, no wildcard arguments) without a password. State-changing commands (`apply`, `approve`, `unlock`, `kill`) keep the password.
 3. **No caching** for people who prefer it.
 
-Whichever is chosen is recorded in `cw.toml` and verified by `cw-admin audit`. No `!tty_tickets`, no long timestamps.
+Whichever is chosen is recorded in `cw.toml` and verified by `cw-setup audit`. No `!tty_tickets`, no long timestamps.
 
 ## Privacy guard (what keeps the public repo clean)
 
@@ -189,7 +191,7 @@ Whichever is chosen is recorded in `cw.toml` and verified by `cw-admin audit`. N
 2. Fix the H and M review items in the ported code (S1-S10) behind tests.
 3. Pack loader, policy merge, hardening module runner; migrate `registry.yaml` into `packs/core` and personal classes into a user-private pack.
 4. Wizard, server half then client half; clean-VM end-to-end test in CI.
-5. Docs generated from schema and modules; signed releases; `cw-admin audit`.
+5. Docs generated from schema and modules; signed releases; `cw-setup audit`.
 6. Migrate the original live install to the packaged build as the first real user.
 
 ## Open questions
