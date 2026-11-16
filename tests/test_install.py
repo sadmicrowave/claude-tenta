@@ -81,6 +81,7 @@ class FakeSsh:
 class InstallBase(RepoFixture):
     def setUp(self):
         super().setUp()
+        self.sign_in_output = ""                                          # what a fake `claude setup-token` prints
         self.said, self.machine = [], FakeHost(env={"HOME": str(self.tmp / "me"), "TOOLS": "git ssh gh"})
         self.machine.replies["gh repo view"] = Result(0)
         self.machine.replies["gh repo deploy-key list"] = Result(0, "[]")
@@ -92,7 +93,7 @@ class InstallBase(RepoFixture):
         ssh = ssh or self.ssh
         kw.setdefault("archive", lambda src: (b"TARDATA", "a" * 40, False))
         self.interactive_calls = []
-        kw.setdefault("interactive", lambda argv: self.interactive_calls.append(argv) or 0)       # never runs a real command on the machine the tests run on
+        kw.setdefault("interactive", lambda argv: (self.interactive_calls.append(argv), (0, self.sign_in_output))[1])       # never runs a real command on the machine the tests run on
         return install.Installer(self.tmp, ssh_factory=lambda h, u, p: ssh, local=self.machine, say=self.said.append, given={**GIVEN, **kw.pop("given", {})},
                                  use_defaults=True, repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None,
                                  verify=kw.pop("verify", lambda cfg: self.verified.append(cfg.github.owner) or True), home=self.tmp / "client-home", **kw)
@@ -219,6 +220,7 @@ class ClaudeSignInHere(InstallBase):
     """The sign-in happens on this computer, right after the questions: setup-token, then a hidden paste, and the token goes only to the server."""
 
     TOKEN = "sk-ant-oat01-" + "a" * 40
+    TOKEN2 = "sk-ant-oat01-" + "b" * 40
 
     class Screen:
         def __init__(self, tokens, install=True):
@@ -247,13 +249,37 @@ class ClaudeSignInHere(InstallBase):
         inst.claude_signin()
         return inst, screen
 
-    def test_account_runs_setup_token_here_then_asks_for_the_token(self):
+    PRINTED = ("\n Your OAuth token (valid for 1 year):\n\n " + TOKEN[:60] + "\n " + TOKEN[60:] + "\n\n Store this token securely.\n")
+
+    def test_account_runs_setup_token_here_and_reads_the_token_it_prints_without_asking(self):
+        self.sign_in_output = self.PRINTED
         inst, screen = self.signed_in()
         self.assertEqual(self.interactive_calls, [["claude", "setup-token"]])
-        self.assertEqual(len(screen.asked), 1)
-        self.assertIn("just printed above", screen.asked[0]["why"])
+        self.assertEqual(screen.asked, [])                                  # nothing to paste
         self.assertEqual(inst.claude_secret, ("CLAUDE_CODE_OAUTH_TOKEN", self.TOKEN))
+        self.assertTrue(self.ran_local("claude -p"))                        # and it was tried once before being trusted
         self.assertNotIn(self.TOKEN, "\n".join(self.said))
+
+    def test_a_token_that_is_refused_when_tried_is_not_used_and_the_person_is_asked(self):
+        self.sign_in_output = self.PRINTED
+        self.machine.replies["claude -p"] = Result(0, '{"type":"result","is_error":true,"api_error_status":401,"result":"authentication_error"}')
+        inst, screen = self.signed_in(tokens=[self.TOKEN2])
+        self.assertEqual(len(screen.asked), 1)
+        self.assertEqual(inst.claude_secret[1], self.TOKEN2)
+        self.assertTrue(any("refused when tried" in line for line in self.said))
+
+    def test_a_network_failure_while_trying_the_token_does_not_throw_it_away(self):
+        self.sign_in_output = self.PRINTED
+        self.machine.replies["claude -p"] = Result(1, "Could not reach the network")
+        inst, screen = self.signed_in()
+        self.assertEqual((screen.asked, inst.claude_secret[1]), ([], self.TOKEN))
+
+    def test_a_sign_in_that_prints_no_token_falls_back_to_a_paste(self):
+        self.sign_in_output = "Signed in.\n"
+        inst, screen = self.signed_in()
+        self.assertEqual(len(screen.asked), 1)
+        self.assertIn("Paste the long token", screen.asked[0]["why"])
+        self.assertTrue(any("no token could be read" in line for line in self.said))
 
     def test_the_token_goes_to_the_server_in_its_own_private_file_and_nowhere_else(self):
         inst, _ = self.signed_in()

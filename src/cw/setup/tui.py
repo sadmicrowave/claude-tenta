@@ -74,7 +74,8 @@ class Editor:
     def feed(self, ev):
         """None to keep editing, or ('answer', text) / ('back',)."""
         if isinstance(ev, tuple) and ev[0] == "paste":
-            self.insert(clean_paste(ev[1]))
+            text = clean_paste(ev[1])
+            self.insert(re.sub(r"\s+", "", text) if self.secret else text)          # a token copied from a wrapped terminal line carries stray spaces
         elif ev in ("enter", "down"):
             return ("answer", self.text)
         elif ev in ("up", "shift-tab"):

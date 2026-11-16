@@ -23,9 +23,9 @@ class Host:
     def path(self, p):
         return self.root / str(p).lstrip("/")
 
-    def run(self, argv, *, input=None, timeout=120):
+    def run(self, argv, *, input=None, timeout=120, env=None):
         try:
-            r = subprocess.run([str(a) for a in argv], capture_output=True, text=True, input=input, timeout=timeout)
+            r = subprocess.run([str(a) for a in argv], capture_output=True, text=True, input=input, timeout=timeout, env={**self.env, **env} if env else None)
         except (OSError, subprocess.SubprocessError) as e:
             return Result(127, str(e))
         return Result(r.returncode, (r.stdout or "") + (r.stderr or ""))

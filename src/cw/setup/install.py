@@ -23,7 +23,7 @@ from pathlib import Path
 from .. import config
 from ..admin.ssh import Ssh
 from ..client.repo import ClientError
-from . import detect, keys as keys_mod, questions, toml_out
+from . import detect, keys as keys_mod, ptyrun, questions, toml_out
 from .client import ClientSetup
 from .remote import RemoteHost
 from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, read_secret
@@ -105,7 +105,7 @@ class Installer:
         self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
         self.ssh = self.cfg = self.facts = None
         self.ui, self.advanced = ui, advanced
-        self.interactive = interactive or (lambda argv: subprocess.call(argv))          # runs a command on the person's own terminal (their browser sign-in)
+        self.interactive = interactive or ptyrun.run_capture          # runs a command on the person's own terminal and returns (exit code, what it printed)
         self.claude_secret = None                                                      # (KEY, value) from the sign-in below; goes to the server, never to a file here
         self.report = []
         self.held = []                  # lines kept back while the question screen is up (printing in the middle of it would corrupt the redraw)
@@ -293,6 +293,13 @@ class Installer:
                 self.say("  The installer said: " + r.out.strip()[-300:])
         return yes
 
+    def token_works(self, exe, token):
+        """Try the token once with the smallest possible request, so a token that was read wrongly is caught here and not weeks later on the server. Only a clear
+        authentication failure rejects it; a network problem does not (it is then used as it is)."""
+        r = self.machine.run([exe, "-p", "Reply with the single word ok.", "--max-turns", "1", "--output-format", "json"], timeout=120, env={"CLAUDE_CODE_OAUTH_TOKEN": token})
+        compact = r.out.replace(" ", "")
+        return not ('"api_error_status":401' in compact or "authentication_error" in compact)
+
     def claude_signin(self):
         """When the install uses Claude (claude.auth is account or api-key): make the sign-in here and hold it for the server. For `account` this runs
         `claude setup-token` on this computer, which opens the browser, then asks for the token it printed. Nothing is written to a file on this computer."""
@@ -305,11 +312,20 @@ class Installer:
         if auth == "account":
             exe = self.local_claude() or (self.offer_local_claude_install() and self.local_claude())
             if exe:
-                self.say("  Opening Claude's sign-in. Finish it in your browser; it then prints a long token here.\n")
-                if self.interactive([exe, "setup-token"]) == 0:
-                    q["why"] = "Copy the long token that was just printed above and paste it here. Leave it empty to keep a sign-in the server already has."
-                else:
+                self.say("  Opening Claude's sign-in. Finish it in your browser; the token it prints is read from here, so there is nothing to copy.\n")
+                rc, printed = self.interactive([exe, "setup-token"])
+                token = ptyrun.extract_token(printed) if rc == 0 else None
+                if token and self.token_works(exe, token):
+                    self.claude_secret = (key, token)
+                    self.note("Claude sign-in", "ok", "token read from the sign-in and checked; it goes only to the server")
+                    return
+                if rc != 0:
                     self.say("  `claude setup-token` did not finish. You can paste a token made another way.")
+                elif token:
+                    self.say("  The token it printed was refused when tried, so it was not used. Paste a fresh one, or leave this empty to skip.")
+                else:
+                    self.say("  The sign-in finished but no token could be read from its output. Paste the token it printed.")
+                q["why"] = "Paste the long token that `claude setup-token` printed. Leave it empty to keep a sign-in the server already has."
             else:
                 self.say("  Claude Code does not run on this computer, so make the token on a machine where it does: `claude setup-token`, then paste it below.")
         for _ in range(3):
