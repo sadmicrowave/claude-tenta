@@ -248,6 +248,29 @@ class Security(CliBase):
         self.assertIn("squashed", self.run_cli("prune-results", "--days", "7", "--force")[1])
 
 
+class Passes(unittest.TestCase):
+    def test_a_failing_pass_is_recorded_for_status_and_still_fails(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+
+        class W:
+            state = d
+
+            def fetch(self):
+                raise FileNotFoundError(2, "No usable temporary directory")
+
+            def step(self):
+                pass
+        ctx = type("C", (), {"w": W()})()
+        with self.assertRaises(FileNotFoundError):
+            cli.run_pass(ctx, "fetch")
+        self.assertEqual(cli.run_pass(ctx, "step"), 0)
+        data = json.loads((d / cli.PASS_FILE).read_text())
+        self.assertFalse(data["fetch"]["ok"])
+        self.assertIn("No usable temporary directory", data["fetch"]["error"])
+        self.assertTrue(data["step"]["ok"])
+
+
 class Status(CliBase):
     def test_an_idle_healthy_worker(self):
         code, out = self.run_cli("status")
@@ -293,6 +316,16 @@ class Status(CliBase):
         self.assertRegex(self.run_cli("status")[1], r"Canary\s+OFF")
         (self.tmp / "canary.json").write_text(json.dumps({"ts": __import__("time").time(), "monitoring": False, "reason": "auditd is not installed"}))
         self.assertIn("auditd is not installed", self.run_cli("status")[1])
+
+    def test_status_says_why_nothing_is_moving_when_a_pass_fails(self):
+        out = self.run_cli("status")[1]
+        self.assertRegex(out, r"Fetch\s+NOT RUN YET")
+        cli.record_pass(self.w.state, "fetch", False, "FileNotFoundError: No usable temporary directory")
+        cli.record_pass(self.w.state, "step", True)
+        out = self.run_cli("status")[1]
+        self.assertRegex(out, r"Fetch\s+FAILED")
+        self.assertIn("No usable temporary", out)
+        self.assertRegex(out, r"Step\s+OK")
 
     def test_hours_are_clamped(self):
         self.assertIn("LAST 168 HOURS", self.run_cli("status", "--hours", "9999")[1])

@@ -334,7 +334,26 @@ class Installer:
         self.note("a job went through the whole loop", "ok" if ok else "failed")
         if ok:
             self.mark("job")
+        else:
+            self.diagnose_worker()
         return ok
+
+    def diagnose_worker(self):
+        """The first job did not complete: ask the server why, so the person is not left staring at "queued". Read-only; any failure to ask is ignored."""
+        if self.ssh is None or self.cfg is None:
+            return
+        name = self.cfg.identity.name
+        try:
+            r = self.ssh.capture(f"for u in fetch step; do printf '%s: ' $u; systemctl is-active {name}-$u.service; done; "
+                                 f"journalctl -u {name}-fetch.service -u {name}-step.service -n 8 --no-pager -o cat 2>&1 | tail -8")
+        except Exception:
+            return
+        text = (r.stdout or "").strip()
+        if text:
+            self.say("\n  What the server says about its own passes:")
+            for line in text.splitlines():
+                self.say("    " + line[:160])
+            self.say("  More: cw-admin status")
 
     def wants_to_resume(self):
         """An earlier run set the server up but stopped before the first job finished. Offer to carry on from there; with nobody to ask, carry on."""

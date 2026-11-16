@@ -134,7 +134,8 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
     r.need_setup()
     LAST_RESULT.clear()
     told = told or approved
-    end, prog, res = ctx.clock() + timeout, view.Progress(clock=ctx.clock), None
+    start = ctx.clock()
+    end, prog, res, late_told = start + timeout, view.Progress(clock=ctx.clock), None, False
     try:
         while ctx.clock() < end:
             prog.clear()
@@ -151,10 +152,19 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             if res and res["status"] == "awaiting_approval" and not told:
                 emit("Waiting for your approval", tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
                 told = True
-            if res and res["status"] == "running" and told != "running" and not prog.on:
+            if res and res["status"] == "running" and told != "running":
                 emit(f"Running on {ctx.product} now", "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr)
                 told = "running"
-            text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product)
+            waited = int(ctx.clock() - start)
+            if res and res["status"] == "queued" and told not in ("queued", "running"):
+                emit(f"Queued on {ctx.product}", "The worker has it and starts it when a slot is free.", tag="QUEUED", color=YELLOW, stream=sys.stderr)
+                told = "queued"
+            if waited >= 120 and not late_told and (not res or res["status"] in (None, "queued")):
+                late_told = True
+                prog.clear()
+                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", "It normally does within a minute. The worker may be stopped, locked, or failing.",
+                     tag="SLOW", color=RED, run_label="See what the worker is doing", run=f"{ctx.admin} status", stream=sys.stderr)
+            text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product, waited)
             for _ in range(25):                               # redraw ~5 times a second; ask GitHub again every ~5 s
                 prog.draw(text, color)
                 ctx.sleep(0.2)

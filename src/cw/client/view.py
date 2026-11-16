@@ -238,13 +238,19 @@ def render_classes(info, pending=(), excluded=0, out=None, product="the worker")
 
 
 # ---- waiting for a result ----
-def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker"):
-    """(what to show, colour) for the one-line progress, from the latest published result (None = not picked up yet)."""
+def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", waited=0):
+    """(what to show, colour) for the one-line progress, from the latest published result (None = not picked up yet). `waited` is how many seconds the job has
+    been waiting, so a job nobody picks up is described honestly instead of promising "within a minute" forever."""
     status = (res or {}).get("status")
+    late = waited >= 120
     if approved and status in (None, "queued", "awaiting_approval"):
-        return f"approved: waiting for {product} to pick it up", CYAN
-    if not res or status == "queued":
-        return f"queued: {product} picks it up within a minute", YELLOW
+        return (f"approved, but {product} has not picked it up after {waited // 60} min: {admin} status shows why" if late else f"approved: waiting for {product} to pick it up"), (RED if late else CYAN)
+    if not res and late:
+        return f"sent {waited // 60} min ago and {product} has not picked it up: run `{admin} status` to see whether it is running", RED
+    if not res:
+        return f"sent: waiting for {product} to notice it (it checks about every 30 seconds)", YELLOW
+    if status == "queued":
+        return f"queued on {product}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
     if status == "awaiting_approval":
         return f"waiting for your approval ({admin} approve {jid})", YELLOW
     if status == "running":

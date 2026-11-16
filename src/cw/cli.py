@@ -448,6 +448,20 @@ def cmd_status(ctx, hours=12):
     except (OSError, ValueError):
         ok, why = False, "canary-watch has not reported"
     line(ok, "Canary", "ON" if ok else "OFF", why)
+    try:
+        passes = json.loads((Path(w.state) / PASS_FILE).read_text())
+    except (OSError, ValueError):
+        passes = {}
+    for which, label, what in (("fetch", "Fetch", "pulling new jobs from GitHub"), ("step", "Step", "starting queued jobs")):
+        p = passes.get(which)
+        if not p:
+            line(False, label, "NOT RUN YET", f"the timer has not run the {which} pass yet ({what})")
+        elif not p["ok"]:
+            line(False, label, "FAILED", f"{time.strftime('%H:%M:%S', time.localtime(p['ts']))}: {p.get('error') or 'see the journal'}  (nothing is {what})")
+        elif time.time() - p["ts"] > 300:
+            line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
+        else:
+            line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what})")
     total, avail = w.sensors.meminfo() if w.sensors else (0, None)
     if total and avail is not None:
         good = avail > total * 0.1
@@ -470,6 +484,33 @@ def cmd_status(ctx, hours=12):
     else:
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
         print()
+    return 0
+
+
+# ---- the timer-driven passes: what happened last time, so `status` can say why nothing is moving -----------------------------
+PASS_FILE = "pass-status.json"
+
+
+def record_pass(state, which, ok, error=""):
+    f = Path(state) / PASS_FILE
+    try:
+        data = json.loads(f.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300]}
+    try:
+        f.write_text(json.dumps(data))
+    except OSError:
+        pass                                    # reporting must never be the reason a pass fails
+
+
+def run_pass(ctx, which):
+    try:
+        getattr(ctx.w, which)()
+    except Exception as e:
+        record_pass(ctx.w.state, which, False, f"{type(e).__name__}: {e}")
+        raise
+    record_pass(ctx.w.state, which, True)
     return 0
 
 
@@ -531,12 +572,8 @@ def main(argv=None, ctx=None, cfg=None):
             os.umask(perms.STATE_UMASK)                                    # after the root-run commands: root's tools folder must stay readable
             ctx = Context.from_config(cfg)
             perms.tighten_modes([ctx.w.state, ctx.w.io.queue, ctx.w.io.results], ctx.w.state / perms.MODES_MARKER)
-        if cmd == "fetch":
-            ctx.w.fetch()
-            return 0
-        if cmd == "step":
-            ctx.w.step()
-            return 0
+        if cmd in ("fetch", "step"):
+            return run_pass(ctx, cmd)
         if cmd == "exec" and len(args) == 1:
             return cmd_exec(ctx, args[0])
         if cmd == "run":
