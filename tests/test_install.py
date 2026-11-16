@@ -164,6 +164,45 @@ class HappyPath(InstallBase):
         self.assertNotIn("--yes", self.ssh.popen_calls[0][0])
 
 
+class Rerun(InstallBase):
+    """Running install again after a stopped run: earlier answers are the defaults, and a finished server setup is not repeated."""
+
+    def finished_server_but_not_the_job(self, ok_job=False):
+        first = self.installer(verify=lambda cfg: ok_job)
+        first.run_all()
+        return first
+
+    def test_a_stopped_first_job_is_resumed_without_the_questions_or_the_server(self):
+        self.finished_server_but_not_the_job()
+        popens, asked = len(self.ssh.popen_calls), []
+        again = self.installer(given={}, ask=lambda q: asked.append(q) or "")
+        again.run_all()
+        self.assertEqual(len(self.ssh.popen_calls), popens, "the server setup was not run again")
+        self.assertEqual(self.verified, ["someone"])
+        self.assertTrue(any("did not finish the first job" in line for line in self.said))
+        self.assertIn("job", again.progress())
+
+    def test_a_finished_install_is_not_resumed(self):
+        self.finished_server_but_not_the_job(ok_job=True)
+        self.assertFalse(self.installer().resumable())
+
+    def test_a_changed_release_is_installed_again(self):
+        self.finished_server_but_not_the_job()
+        changed = self.installer(archive=lambda src: (b"TARDATA", "b" * 40, False))
+        self.assertFalse(changed.resumable())
+
+    def test_a_preview_never_records_progress(self):
+        inst = self.installer(dry_run=True)
+        inst.run_all()
+        self.assertEqual(inst.progress(), {})
+
+    def test_the_earlier_answers_are_the_defaults(self):
+        self.finished_server_but_not_the_job()
+        again = self.installer(given={})
+        self.assertEqual(again.previous_answers()["server.host"], "worker.example")
+        self.assertEqual(again.previous_answers()["github.owner"], "someone")
+
+
 class WithTheScreen(InstallBase):
     def installer_with_screen(self, events):
         from test_tui import prompter

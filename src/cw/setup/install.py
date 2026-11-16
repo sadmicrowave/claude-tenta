@@ -11,11 +11,13 @@ Nothing is left behind on the server: the folder it received the release in, whi
 """
 import hashlib
 import io
+import json
 import re
 import subprocess
 import tarfile
 import shlex
 import time
+import tomllib
 from pathlib import Path
 
 from .. import config
@@ -103,6 +105,58 @@ class Installer:
         self.report = []
         self.held = []                  # lines kept back while the question screen is up (printing in the middle of it would corrupt the redraw)
 
+    # ---- what an earlier run left behind ----
+    def config_file(self):
+        return str(Path(self.machine.env.get("HOME", "~")).expanduser() / ".config" / "claude-ballast" / "cw.toml")
+
+    def previous_answers(self):
+        """The answers of an earlier run (the configuration it wrote), as defaults for this one: running install again never starts from a blank page."""
+        try:
+            raw = tomllib.loads(self.machine.read(self.config_file()) or "")
+        except (OSError, ValueError):
+            return {}
+        return {k: v for k, v in flat(raw).items() if k in questions.BY_KEY}
+
+    @property
+    def state_file(self):
+        return self.home / "install-state.json"
+
+    def progress(self):
+        try:
+            return json.loads(self.state_file.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def mark(self, phase, **info):
+        """Remember a finished phase so a stopped install can carry on from there. A preview never writes it."""
+        if self.dry_run:
+            return
+        state = self.progress()
+        state[phase] = {"at": int(time.time()), **info}
+        if phase == "server":
+            state.pop("job", None)                 # a new server setup means the first job has not been proven yet
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.state_file.write_text(json.dumps(state))
+
+    def resumable(self):
+        """True when the server was set up by an earlier run but its first job never finished, and the configuration is still there."""
+        st = self.progress()
+        if self.dry_run or "server" not in st or "job" in st or not self.machine.exists(self.config_file()):
+            return False
+        try:
+            _data, rev, dirty = self.archive(self.source)
+        except Exception:
+            return False
+        return rev == st["server"].get("rev") and not dirty             # a changed release must be installed again, not skipped
+
+    def resume_first_job(self):
+        clean, problems = config.validate(tomllib.loads(self.machine.read(self.config_file()) or ""))
+        if problems:
+            raise SetupError("The configuration from the earlier run is not valid", "\n".join(problems), ["Run cw-setup install again and answer the questions."])
+        self.cfg = config.Config(clean, self.config_file())
+        self.first_job()
+        return self.report
+
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
         self.out(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
@@ -129,7 +183,8 @@ class Installer:
             self.ui.total_hint = questions.count_to_ask(("client", "server"), self.given, advanced=self.advanced)
         else:
             self.say("\nConnecting to the server")
-        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced)
+        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced,
+                                          suggestions=self.previous_answers())
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
         c = conn.get("server", {})
@@ -156,7 +211,7 @@ class Installer:
             self.say("\nQuestions")
         given = {**self.given, **flat(conn)}
         pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
-        rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions=self.facts.suggestions(), use_defaults=self.use_defaults,
+        rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions={**self.facts.suggestions(), **self.previous_answers()}, use_defaults=self.use_defaults,
                                           ui=self.ui, allow_back=self.ui is not None, pre_items=pre, advanced=self.advanced,
                                           confirm="Show what would be done?" if self.dry_run else "Set everything up now?")
         if rest is questions.BACK:
@@ -251,6 +306,7 @@ class Installer:
         if rc != 0:
             raise SetupError(f"The server setup stopped (exit {rc})", "Read the messages above. Running cw-setup install again continues where it left off.")
         self.note("server setup", "done")
+        self.mark("server", rev=rev)
 
     def cleanup(self, d):
         remove_remote_dir(self.ssh, d)
@@ -260,9 +316,22 @@ class Installer:
         self._heading("A first job", "4 of 4")
         ok = self.verify(self.cfg) if self.verify else True
         self.note("a job went through the whole loop", "ok" if ok else "failed")
+        if ok:
+            self.mark("job")
         return ok
 
+    def wants_to_resume(self):
+        """An earlier run set the server up but stopped before the first job finished. Offer to carry on from there; with nobody to ask, carry on."""
+        st = self.progress()
+        self.say(f"\nAn earlier install finished the server setup (release {str(st['server'].get('rev', ''))[:9]}) but did not finish the first job.")
+        if self.ask is None or self.use_defaults:
+            return True
+        answer = self.ask("  Carry on with the first job? [Y = carry on, n = start over with your earlier answers ready] ").strip().lower()
+        return answer in ("", "y", "yes")
+
     def run_all(self):
+        if self.resumable() and self.wants_to_resume():
+            return self.resume_first_job()
         nested = self.settle()
         self.client_half(nested)
         d = None

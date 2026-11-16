@@ -99,6 +99,14 @@ It reads the install's own `cw.toml`, so it respects a different name or folders
 **What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
 unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `cw-setup install` afterwards sets everything up again.
 
+### Running install again
+
+Stopping an install, or running it again without uninstalling, never starts from a blank page:
+
+- **Earlier answers are the defaults.** The configuration the first run wrote (`~/.config/claude-ballast/cw.toml`) is read back, so every question already shows your previous answer; press Enter to keep it. (Secrets such as the alert address are not in that file, so that one is asked again.)
+- **A finished server setup is not repeated.** After the server half completes, the install records it (`~/.cw/install-state.json`, with the release it installed). If a later run finds the server done but the first job unfinished, and the release is unchanged, it offers to carry on with just the first job: no questions, no sudo password. Say `n` to start over instead. A different release, a modified checkout or a preview never resumes.
+- `cw-setup uninstall` is still how you remove an install; it does not touch your repositories.
+
 ### What the questions and protections look like
 
 `src/cw/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected. `cw-setup demo` shows every screen on sample content and saves nothing.
