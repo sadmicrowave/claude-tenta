@@ -367,9 +367,15 @@ def default_verify(cfg, say=print, sleep=time.sleep, attempts=8, wait_s=15):
     from ..client import cli as client_cli
     ok = False
     for i in range(attempts):
+        client_cli.LAST_RESULT.clear()
         if client_cli.main(["submit", "sys-status", "--wait", "--timeout", "200"]) == 0:
             ok = True
             break
+        last = client_cli.LAST_RESULT
+        if last.get("locked") or last.get("status"):        # a real answer (locked, or the job ran and failed): trying again would only repeat it
+            why = "the worker is locked" if last.get("locked") else f"the job ended with status {last['status']}"
+            say(f"  Not trying again: {why}. Fix that first (cw-admin quarantine, cw-admin output <job>), then run cw-setup install again; it continues from here.")
+            return False
         say(f"  (the worker is still starting; trying again, {i + 1} of {attempts})")
         sleep(wait_s)
     return ok and admin_cli.main(["check"]) == 0

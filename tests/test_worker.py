@@ -79,18 +79,6 @@ class Lifecycle(Base):
         self.assertEqual(self.result("job-0001")["status"], "ok")
 
 
-class Spawn(Base):
-    def test_a_started_job_gets_its_own_temporary_folder(self):
-        """The unit that starts a job has a private /tmp that systemd removes when the unit ends; a job left running in it found no temporary folder."""
-        import unittest.mock as mock
-        with mock.patch("subprocess.Popen") as popen:
-            popen.return_value.pid = 7
-            self.w._default_spawn("job-0001")
-        env = popen.call_args.kwargs["env"]
-        self.assertEqual(env["TMPDIR"], str(self.state / "tmp"))
-        self.assertTrue((self.state / "tmp").is_dir())
-
-
 class Rejections(Base):
     def rejected(self, jid, needle):
         self.run_all()

@@ -125,10 +125,14 @@ def awaiting_approval_screen(ctx, jid):
     return 0
 
 
+LAST_RESULT = {}     # what the last wait() ended with: {"status": ..., "note": ...} for a final result, {"locked": True}, or {} for a timeout (read by the installer)
+
+
 def wait(ctx, jid, timeout, as_json, told=False, approved=False):
     """Poll until the job has a final result. Returns the exit code (0 only for status ok; 3 if the worker is locked; 1 on timeout)."""
     r = ctx.repos
     r.need_setup()
+    LAST_RESULT.clear()
     told = told or approved
     end, prog, res = ctx.clock() + timeout, view.Progress(clock=ctx.clock), None
     try:
@@ -137,8 +141,10 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             locked = r.pull_results()
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
+                LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
                 return view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
             if locked:
+                LAST_RESULT.update(locked=True)
                 emit("Stopped waiting: the worker is locked", f"{jid} will not run until you unlock it.", "It stays queued and runs after you unlock.", tag="LOCKED",
                      color=RED, run=f"{ctx.admin} unlock", stream=sys.stderr)
                 return 3

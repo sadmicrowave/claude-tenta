@@ -17,11 +17,13 @@ from .config import NAME_RE, PATH_RE, USER_RE
 # Also not set, found by running the jail inside a unit with these settings: ProtectHostname (its seccomp filter stops the jail from giving a job
 # its own host name) and ProtectKernelLogs (a /proc with hidden files cannot have a fresh /proc mounted inside the jail). The jail already
 # gives every job its own host name and process list, so both protections are covered where it matters.
+# PrivateTmp is not set either, found on a real server: a job keeps running after the short fetch/step pass that started it, and systemd deletes that
+# pass's private /tmp when the pass ends. The job (and bubblewrap, which builds its jail under /tmp) then had no usable /tmp. The jail gives every job
+# its own empty /tmp anyway.
 SANDBOX = """\
 # Sandbox. See sandboxtest: the update tool checks these before keeping a changed unit file.
 ProtectSystem=strict
 ReadWritePaths={{state_root}} {{worker_home}} -/run/sudo -/run/sudo-rs
-PrivateTmp=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ProtectClock=yes

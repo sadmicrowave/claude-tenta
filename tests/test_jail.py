@@ -244,7 +244,7 @@ if __name__ == "__main__":
 class UnitSandboxAndJail(unittest.TestCase):
     def test_the_shared_unit_sandbox_leaves_out_what_breaks_the_jail(self):
         from cw import render
-        for prop in ("ProtectHostname", "ProtectKernelLogs", "RestrictNamespaces", "NoNewPrivileges", "ProtectKernelTunables"):
+        for prop in ("ProtectHostname", "ProtectKernelLogs", "RestrictNamespaces", "NoNewPrivileges", "ProtectKernelTunables", "PrivateTmp"):
             self.assertNotIn(prop, render.SANDBOX.split("# Sandbox.", 1)[1], prop)        # each was found, or known, to stop bubblewrap from building a jail
 
     def test_the_default_hardening_modules_include_job_isolation_first(self):

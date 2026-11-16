@@ -164,6 +164,45 @@ class HappyPath(InstallBase):
         self.assertNotIn("--yes", self.ssh.popen_calls[0][0])
 
 
+class FirstJobRetries(unittest.TestCase):
+    """The first job is tried again only while the worker is still starting, never after it gave a real answer."""
+
+    def run_verify(self, outcomes):
+        """outcomes: one (exit code, LAST_RESULT) per attempt."""
+        from cw.client import cli as client_cli
+        from cw.admin import cli as admin_cli
+        script, said, calls = list(outcomes), [], []
+
+        def fake_main(argv):
+            calls.append(argv)
+            rc, last = script.pop(0)
+            client_cli.LAST_RESULT.clear()
+            client_cli.LAST_RESULT.update(last)
+            return rc
+        saved = (client_cli.main, admin_cli.main)
+        client_cli.main, admin_cli.main = fake_main, lambda argv: 0
+        try:
+            ok = install.default_verify(None, say=said.append, sleep=lambda s: None, attempts=8)
+        finally:
+            client_cli.main, admin_cli.main = saved
+        return ok, len(calls), said
+
+    def test_a_worker_that_is_locked_is_not_retried(self):
+        ok, tries, said = self.run_verify([(3, {"locked": True})] * 8)
+        self.assertEqual((ok, tries), (False, 1))
+        self.assertTrue(any("Not trying again" in s and "locked" in s for s in said))
+
+    def test_a_job_that_ran_and_failed_is_not_retried(self):
+        ok, tries, said = self.run_verify([(1, {"status": "error", "note": "boom"})] * 8)
+        self.assertEqual((ok, tries), (False, 1))
+        self.assertTrue(any("status error" in s for s in said))
+
+    def test_no_answer_yet_is_retried_until_it_works(self):
+        ok, tries, said = self.run_verify([(1, {}), (1, {}), (0, {"status": "ok"})])
+        self.assertEqual((ok, tries), (True, 3))
+        self.assertEqual(sum("still starting" in s for s in said), 2)
+
+
 class Rerun(InstallBase):
     """Running install again after a stopped run: earlier answers are the defaults, and a finished server setup is not repeated."""
 

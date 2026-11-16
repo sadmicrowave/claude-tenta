@@ -38,7 +38,7 @@ class Properties(unittest.TestCase):
     def test_the_real_rendered_units_yield_the_sandbox_that_will_be_tested(self):
         text = render.unit_files(cfg(), ROOT / "templates")["claude-ballast-step.service"]
         props = sandboxtest.unit_properties(text)
-        for needed in ("User=cwworker", "ProtectSystem=strict", "PrivateTmp=yes", "Environment=PYTHONPATH=/opt/claude-ballast/lib"):
+        for needed in ("User=cwworker", "ProtectSystem=strict", "Environment=PYTHONPATH=/opt/claude-ballast/lib"):
             self.assertIn(needed, props)
         self.assertFalse([p for p in props if p.startswith(("ExecStart", "Type", "KillMode", "TimeoutStartSec"))])
 
