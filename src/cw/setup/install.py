@@ -120,8 +120,11 @@ class Installer:
 
     # ---- 1. connect and learn ----
     def connect(self):
+        """The connection questions (their own short pass), then log in and look at the server."""
+        self.held = []
+        self.asked = False
         if self.ui is not None:
-            self.ui.begin(questions.count_to_ask(("client", "server"), self.given), "cw-setup install")
+            self.ui.begin(title="cw-setup install")
         else:
             self.say("\nConnecting to the server")
         conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui)
@@ -144,25 +147,37 @@ class Installer:
 
     # ---- 2. questions ----
     def ask_everything(self, conn):
+        """Every other question, as one flow (so the up arrow can walk back through all of them). Returns the answers, or BACK if the person stepped back to
+        the connection questions."""
         if self.ui is None:
             self.say("\nQuestions")
-        given, blanks = {**self.given, **flat(conn)}, set()
-        client, m1 = questions.collect("client", ask=self.ask, say=self.say, given=given, use_defaults=self.use_defaults, ui=self.ui, blanks=blanks)
-        server, m2 = questions.collect("server", ask=self.ask, say=self.say, given={**given, **flat(client), **{k: "" for k in blanks}}, suggestions=self.facts.suggestions(),
-                                       use_defaults=self.use_defaults, ui=self.ui)
+        given = {**self.given, **flat(conn)}
+        pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
+        rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions=self.facts.suggestions(), use_defaults=self.use_defaults,
+                                          ui=self.ui, allow_back=self.ui is not None, pre_items=pre,
+                                          confirm="Show what would be done?" if self.dry_run else "Set everything up now?")
+        if rest is questions.BACK:
+            return questions.BACK
         if self.ui is not None:
             self.ui.finish()
         self.asked = True
         self.flush()
-        missing = m1 + m2
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
-        nested = merge(conn, client, server)
+        nested = merge(conn, rest)
         clean, problems = questions.validate_answers(nested)
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
         self.cfg = config.Config(clean)
         return nested
+
+    def settle(self):
+        """Connect, then ask everything; if the person steps back to the connection questions, do that part again (their answers are ready to change)."""
+        while True:
+            conn = self.connect()
+            nested = self.ask_everything(conn)
+            if nested is not questions.BACK:
+                return nested
 
     # ---- 3. this side ----
     def client_half(self, nested):
@@ -222,8 +237,7 @@ class Installer:
         return ok
 
     def run_all(self):
-        conn = self.connect()
-        nested = self.ask_everything(conn)
+        nested = self.settle()
         self.client_half(nested)
         d = None
         try:

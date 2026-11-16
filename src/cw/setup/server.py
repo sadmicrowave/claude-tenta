@@ -107,8 +107,9 @@ class ServerSetup:
 
     def configure(self, facts):
         if self.ui is not None:
-            self.ui.begin(questions.count_to_ask(("server",), self.given), "cw-setup server")
-        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults, ui=self.ui)
+            self.ui.begin(title="cw-setup server")
+        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults, ui=self.ui,
+                                            confirm="Show what would be done?" if self.dry_run else "Set up the server now?")
         if self.ui is not None:
             self.ui.finish()
         if missing:

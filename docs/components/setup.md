@@ -34,7 +34,7 @@ same tables as `cw.toml`; `--set` overrides it. Any schema setting can be given 
 
 `src/cw/setup/questions.py` holds the questions. Each maps to one schema setting and is checked with that setting's own check, so the wizard cannot write a value
 the loader would refuse. A question can depend on an earlier answer (the LAN questions only appear if the LAN is blocked). Suggestions come from the machine
-(`detect.py`): hardware profile from memory, cores and battery; thermal support from the sensors present. Only values that differ from the defaults are
+(`detect.py`): hardware profile from memory, cores and battery. Only values that differ from the defaults are
 written to `cw.toml` (`toml_out.py`).
 
 ### Server half, in order
@@ -65,7 +65,7 @@ show and check every step. The end-to-end test uses the real one ([testing](test
 `src/cw/setup/install.py`.
 
 1. **Connect and learn.** Asks for the server's address, the admin account and the SSH port; checks key login (a failure says to run `ssh-copy-id`); reads the server's facts through a read-only SSH view (`remote.py`), which become the suggestions
-   (hardware profile from memory and battery, thermal support from the sensors) and refuse an unsupported system before anything changes.
+   (the hardware profile from memory and battery) and refuse an unsupported system before anything changes.
 2. **Questions.** All of the client and server questions, once, on your computer. Every answer is then written to a complete answers file (`toml_out.dump(..., full=True)`), so the server never has to ask or guess.
 3. **Your side.** The client half ([above](#client-half-in-order)), with the repositories created by `gh` if they are missing.
 4. **Delivery.** The committed files of the checkout (`git archive HEAD`; uncommitted changes are not sent, and it says so) and the answers go through SSH into a private folder made with `mktemp` (mode 0700, name checked against a strict pattern before it is
@@ -101,12 +101,18 @@ unless you say otherwise; IPv6 stays off until the next restart if it was off (t
 
 ### What the questions and protections look like
 
-`src/cw/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected.
+`src/cw/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected. `cw-setup demo` shows every screen on sample content and saves nothing.
 
-- **Questions.** A progress bar on top (`cw-setup install ━━━━╸────  8 of 19`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
-  question on a blue rail with a chip naming its section, the plain-words reason, the choices when there are any, an input line, and a hint (`Enter keeps: 22`, or `needs an answer`). When you answer, the block is erased and the next one drawn, so the screen never fills up.
-  A secret (the alert address) is typed without echo and shown as `set`. When the questions are done the bar and the full list of answers stay on screen as a review.
+- **Questions.** A progress bar on top (`cw-setup install  ━━━━╸────  8 of 19 done`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
+  question on a blue rail with a chip naming its section and its position, the plain-words reason, the input line, a hint, and **the keys, always listed underneath**.
+- **Choices.** A question with a fixed set of answers lists each one with its number and what it means, the current one marked `▸`. Type the name, its number, or part of the name and press Tab.
+- **Keys.** Enter or ↓ accepts and goes on. **↑ goes back to the previous question** with your earlier answer ready to change (what you had typed is kept even if you leave without pressing Enter). Tab completes a choice. ←/→, Home/End, Backspace, Delete, Ctrl-U (clear)
+  and Ctrl-W (delete a word) edit the line. Ctrl-C stops cleanly. A question that stops applying because of an earlier change disappears from the flow, and its answer with it.
+- **A last look.** After the final question a review screen lists every answer; Enter starts, ↑ goes back to change one. The install flow is one continuous walk: from its first question after the connection check, ↑ even returns to the connection questions
+  (and it reconnects).
+- **Hidden answers.** The alert address is typed hidden, shown as dots so you can see it was accepted, and listed as `set`. Pasting works, including when the terminal wraps a paste in escape sequences (bracketed paste), which the terminal's own line editor
+  would have passed through as garbage.
 - **Protections.** Each one that needs a decision is an amber frame with the title, why, the risk, what it is now, the exact steps, and Apply and Skip buttons. `←`/`→` or Tab choose, Enter confirms, `y` and `n` answer at once, `s` shows every line of every step, Ctrl-C stops
   cleanly. The two that could lock you out (`ssh-keys-only`, `ufw-lan-egress`) are marked "could lock you out"; the rest say "recommended". The frame is erased when you decide, and the result is printed as the usual one-line status.
-- **No library.** Plain ANSI sequences (cursor up, erase to the end of the screen) and, for the buttons, one raw key read. The prompt uses readline-safe colour codes so line editing works.
-- **Tested** with a small virtual terminal that obeys the same sequences, so the tests check what is actually on screen after each answer, and by driving the real thing through a pseudo-terminal with typed answers and arrow keys.
+- **No library.** Plain ANSI sequences (cursor up, erase to the end of the screen), and the keys are read in cbreak mode with bracketed paste turned on while a screen is up.
+- **Tested** with a small virtual terminal that obeys the same sequences, so the tests check what is actually on screen after each key, and by driving the real thing through a pseudo-terminal with typed answers, arrow keys, Tab and a bracketed paste.

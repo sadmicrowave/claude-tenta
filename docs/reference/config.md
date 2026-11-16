@@ -52,7 +52,6 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `capacity` | *(not set)* | int | capacity points the running jobs may add up to (a heavy job takes 4) |
 | `max_load` | *(not set)* | float | do not start a job above this 1-minute load average |
 | `max_temp_c` | *(not set)* | int | do not start a job when the hottest core is above this |
-| `thermal` | `none` | `none` , `lm-sensors` , `apple-smc` | which temperature and fan support to enable |
 
 ## [isolation]
 

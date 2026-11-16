@@ -30,7 +30,7 @@ class Facts:
 
     def suggestions(self):
         """{'section.key': value} to use as defaults in the questions."""
-        s = {"hardware.thermal": self.thermal}
+        s = {}
         if self.laptop or (0 < self.ram_mb < 4096):
             s["hardware.profile"] = "old-laptop"
         elif self.ram_mb >= 16384 and self.cores >= 8:
@@ -41,7 +41,7 @@ class Facts:
 
     def summary(self):
         return [("Operating system", f"{self.os_id} {self.os_version}"), ("Memory", f"{self.ram_mb} MB"), ("Processor cores", str(self.cores)),
-                ("sudo", self.sudo or "unknown"), ("Temperature sensors", self.thermal), ("Portable (battery)", "yes" if self.laptop else "no")]
+                ("sudo", self.sudo or "unknown"), ("Temperature sensors", {"apple-smc": "readable (Apple SMC)", "lm-sensors": "readable", "none": "none found"}.get(self.thermal, self.thermal)), ("Portable (battery)", "yes" if self.laptop else "no")]
 
 
 def detect(host):

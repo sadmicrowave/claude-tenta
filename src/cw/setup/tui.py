@@ -1,23 +1,27 @@
 """How the wizard talks to a person at a terminal.
 
 Questions use a colored rail down the left edge, a chip naming the section, and a progress bar on top; answered questions collapse to one line each above
-the active one. A protection that could lock you out gets an amber frame with Apply and Skip buttons you choose with the arrow keys. Everything is drawn in place:
-when you answer, the block is erased and the next one drawn, so the screen never fills up.
+the active one. The keys are always listed under the input: Enter or the down arrow goes on, the up arrow goes back to the previous question (with your
+earlier answer ready to change), Tab completes a choice, Ctrl-C stops. A protection that could lock you out gets an amber frame with Apply and Skip buttons.
+Everything is drawn in place: when you move on, the block is erased and the next one drawn, so the screen never fills up.
 
-Only a real terminal gets this. Anything else (a pipe, NO_COLOR, --yes, the tests) uses `PlainPrompter`, the plain text the wizard always printed.
+Typing is handled here, not by the terminal's line editor, so a hidden answer shows dots (you can see it was accepted), pasting works even when the terminal wraps
+the paste in escape sequences, and the arrow keys can mean "previous question".
+
+Only a real terminal gets this. Anything else (a pipe, NO_COLOR, --yes, the tests) gets the plain text the wizard always printed.
 The terminal is drawn on standard output with plain ANSI sequences; nothing here needs a library.
 """
-import getpass
 import re
 import shutil
 import sys
 import textwrap
 
-ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 BLUE, BLUE_CHIP, AMBER, AMBER_CHIP = "38;5;75", "48;5;27;38;5;255;1", "38;5;178", "48;5;178;38;5;16;1"
 GREEN, GREEN_BTN, RED, DIM, BOLD = "38;5;41", "48;5;28;38;5;255;1", "38;5;203", "2", "1"
 WINDOW = 4                           # answered questions kept on screen above the active one; the rest are summarised
 BAR = 24
+DOT = "•"
 
 SECTIONS = {"identity": "INSTALL", "server": "SERVER", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
             "access": "ACCESS", "alerts": "ALERTS", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
@@ -31,44 +35,159 @@ def vlen(text):
     return len(strip(text))
 
 
-class PlainPrompter:
-    """The plain-text way: what the wizard printed before the terminal screens existed. `ask(prompt) -> text` is injected so tests can answer."""
+def clean_paste(text):
+    """Pasted text with the terminal's own wrapping (bracketed-paste markers and any other escape sequence), line breaks and control characters removed."""
+    return re.sub(r"[\x00-\x1f\x7f]", "", ANSI.sub("", text)).strip()
 
-    def __init__(self, ask=input, say=print):
-        self._ask, self.say = ask, say
 
-    def begin(self, total, title=""):
-        pass
+class Editor:
+    """One line of text being edited. Pure logic: feed it key events, read `.text`. Events are the names Keyboard produces."""
 
-    def finish(self):
-        pass
+    def __init__(self, text="", secret=False, options=None):
+        self.buf, self.secret, self.options = list(text), secret, list(options or [])
+        self.pos = len(self.buf)
 
-    def ask(self, q, default, options, problem=None, shown=""):
-        self.say(f"\n{q['title']}")
-        self.say(f"  {q['why']}")
-        if options:
-            self.say("  Choices: " + ", ".join(options))
-        if problem:
-            self.say(f"  That did not work: {problem}")
-        return self._ask(f"  [{shown}] " if shown else "  ").strip()
+    @property
+    def text(self):
+        return "".join(self.buf)
 
-    def answered(self, q, shown):
-        pass
+    def shown(self):
+        return DOT * len(self.buf) if self.secret else self.text
 
-    def protection(self, info):
-        self.say(f"\n{info['title']}\n  {info['why']}\n  Risk: {info['risk']}\n  Now: {info['now']}\n  Steps:")
-        for s in info["steps"]:
-            self.say("    " + s.replace("\n", "\n    "))
-        return self._ask(f"\n  Apply {info['id']}? [y/N] ").strip().lower() == "y"
+    def insert(self, s):
+        self.buf[self.pos:self.pos] = list(s)
+        self.pos += len(s)
+
+    def complete(self):
+        word = self.text.strip().lower()
+        hits = [o for o in self.options if o.lower().startswith(word)] if word else []
+        if len(hits) == 1:
+            self.buf, self.pos = list(hits[0]), len(hits[0])
+        elif hits:
+            common = hits[0]
+            for h in hits[1:]:
+                while not h.lower().startswith(common.lower()):
+                    common = common[:-1]
+            self.buf, self.pos = list(common), len(common)
+
+    def feed(self, ev):
+        """None to keep editing, or ('answer', text) / ('back',)."""
+        if isinstance(ev, tuple) and ev[0] == "paste":
+            self.insert(clean_paste(ev[1]))
+        elif ev in ("enter", "down"):
+            return ("answer", self.text)
+        elif ev in ("up", "shift-tab"):
+            return ("back", self.text)               # what was typed so far goes with it, so it is still there when the person comes back
+        elif ev == "ctrl-c":
+            raise KeyboardInterrupt
+        elif ev == "backspace":
+            if self.pos:
+                del self.buf[self.pos - 1]
+                self.pos -= 1
+        elif ev == "delete":
+            if self.pos < len(self.buf):
+                del self.buf[self.pos]
+        elif ev == "left":
+            self.pos = max(0, self.pos - 1)
+        elif ev == "right":
+            self.pos = min(len(self.buf), self.pos + 1)
+        elif ev in ("home", "ctrl-a"):
+            self.pos = 0
+        elif ev in ("end", "ctrl-e"):
+            self.pos = len(self.buf)
+        elif ev == "ctrl-u":
+            self.buf, self.pos = [], 0
+        elif ev == "ctrl-w":
+            end = self.pos
+            while self.pos and self.buf[self.pos - 1] == " ":
+                self.pos -= 1
+            while self.pos and self.buf[self.pos - 1] != " ":
+                self.pos -= 1
+            del self.buf[self.pos:end]
+        elif ev == "tab":
+            self.complete()
+        elif isinstance(ev, str) and len(ev) == 1 and ev.isprintable():
+            self.insert(ev)
+        return None
+
+
+class Keyboard:
+    """Reads key events from a real terminal: single characters, and the names 'enter', 'backspace', 'delete', 'tab', 'shift-tab', 'up', 'down', 'left', 'right',
+    'home', 'end', 'esc', 'ctrl-a/e/u/w/c', and ('paste', text) for a bracketed paste. Holds the terminal in cbreak mode (no echo, no line buffering, Ctrl-C still works)."""
+
+    def __init__(self, fd=None):
+        self.fd, self.old = fd, None
+
+    def __enter__(self):
+        import termios
+        import tty
+        self.fd = self.fd if self.fd is not None else sys.stdin.fileno()
+        self.old = termios.tcgetattr(self.fd)
+        tty.setcbreak(self.fd)
+        return self
+
+    def __exit__(self, *exc):
+        import termios
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+
+    def _wait(self, t):
+        import select
+        return bool(select.select([self.fd], [], [], t)[0])
+
+    def _byte(self):
+        import os
+        b = os.read(self.fd, 1)
+        if not b:
+            raise EOFError("the terminal was closed")
+        return b
+
+    def _char(self, first):
+        n = 0 if first[0] < 0xC0 else 1 if first[0] < 0xE0 else 2 if first[0] < 0xF0 else 3
+        rest = b"".join(self._byte() for _ in range(n))
+        return (first + rest).decode("utf-8", "replace")
+
+    def read(self):
+        b = self._byte()
+        if b == b"\x1b":
+            return self._escape()
+        simple = {b"\r": "enter", b"\n": "enter", b"\t": "tab", b"\x7f": "backspace", b"\x08": "backspace", b"\x03": "ctrl-c", b"\x01": "ctrl-a", b"\x05": "ctrl-e",
+                  b"\x15": "ctrl-u", b"\x17": "ctrl-w"}
+        if b in simple:
+            return simple[b]
+        return self._char(b)
+
+    def _escape(self):
+        if not self._wait(0.05):
+            return "esc"
+        b = self._byte()
+        if b == b"O":
+            return {b"A": "up", b"B": "down", b"C": "right", b"D": "left", b"H": "home", b"F": "end"}.get(self._byte(), "esc")
+        if b != b"[":
+            return "esc"
+        params = b""
+        while True:
+            c = self._byte()
+            if 0x40 <= c[0] <= 0x7E:
+                break
+            params += c
+        key = params.decode() + c.decode()
+        if key == "200~":
+            return ("paste", self._paste())
+        return {"A": "up", "B": "down", "C": "right", "D": "left", "H": "home", "F": "end", "Z": "shift-tab", "3~": "delete", "1~": "home", "7~": "home", "4~": "end", "8~": "end"}.get(key, "esc")
+
+    def _paste(self):
+        data = b""
+        while not data.endswith(b"\x1b[201~") and self._wait(2.0):
+            data += self._byte()
+        return data[:-6].decode("utf-8", "replace")
 
 
 class TuiPrompter:
-    def __init__(self, ask=input, secret=getpass.getpass, out=None, width=None, rows=None, keys=None, color=True):
-        self._ask, self._secret, self.out = ask, secret, out or sys.stdout
-        self._width, self._rows, self._keys, self.color = width, rows, keys, color
-        self.total, self.title, self.done, self.items = 0, "", 0, []
+    def __init__(self, out=None, width=None, rows=None, keys=None, color=True):
+        self.out, self._width, self._rows, self._keys, self.color = out or sys.stdout, width, rows, keys, color
+        self.title, self.review, self.rawtext = "cw-setup", None, {}
         self.row = 0                           # lines from the top of the block being drawn to the cursor
-        self.messages = []
+        self._kb = None
 
     # ---- drawing helpers ----
     def sgr(self, text, *codes):
@@ -101,21 +220,47 @@ class TuiPrompter:
     def rail(self, text="", code=BLUE):
         return self.sgr("┃ ", code) + text
 
-    # ---- the progress bar and the answered questions ----
-    def begin(self, total, title="cw-setup"):
-        self.total, self.title, self.done, self.items = total, title, 0, []
+    def begin(self, total=0, title="cw-setup"):
+        self.title = title
 
-    def progress(self):
-        n = round(BAR * self.done / self.total) if self.total else 0
+    # ---- keys ----
+    def event(self):
+        if self._keys is not None:
+            return next(self._keys)
+        return self._kb.read()
+
+    def listening(self):
+        """Hold the terminal for key events (and ask it to mark pastes) while a screen is up. A no-op when keys are injected."""
+        outer = self
+
+        class Ctx:
+            def __enter__(self):
+                if outer._keys is None:
+                    outer._kb = Keyboard().__enter__()
+                    outer.write("\x1b[?2004h")
+                return self
+
+            def __exit__(self, *exc):
+                if outer._keys is None and outer._kb is not None:
+                    outer.write("\x1b[?2004l")
+                    outer._kb.__exit__(*exc)
+                    outer._kb = None
+        return Ctx()
+
+    # ---- the progress bar and the answered questions ----
+    def progress(self, pos, total):
+        n = round(BAR * pos / total) if total else 0
         bar = (self.sgr("━" * (n - 1) + "╸", BLUE) if n else "") + self.sgr("─" * (BAR - n), DIM)
         left = " " + self.sgr(self.title, BOLD)
-        right = bar + self.sgr(f"  {min(self.done, self.total)} of {self.total}", DIM)
+        right = bar + self.sgr(f"  {min(pos, total)} of {total} done", DIM)
         return left + " " * max(2, self.width - vlen(left) - vlen(right)) + right
 
-    def answered_lines(self, everything=False):
-        shown = self.items if everything else self.items[-WINDOW:]
+    def answered_lines(self, items, everything=False, limit=None):
+        shown = items if everything else items[-WINDOW:]
+        if limit is not None and len(shown) > limit:
+            shown = shown[-limit:]
         out = []
-        hidden = len(self.items) - len(shown)
+        hidden = len(items) - len(shown)
         if hidden:
             out.append(self.rail(self.sgr(f"… {hidden} earlier answer{'s' if hidden != 1 else ''}", DIM)))
         for label, value in shown:
@@ -123,75 +268,120 @@ class TuiPrompter:
             out.append(self.rail(self.sgr("✓ ", GREEN) + self.sgr(label.ljust(24), DIM) + (value if len(value) <= room else value[:room - 1] + "…")))
         return out
 
-    def answered(self, q, shown):
-        self.done += 1
-        self.items.append((q.get("label", q["key"]), "set" if q.get("secret") else (shown or "(none)")))
+    def controls(self, can_back, options):
+        parts = ([("↑", "back")] if can_back else []) + [("Enter", "next")] + ([("Tab", "completes")] if options else []) + [("Ctrl-C", "stop")]
+        return self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in parts))
+
+    def choice_lines(self, q, current):
+        rows, width = q["choices"], self.width - 4
+        name_w = max(len(v) for v, _ in rows)
+        out = []
+        for n, (value, desc) in enumerate(rows, 1):
+            on = value == current
+            lead = self.sgr("▸ " if on else "  ", GREEN) + self.sgr(f"{n} ", DIM) + (self.sgr(value.ljust(name_w), BOLD) if on else value.ljust(name_w)) + "  "
+            lines = textwrap.wrap(desc, max(20, width - name_w - 8)) or [""]
+            out.append(self.rail(lead + self.sgr(lines[0], DIM)))
+            out += [self.rail(" " * (name_w + 6) + self.sgr(line, DIM)) for line in lines[1:]]
+        return out
 
     # ---- a question ----
-    def ask(self, q, default, options, problem=None, shown=""):
+    def ask(self, q, default, options, problem=None, shown="", view=None):
+        """Show one question and read its answer. Returns ('answer', text) or ('back', text typed so far). `view` carries the answered items, the position, and the text to prefill."""
+        view = view or {}
+        items, pos, total = view.get("items", []), view.get("pos", 0), view.get("total", 1)
+        can_back, prefill = view.get("can_back", False), view.get("prefill") or ""
         self.erase()
         w = self.width - 4
         section = SECTIONS.get(q["key"].partition(".")[0], "SETUP")
-        head = [self.progress(), ""] if self.total else []
-        head += self.answered_lines() + ([self.rail()] if self.items else [])
-        head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + self.sgr(f"  {min(self.done + 1, self.total)} of {self.total}", DIM) if self.total else self.sgr(f" {section} ", BLUE_CHIP)),
-                 self.rail(), self.rail(self.sgr(q["title"], BOLD))]
+        head = [self.progress(pos, total), ""]
+        head += self.answered_lines(items) + ([self.rail()] if items else [])
+        head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + self.sgr(f"  {pos + 1} of {total}", DIM)), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
         head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)]
-        if options:
-            head.append(self.rail(self.sgr("Choices: " + ", ".join(options), DIM)))
+        if q.get("choices"):
+            head += [self.rail()] + self.choice_lines(q, (prefill or shown or "").strip())
         if problem:
-            head.append(self.rail(self.sgr("That did not work: " + problem, RED)))
+            head += [self.rail(), self.rail(self.sgr("That did not work: " + problem, RED))]
         head.append(self.rail())
-        hint = ("Enter keeps: " + shown) if shown else ("needs an answer" if q.get("required") else "Enter to skip")
-        tail = [self.rail(self.sgr("─" * min(44, w), DIM)), self.rail(self.sgr(hint, DIM))]
-        self.emit(head + [self.rail()] + tail)             # the empty rail line is where the answer is typed; the underline and hint sit below it
-        self.write("\x1b[3A\r")
-        self.row -= 3
-        secret = bool(q.get("secret"))
-        text = (self._secret if secret else self._ask)(self.prompt(wrap=not secret))
-        self.row += 1
-        return (text or "").strip()
+        hint = ("Enter keeps: " + shown) if shown else ("this one needs an answer" if q.get("required") else "Enter leaves it empty")
+        if q.get("choices"):
+            hint = "Type a name or its number" + (f" · Enter keeps: {shown}" if shown else "")
+        tail = [self.rail(self.sgr("─" * min(44, w), DIM)), self.rail(self.sgr(hint, DIM)), self.controls(can_back, options), ]
+        self.emit(head + [self.rail()] + tail)             # the empty rail line is where the answer is typed; the underline, hint and keys sit below it
+        self.write(f"\x1b[{len(tail) + 1}A\r")
+        self.row -= len(tail) + 1
+        editor = Editor(prefill, secret=bool(q.get("secret")), options=options)
+        with self.listening():
+            self.draw_input(editor, shown if not q.get("secret") else "")
+            while True:
+                result = editor.feed(self.event())
+                self.draw_input(editor, shown if not q.get("secret") else "")
+                if result is None:
+                    continue
+                if result[0] == "back" and not can_back:
+                    continue
+                return result
 
-    def prompt(self, wrap):
-        """The input prompt. readline needs the colour codes wrapped in \\x01 and \\x02 so it can tell how wide the prompt is; getpass must not get them."""
-        o, c = ("\x01", "\x02") if wrap else ("", "")
-        return f"{o}\x1b[{BLUE}m{c}┃ {o}\x1b[0m{c}{o}\x1b[{BOLD};{BLUE}m{c}❯ {o}\x1b[0m{c}"
+    def draw_input(self, editor, placeholder):
+        avail = self.width - 5
+        text, pos = editor.shown(), editor.pos
+        start = max(0, pos - avail + 1) if len(text) > avail else 0
+        window = text[start:start + avail]
+        body = self.sgr(window, BOLD) if window else self.sgr(placeholder[:avail], DIM)
+        line = self.sgr("┃ ", BLUE) + self.sgr("❯ ", BLUE, BOLD) + body
+        col = 4 + (pos - start)
+        self.write("\r\x1b[2K" + line + "\r" + (f"\x1b[{col}C" if col else ""))
+
+    def confirm(self, items, total, message):
+        """The last screen before anything happens: every answer, then Enter to go on or the up arrow to change one. Returns 'go' or 'back'."""
+        self.erase()
+        room = max(3, self.rows - 9)                       # the block must fit on the screen, or it could not be redrawn
+        keys = self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in (("Enter", "start"), ("↑", "change an answer"), ("Ctrl-C", "stop"))))
+        lines = [self.progress(total, total), ""] + self.answered_lines(items, everything=True, limit=room) + [self.rail(), self.rail(self.sgr(message, BOLD)), self.rail(), keys]
+        with self.listening():
+            self.emit(lines)
+            while True:
+                k = self.event()
+                if k == "ctrl-c":
+                    self.erase()
+                    raise KeyboardInterrupt
+                if k in ("enter",):
+                    self.erase()
+                    return "go"
+                if k in ("up", "shift-tab"):
+                    self.erase()
+                    return "back"
 
     def finish(self):
-        """Leave the progress bar and every answer on screen as a short review."""
+        """Leave the progress bar and every answer on screen as a short review (the last set of answers a question flow produced)."""
         self.erase()
-        if self.total or self.items:
-            self.emit(([self.progress(), ""] if self.total else []) + self.answered_lines(everything=True))
-            self.emit([""])
-        self.row = 0
+        if self.review:
+            items, total = self.review
+            self.emit([self.progress(total, total), ""] + self.answered_lines(items, everything=True) + [""])
+        self.review, self.row = None, 0
 
     # ---- a protection: the amber frame ----
-    def key(self):
-        if self._keys:
-            return next(self._keys)
-        return read_key()
-
     def protection(self, info):
         """Show the amber card and let the person choose Apply or Skip. Returns True to apply. Left/right choose, Enter confirms, y/n answer at once, s toggles the steps."""
         self.erase()
         choice, full = 0, False
-        while True:
-            self.emit(self.card(info, choice, full))
-            k = self.key()
-            if k == "ctrl-c":
+        with self.listening():
+            while True:
+                self.emit(self.card(info, choice, full))
+                k = self.event()
                 self.erase()
-                raise KeyboardInterrupt
-            self.erase()
-            if k in ("y",):
-                return True
-            if k in ("n",):
-                return False
-            if k == "enter":
-                return choice == 0
-            if k in ("left", "right", "tab"):
-                choice = 1 - choice
-            elif k == "s":
-                full = not full
+                if k == "ctrl-c":
+                    raise KeyboardInterrupt
+                key = k.lower() if isinstance(k, str) else k
+                if key == "y":
+                    return True
+                if key == "n":
+                    return False
+                if key == "enter":
+                    return choice == 0
+                if key in ("left", "right", "tab", "shift-tab"):
+                    choice = 1 - choice
+                elif key == "s":
+                    full = not full
 
     def card(self, info, choice, full):
         inner = self.width - 4
@@ -201,7 +391,7 @@ class TuiPrompter:
         top = a("╭─ ") + self.sgr(title, AMBER, BOLD) + a(" " + "─" * max(1, inner - len(title) - len(tag) - 4) + " ") + self.sgr(tag, AMBER) + a(" ─╮")
 
         def row(text=""):
-            return a("│") + " " + text + " " * max(0, inner - vlen(text) - 0) + " " + a("│")
+            return a("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + a("│")
         lines = [top, row()]
         lines.append(row(self.sgr(info["title"], BOLD)))
         for t in textwrap.wrap(info["why"], inner - 2):
@@ -231,29 +421,10 @@ class TuiPrompter:
         return lines
 
 
-def read_key():
-    """One key press from a real terminal: 'left', 'right', 'enter', 'tab', 'ctrl-c' or the character itself."""
-    import os
-    import select
-    import termios
-    import tty
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = os.read(fd, 1).decode("utf-8", "replace")
-        if ch == "\x1b":
-            rest = os.read(fd, 2).decode("utf-8", "replace") if select.select([fd], [], [], 0.05)[0] else ""
-            return {"[C": "right", "[D": "left"}.get(rest, "esc")
-        return {"\r": "enter", "\n": "enter", "\t": "tab", "\x03": "ctrl-c"}.get(ch, ch.lower())
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-def make(ask=input, interactive=True, stream=None):
+def make(interactive=True, stream=None):
     """The terminal screens on a real terminal with colour; None everywhere else (the wizard then prints the plain text it always did)."""
     from .. import ui
     stream = stream or sys.stdout
     if interactive and getattr(stream, "isatty", lambda: False)() and ui._color_on(stream) and sys.stdin.isatty():
-        return TuiPrompter(ask=ask, out=stream)
+        return TuiPrompter(out=stream)
     return None

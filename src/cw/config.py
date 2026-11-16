@@ -109,7 +109,7 @@ def _path(v):
 
 def _url(v):
     if not isinstance(v, str) or not re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/%-]*)?", v):
-        return None, "must be an https:// address with no spaces or query"
+        return None, "must start with https:// and have no spaces or ?query (for example https://ntfy.sh/your-private-topic)"
     return v, None
 
 
@@ -204,7 +204,6 @@ SCHEMA = {
         "capacity": (None, _int(1, 64), "capacity points the running jobs may add up to (a heavy job takes 4)"),
         "max_load": (None, _num(0.1, 1000), "do not start a job above this 1-minute load average"),
         "max_temp_c": (None, _int(40, 110), "do not start a job when the hottest core is above this"),
-        "thermal": ("none", _enum("none", "lm-sensors", "apple-smc"), "which temperature and fan support to enable"),
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),

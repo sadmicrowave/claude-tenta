@@ -74,7 +74,7 @@ class QuestionTests(unittest.TestCase):
         self.assertEqual(missing, [])
         self.assertEqual(nested["server"]["admin_user"], "me")
         self.assertEqual(nested["server"]["worker_user"], "cwworker")
-        self.assertTrue(any("Choices:" in s for s in said))
+        self.assertTrue(any("old-laptop" in s and "workstation" not in s for s in said))          # a choice is listed with its number and meaning
 
     def test_a_bad_typed_answer_is_asked_again_with_the_reason(self):
         said, answers = [], iter(["BAD NAME", "me"])

@@ -73,6 +73,7 @@ cw-setup client | server | audit
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
+  demo      try the question and protection screens with sample questions; nothing is saved or changed
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
 

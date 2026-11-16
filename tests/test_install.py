@@ -162,25 +162,38 @@ class HappyPath(InstallBase):
 
 class WithTheScreen(InstallBase):
     def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
-        from test_tui import prompter
+        from test_tui import prompter, typed
         from cw.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
-        answers = ["worker.example", "admin", "", "", "someone"] + [""] * (total - 5)          # the connection questions first, then the rest; Enter keeps each default
-        ui, term = prompter(answers)
+        events = typed("worker.example", "admin", "") + typed("", "", "someone") + typed(*[""] * (total - 6)) + ["enter"]       # the connection questions, the rest, then Enter on the review
+        ui, term = prompter(events)
         inst = install.Installer(self.tmp, ssh_factory=lambda h, u, p: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=False, ask=None, ui=ui,
                                  repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None, verify=lambda cfg: True, home=self.tmp / "client-home",
                                  archive=lambda src: (b"TARDATA", "a" * 40, False))
         inst.run_all()
         screen = term.screen.text()
         self.assertIn("cw-setup install", screen)
-        self.assertIn(f"{total} of {total}", screen)
+        self.assertIn(f"{total} of {total} done", screen)
         for label, value in (("Server address", "worker.example"), ("Admin account", "admin"), ("GitHub account", "someone")):
             self.assertRegex(screen, rf"✓ {label}\s+{value}")
         self.assertEqual(len([ln for ln in screen.splitlines() if "✓" in ln]), total)
-        # the server's facts and the connection note were held back until the questions were finished, then printed
         said = "\n".join(self.said)
         self.assertIn("Operating system", said)
         self.assertIn("connected to the server", said)
+        self.assertEqual(len(self.ssh.popen_calls), 1)
+
+    def test_stepping_back_from_the_first_other_question_returns_to_the_connection_questions(self):
+        from test_tui import prompter, typed
+        from cw.setup import questions
+        total = questions.count_to_ask(("client", "server"), {})
+        # answer the three connection questions, press up on the next question (back to the connection pass), keep the three (Enter, Enter, Enter), then finish
+        events = typed("worker.example", "admin", "") + ["up"] + ["enter", "enter", "enter"] + typed("", "", "someone") + typed(*[""] * (total - 6)) + ["enter"]
+        ui, term = prompter(events)
+        inst = install.Installer(self.tmp, ssh_factory=lambda h, u, p: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=False, ask=None, ui=ui,
+                                 repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None, verify=lambda cfg: True, home=self.tmp / "client-home",
+                                 archive=lambda src: (b"TARDATA", "a" * 40, False))
+        inst.run_all()
+        self.assertEqual(len([c for c in self.ssh.calls if c == "true"]), 2)            # it connected again after the person went back
         self.assertEqual(len(self.ssh.popen_calls), 1)
 
     def test_without_a_terminal_nothing_changes_in_what_is_printed(self):

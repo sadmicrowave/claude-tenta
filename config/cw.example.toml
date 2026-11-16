@@ -32,7 +32,6 @@ profile = "small-server"        # old-laptop | small-server | workstation | cust
 capacity = 4                    # capacity points running jobs may add up to (a heavy job takes 4)
 max_load = 3.0                  # do not start a job above this 1-minute load average
 max_temp_c = 75                 # do not start a job when the hottest core is above this
-thermal = "none"                # none | lm-sensors | apple-smc
 
 [isolation]
 require_netns = true            # refuse to run a no-network job if the machine cannot isolate it. Leave on.

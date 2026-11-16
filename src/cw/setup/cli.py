@@ -4,6 +4,7 @@
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
+  demo      try the question and protection screens with sample questions; nothing is saved or changed
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
 
@@ -20,7 +21,7 @@ from ..client.repo import ClientError
 from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
 from . import audit as audit_mod
-from . import questions, tui
+from . import hardening, questions, tui
 from .client import ClientSetup
 from .host import Host
 from .install import Installer, default_verify, deliver_source, remove_remote_dir
@@ -55,7 +56,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="cw-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -77,6 +78,22 @@ def build_parser():
 def default_repos(cfg):
     from ..client.repo import ClientRepos
     return ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+
+
+def demo(ui, say):
+    """The question screens (with the same keys as the real thing: Enter, the up arrow to go back, Tab) and both kinds of protection frame, on sample content."""
+    ui.begin(title="cw-setup demo")
+    asked = {"hardware.profile", "network.ipv6", "alerts.kind", "alerts.url", "updates.mode"}
+    questions.collect(("client", "server"), ui=ui, only=asked, confirm="That was the question screens. Continue to the protection screens?")
+    ui.finish()
+    samples = [("ssh-keys-only", ["write /etc/ssh/sshd_config.d/10-example.conf (mode 644):\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n    PermitRootLogin no", "sshd -t", "systemctl reload ssh"],
+                "password logins are on"),
+               ("unattended-upgrades", ["apt-get install -y unattended-upgrades", "write /etc/apt/apt.conf.d/20auto-upgrades (mode 644):\n    APT::Periodic::Update-Package-Lists \"1\";"], "not installed")]
+    for i, (mid, steps, now) in enumerate(samples, 1):
+        mod = hardening.MODULES[mid]
+        chose = ui.protection({"id": mod.id, "title": mod.title, "why": mod.why, "risk": mod.risk, "now": now, "steps": steps, "lockout": mod.lockout, "index": i, "total": len(samples)})
+        say(f"  You chose {'Apply' if chose else 'Skip'} for: {mod.title}")
+    say("\n  That is everything the wizard shows. Nothing was saved or changed.\n")
 
 
 def uninstall_command(a, host, ask, ssh_factory, say):
@@ -136,7 +153,7 @@ def finish(a, report, dry):
     return 0
 
 
-def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, **overrides):
+def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, screen=None, **overrides):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("help", "-h", "--help"):
         print(__doc__)
@@ -156,6 +173,13 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             cfg = config.load()
             rows, bad = audit_mod.run(host, cfg, say=say)
             return 1 if bad else 0
+        if a.cmd == "demo":
+            ui = screen or tui.make(interactive=True)
+            if ui is None:
+                emit("The demo needs a real terminal", "It draws screens and reads keys, so it cannot run in a pipe or with NO_COLOR set.", tag="ERROR", color=RED)
+                return 2
+            demo(ui, say)
+            return 0
         if a.cmd == "uninstall":
             return uninstall_command(a, host, ask, ssh_factory, say)
         given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}
@@ -163,7 +187,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             from ..admin.ssh import Ssh
             interactive = not a.yes and sys.stdin.isatty()
             inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
-                             ui=tui.make(ask=ask, interactive=interactive),
+                             ui=tui.make(interactive=interactive),
                              use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,
                              verify=None if (a.no_test or a.dry_run) else (verify or (lambda cfg: default_verify(cfg, say=say))))
             report = inst.run_all()
@@ -173,7 +197,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         dry = not a.apply if a.cmd == "server" else a.dry_run
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
-                                ui=tui.make(ask=ask, interactive=interactive),
+                                ui=tui.make(interactive=interactive),
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
@@ -181,7 +205,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
-                                ui=tui.make(ask=ask, interactive=interactive))
+                                ui=tui.make(interactive=interactive))
         report = setup.run_all()
     except questions.WizardError as e:
         emit("Those answers cannot be used", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
