@@ -239,6 +239,7 @@ SCHEMA = {
         "step_s": (10, _int(5, 600), "seconds between passes that start queued jobs"),
         "canary_s": (30, _int(10, 3600), "seconds between checks of the decoy credential files"),
         "update_min": (15, _int(5, 1440), "minutes between checks for a new signed release (when updates.mode is signed-tags)"),
+        "registry_sync_min": (5, _int(1, 1440), "minutes between checks for a job registry you approved (signed) from your own computer"),
     },
     "updates": {
         "mode": ("manual", _enum("manual", "signed-tags"), "manual = you apply; signed-tags = install only tags signed by your key"),

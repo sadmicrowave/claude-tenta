@@ -12,10 +12,12 @@ Safety rules kept here:
   * The sudoers file is checked with visudo before it is installed, and is never installed unchecked.
   * Files that the new release no longer has are removed from <code>/lib/cw, so a renamed module cannot leave stale code behind.
 """
+import json
 import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -182,7 +184,7 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
     return report
 
 
-def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=print):
+def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=print, user_text=None):
     """Compose and install the job registry the worker will trust: the packs the configuration names (installed by root under
     <config>/packs) plus YOUR classes, limits and profiling rules from registry.yaml on the main branch of the queue repository.
 
@@ -193,8 +195,8 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
     nothing when anything is wrong. `run(argv) -> (returncode, output)`."""
     from . import packs, registry
     worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
-    dest, text = _dest(prefix, cfg.path("registry")), None
-    if _dest(prefix, clone + "/.git").exists():
+    dest, text = _dest(prefix, cfg.path("registry")), user_text
+    if user_text is None and _dest(prefix, clone + "/.git").exists():             # user_text: already fetched and signature-checked by registry_sync; nothing is fetched again
         as_worker = ["runuser", "-u", worker, "--", "git", "-C", clone]
         rc, msg = run(as_worker + ["fetch", "--quiet", "origin", main_branch])
         empty = rc != 0 and "couldn't find remote ref" in msg           # a brand-new repository with nothing pushed yet is not an error
@@ -237,6 +239,48 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
         _write_atomic(dest.with_name(dest.name + ".previous"), dest.read_bytes(), 0o644)
     _write_atomic(dest, composed, 0o644)
     return "updated" if existed else "bootstrapped"
+
+
+REGISTRY_MARK = "registry.source"           # <config>/registry.source: the digest and time of the signed registry.yaml that is installed
+
+
+def registry_sync(cfg, *, run=None, install_packages=None, now=time.time, out=print, prefix="/"):
+    """Install the registry the administrator approved from their own computer, with no login to this worker. Run as root by a timer.
+
+    Nothing from the queue repository is trusted by itself: the registry.yaml on its main branch is installed only when a signature over exactly that text, made
+    with the approver key this worker was set up with, sits on the approvals branch, and is no older than the registry already installed. The text that was
+    checked is the text that is installed (it is not fetched twice). Returns (status text, ok); ok is False only for something worth a failed unit."""
+    from . import approvals
+    run = run or real_run
+    worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
+    signers = _dest(prefix, cfg.path("approvers"))
+    if not signers.is_file():
+        return "no approver key is installed, so signed registry updates are off", True
+    if not _dest(prefix, clone + "/.git").exists():
+        return "the queue repository has not been cloned yet", True
+    as_worker = ["runuser", "-u", worker, "--", "git", "-C", clone]
+    rc, msg = run(as_worker + ["fetch", "--quiet", "origin", "+refs/heads/*:refs/remotes/origin/*"])
+    if rc:
+        return f"could not fetch the queue repository: {msg.strip()[:160]}", True
+    rc, text = run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
+    if rc:
+        return "there is no registry.yaml on the queue repository", True
+    rc, signed = run(as_worker + ["show", f"origin/{approvals.BRANCH}:{approvals.REGISTRY_PATH}"])
+    if rc:
+        return "no signed registry has been published yet", True
+    mark_path = _dest(prefix, f"{cfg.paths.config}/{REGISTRY_MARK}")
+    try:
+        mark = json.loads(mark_path.read_text())
+    except (OSError, ValueError):
+        mark = {}
+    ok, why, rec = approvals.check_registry(signed, text, signers, now=now(), not_before=int(mark.get("issued", 0)))
+    if not ok:
+        return f"refused: {why}", False
+    if mark.get("sha256") == rec["sha256"] and _dest(prefix, cfg.path("registry")).exists():
+        return "up to date", True
+    result = install_registry(cfg, None, run=run, prefix=prefix, install_packages=install_packages, out=out, user_text=text)
+    _write_atomic(mark_path, json.dumps({"sha256": rec["sha256"], "issued": rec["issued"]}), 0o644)
+    return f"installed the signed registry ({result})", True
 
 
 def real_run(argv):
@@ -333,12 +377,16 @@ def real_sysctl(*args):
 
 
 def main(argv=None):
-    """python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit>      (run as root)"""
+    """python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync      (run as root)"""
     from . import config, sandboxtest
     argv = list(sys.argv[1:] if argv is None else argv)
-    usage = "usage: python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit>"
+    usage = "usage: python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync"
     try:
         cfg = config.load()
+        if argv == ["--registry-sync"]:
+            status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
+            print(f"registry-sync: {status}", file=sys.stdout if ok else sys.stderr)
+            return 0 if ok else 1
         if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):
             src, rev, label = fetch_release(cfg, verified=argv[0] == "--verified", rev=argv[1] if len(argv) == 2 else None)
             print(f"installing {label} ({rev[:9]})")

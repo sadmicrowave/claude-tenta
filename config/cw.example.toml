@@ -62,6 +62,7 @@ fetch_s = 30                    # seconds between checks of the queue repo for n
 step_s = 10                     # seconds between passes that start queued jobs
 canary_s = 30                   # seconds between checks of the decoy credential files
 update_min = 15                 # minutes between checks for a new signed release (updates.mode = "signed-tags")
+registry_sync_min = 5           # minutes between checks for a job registry you approved (signed) from your own computer
 
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key

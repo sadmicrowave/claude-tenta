@@ -74,6 +74,7 @@ def build_parser():
         s.add_argument("--no-test", action="store_true")
         s.add_argument("--advanced", action="store_true")
         s.add_argument("--no-banner", action="store_true")
+        s.add_argument("--verbose", action="store_true", help="on a terminal, also show the raw commands the setup runs")
         s.add_argument("--here", action="store_true")
         s.add_argument("--keep-data", action="store_true")
         s.add_argument("--remove-account", action="store_true")
@@ -199,7 +200,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             if screen_ is not None and not a.no_banner:
                 screen_.banner("install preview" if a.dry_run else "install")
             inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
-                             ui=screen_, advanced=a.advanced,
+                             ui=screen_, advanced=a.advanced, verbose=a.verbose,
                              use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,
                              verify=None if (a.no_test or a.dry_run) else (verify or (lambda cfg: default_verify(cfg, say=say))))
             with (screen_.session() if screen_ is not None else contextlib.nullcontext()):
@@ -215,7 +216,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
                                 claude_secrets=config.read_env_file(a.secrets_file) if a.secrets_file else None,
-                                approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None), ui=screen_, advanced=a.advanced,
+                                approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None), verbose=a.verbose, ui=screen_, advanced=a.advanced,
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
@@ -223,7 +224,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
-                                ui=screen_, advanced=a.advanced,
+                                ui=screen_, advanced=a.advanced, verbose=a.verbose,
                                 confirm_card=(screen_.protection if screen_ is not None else
                                               ((lambda info: ask(f"  {info['title']}? [y/N] ").strip().lower() == "y") if interactive else None)),
                                 **({"scripts_dir": overrides.pop("scripts_dir")} if "scripts_dir" in overrides else {}))

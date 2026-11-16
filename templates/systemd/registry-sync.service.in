@@ -1,0 +1,11 @@
+[Unit]
+Description={{name}} registry sync (installs the job registry you approved from your own computer, only if its signature checks)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=20min
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+ExecStart=/usr/bin/python3 -m cw.update --registry-sync

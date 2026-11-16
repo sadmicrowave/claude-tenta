@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .. import approvals, config, render, update
 from . import detect as detect_mod
-from . import hardening, questions, toml_out
+from . import hardening, questions, report, toml_out
 
 
 class SetupError(Exception):
@@ -80,13 +80,14 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, verbose=False):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
         self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
         self.advanced = advanced
+        self.r = report.Styler(styled=ui is not None, verbose=verbose)          # prints notes, headings and commands in the setup's style (plain text without a terminal)
         self.approver_pubkey = approver_pubkey          # the administrator's approval PUBLIC key: lets this worker check approvals signed on their own computer
         self.claude_secrets = claude_secrets or {}          # {KEY: value} handed over by the installer on the administrator's computer, so nothing is asked here
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
@@ -98,12 +99,14 @@ class ServerSetup:
     # ---- helpers ----
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
-        self.say(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+        self.say(self.r.note(status, step, detail))
 
     def run(self, argv, *, step, as_user=None):
         """Show it, then (unless dry run) run it. Returns the Result; a failure raises SetupError naming the command."""
         argv = ["runuser", "-u", as_user, "--", *argv] if as_user else list(argv)
-        self.say("    $ " + shlex.join(argv))
+        line = self.r.cmd(shlex.join(argv)) if not self.dry_run else "    $ " + shlex.join(argv)
+        if line:
+            self.say(line)
         if self.dry_run:
             from .host import Result
             return Result(0)
@@ -117,7 +120,7 @@ class ServerSetup:
         facts = detect_mod.detect(self.host)
         self.facts = facts
         for what, value in facts.summary():
-            self.say(f"  {what:<22} {value}")
+            self.say(self.r.kv(what, value))
         problem = facts.os_problem()
         if problem:
             raise SetupError("This machine is not supported", problem)
@@ -159,10 +162,13 @@ class ServerSetup:
         public = {sec: {k: v for k, v in vals.items() if not (sec == "alerts" and k == "url")} for sec, vals in nested.items()}
         text = toml_out.dump(public)                              # nothing private is written here: the alert address goes to secrets.env
         path = self.cfg.path("config_file")
-        self.say(f"\n  The configuration, written to {path}:\n")
-        self.say("    " + text.replace("\n", "\n    "))
-        if self.alert_url:
-            self.say("    (the alert address is private, so it is kept in the secrets file, not here)")
+        if self.ui is not None and not self.dry_run:                  # on a terminal the settings are not dumped: the answers were just reviewed, the file is named
+            self.say(self.r.info(f"Your settings are written to {path}; the alert address, if any, is kept in the secrets file instead."))
+        else:
+            self.say(f"\n  The configuration, written to {path}:\n")
+            self.say("    " + text.replace("\n", "\n    "))
+            if self.alert_url:
+                self.say("    (the alert address is private, so it is kept in the secrets file, not here)")
         if not self.dry_run:
             self.host.write(path, text, 0o644)
         self.note("configuration", "planned" if self.dry_run else "written", path)
@@ -431,7 +437,7 @@ class ServerSetup:
     def start_timers(self):
         cfg = self.cfg
         timers = ([cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
-                  + ([cfg.unit("claude-update.timer")] if cfg.claude.auth != "none" else []))
+                  + ([cfg.unit("claude-update.timer")] if cfg.claude.auth != "none" else []) + [cfg.unit("registry-sync.timer")])
         for t in timers:
             self.run(["systemctl", "enable", "--now", t], step="start the timers")
         self.note("timers", "planned" if self.dry_run else "running", ", ".join(timers))
@@ -442,26 +448,26 @@ class ServerSetup:
 
     def run_all(self):
         """Returns the report. Raises SetupError for anything that must stop the wizard (the report so far is in self.report)."""
-        self.say("\nChecking this machine")
+        self.say(self.r.head("Checking this machine"))
         facts = self.preflight()
-        self.say("\nConfiguration")
+        self.say(self.r.head("Configuration"))
         self.configure(facts)
-        self.say("\nAccounts and folders")
+        self.say(self.r.head("Accounts and folders"))
         self.accounts_and_folders()
-        self.say("\nCode")
+        self.say(self.r.head("Code"))
         self.install_code()
         self.remove_legacy_commands()
         self.install_approver()
-        self.say("\nRepository access")
+        self.say(self.r.head("Repository access"))
         pubs = self.deploy_keys()
         if self.clones(pubs):
             return self.report
-        self.say("\nJob registry")
+        self.say(self.r.head("Job registry"))
         self.registry_step()
-        self.say("\nHardening")
+        self.say(self.r.head("Hardening"))
         self.hardening_step()
-        self.say("\nClaude")
+        self.say(self.r.head("Claude"))
         self.claude_step()
-        self.say("\nStarting")
+        self.say(self.r.head("Starting"))
         self.start_timers()
         return self.report

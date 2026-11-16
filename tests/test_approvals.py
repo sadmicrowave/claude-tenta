@@ -63,7 +63,7 @@ class Signing(unittest.TestCase):
 
     def test_the_key_is_good_for_approvals_only_not_for_other_signatures(self):
         """A key listed for approvals must not be accepted for anything else, and the reverse: the file names the namespace."""
-        self.assertIn(f'namespaces="{approvals.NAMESPACE}"', self.signers.read_text())
+        self.assertIn(f'namespaces="{approvals.NAMESPACE},{approvals.REGISTRY_NAMESPACE}"', self.signers.read_text())
         record = "x"
         sig = subprocess.run(["ssh-keygen", "-Y", "sign", "-q", "-f", str(self.d / "key"), "-n", "git"], input=record, capture_output=True, text=True).stdout
         self.assertFalse(approvals.verify(record, sig, self.signers))

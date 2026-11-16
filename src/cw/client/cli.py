@@ -187,7 +187,7 @@ def cmd_result(ctx, a):
     r = ctx.repos
     r.need_setup()
     if a.wait:
-        return wait(ctx, a.id, a.timeout, a.json)
+        return wait(ctx, a.id, a.timeout, a.json, approved=getattr(a, "approved", False))
     r.pull_results()
     res = r.read_result(a.id)
     if res is None:
@@ -515,6 +515,7 @@ def build_parser():
     r.add_argument("--wait", action="store_true", help="keep checking until it finishes")
     r.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     r.add_argument("--json", action="store_true", help="print the result as JSON")
+    r.add_argument("--approved", action="store_true", help=argparse.SUPPRESS)          # cw-admin sets it: the job was just approved, so say "approved" while it waits
     s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
     sp.add_parser("classes", add_help=False)

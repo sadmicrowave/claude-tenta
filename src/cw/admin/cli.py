@@ -171,6 +171,53 @@ def sign_and_publish(ctx, items):
     ctx.repos.push_files(approvals.BRANCH, files, "approve " + ", ".join(j for j, _ in items))
 
 
+def publish_registry(ctx):
+    """Sign the registry.yaml that is on main of the queue repository, here, and publish the signature. The worker's registry-sync timer installs that exact
+    text within minutes, and nothing else: GitHub access alone cannot change what the worker may run. Returns the digest that was signed."""
+    ctx.repos.fetch_queue()
+    text = ctx.repos.show_file(ctx.props.base, "registry.yaml")
+    if text is None:
+        raise ClientError("There is no registry.yaml on main to sign", "Nothing has been merged into your registry yet.", example="cw-admin proposals")
+    import hashlib
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    record = approvals.make_registry_record(digest)
+    try:
+        signature = approvals.sign(record, approval_key(ctx), namespace=approvals.REGISTRY_NAMESPACE)
+    except ValueError as e:
+        raise ClientError("Could not sign the registry", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one cw-setup made? Run: cw-setup install"])
+    ctx.repos.push_files(approvals.BRANCH, {approvals.REGISTRY_PATH: approvals.bundle(record, signature)}, f"registry: approve {digest[:12]}")
+    return digest
+
+
+def wait_for_registry(ctx, name, present, timeout=600, step=10):
+    """Wait (in a terminal) until the worker's published class list shows `name` added (present) or removed. Returns True when it did."""
+    if not ctx.is_tty():
+        return False
+    emit("Waiting for the worker to install it", "It checks about every five minutes. Ctrl-C stops waiting, not the install.", tag="WAITING", color=CYAN)
+    waited = 0
+    while waited <= timeout:
+        ctx.repos.pull_results()
+        info = ctx.repos.registry_info() or {}
+        if (name in (info.get("classes") or {})) == present:
+            return True
+        ctx.sleep(step)
+        waited += step
+    return False
+
+
+def install_registry_change(ctx, a, name=None, present=True):
+    """The last step of adopting or retiring a class, or merging a registry change: signed here when the worker trusts this computer's key (no login at all),
+    otherwise the old way, an install over SSH."""
+    if use_signed(ctx, a):
+        publish_registry(ctx)
+        if name is not None and wait_for_registry(ctx, name, present):
+            emit("Installed on the worker", f"{name} is {'available' if present else 'gone'}. Signed here; no login to {ctx.name} was needed.", tag="DONE", color=GREEN)
+        else:
+            emit("Signed and published", f"{ctx.name} installs it within about five minutes, no login needed.", tag="NEXT", color=CYAN, run_label="Check later", run="cw-run classes")
+        return 0
+    return apply(ctx, argparse.Namespace(rev=None, yes=True, force=True, no_verify=False, full=False, quiet_done=True))
+
+
 def approve_all(ctx, a):
     ready, skipped = jobs.classify(jobs.waiting(ctx.repos), ctx.viewed.load(), lambda j: jobs.job_bytes(ctx.repos, j))
     if not ready and not skipped:
@@ -317,8 +364,9 @@ def cmd_proposals(ctx, a):
         if not a.branch:
             raise ClientError("Say which branch to merge", "Or use --all.", example="cw-admin proposals merge --all")
         merge_branch(ctx, a.branch, yes=a.yes, subject=a.message)
-        emit("Install it", "Merging changes GitHub only; the worker has it after the next install.", tag="NEXT", color=CYAN, run="cw-admin apply")
-        return 0
+        return after_merge(ctx, a)
+    if act == "publish":
+        return install_registry_change(ctx, a)
     if act == "tidy":
         done = [b for b in p.branches() if p.contained(b)]
         if not done:
@@ -330,6 +378,14 @@ def cmd_proposals(ctx, a):
         emit(f"Deleted {len(gone)} branch(es)", tag="DONE", color=GREEN)
         return 0 if len(gone) == len(done) else 1
     raise ClientError(f"Unknown action {act!r}", "Use list, merge or tidy.", example="cw-admin help proposals")
+
+
+def after_merge(ctx, a):
+    """A merge changes GitHub only. With an approval key here the registry is signed and published at once; otherwise it waits for an install."""
+    if use_signed(ctx, a):
+        return install_registry_change(ctx, a)
+    emit("Install it", "Merging changes GitHub only; the worker has it after the next install.", tag="NEXT", color=CYAN, run="cw-admin apply")
+    return 0
 
 
 def merge_all(ctx, a):
@@ -349,6 +405,9 @@ def merge_all(ctx, a):
         except Stop:
             pass
         ctx.props.fetch()
+    if merged and use_signed(ctx, a):
+        install_registry_change(ctx, a)
+        return 0 if len(merged) == len(pending) else 1
     emit(f"Merged {len(merged)} of {len(pending)}", tag="DONE" if len(merged) == len(pending) else "PARTLY", color=GREEN if len(merged) == len(pending) else YELLOW,
          run_label="Install what is on main", run="cw-admin apply")
     return 0 if len(merged) == len(pending) else 1
@@ -373,7 +432,7 @@ def cmd_adopt(ctx, a):
         stop("Not adopted", "You answered no. Nothing was changed.")
     out = off.propose(r, a.id, res, name=preview["name"], tier=a.tier, names=names)
     merge_branch(ctx, out["branch"], yes=True)
-    rc = apply(ctx, argparse.Namespace(rev=None, yes=True, force=True, no_verify=False, full=False, quiet_done=True))
+    rc = install_registry_change(ctx, a, name=preview["name"], present=True)
     if rc == 0:
         emit(f"{preview['name']} is adopted", f"{ctx.name} publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="Check the list", run="cw-run classes")
     return rc
@@ -400,7 +459,7 @@ def cmd_retire(ctx, a):
     branch = f"chore/retire-{a.cls}"
     r.push_files(branch, {"registry.yaml": regedit.without_class(text, a.cls)}, f"chore(registry): retire the {a.cls} class\n\nRemoved from registry.yaml with cw-admin retire.", base=p.main)
     merge_branch(ctx, branch, yes=True)
-    rc = apply(ctx, argparse.Namespace(rev=None, yes=True, force=True, no_verify=False, full=False, quiet_done=True))
+    rc = install_registry_change(ctx, a, name=a.cls, present=False)
     if rc == 0:
         emit(f"{a.cls} is retired", tag="DONE", color=GREEN, run_label="Check the list", run="cw-run classes")
     return rc
@@ -516,7 +575,7 @@ HELP = {
     "output": ("the full output of a failed command (GitHub only gets its error lines)", [("List the kept outputs", "cw-admin output"), ("Read one", "cw-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "cw-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "cw-admin retire ssh-version")]),
-    "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy")]),
+    "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "cw-admin proposals publish")]),
     "diff": ("show what installing a version would change", [("Compare the installed version with the latest", "cw-admin diff"), ("All the code, not only root-run files", "cw-admin diff --full")]),
     "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest", "cw-admin apply"), ("Install one commit", "cw-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "cw-admin apply --force")]),
 }
@@ -557,7 +616,8 @@ def build_parser():
     s.add_argument("cls", metavar="class", help="the class to remove (cw-run classes lists them)")
     yes(s)
     s = sp.add_parser("proposals", add_help=False)
-    s.add_argument("action", nargs="?", choices=["list", "merge", "tidy"], help="list (default), merge or tidy")
+    s.add_argument("action", nargs="?", choices=["list", "merge", "tidy", "publish"], help="list (default), merge, tidy, or publish (sign the registry on main so the worker installs it)")
+    s.add_argument("--ssh", action="store_true", help="install over SSH (needs the worker's sudo password) instead of signing here")
     s.add_argument("branch", nargs="?", help="with merge: the branch")
     s.add_argument("-m", "--message", help="with merge: subject line for the squash commit")
     s.add_argument("--all", action="store_true", help="with merge: every pending proposal, one by one")

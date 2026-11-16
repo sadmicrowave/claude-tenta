@@ -23,7 +23,7 @@ from pathlib import Path
 from .. import config
 from ..admin.ssh import Ssh
 from ..client.repo import ClientError
-from . import detect, keys as keys_mod, ptyrun, questions, toml_out
+from . import detect, keys as keys_mod, ptyrun, questions, report, toml_out
 from .client import ClientSetup
 from .remote import RemoteHost
 from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, read_secret
@@ -98,13 +98,15 @@ CLAUDE_ON_THIS_COMPUTER = "curl -fsSL https://claude.ai/install.sh | bash"
 
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False):
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
         self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
         self.ssh = self.cfg = self.facts = None
         self.ui, self.advanced = ui, advanced
+        self.verbose = verbose
+        self.r = report.Styler(styled=ui is not None, verbose=verbose)
         self.interactive = interactive or ptyrun.run_capture          # runs a command on the person's own terminal and returns (exit code, what it printed)
         self.claude_secret = None                                                      # (KEY, value) from the sign-in below; goes to the server, never to a file here
         self.report = []
@@ -179,7 +181,7 @@ class Installer:
 
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
-        self.out(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+        self.out(self.r.note(status, step, detail))
 
     def out(self, line):
         """Print now, or hold until the questions are done when the question screen is up."""
@@ -216,7 +218,7 @@ class Installer:
                                                                       "If SSH is not on port 22, run this again with --advanced, which asks for the port."])
         self.facts = detect.detect(RemoteHost(self.ssh))
         for what, value in self.facts.summary():
-            self.out(f"  {what:<22} {value}")
+            self.out(self.r.kv(what, value))
         problem = self.facts.os_problem()
         if problem:
             raise SetupError("The server is not supported", problem)
@@ -262,7 +264,7 @@ class Installer:
     def client_half(self, nested):
         self._heading("Your computer", "2 of 4")
         c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory,
-                        confirm_card=self.confirm_card, interactive=self.interactive,
+                        confirm_card=self.confirm_card, interactive=self.interactive, styled=self.ui is not None, verbose=self.verbose,
                         **({"ask": self.ask} if self.ask is not None and self.ui is None else {}))
         c.run_all()
         self.report += c.report
@@ -375,7 +377,7 @@ class Installer:
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
         base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m cw.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
                 + (f" --secrets-file {d}/claude.secrets" if self.claude_secret else "")
-                + (f" --approver-file {d}/approver.pub" if getattr(self, "approver_sent", False) else ""))
+                + (f" --approver-file {d}/approver.pub" if getattr(self, "approver_sent", False) else "") + (" --verbose" if self.verbose else ""))
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))

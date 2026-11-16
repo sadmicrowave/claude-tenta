@@ -100,6 +100,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `step_s` | `10` | int | seconds between passes that start queued jobs |
 | `canary_s` | `30` | int | seconds between checks of the decoy credential files |
 | `update_min` | `15` | int | minutes between checks for a new signed release (when updates.mode is signed-tags) |
+| `registry_sync_min` | `5` | int | minutes between checks for a job registry you approved (signed) from your own computer |
 
 ## [updates]
 

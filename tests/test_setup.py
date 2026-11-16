@@ -741,7 +741,7 @@ class ClaudeSignIn(ServerTests):
         text = self.h.read("/etc/claude-ballast/approvers")
         self.assertEqual(approvals.fingerprints(text), [approvals.fingerprint(pubs[1])])
         self.assertEqual(self.h.path("/etc/claude-ballast/approvers").stat().st_mode & 0o777, 0o644)
-        self.assertIn('namespaces="cw-approval"', text)
+        self.assertIn('namespaces="cw-approval,cw-registry"', text)
         self.assertFalse(self.h.exists("/etc/claude-ballast/allowed_signers"))         # the release-signing file is a different one
 
     def test_no_approver_key_given_means_no_approvers_file(self):

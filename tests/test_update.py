@@ -1,3 +1,4 @@
+import json
 import os
 import importlib.util
 import shutil
@@ -540,3 +541,111 @@ class Command(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RegistrySync(RegistryInstall):
+    """The registry approved on the administrator's own computer is installed by the worker's root timer, only if the signature checks."""
+
+    def setUp(self):
+        super().setUp()
+        import subprocess as sp
+        import tempfile as tf
+        from cw import approvals
+        self.approvals = approvals
+        self.keys = Path(tf.mkdtemp())
+        for n in ("key", "stranger"):
+            sp.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.keys / n)], check=True)
+        self.signers = self.at(self.cfg.path("approvers"))
+        self.signers.parent.mkdir(parents=True, exist_ok=True)
+        self.signers.write_text(approvals.with_approver("", (self.keys / "key.pub").read_text()))
+        self.signed_text, self.shows, self.packages = None, 0, []
+
+    def sign(self, registry_text, key="key", now=None, namespace=None):
+        record = self.approvals.make_registry_record(__import__("hashlib").sha256(registry_text.encode()).hexdigest(), now=now)
+        return self.approvals.bundle(record, self.approvals.sign(record, self.keys / key, namespace=namespace or self.approvals.REGISTRY_NAMESPACE))
+
+    def fake_run(self, argv):
+        self.ran.append(argv)
+        if "fetch" in argv:
+            return self.fetch_result
+        if "origin/main:registry.yaml" in argv:
+            self.shows += 1
+            return (0, self.queue_text) if self.queue_text is not None else (128, "fatal")
+        if f"origin/approvals:{self.approvals.REGISTRY_PATH}" in argv:
+            return (0, self.signed_text) if self.signed_text is not None else (128, "fatal: path not found")
+        return 0, ""
+
+    def sync(self, **kw):
+        return update.registry_sync(self.cfg, run=self.fake_run, prefix=self.prefix, out=self.said.append,
+                                    install_packages=lambda text: self.packages.append(text) or (True, ""), **kw)
+
+    def marker(self):
+        return json.loads(self.at(f"{self.cfg.paths.config}/registry.source").read_text())
+
+    def test_a_signed_registry_is_installed_without_anyone_logging_in(self):
+        self.signed_text = self.sign(self.queue_text)
+        status, ok = self.sync()
+        self.assertTrue(ok, status)
+        self.assertIn("installed", status)
+        self.assertIn("echo", self.installed()["classes"])
+        self.assertEqual(self.marker()["sha256"], __import__("hashlib").sha256(self.queue_text.encode()).hexdigest())
+
+    def test_what_was_checked_is_exactly_what_is_installed_the_text_is_fetched_once(self):
+        self.signed_text = self.sign(self.queue_text)
+        self.sync()
+        self.assertEqual(self.shows, 1)
+
+    def test_a_second_run_changes_nothing(self):
+        self.signed_text = self.sign(self.queue_text)
+        self.sync()
+        before = self.registry_file().read_text()
+        status, ok = self.sync()
+        self.assertEqual((status, ok), ("up to date", True))
+        self.assertEqual(self.registry_file().read_text(), before)
+
+    def test_an_unsigned_registry_is_never_installed_however_it_got_to_github(self):
+        self.signed_text = None
+        status, ok = self.sync()
+        self.assertEqual(ok, True)                                          # not an alarm: nothing has been approved yet
+        self.assertIn("no signed registry", status)
+        self.assertFalse(self.registry_file().exists())
+
+    def test_a_signature_by_any_other_key_is_refused_and_flagged(self):
+        self.signed_text = self.sign(self.queue_text, key="stranger")
+        status, ok = self.sync()
+        self.assertEqual(ok, False)
+        self.assertIn("refused", status)
+        self.assertFalse(self.registry_file().exists())
+        self.assertEqual(self.packages, [])                                 # no package was installed as root for it
+
+    def test_a_registry_edited_after_it_was_signed_is_refused(self):
+        self.signed_text = self.sign(self.queue_text)
+        self.queue_text = self.queue_text + "  extra:\n    tier: auto\n    cost: light\n    run: [/bin/echo, x]\n"
+        status, ok = self.sync()
+        self.assertEqual(ok, False)
+        self.assertIn("different registry.yaml", status)
+        self.assertFalse(self.registry_file().exists())
+
+    def test_an_older_signed_registry_cannot_replace_a_newer_one(self):
+        newer = self.queue_text
+        self.signed_text = self.sign(newer, now=5000)
+        self.sync()
+        older = "classes:\n  loose:\n    tier: auto\n    cost: light\n    run: [/bin/echo, old]\n"
+        self.queue_text, self.signed_text = older, self.sign(older, now=1000)          # a genuinely signed, but older, registry
+        status, ok = self.sync(now=lambda: 6000)
+        self.assertEqual(ok, False)
+        self.assertIn("rollback", status)
+        self.assertNotIn("loose", self.installed()["classes"])
+
+    def test_a_signature_for_approving_jobs_is_not_good_for_the_registry(self):
+        self.signed_text = self.sign(self.queue_text, namespace=self.approvals.NAMESPACE)
+        status, ok = self.sync()
+        self.assertEqual(ok, False)
+        self.assertFalse(self.registry_file().exists())
+
+    def test_without_an_approver_key_the_feature_is_off(self):
+        self.signers.unlink()
+        self.signed_text = self.sign(self.queue_text)
+        status, ok = self.sync()
+        self.assertEqual((ok, self.registry_file().exists()), (True, False))
+        self.assertIn("off", status)

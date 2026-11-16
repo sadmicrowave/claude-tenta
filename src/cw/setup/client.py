@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from .. import config
-from . import ptyrun, questions, toml_out
+from . import ptyrun, questions, report, toml_out
 from .server import SetupError
 
 COMMANDS = ("cw-run", "cw-admin", "cw-setup", "cw-help")
@@ -24,12 +24,13 @@ SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None):
+                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None, styled=False, verbose=False):
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
         self.advanced = advanced
         self.interactive = interactive or ptyrun.run_capture          # runs a command on the person's own terminal (so a passphrase can be typed)
+        self.r = report.Styler(styled=styled or ui is not None, verbose=verbose)
         self.confirm_card = confirm_card                    # info -> bool: show a card (or question) asking permission to change something outside this tool
         self.scripts_dir = self.find_scripts_dir() if scripts_dir == "auto" else scripts_dir
         self.report, self.cfg = [], None
@@ -42,10 +43,12 @@ class ClientSetup:
 
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
-        self.say(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+        self.say(self.r.note(status, step, detail))
 
     def run(self, argv, step, check=True):
-        self.say("    $ " + shlex.join(argv))
+        line = self.r.cmd(shlex.join(argv)) if not self.dry_run else "    $ " + shlex.join(argv)
+        if line:
+            self.say(line)
         if self.dry_run:
             from .host import Result
             return Result(0)
@@ -76,7 +79,7 @@ class ClientSetup:
         self.cfg = config.Config(clean)
         path = self.config_path()
         if self.ui is not None and not self.dry_run:
-            self.say(f"  Your configuration is written to {path}. Settings you did not change keep their defaults; the file lists only your answers.")
+            self.say(self.r.info(f"Your configuration is written to {path}. Settings you did not change keep their defaults; the file lists only your answers."))
         else:
             self.say(f"\n  Your configuration, written to {path}:\n\n    " + toml_out.dump(nested).replace("\n", "\n    "))
         if not self.dry_run:
@@ -87,7 +90,7 @@ class ClientSetup:
         if self.ui is not None and hasattr(self.ui, "sub"):
             self.ui.sub(text)
         else:
-            self.say("\n" + text)
+            self.say(self.r.head(text))
 
     def config_path(self):
         return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-ballast" / "cw.toml")
@@ -95,7 +98,7 @@ class ClientSetup:
     def ssh_login(self):
         cfg, target = self.cfg, f"{self.cfg.server.admin_user}@{self.cfg.server.host}"
         if self.dry_run:
-            self.say("    $ ssh -o BatchMode=yes " + target + " true")
+            self.say("    $ ssh -o BatchMode=yes " + target + " true")                  # a preview shows its commands
             self.note("SSH key login", "planned", target)
             return
         r = self.host.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", str(cfg.server.ssh_port), target, "true"])
@@ -198,7 +201,9 @@ class ClientSetup:
             if here is not None:                                                   # something else is there: never overwritten
                 kept.append(c)
                 continue
-            self.say(f"    $ ln -s {target} {link}")
+            line = self.r.cmd(f"ln -s {target} {link}")
+            if line:
+                self.say(line)
             if not self.dry_run:
                 self.host.symlink(link, target)
         if kept:

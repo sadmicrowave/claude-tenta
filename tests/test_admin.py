@@ -193,6 +193,84 @@ class SignedApprovals(AdminBase):
         self.assertEqual(len(self.ssh.calls), 1)
 
 
+class FollowAfterApproving(unittest.TestCase):
+    def test_the_command_cw_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
+        """cw-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""
+        from cw.client import cli as client_cli
+        ap, _ = client_cli.build_parser()
+        a = ap.parse_args(["result", "job-1", "--wait", "--approved"])
+        self.assertTrue(a.approved and a.wait)
+        import re
+        src = Path(cli.__file__).read_text()
+        self.assertIn('"result", jid, "--wait", "--approved"', src)                       # the call this test mirrors
+
+
+class SignedRegistry(SignedApprovals):
+    """Adding or removing a class from this computer: the registry on main is signed here and the worker installs it; no SSH, no sudo."""
+
+    def setUp(self):
+        super().setUp()
+        self.ctx.sleep = lambda s: None                      # `retire` in a terminal waits for the worker to show the class gone: never really wait in a test
+
+    def trusted(self):
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()), classes={"careful": {}})
+
+    def signed_registry(self):
+        self.repos.fetch_queue()
+        return self.repos.show_file(f"origin/{approvals.BRANCH}", approvals.REGISTRY_PATH)
+
+    def test_retire_signs_the_registry_here_and_installs_nothing_over_ssh(self):
+        self.trusted()
+        code, out, err = self.admin("retire", "careful", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.ssh.calls, [])                                           # no sudo cw-update, no login
+        self.repos.fetch_queue()
+        text = self.repos.show_file("origin/main", "registry.yaml")
+        self.assertNotIn("  careful:", text)
+        ok, why, rec = approvals.check_registry(self.signed_registry(), text, self.signers)
+        self.assertTrue(ok, why)                                                       # what is signed is exactly what is now on main
+
+    def test_the_signature_is_for_registry_changes_only_and_names_the_exact_text(self):
+        self.trusted()
+        self.admin("retire", "careful", "--yes")
+        self.repos.fetch_queue()
+        text = self.repos.show_file("origin/main", "registry.yaml")
+        self.assertFalse(approvals.check_registry(self.signed_registry(), text + "# tampered\n", self.signers)[0])
+        doc = json.loads(self.signed_registry())
+        self.assertFalse(approvals.verify(doc["record"], doc["signature"], self.signers))            # not accepted as the approval of a job
+
+    def test_publish_signs_what_is_on_main_now(self):
+        self.trusted()
+        code, _, err = self.admin("proposals", "publish")
+        self.assertEqual(code, 0, err)
+        self.assertIsNotNone(self.signed_registry())
+        self.assertEqual(self.ssh.calls, [])
+
+    def test_merging_a_registry_proposal_publishes_it_when_the_worker_trusts_this_key(self):
+        self.trusted()
+        self.repos.push_files("registry/hello", {"registry.yaml": REGISTRY + "  hello:\n    tier: auto\n    cost: light\n    run: [/bin/echo, hi]\n"}, "registry: hello", base="main")
+        self.answers.append("y")
+        code, _, err = self.admin("proposals", "merge", "registry/hello")
+        self.assertEqual(code, 0, err)
+        self.assertIsNotNone(self.signed_registry())
+
+    def test_a_worker_that_does_not_trust_this_key_is_told_so_and_nothing_is_signed(self):
+        self.worker_publishes(approvers=["SHA256:somebodyelse"])
+        code, out, err = self.admin("retire", "careful", "--yes")
+        self.assertNotEqual(code, 0)
+        self.assertIn("does not trust your approval key", out + err)
+        self.assertIsNone(self.signed_registry())
+
+    def test_without_a_trusted_key_the_old_ssh_install_is_used(self):
+        self.worker_publishes(capacity=4)
+        self.health(self.rel[0])
+        self.admin("retire", "careful", "--yes")
+        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))
+
+    def health(self, rev):
+        self.ssh.answers["systemctl"] = f"timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev={rev}\n"
+
+
 class JobTests(AdminBase):
     def test_review_marks_what_you_saw_and_approve_all_sends_pinned_digests(self):
         self.put_job("job-a")

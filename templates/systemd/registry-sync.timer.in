@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for a registry approved from the administrator's own computer ({{name}})
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec={{registry_sync_min}}min
+
+[Install]
+WantedBy=timers.target
