@@ -92,22 +92,39 @@ def remove_remote_dir(ssh, d):
 
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None):
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
         self.home = Path(home) if home else Path(local.env.get("HOME", "~")).expanduser() / ".cw"
         self.ssh = self.cfg = self.facts = None
+        self.ui = ui
         self.report = []
+        self.held = []                  # lines kept back while the question screen is up (printing in the middle of it would corrupt the redraw)
 
     def note(self, step, status, detail=""):
         self.report.append((step, status, detail))
-        self.say(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+        self.out(f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else ""))
+
+    def out(self, line):
+        """Print now, or hold until the questions are done when the question screen is up."""
+        if self.ui is not None and not getattr(self, "asked", False):
+            self.held.append(line)
+        else:
+            self.say(line)
+
+    def flush(self):
+        for line in self.held:
+            self.say(line)
+        self.held = []
 
     # ---- 1. connect and learn ----
     def connect(self):
-        self.say("\nConnecting to the server")
-        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION)
+        if self.ui is not None:
+            self.ui.begin(questions.count_to_ask(("client", "server"), self.given), "cw-setup install")
+        else:
+            self.say("\nConnecting to the server")
+        conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui)
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
         c = conn.get("server", {})
@@ -118,7 +135,7 @@ class Installer:
             raise SetupError(f"Cannot log in to {c['host']} over SSH", e.why, ["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}"])
         self.facts = detect.detect(RemoteHost(self.ssh))
         for what, value in self.facts.summary():
-            self.say(f"  {what:<22} {value}")
+            self.out(f"  {what:<22} {value}")
         problem = self.facts.os_problem()
         if problem:
             raise SetupError("The server is not supported", problem)
@@ -127,10 +144,16 @@ class Installer:
 
     # ---- 2. questions ----
     def ask_everything(self, conn):
-        self.say("\nQuestions")
-        given = {**self.given, **flat(conn)}
-        client, m1 = questions.collect("client", ask=self.ask, say=self.say, given=given, use_defaults=self.use_defaults)
-        server, m2 = questions.collect("server", ask=self.ask, say=self.say, given={**given, **flat(client)}, suggestions=self.facts.suggestions(), use_defaults=self.use_defaults)
+        if self.ui is None:
+            self.say("\nQuestions")
+        given, blanks = {**self.given, **flat(conn)}, set()
+        client, m1 = questions.collect("client", ask=self.ask, say=self.say, given=given, use_defaults=self.use_defaults, ui=self.ui, blanks=blanks)
+        server, m2 = questions.collect("server", ask=self.ask, say=self.say, given={**given, **flat(client), **{k: "" for k in blanks}}, suggestions=self.facts.suggestions(),
+                                       use_defaults=self.use_defaults, ui=self.ui)
+        if self.ui is not None:
+            self.ui.finish()
+        self.asked = True
+        self.flush()
         missing = m1 + m2
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])

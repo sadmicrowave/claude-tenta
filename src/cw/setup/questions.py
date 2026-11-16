@@ -33,6 +33,14 @@ QUESTIONS = [
     _Q("alerts.url", "Address to send alerts to", "Use a private topic. Any access token goes in secrets.env, not here.", half="server", when=lambda a: a.get("alerts.kind", "none") != "none"),
     _Q("updates.mode", "How should updates be installed?", "manual: you run `cw-admin apply`. signed-tags: the server installs releases signed by a key you trust.", half="server"),
 ]
+LABELS = {"identity.name": "Install name", "server.host": "Server address", "server.admin_user": "Admin account", "server.worker_user": "Worker account", "server.ssh_port": "SSH port",
+          "github.owner": "GitHub account", "github.queue_repo": "Queue repository", "github.results_repo": "Results repository", "updates.source": "Release source",
+          "updates.mode": "Updates", "hardware.profile": "Machine", "hardware.thermal": "Thermal support", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
+          "network.lan_allow_out": "LAN exceptions", "network.dns_servers": "DNS servers", "network.ssh_from": "SSH allowed from", "access.sudo": "Passwordless commands",
+          "alerts.kind": "Alerts", "alerts.url": "Alert address"}
+for _q in QUESTIONS:
+    _q["label"] = LABELS.get(_q["key"], _q["key"].partition(".")[2].replace("_", " ").capitalize())
+    _q["secret"] = _q["key"] == "alerts.url"          # a private topic address: typed without echo and shown as "set"
 BY_KEY = {q["key"]: q for q in QUESTIONS}
 
 
@@ -90,7 +98,20 @@ def show(value):
     return ", ".join(map(str, value)) if isinstance(value, list) else ("yes" if value is True else "no" if value is False else "" if value is None else str(value))
 
 
-def collect(half, *, ask=None, say=print, given=None, suggestions=None, use_defaults=False, only=None):
+def count_to_ask(halves, given=None, only=None):
+    """How many questions a person would be asked across these halves (each question once): not already answered, and applicable with default answers."""
+    given, seen = dict(given or {}), set()
+    for q in QUESTIONS:
+        key = q["key"]
+        if q["half"] not in tuple(halves) + ("both",) or key in given or (only and key not in only) or key in seen:
+            continue
+        if q.get("when") and not q["when"]({**{k: default_for(k) for k in BY_KEY}, **given}):
+            continue
+        seen.add(key)
+    return len(seen)
+
+
+def collect(half, *, ask=None, say=print, given=None, suggestions=None, use_defaults=False, only=None, ui=None, blanks=None):
     """Run the questions that belong to `half` ('client' or 'server'). Returns the answers as a nested dict and the list of unanswered
     required settings. `given` ({'section.key': value}) is used instead of asking; with use_defaults nothing is asked at all."""
     given, suggestions, flat = dict(given or {}), suggestions or {}, {}
@@ -102,26 +123,34 @@ def collect(half, *, ask=None, say=print, given=None, suggestions=None, use_defa
         if q.get("when") and not q["when"]({**{k: default_for(k) for k in BY_KEY}, **flat}):
             continue
         default = default_for(key, suggestions)
+        interactive = (ask is not None or ui is not None) and not use_defaults
+        asked = key not in given and interactive
         if key in given:
             raw = given[key]
-        elif use_defaults or ask is None:
+        elif not interactive:
             raw = default
         else:
-            raw = _ask_one(q, default, ask, say)
+            raw = _ask_one(q, default, ask, say, ui=ui)
         if raw in (None, "") and q.get("required"):
             missing.append(key)
             continue
         if raw in (None, "") and default in (None, ""):
+            if asked and blanks is not None:
+                blanks.add(key)                          # answered by leaving it empty: do not ask it again in another half
+                if ui is not None:
+                    ui.answered(q, "(none)")
             continue
         value, err = check_one(key, parse(key, raw))
         if err:
-            if key in given or use_defaults or ask is None:
+            if not asked:
                 raise WizardError([f"{key} {err} (got {raw!r})"])
-            raw = _ask_one(q, default, ask, say, problem=err)
+            raw = _ask_one(q, default, ask, say, problem=err, ui=ui)
             value, err = check_one(key, parse(key, raw))
             if err:
                 raise WizardError([f"{key} {err} (got {raw!r})"])
         flat[key] = value
+        if asked and ui is not None:
+            ui.answered(q, show(value))
     for key, raw in given.items():                     # settings with no question (hardening.modules, registry.packs, ...) can still be given
         if key not in BY_KEY and _known(key) and not (only and key not in only):
             value, err = check_one(key, parse(key, raw))
@@ -135,19 +164,22 @@ def collect(half, *, ask=None, say=print, given=None, suggestions=None, use_defa
     return nested, missing
 
 
-def _ask_one(q, default, ask, say, problem=None):
+def _ask_one(q, default, ask, say, problem=None, ui=None):
     """Ask until the answer passes the schema's check. An empty answer takes the default."""
     key = q["key"]
     opts = options_of(key)
     for _ in range(5):
-        say(f"\n{q['title']}")
-        say(f"  {q['why']}")
-        if opts:
-            say("  Choices: " + ", ".join(opts))
-        if problem:
-            say(f"  That did not work: {problem}")
         shown = show(default)
-        answer = ask(f"  [{shown}] " if shown else "  ").strip()
+        if ui is not None:
+            answer = ui.ask(q, default, opts, problem, shown).strip()
+        else:
+            say(f"\n{q['title']}")
+            say(f"  {q['why']}")
+            if opts:
+                say("  Choices: " + ", ".join(opts))
+            if problem:
+                say(f"  That did not work: {problem}")
+            answer = ask(f"  [{shown}] " if shown else "  ").strip()
         raw = answer if answer != "" else default
         if raw in (None, ""):
             if q.get("required"):

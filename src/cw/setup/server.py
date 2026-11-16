@@ -56,12 +56,12 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None):
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
         self.registry_installer, self.install_packages = registry_installer, install_packages
-        self.wait_for_keys, self._sleep, self._clock = wait_for_keys, sleep, clock
+        self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -106,7 +106,11 @@ class ServerSetup:
         self.note("prerequisites", "installed" if missing and not self.dry_run else "planned" if missing else "ok", ", ".join(missing))
 
     def configure(self, facts):
-        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults)
+        if self.ui is not None:
+            self.ui.begin(questions.count_to_ask(("server",), self.given), "cw-setup server")
+        nested, missing = questions.collect("server", ask=self.ask, say=self.say, given=self.given, suggestions=facts.suggestions(), use_defaults=self.use_defaults, ui=self.ui)
+        if self.ui is not None:
+            self.ui.finish()
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
         clean, problems = questions.validate_answers(nested)
@@ -234,9 +238,11 @@ class ServerSetup:
 
     def hardening_step(self):
         cfg, results = self.cfg, {}
-        for mid in cfg.hardening.modules:
+        total = len(cfg.hardening.modules)
+        for i, mid in enumerate(cfg.hardening.modules, 1):
             mod = hardening.MODULES[mid]
-            status, detail = hardening.run_module(mod, self.host, cfg, dry_run=self.dry_run, out=self.say, confirm=self.confirm)
+            present = (lambda info, i=i: self.ui.protection({**info, "index": i, "total": total})) if self.ui is not None else None
+            status, detail = hardening.run_module(mod, self.host, cfg, dry_run=self.dry_run, out=self.say, confirm=self.confirm, present=present)
             results[mid] = {"status": status, "detail": detail}
             self.note(f"hardening: {mid}", status, detail)
         if not self.dry_run:

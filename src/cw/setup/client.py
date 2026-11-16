@@ -20,10 +20,10 @@ SEED_REGISTRY = ("# YOUR job classes, added with `cw-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None):
+                 queue_key=None, results_key=None, ui=None):
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
-        self.repos_factory, self.queue_key, self.results_key = repos_factory, queue_key, results_key
+        self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
         self.report, self.cfg = [], None
 
     def note(self, step, status, detail=""):
@@ -48,7 +48,11 @@ class ClientSetup:
         self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found, repository steps will be printed"))
 
     def configure(self):
-        nested, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults)
+        if self.ui is not None:
+            self.ui.begin(questions.count_to_ask(("client",), self.given), "cw-setup client")
+        nested, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, ui=self.ui)
+        if self.ui is not None:
+            self.ui.finish()
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
         clean, problems = questions.validate_answers(nested)

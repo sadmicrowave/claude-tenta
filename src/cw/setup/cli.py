@@ -20,7 +20,7 @@ from ..client.repo import ClientError
 from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
 from . import audit as audit_mod
-from . import questions
+from . import questions, tui
 from .client import ClientSetup
 from .host import Host
 from .install import Installer, default_verify, deliver_source, remove_remote_dir
@@ -163,6 +163,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             from ..admin.ssh import Ssh
             interactive = not a.yes and sys.stdin.isatty()
             inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
+                             ui=tui.make(ask=ask, interactive=interactive),
                              use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,
                              verify=None if (a.no_test or a.dry_run) else (verify or (lambda cfg: default_verify(cfg, say=say))))
             report = inst.run_all()
@@ -172,13 +173,15 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         dry = not a.apply if a.cmd == "server" else a.dry_run
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
+                                ui=tui.make(ask=ask, interactive=interactive),
                                 confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
                 from ..client.repo import ClientRepos
                 repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".cw", ask=ask if interactive else None,
-                                say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key)
+                                say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
+                                ui=tui.make(ask=ask, interactive=interactive))
         report = setup.run_all()
     except questions.WizardError as e:
         emit("Those answers cannot be used", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
@@ -192,6 +195,9 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     except config.ConfigError as e:
         emit("The configuration has problems", *[f"- {p}" for p in e.problems], tag="ERROR", color=RED)
         return 1
+    except KeyboardInterrupt:
+        emit("Stopped", "Nothing is half-done: running the same command again continues from here.", tag="STOPPED", color=YELLOW)
+        return 130
     waiting = [r for r in report if r[1] == "waiting"]
     if dry:
         emit("Nothing was changed", "That was a preview.", tag="PREVIEW", color=YELLOW, run_label="Do it for real", run=f"cw-setup {a.cmd}" + (" --apply" if a.cmd == "server" else ""))

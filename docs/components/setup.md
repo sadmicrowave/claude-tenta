@@ -98,3 +98,15 @@ It reads the install's own `cw.toml`, so it respects a different name or folders
 
 **What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
 unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `cw-setup install` afterwards sets everything up again.
+
+### What the questions and protections look like
+
+`src/cw/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected.
+
+- **Questions.** A progress bar on top (`cw-setup install ━━━━╸────  8 of 19`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
+  question on a blue rail with a chip naming its section, the plain-words reason, the choices when there are any, an input line, and a hint (`Enter keeps: 22`, or `needs an answer`). When you answer, the block is erased and the next one drawn, so the screen never fills up.
+  A secret (the alert address) is typed without echo and shown as `set`. When the questions are done the bar and the full list of answers stay on screen as a review.
+- **Protections.** Each one that needs a decision is an amber frame with the title, why, the risk, what it is now, the exact steps, and Apply and Skip buttons. `←`/`→` or Tab choose, Enter confirms, `y` and `n` answer at once, `s` shows every line of every step, Ctrl-C stops
+  cleanly. The two that could lock you out (`ssh-keys-only`, `ufw-lan-egress`) are marked "could lock you out"; the rest say "recommended". The frame is erased when you decide, and the result is printed as the usual one-line status.
+- **No library.** Plain ANSI sequences (cursor up, erase to the end of the screen) and, for the buttons, one raw key read. The prompt uses readline-safe colour codes so line editing works.
+- **Tested** with a small virtual terminal that obeys the same sequences, so the tests check what is actually on screen after each answer, and by driving the real thing through a pseudo-terminal with typed answers and arrow keys.

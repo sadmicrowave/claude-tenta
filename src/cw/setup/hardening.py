@@ -55,6 +55,7 @@ def module(cls):
 class Module:
     id = title = why = risk = ""
     default = True
+    lockout = False                # True when applying it wrongly could lock you out (it is then shown with the warning frame)
 
     def preflight(self, host, cfg):
         return None
@@ -71,6 +72,7 @@ def groups_of(host, user):
 @module
 class SshKeysOnly(Module):
     id, title = "ssh-keys-only", "SSH logins with keys only"
+    lockout = True
     why = ("A password can be guessed or phished; a key file cannot be typed by an attacker. This turns off password logins (and root logins) "
            "for SSH. Your key keeps working.")
     risk = "If your key is not installed on the server you would lock yourself out. This refuses to run until it is."
@@ -132,6 +134,7 @@ class NoRootEquivalentGroups(Module):
 @module
 class UfwLanEgress(Module):
     id, title = "ufw-lan-egress", "A firewall that keeps the server away from your other devices"
+    lockout = True
     why = ("If the server were ever compromised it could not start connections to your other devices, only to the internet. SSH in is allowed only "
            "from the networks you named. The rules come from your configuration.")
     risk = "A wrong SSH network would lock you out, so it refuses unless the address you are connected from is allowed."
@@ -282,24 +285,31 @@ class JobIsolation(Module):
         return [Action("remove", path=self.sysctl_path(cfg)), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=0"])]
 
 
-def run_module(mod, host, cfg, *, dry_run=True, out=print, confirm=None):
-    """Offer one module. Returns ('satisfied'|'applied'|'declined'|'blocked'|'failed'|'planned', detail). Never changes anything when dry_run."""
+def run_module(mod, host, cfg, *, dry_run=True, out=print, confirm=None, present=None):
+    """Offer one module. Returns ('satisfied'|'applied'|'declined'|'blocked'|'failed'|'planned', detail). Never changes anything when dry_run.
+    `present(info) -> bool`, when given, shows the module on a terminal screen and returns whether to apply it (and replaces the printed text and `confirm`)."""
     before = mod.check(host, cfg)
     if before.ok:
         return "satisfied", before.detail
-    out(f"\n{mod.title}\n  {mod.why}\n  Risk: {mod.risk}\n  Now: {before.detail}")
+    use_screen = present is not None and not dry_run
+    if not use_screen:
+        out(f"\n{mod.title}\n  {mod.why}\n  Risk: {mod.risk}\n  Now: {before.detail}")
     problem = mod.preflight(host, cfg)
     if problem:
         return "blocked", problem
     steps = mod.plan(host, cfg)
     if not steps:
         return "failed", before.detail + " (this needs your attention; there is nothing to apply automatically)"
-    out("  Steps:")
-    for s in steps:
-        out("    " + s.show().replace("\n", "\n    "))
+    if not use_screen:
+        out("  Steps:")
+        for s in steps:
+            out("    " + s.show().replace("\n", "\n    "))
     if dry_run:
         return "planned", before.detail
-    if confirm is not None and not confirm(f"Apply {mod.id}?"):
+    if use_screen:
+        if not present({"id": mod.id, "title": mod.title, "why": mod.why, "risk": mod.risk, "now": before.detail, "steps": [s.show() for s in steps], "lockout": mod.lockout}):
+            return "declined", before.detail
+    elif confirm is not None and not confirm(f"Apply {mod.id}?"):
         return "declined", before.detail
     for s in steps:
         r = s.do(host)

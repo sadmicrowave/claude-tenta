@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from support import RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
-from test_setup import OS_RELEASE, FakeHost
+from test_setup import OS_RELEASE, FakeHost  # noqa: E402
 
 from cw import config
 from cw.admin.ssh import Ssh
@@ -158,6 +158,35 @@ class HappyPath(InstallBase):
         self.installer().run_all()
         self.assertEqual(len(self.ssh.popen_calls), 1)
         self.assertNotIn("--yes", self.ssh.popen_calls[0][0])
+
+
+class WithTheScreen(InstallBase):
+    def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
+        from test_tui import prompter
+        from cw.setup import questions
+        total = questions.count_to_ask(("client", "server"), {})
+        answers = ["worker.example", "admin", "", "", "someone"] + [""] * (total - 5)          # the connection questions first, then the rest; Enter keeps each default
+        ui, term = prompter(answers)
+        inst = install.Installer(self.tmp, ssh_factory=lambda h, u, p: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=False, ask=None, ui=ui,
+                                 repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None, verify=lambda cfg: True, home=self.tmp / "client-home",
+                                 archive=lambda src: (b"TARDATA", "a" * 40, False))
+        inst.run_all()
+        screen = term.screen.text()
+        self.assertIn("cw-setup install", screen)
+        self.assertIn(f"{total} of {total}", screen)
+        for label, value in (("Server address", "worker.example"), ("Admin account", "admin"), ("GitHub account", "someone")):
+            self.assertRegex(screen, rf"✓ {label}\s+{value}")
+        self.assertEqual(len([ln for ln in screen.splitlines() if "✓" in ln]), total)
+        # the server's facts and the connection note were held back until the questions were finished, then printed
+        said = "\n".join(self.said)
+        self.assertIn("Operating system", said)
+        self.assertIn("connected to the server", said)
+        self.assertEqual(len(self.ssh.popen_calls), 1)
+
+    def test_without_a_terminal_nothing_changes_in_what_is_printed(self):
+        self.installer().run_all()
+        said = self.said
+        self.assertLess([i for i, line in enumerate(said) if "Connecting to the server" in line][0], [i for i, line in enumerate(said) if "Operating system" in line][0])
 
 
 class Failures(InstallBase):
