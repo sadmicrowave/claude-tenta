@@ -114,7 +114,7 @@ class HappyPath(InstallBase):
         self.assertTrue(tty)
         self.assertTrue(remote.startswith("sh -c "))
         self.assertIn("sudo -p", remote)                                    # the password is asked first, with a prompt that says what it is
-        self.assertIn(f"-v && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server", remote)
+        self.assertIn(f"-v; sudo -n true && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server", remote)
         for piece in ("--apply", "--no-banner", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
             self.assertIn(piece, remote)
         # the keys went to GitHub with the right access, without anyone copying them

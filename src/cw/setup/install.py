@@ -291,7 +291,7 @@ class Installer:
         # one remote shell: ask for the password first (`sudo -v`), leave a marker, then run the setup under the sudo that is already unlocked.
         # Nothing else prints until the marker exists, so the password prompt is never interleaved with progress lines.
         marker = f"{d}/.authenticated"
-        remote = f"sh -c {shlex.quote(f'sudo -p {shlex.quote(prompt)} -v && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
+        remote = f"sh -c {shlex.quote(f'sudo -n true 2>/dev/null || sudo -p {shlex.quote(prompt)} -v; sudo -n true && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
         proc = self.ssh.popen(remote, tty=True)
         dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say)
         shown = False
