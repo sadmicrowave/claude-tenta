@@ -335,6 +335,9 @@ def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", w
     return status or "waiting", CYAN
 
 
+CHIP_FOR = {YELLOW: "wait_chip", CYAN: "accent_chip", RED: "bad_chip", GREEN: "ok_chip"}      # the chip colour for each live-line colour (yellow has its own gold)
+
+
 class Progress:
     """One live line on the terminal (spinner, phase, elapsed time). Silent when stderr is not a terminal."""
 
@@ -353,15 +356,14 @@ class Progress:
             width = shutil.get_terminal_size((80, 24)).columns - 1
         clock_text = f"  {el // 60}:{el % 60:02d}"
         spin = SPIN[self.i % len(SPIN)]
-        chip, rest = (None, text)
-        if color == YELLOW:                                   # a waiting line: its first word is a CAPITALS chip, so the eye lands on the status first
-            word, _, rest = text.partition(" ")
-            chip = f" {word.rstrip(':').upper()} "
+        word, _, rest = text.partition(" ")                  # every live line starts with its status as a CAPITALS chip, so the eye lands on it first
+        chip = f" {word.rstrip(':,;.').upper()} "
+        chip_role = CHIP_FOR.get(color, "accent_chip")
         room = width - len(clock_text) - len(spin) - 1 - (len(chip) + 1 if chip else 0)
         rest = rest if len(rest) <= room else rest[:max(1, room - 1)] + "…"                 # one line, always: a long phase is cut with a mark, never wrapped
         self.i += 1
-        if chip and self.stream.isatty():
-            body = paint(spin + " ", BOLD, color, stream=self.stream) + paint(chip, "wait_chip", stream=self.stream) + " " + paint(rest + clock_text, BOLD, color, stream=self.stream)
+        if self.stream.isatty():
+            body = paint(spin + " ", BOLD, color, stream=self.stream) + paint(chip, chip_role, stream=self.stream) + " " + paint(rest + clock_text, BOLD, color, stream=self.stream)
             self.stream.write("\r" + body + "\x1b[K")
             self.stream.flush()
             self.shown = True

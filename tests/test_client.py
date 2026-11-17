@@ -525,19 +525,19 @@ class ProgressLine(unittest.TestCase):
 
 
 class WaitingChip(unittest.TestCase):
-    def test_a_yellow_waiting_line_starts_with_its_status_as_a_capitals_chip(self):
+    def test_every_live_line_starts_with_its_status_as_a_capitals_chip_in_the_colour_of_that_status(self):
         from cw import theme
         class Tty(io.StringIO):
             def isatty(self):
                 return True
             def fileno(self):
                 raise OSError
-        out = Tty()
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
-            p = view.Progress(stream=out, clock=lambda: 0)
-            p.draw("sent: waiting for the worker to notice it", view.YELLOW)
-            p.draw("cyan stays plain", view.CYAN)
-        first, second = out.getvalue().split("\r")[1:3]
-        self.assertIn(theme.sgr(" SENT ", "wait_chip"), first)
-        self.assertNotIn(theme.code("wait_chip"), second)
-        self.assertIn("waiting for the worker to notice it", re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", first))
+        for colour, role, text, word in ((view.YELLOW, "wait_chip", "sent: waiting for the worker to notice it", " SENT "), (view.CYAN, "accent_chip", "running on the worker", " RUNNING "),
+                                          (view.RED, "bad_chip", "approved, but it was not picked up", " APPROVED, ")):
+            out = Tty()
+            with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+                view.Progress(stream=out, clock=lambda: 0).draw(text, colour)
+            line = out.getvalue()
+            self.assertIn(theme.code(role), line, text)
+            self.assertIn(word.strip().rstrip(","), re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line).upper(), text)
+            self.assertIn(text.partition(" ")[2], re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line), text)
