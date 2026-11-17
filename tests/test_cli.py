@@ -462,3 +462,14 @@ class RootRunCommands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PassTiming(unittest.TestCase):
+    def test_a_pass_records_how_long_it_took_so_status_can_say_why_a_job_was_noticed_late(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            cli.record_pass(d, "fetch", True, took=12.34)
+            data = json.loads((Path(d) / cli.PASS_FILE).read_text())
+            self.assertEqual(data["fetch"]["took_s"], 12.3)
+            cli.record_pass(d, "step", True)
+            self.assertNotIn("took_s", json.loads((Path(d) / cli.PASS_FILE).read_text())["step"])

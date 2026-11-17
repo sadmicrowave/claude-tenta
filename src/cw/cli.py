@@ -522,7 +522,8 @@ def cmd_status(ctx, hours=12):
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
             slow = (f"; asleep, so it asks GitHub every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s") if p.get("idle") else ""
-            line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what}{slow})")
+            took = f", took {p['took_s']:g} s" if p.get("took_s") is not None else ""
+            line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
     if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
         gone = claudeupdate.token_state(ctx.token_days) == "expired"
         line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {ctx.token_days} days old (it lasts about a year); "
@@ -567,13 +568,13 @@ def cmd_status(ctx, hours=12):
 PASS_FILE = "pass-status.json"
 
 
-def record_pass(state, which, ok, error="", idle=False, mode="active"):
+def record_pass(state, which, ok, error="", idle=False, mode="active", took=None):
     f = Path(state) / PASS_FILE
     try:
         data = json.loads(f.read_text())
     except (OSError, ValueError):
         data = {}
-    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300], "idle": idle, "mode": mode}
+    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300], "idle": idle, "mode": mode, **({"took_s": round(took, 1)} if took is not None else {})}
     try:
         f.write_text(json.dumps(data))
     except OSError:
@@ -581,12 +582,16 @@ def record_pass(state, which, ok, error="", idle=False, mode="active"):
 
 
 def run_pass(ctx, which):
+    t0 = time.monotonic()
     try:
         getattr(ctx.w, which)()
     except Exception as e:
-        record_pass(ctx.w.state, which, False, f"{type(e).__name__}: {e}")
+        record_pass(ctx.w.state, which, False, f"{type(e).__name__}: {e}", took=time.monotonic() - t0)
         raise
-    record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"))
+    took = time.monotonic() - t0
+    record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"), took=took)
+    if took > 8:                                                        # a slow pass is the usual reason a job is noticed late: say so in the journal
+        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the next one starts {ctx.w.s.fetch_s if which == 'fetch' else 5} s after this ended", file=sys.stderr)
     return 0
 
 

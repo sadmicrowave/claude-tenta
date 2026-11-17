@@ -95,11 +95,12 @@ class GitIO:
                 self.log("git lock busy; skipping this sync")
                 return False
             for repo, branch in ((self.queue, self.queue_branch), (self.results, self.results_branch)):
-                if not self.remote_has(repo, branch):         # e.g. a brand-new empty results repo: nothing to pull yet
-                    continue
+                # no separate "does the branch exist" call: that was a second connection to GitHub per repository on every pass, and a pass is what a job waits for
                 if repo == self.results:                      # we are the only writer here: keep our branch current
                     r = self.git(repo, "pull", "--rebase", "--quiet", "origin", branch)
                     if r.returncode != 0:
+                        if "couldn't find remote ref" in (r.stderr or ""):
+                            continue                          # a brand-new empty results repo: nothing to pull yet
                         self.git(repo, "rebase", "--abort")
                         self.log(f"git pull failed in {repo}: " + r.stderr.strip()[:300])
                 else:                                         # the queue repo is read-only to us: fetch every branch, drop deleted ones
