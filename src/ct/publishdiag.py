@@ -13,6 +13,7 @@ KNOWN = (
     ("repository not found", "repo-missing", "GitHub says the results repository does not exist under that name. After a rename the worker's remote can still point at the old name.", "ct-setup rename"),
     ("permission denied (publickey)", "key-rejected", "GitHub did not accept the worker's key for the results repository. A renamed or recreated repository needs its deploy key registered again.", "ct-setup install"),
     ("could not read from remote repository", "key-rejected", "The worker could not reach the results repository with its key (it is missing, renamed, or not registered on that repository).", "ct-setup install"),
+    ("marked as read only", "key-readonly", "GitHub says the worker's key on the results repository is read-only; it must be allowed to write.", "ct-setup install"),
     ("read-only", "key-readonly", "The worker's deploy key on the results repository is read-only; it must be allowed to write.", "ct-setup install"),
     ("write access to repository not granted", "key-readonly", "The worker's deploy key on the results repository is read-only; it must be allowed to write.", "ct-setup install"),
     ("could not resolve hostname", "offline", "The worker cannot reach GitHub (no network or DNS). It publishes by itself when the connection returns.", None),

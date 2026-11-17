@@ -615,6 +615,22 @@ class DeployKeyUnits(unittest.TestCase):
         dk.sync({"queue": QUEUE_PUB})
         self.assertEqual(len([c for c in calls if c[3] == "add"]), 2)
 
+    def test_a_results_key_that_is_read_only_on_github_is_replaced_with_one_that_can_write(self):
+        calls = []
+        listing = json.dumps([{"id": 9, "key": RESULTS_PUB.rsplit(" ", 1)[0], "title": "x", "readOnly": True}])
+
+        def run(argv):
+            calls.append(argv)
+            return Result(0, listing if argv[3] == "list" else "")
+        dk = keys.DeployKeys(self.cfg(), run, lambda n: "/usr/bin/gh")
+        self.assertEqual(dk.sync({"results": RESULTS_PUB}), [("results", "fixed")])
+        self.assertTrue(any(c[3] == "delete" and "9" in c for c in calls))
+        self.assertTrue(any(c[3] == "add" and "--allow-write" in c for c in calls))
+        calls.clear()
+        dk2 = keys.DeployKeys(self.cfg(), run, lambda n: "/usr/bin/gh")
+        self.assertEqual(dk2.sync({"queue": RESULTS_PUB}), [("queue", "present")])               # a read-only queue key is correct: left alone
+        self.assertFalse([c for c in calls if c[3] in ("delete", "add")])
+
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
         ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"

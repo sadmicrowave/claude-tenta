@@ -47,7 +47,7 @@ class DeployKeys:
 
     def present(self, which):
         """The key texts already on the repository (empty if it cannot be listed)."""
-        r = self.run(["gh", "repo", "deploy-key", "list", "-R", self.slug(which), "--json", "key,title,readOnly"])
+        r = self.run(["gh", "repo", "deploy-key", "list", "-R", self.slug(which), "--json", "id,key,title,readOnly"])
         if not r.ok:
             return None
         try:
@@ -57,9 +57,15 @@ class DeployKeys:
 
     def add(self, which, pub):
         """Add one key. Returns 'added', 'present' or an error text."""
-        have = self.present(which)
+        have, repaired = self.present(which), False
         if have is not None and blob(pub) in have:
-            return "present"
+            item = have[blob(pub)]
+            if which != "results" or not item.get("readOnly", False):
+                return "present"
+            fixed = self.run(["gh", "repo", "deploy-key", "delete", str(item.get("id", "")), "-R", self.slug(which)]) if item.get("id") else None      # the key is there but cannot write: the worker could never publish a result
+            if not fixed or not fixed.ok:
+                return "the results key is read-only on GitHub: tick 'Allow write access' on it at github.com/" + self.slug(which) + "/settings/keys"
+            repaired = True
         with tempfile.TemporaryDirectory(prefix="ct-key-") as d:
             f = os.path.join(d, f"{which}.pub")
             with open(f, "w") as fh:
@@ -68,7 +74,7 @@ class DeployKeys:
             if which == "results":
                 argv.append("--allow-write")
             r = self.run(argv)
-        return "added" if r.ok else (r.out.strip().splitlines() or ["gh failed"])[-1][:200]
+        return ("fixed" if repaired else "added") if r.ok else (r.out.strip().splitlines() or ["gh failed"])[-1][:200]
 
     def sync(self, keys):
         """Add every published key not yet handled. Returns [(which, status)] for the ones handled in this call."""
@@ -77,13 +83,13 @@ class DeployKeys:
             if which in self.done:
                 continue
             status = self.add(which, pub)
-            if status in ("added", "present"):
+            if status in ("added", "present", "fixed"):
                 self.done[which] = status
                 access = "read and write" if which == "results" else "read-only"
                 if self.note:                                                      # the same status column as every other line of the install
                     self.note(f"deploy key for {self.slug(which)}", status, access)
                 else:
-                    self.say(f"  {'ADDED' if status == 'added' else 'PRESENT':<9} deploy key for {self.slug(which)}  ({access})")        # output: plain fallback (the caller's printer styles it)
+                    self.say(f"  {status.upper():<9} deploy key for {self.slug(which)}  ({access})")        # output: plain fallback (the caller's printer styles it)
             out.append((which, status))
         return out
 

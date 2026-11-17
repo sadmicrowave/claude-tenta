@@ -339,6 +339,13 @@ class Status(CliBase):
         publishdiag.record(self.state, True)
         self.assertIsNone(publishdiag.load(self.state))
 
+    def test_a_slow_pass_logs_a_note_and_still_succeeds(self):
+        ticks = iter([0.0, 30.0, 30.0, 30.0, 30.0])
+        err = io.StringIO()
+        with mock.patch.object(cli.time, "monotonic", lambda: next(ticks)), redirect_stderr(err):
+            self.assertEqual(cli.run_pass(self.ctx, "step"), 0)
+        self.assertIn("pass took 30 s", err.getvalue())
+
     def test_wake_ends_the_slow_pace_and_looks_for_jobs_now(self):
         (self.state / "last-sync.stamp").touch()
         code, out = self.run_cli("wake")

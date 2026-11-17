@@ -249,7 +249,7 @@ def retitle_keys(host, cfg, new):
                 f.write(k["key"] + "\n")
             try:
                 host.run(["gh", "repo", "deploy-key", "delete", str(k["id"]), "-R", slug])
-                r = host.run(["gh", "repo", "deploy-key", "add", f.name, "-R", slug, "-t", title] + ([] if k.get("readOnly", True) else ["--allow-write"]))
+                r = host.run(["gh", "repo", "deploy-key", "add", f.name, "-R", slug, "-t", title] + (["--allow-write"] if new_repo.endswith("-results") or not k.get("readOnly", True) else []))      # by role: the results key must write whatever the listing said
                 notes.append((f"deploy key on {new_repo}", "retitled" if r.ok else "failed", title))
             finally:
                 os.unlink(f.name)

@@ -296,6 +296,12 @@ class GitHub(unittest.TestCase):
         self.assertNotIn("--allow-write", adds[0])
         self.assertIn("--allow-write", adds[1])                                                # the results key keeps its write access
 
+    def test_the_results_key_is_given_write_access_even_when_the_listing_does_not_say(self):
+        self.h.replies["gh repo deploy-key list -R someone/tenta-two-results"] = Result(0, '[{"id": 7, "title": "%s-server", "key": "ssh-ed25519 AAAAKEY"}]' % OLD)
+        rename.retitle_keys(self.h, self.cfg, NEW)
+        adds = [a for a in self.h.ran("gh repo deploy-key add") if "tenta-two-results" in " ".join(a)]
+        self.assertTrue(adds and "--allow-write" in adds[0])
+
 
 if __name__ == "__main__":
     unittest.main()

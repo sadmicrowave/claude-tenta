@@ -600,7 +600,7 @@ def run_pass(ctx, which):
     took = time.monotonic() - t0
     record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"), took=took)
     if took > 8:                                                        # a slow pass is the usual reason a job is noticed late: say so in the journal
-        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the next one starts {ctx.w.s.fetch_s if which == 'fetch' else 5} s after this ended", file=sys.stderr)       # output: log (the journal)
+        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the timer starts the next one after this ended", file=sys.stderr)       # output: log (the journal)
     return 0
 
 
