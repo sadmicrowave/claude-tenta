@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .. import config
 from . import ptyrun, questions, report, toml_out
+from . import legacy
 from .server import SetupError, missing_steps
 from .report import sink as _sink
 
@@ -65,6 +66,8 @@ class ClientSetup:
             raise SetupError("Missing tools", ", ".join(missing) + " must be installed first", ["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."])
         self.gh = bool(self.host.which("gh"))
         self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found, repository steps will be printed"))
+        for what, fix in legacy.find(self.host):                           # nothing is removed here: these are the person's shell and Claude Code settings
+            self.note("old install leftover", "found", f"{what}. Clear it: {fix}")
 
     def configure(self):
         if self.ui is not None:
