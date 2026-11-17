@@ -14,6 +14,9 @@ from pathlib import Path
 
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 RESULT_FILE = "claude-update.json"
+TOKEN_FILE = "claude-token.json"           # <config>/claude-token.json: when the subscription token was stored (it lasts about a year)
+TOKEN_LIFE_DAYS = 365
+TOKEN_WARN_DAYS = 335
 
 
 def tool_path(home):
@@ -46,6 +49,22 @@ def version_of(home, run):
         return ""
     found = re.search(r"(\d+\.\d+\.\d+)", r.stdout or "")
     return found.group(1) if found else ""
+
+
+def token_age_days(config_dir, now=None):
+    """Whole days since the subscription token was stored, or None when that is not known (an api-key install, or one from before this was recorded)."""
+    try:
+        set_at = int(json.loads((Path(config_dir) / TOKEN_FILE).read_text())["set_at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return max(0, int(((time.time() if now is None else now) - set_at) // 86400))
+
+
+def token_state(age_days):
+    """'ok', 'expiring' (renew soon) or 'expired'; None when unknown."""
+    if age_days is None:
+        return None
+    return "expired" if age_days >= TOKEN_LIFE_DAYS else "expiring" if age_days >= TOKEN_WARN_DAYS else "ok"
 
 
 def tool_info(home, run=None):

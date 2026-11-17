@@ -48,6 +48,8 @@ class Settings:
     prune_threshold: int = 200
     pkg_timeout: int = 900
     require_netns: bool = True
+    idle_after_s: int = 600                 # smart sleep: nothing to do for this long ...
+    idle_fetch_s: int = 90                  # ... and the fetch pass only really runs this often (0: never slows down)
 
 
 class Worker:
@@ -60,6 +62,7 @@ class Worker:
         self.home, self.api_key, self.hostname = str(home or Path.home()), api_key, hostname
         self.oauth_token = oauth_token
         self.approvers_file = approvers_file
+        self.idle_now = False
         self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
@@ -593,8 +596,45 @@ class Worker:
         except Exception as e:                               # housekeeping must never break a pass
             self.log(f"prune error: {e}")
 
+    # ---- smart sleep: a worker with nothing to do stops asking GitHub every half minute ----
+    def has_work(self):
+        """True while a job is queued, running, or still waiting (for approval, say): such a worker keeps checking at the normal pace."""
+        if any(self._p("queued").glob("*.json")) or any(self._p("running").glob("*")):
+            return True
+        return any(not self._p("done", p.stem).exists() for p in self._p("inbox").glob("*.json"))
+
+    def idle_skip(self):
+        """Should this pass do nothing because the worker has been idle? It still runs when work exists, when idle_fetch_s is 0, or when it is time for the slow check.
+        Any activity ends the idleness at once."""
+        s = self.s
+        if not s.idle_fetch_s:
+            self.idle_now = False
+            return False
+        activity, last = self._p("activity.stamp"), self._p("last-sync.stamp")
+        now = time.time()
+        if self.has_work() or self.lock.locked():
+            activity.touch()
+            self.idle_now = False
+            return False
+        try:
+            idle_for = now - activity.stat().st_mtime
+        except OSError:
+            activity.touch()
+            self.idle_now = False
+            return False
+        self.idle_now = idle_for >= s.idle_after_s
+        if not self.idle_now:
+            return False
+        try:
+            return now - last.stat().st_mtime < s.idle_fetch_s
+        except OSError:
+            return False
+
     def fetch(self):
         """The fetch pass. Returns the ids that were looked at."""
+        if self.idle_skip():
+            return []
+        self._p("last-sync.stamp").touch()
         self.io.sync()
         try:
             self.apply_controls()                                      # before the lockdown check: a signed unlock must work while locked
@@ -628,6 +668,8 @@ class Worker:
         for inbox in self.orphan_inbox(listing):
             self.process(inbox, reg)
             seen.append(inbox.stem)
+        if seen and any(not self._p("done", j).exists() for j in seen) or self.has_work():
+            self._p("activity.stamp").touch()             # something new to do: the slow pace ends now
         self.maybe_prune_results()
         self.step()                                          # start new jobs right away instead of waiting for the next step tick
         return seen

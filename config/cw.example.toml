@@ -62,12 +62,15 @@ fetch_s = 30                    # seconds between checks of the queue repo for n
 step_s = 10                     # seconds between passes that start queued jobs
 canary_s = 30                   # seconds between checks of the decoy credential files
 update_min = 15                 # minutes between checks for a new signed release (updates.mode = "signed-tags")
+idle_after_min = 10             # minutes with nothing to do before the worker checks the queue repo less often (smart sleep)
+idle_fetch_s = 90               # while idle: seconds between those checks (0 = never slow down). A new job waits at most this long
 registry_sync_min = 5           # minutes between checks for a job registry you approved (signed) from your own computer
 
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
 # source = "https://github.com/your-github-handle/claude-ballast.git"   # where releases are fetched from; required to install or update
 branch = "main"                 # an explicit revision must be on this branch before it may be installed
+check = true                    # show a one-line note after a command when a newer release exists (checked once a day in the background; nothing is installed)
 
 [registry]
 packs = ["core"]                # job-class packs to install

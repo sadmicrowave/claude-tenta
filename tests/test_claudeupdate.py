@@ -75,5 +75,20 @@ class Updates(unittest.TestCase):
         self.assertEqual(claudeupdate.load(d), {"ts": 1, "kind": "native"})
 
 
+class Token(unittest.TestCase):
+    def test_age_and_state_follow_the_one_year_life(self):
+        d = Path(tempfile.mkdtemp())
+        self.assertIsNone(claudeupdate.token_age_days(d))                                 # nothing recorded: unknown, not "fine"
+        (d / claudeupdate.TOKEN_FILE).write_text(json.dumps({"set_at": 1_000_000}))
+        day = 86400
+        self.assertEqual(claudeupdate.token_age_days(d, now=1_000_000 + 12 * day + 5), 12)
+        self.assertEqual([claudeupdate.token_state(x) for x in (None, 0, 334, 335, 364, 365, 500)], [None, "ok", "ok", "expiring", "expiring", "expired", "expired"])
+
+    def test_a_damaged_record_is_unknown(self):
+        d = Path(tempfile.mkdtemp())
+        (d / claudeupdate.TOKEN_FILE).write_text("not json")
+        self.assertIsNone(claudeupdate.token_age_days(d))
+
+
 if __name__ == "__main__":
     unittest.main()

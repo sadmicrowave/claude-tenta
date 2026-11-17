@@ -577,6 +577,12 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "prune": ("squash old job files out of the jobs branch", [("Tidy it", "cw-run prune")])}
 
 
+def updatecheck_banner(cfg, ctx):
+    from .. import __version__, updatecheck
+    from ..admin import workers
+    updatecheck.after_command(cfg.updates, ctx.home, __version__, (workers.read_state(ctx.repos.results) or {}).get("release"))
+
+
 def main(argv=None, ctx=None, cfg=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     raw, tail = list(argv), []
@@ -598,6 +604,9 @@ def main(argv=None, ctx=None, cfg=None):
             ctx = Context.from_config(cfg)
         if a.cmd == "setup":
             return cmd_setup(ctx, cfg or config.load())
+        if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
+            import atexit
+            atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
         if a.cmd == "submit":
             return cmd_submit(ctx, a)
         if a.cmd == "result":

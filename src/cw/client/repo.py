@@ -77,7 +77,7 @@ class ClientRepos:
             raise ClientError(f"git {' '.join(a)} failed", r.stderr.strip())
         return r.stdout.strip()
 
-    def push_files(self, branch, files, msg, base=None, retries=3):
+    def push_files(self, branch, files, msg, base=None, retries=3, remove=()):
         """Commit {path: text} onto `branch` of the queue repo without touching the working tree, and push it. The new commit's parent is
         origin/<base or branch> (none for a brand-new orphan branch). A plain push, never forced: a rejected one is re-fetched and retried."""
         for _ in range(retries):
@@ -92,6 +92,8 @@ class ClientRepos:
                 for path, text in files.items():
                     blob = self._plumb(env, "hash-object", "-w", "--stdin", input=text)
                     self._plumb(env, "update-index", "--add", "--cacheinfo", f"100644,{blob},{path}")
+                for path in remove:                                 # files taken out of the new commit (everything else on the branch stays)
+                    self._plumb(env, "update-index", "--force-remove", path)
                 args = ["commit-tree", self._plumb(env, "write-tree"), "-m", msg + "\n"] + (["-p", parent_ref] if has_parent else [])
                 commit = self._plumb(env, *args)
             finally:

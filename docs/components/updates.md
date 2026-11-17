@@ -50,3 +50,11 @@ Pushing to the repository alone can therefore never change what runs on the work
 
 Releases are commits on the release branch; a signed release is an annotated tag `release-<version>` signed with an SSH key whose public half is in `allowed_signers`
 (`git tag -s` with `gpg.format = ssh`). The project's release process is described in `CONTRIBUTING.md`.
+
+## Knowing a newer release exists
+
+A release is a tag named `release-X.Y.Z` in the project repository (`updates.source`), made with `scripts/release X.Y.Z` (it bumps the version, commits, and tags with the notes, signing the tag if you ask; it never pushes). Two things look for them:
+
+- **A quiet banner.** After a `cw-run` or `cw-admin` command, on a terminal, one dim line says that a newer release exists (`A newer release is available: release-0.2.0 (this computer has 0.1.0; the worker is on a different release). See what changed and update: cw-admin update`). It is read from a cache, so a command never waits for the network; the cache (`~/.cw/update-check.json`) is refreshed at most once a day by a detached background process (`git ls-remote --tags`: nothing is cloned or downloaded). The banner appears at most twice a day, never when output is piped or with `--json`, and is switched off by `updates.check = false` or the environment variable `CW_NO_UPDATE_CHECK`. Nothing is installed by it.
+- **`cw-admin update`.** Looks now, shows the release's notes, and asks. Saying yes to "update this computer" fast-forwards your checkout to exactly the release tag's commit (a checkout with uncommitted changes, or with commits the release does not contain, is refused and left alone; a pip-installed copy is reinstalled from the tag). Installing it on the worker is a separate question, because it logs in and needs the worker's sudo password: it runs the same `apply` as before. `--check` only reports. A worker set to `updates.mode = "signed-tags"` installs a new release by itself, but only if the tag's signature checks against the keys you trust.
+

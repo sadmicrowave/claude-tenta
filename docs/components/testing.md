@@ -36,6 +36,14 @@ checks that `sudo` cannot be profiled and that a denied program cannot be instal
 GitHub is simulated: `github.com` resolves to the machine itself, where an SSH user called `git` holds the two bare repositories, so every clone, fetch and push uses real keys, including the worker's own deploy keys.
 The decoy-credential check needs kernel audit, which container-style machines (OrbStack) lack; there it reports SKIP and the hardening module explains why. Use a full VM to cover it.
 
+### The tripwire on a real machine
+
+The end-to-end test runs in a container, which has no kernel audit, so it cannot test the first link of the tripwire (auditd logging a read of a decoy file). `cw-setup tripwire-test` tests the whole chain on a real worker: run as root on it, it reads one decoy file, waits for the lockdown, checks it, and unlocks again. It asks first, because it really does lock the worker for a minute and send the security alert, and it refuses when auditd is not running, when canary-watch is not monitoring, or when the worker is already locked.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the unit tests on Python 3.11, 3.12 and 3.13, checks that the generated reference pages are current, and runs the privacy check over the whole history. A `release-X.Y.Z` tag must also match the version in `pyproject.toml` and `src/cw/__init__.py`. The end-to-end test needs a full machine and is run by hand with `scripts/e2e-orbstack`.
+
 ### Privacy guard
 
 `scripts/privacy-check` runs as a `pre-commit` and `commit-msg` hook and with `--history` before any push. It blocks private IPs, MAC addresses, e-mail addresses, `.local` host names, keys, tokens, home paths, and anything on a personal denylist kept outside the repository. A line may carry `privacy-ok` with a reason.

@@ -274,8 +274,7 @@ class WorkersCommand(AdminBase):
         super().setUp()
         self.other = self.tmp / "other-results"
         self.other.mkdir()
-        self.fail = False
-        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, self.fail))]
+        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, False))]
         self.ctx.workers_file = self.tmp / "workers.toml"
         self.put_state(self.repos.results, state_doc(updated=self.fresh()))
         self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "none"}, hardware={"cores": 8, "mem_total_mb": 32000, "native_claude": True}))
@@ -290,14 +289,14 @@ class WorkersCommand(AdminBase):
     def test_every_worker_is_a_row_with_hardware_and_claude_state_side_by_side(self):
         code, out, err = self.admin("workers")
         self.assertEqual(code, 0, err)
-        for needle in ("WORKER", "testcw", "studio", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON"):
+        for needle in ("TESTCW", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON", "┃"):
             self.assertIn(needle, out)
 
     def test_claude_filter_keeps_only_workers_with_working_claude_access(self):
         code, out, _ = self.admin("workers", "--claude")
         self.assertEqual(code, 0)
-        self.assertIn("testcw", out)
-        self.assertNotIn("studio", out)
+        self.assertIn("TESTCW", out)
+        self.assertNotIn("STUDIO", out)
 
     def test_a_locked_worker_or_one_whose_claude_tool_is_missing_is_not_a_claude_candidate(self):
         self.put_state(self.repos.results, state_doc(updated=self.fresh(), locked=True))
@@ -312,6 +311,14 @@ class WorkersCommand(AdminBase):
         _, out, _ = self.admin("workers")
         self.assertIn("2.1.112 (older release, pinned)", out)
         self.assertIn("old CPU", out)
+
+    def test_a_token_near_its_end_is_visible_and_an_expired_one_is_not_a_claude_candidate(self):
+        self.put_state(self.repos.results, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}, "token_days": 340}))
+        _, out, _ = self.admin("workers")
+        self.assertIn("token 340 days old (renew soon)", out)
+        self.put_state(self.repos.results, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}, "token_days": 400}))
+        code, out, _ = self.admin("workers", "--claude")
+        self.assertNotIn("TESTCW", out)
 
     def test_json_is_machine_readable_for_a_future_scheduler(self):
         code, out, _ = self.admin("workers", "--json")
@@ -328,15 +335,14 @@ class WorkersCommand(AdminBase):
     def test_an_old_reading_is_marked_stale(self):
         self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
         _, out, _ = self.admin("workers")
-        self.assertIn("STALE", out)
+        self.assertIn(" STALE ", out)
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
-        self.fail = True
         self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, True))]
         code, out, _ = self.admin("workers")
         self.assertEqual(code, 0)
         self.assertIn("studio: could not refresh", out)
-        self.assertIn("studio", out)
+        self.assertIn("STUDIO", out)
 
     def test_adding_and_removing_a_worker_edits_the_list_and_validates_it(self):
         cfg = self.tmp / "studio.toml"
@@ -348,6 +354,203 @@ class WorkersCommand(AdminBase):
         self.assertEqual(self.admin("workers", "add", "Bad Name", "--config", str(cfg))[0], 2)
         self.assertEqual(self.admin("workers", "add", "x", "--config", str(self.tmp / "nope.toml"))[0], 2)
         self.assertEqual(self.admin("workers", "remove", "ghost")[0], 2)
+
+
+class WorkerCards(unittest.TestCase):
+    ROW = {"name": "testcw", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
+           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2}
+
+    def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
+        lines = workers_mod.cards([self.ROW], width=80, color=False)
+        self.assertEqual(lines[0], "┃  TESTCW ")
+        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "INSTALLED"):
+            self.assertTrue(any(l.startswith("┃ " + label) for l in lines), label)
+        self.assertIn("┃ INSTALLED 2 classes, 1 package", lines)
+        values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("┃ ") and len(l) > 12}
+        self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
+
+    def test_no_line_is_longer_than_the_card_width_so_nothing_wraps(self):
+        long = dict(self.ROW, claude="account: " + "x" * 200)
+        lines = workers_mod.cards([long], width=60, color=False)
+        self.assertTrue(all(len(l) <= 60 for l in lines), [len(l) for l in lines])
+        self.assertTrue(any("…" in l for l in lines))
+
+    def test_cards_are_stacked_with_a_blank_line_between_and_a_locked_one_says_so(self):
+        locked = dict(self.ROW, name="studio", locked=True)
+        lines = workers_mod.cards([self.ROW, locked], width=80, color=False)
+        self.assertIn("", lines)
+        self.assertIn("┃  STUDIO   LOCKED ", lines)
+
+    def test_colour_gives_the_rail_a_blue_or_red_or_dim_code(self):
+        blue = "\n".join(workers_mod.cards([self.ROW], width=80, color=True))
+        self.assertIn("38;5;75", blue)
+        self.assertIn("38;5;203", "\n".join(workers_mod.cards([dict(self.ROW, locked=True)], width=80, color=True)))
+        self.assertIn("\x1b[2m┃ ", "\n".join(workers_mod.cards([dict(self.ROW, stale=True)], width=80, color=True)))
+
+
+class UpdateCommand(AdminBase):
+    def setUp(self):
+        super().setUp()
+        self.ctx.sleep = lambda s: None
+        self.ctx.home.mkdir(parents=True, exist_ok=True)
+        self.tty = True
+        self.old = self.rel[0]
+        self.new = self.release_commit({"src/cw/a.py": "a=2\n"}, "the next release")
+
+    def tag(self, name="release-9.9.9", notes="Adds things\nFixes others"):
+        sh("git", "tag", "-a", name, "-m", notes, "HEAD", cwd=self.src_dir)
+
+    def checkout(self):
+        root = self.tmp / "checkout"
+        sh("git", "clone", "-q", str(self.src_dir), str(root))
+        sh("git", "-C", str(root), "reset", "-q", "--hard", self.old)
+        return root
+
+    def test_no_release_tag_yet_is_said_plainly(self):
+        code, out, err = self.admin("update", "--check")
+        self.assertEqual(code, 0)
+        self.assertIn("No releases yet", out + err)
+
+    def test_a_newer_release_is_shown_with_its_notes_and_check_changes_nothing(self):
+        self.tag()
+        root = self.checkout()
+        orig = cli.selfupdate.checkout_root
+        cli.selfupdate.checkout_root = lambda: root
+        try:
+            code, out, err = self.admin("update", "--check")
+        finally:
+            cli.selfupdate.checkout_root = orig
+        self.assertEqual(code, 0)
+        self.assertIn("release-9.9.9 is available", out + err)
+        self.assertIn("Fixes others", out + err)
+        self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), self.old)            # nothing was updated
+        self.assertEqual(self.ssh.calls, [])
+
+    def test_saying_yes_moves_a_clean_checkout_forward_to_exactly_the_release(self):
+        self.tag()
+        root = self.checkout()
+        orig = cli.selfupdate.checkout_root
+        cli.selfupdate.checkout_root = lambda: root
+        try:
+            self.answers.append("y")
+            code, out, err = self.admin("update")
+        finally:
+            cli.selfupdate.checkout_root = orig
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), self.new)
+
+    def test_saying_no_changes_nothing(self):
+        self.tag()
+        root = self.checkout()
+        orig = cli.selfupdate.checkout_root
+        cli.selfupdate.checkout_root = lambda: root
+        try:
+            self.answers.append("n")
+            self.admin("update")
+        finally:
+            cli.selfupdate.checkout_root = orig
+        self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), self.old)
+
+    def test_a_checkout_with_uncommitted_changes_is_never_touched(self):
+        self.tag()
+        root = self.checkout()
+        (root / "README.md").write_text("my edit\n")
+        orig = cli.selfupdate.checkout_root
+        cli.selfupdate.checkout_root = lambda: root
+        try:
+            self.answers.append("y")
+            code, out, err = self.admin("update")
+        finally:
+            cli.selfupdate.checkout_root = orig
+        self.assertNotEqual(code, 0)
+        self.assertIn("uncommitted changes", out + err)
+        self.assertEqual((root / "README.md").read_text(), "my edit\n")
+
+    def test_a_checkout_with_its_own_commits_is_not_overwritten(self):
+        self.tag()
+        root = self.checkout()
+        (root / "mine.txt").write_text("mine\n")
+        sh("git", "-C", str(root), "add", "-A")
+        sh("git", "-C", str(root), "commit", "-q", "-m", "my own work")
+        mine = sh("git", "-C", str(root), "rev-parse", "HEAD")
+        orig = cli.selfupdate.checkout_root
+        cli.selfupdate.checkout_root = lambda: root
+        try:
+            self.answers.append("y")
+            code, out, err = self.admin("update")
+        finally:
+            cli.selfupdate.checkout_root = orig
+        self.assertNotEqual(code, 0)
+        self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), mine)
+
+    def test_a_worker_on_another_release_is_offered_the_install_separately_and_only_on_yes(self):
+        self.tag()
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"release": "0" * 40}))
+        applied = []
+        orig, orig_root = cli.apply, cli.selfupdate.checkout_root
+        cli.apply = lambda ctx, a: applied.append(a.rev) or 0
+        cli.selfupdate.checkout_root = lambda: self.checkout()
+        try:
+            self.answers.extend(["n", "y"])                                              # no to this computer, yes to the worker
+            code, _, err = self.admin("update")
+        finally:
+            cli.apply, cli.selfupdate.checkout_root = orig, orig_root
+        self.assertEqual(code, 0, err)
+        self.assertEqual(applied, [self.new])
+
+    def test_an_unreachable_source_is_an_error_with_what_to_try(self):
+        self.ctx.source.url = str(self.tmp / "nowhere")
+        code, out, err = self.admin("update", "--check")
+        self.assertNotEqual(code, 0)
+        self.assertIn("git ls-remote", out + err)
+
+
+class CleanCommand(SignedApprovals):
+    def setUp(self):
+        super().setUp()
+        self.ctx.sleep = lambda s: None
+        self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
+
+    def names(self):
+        self.repos.fetch_queue()
+        return subprocess.run(["git", "-C", str(self.repos.queue), "ls-tree", "-r", "--name-only", f"origin/{approvals.BRANCH}"], capture_output=True, text=True).stdout.split()
+
+    def test_an_approval_for_a_finished_job_goes_and_one_for_a_waiting_job_stays(self):
+        self.put_job("job-w")
+        self.answers.extend(["y", "y"])
+        self.admin("approve", "job-b")
+        self.admin("approve", "job-w")
+        self.put_result("job-b", status="ok")
+        self.put_result("job-w", status="awaiting_approval")
+        self.answers.append("y")
+        code, out, err = self.admin("clean")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.names(), ["approvals/job-w.json"])
+
+    def test_the_signed_registry_is_never_removed(self):
+        self.admin("proposals", "publish")
+        self.admin("cancel", "job-b")                                                  # an order, fresh: it stays too
+        self.answers.append("y")
+        self.admin("clean")
+        self.assertIn(approvals.REGISTRY_PATH, self.names())
+        self.assertTrue(any(n.startswith("control/") for n in self.names()))
+
+    def test_an_expired_order_is_removed(self):
+        record = approvals.make_control_record("cancel", job="job-b", now=1000, nonce="aaaa0000")
+        text = approvals.bundle(record, approvals.sign(record, self.home / "approval" / "key", namespace=approvals.CONTROL_NAMESPACE))
+        self.repos.push_files(approvals.BRANCH, {"control/aaaa0000.json": text}, "an old order")
+        self.answers.append("y")
+        self.admin("clean")
+        self.assertEqual(self.names(), [])
+
+    def test_answering_no_removes_nothing_and_an_empty_branch_says_so(self):
+        self.assertIn("Nothing to tidy", "".join(self.admin("clean")[1:]))
+        self.answers.append("y")
+        self.admin("approve", "job-b")
+        self.put_result("job-b", status="ok")
+        self.answers.append("n")
+        self.admin("clean")
+        self.assertEqual(self.names(), ["approvals/job-b.json"])
 
 
 class FollowAfterApproving(unittest.TestCase):

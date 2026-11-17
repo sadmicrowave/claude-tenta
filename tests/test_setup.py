@@ -762,6 +762,16 @@ class ClaudeSignIn(ServerTests):
         self.run_with("none")
         self.assertFalse(self.h.ran("systemctl enable --now claude-ballast-claude-update.timer"))
 
+    def test_the_day_an_account_token_was_stored_is_recorded_for_the_one_year_warning(self):
+        self.run_with("account", token="sk-ant-oat01-" + "e" * 40)
+        rec = __import__("json").loads(self.h.read("/etc/claude-ballast/claude-token.json"))
+        self.assertEqual(rec["route"], "account")
+        self.assertLess(abs(rec["set_at"] - __import__("time").time()), 120)
+
+    def test_an_api_key_has_no_expiry_record(self):
+        self.run_with("api-key", token="sk-ant-api03-" + "e" * 40)
+        self.assertFalse(self.h.exists("/etc/claude-ballast/claude-token.json"))
+
     def test_api_key_goes_under_its_own_name_and_replaces_the_other_route(self):
         s, screen = self.run_with("api-key", token="sk-ant-api03-" + "y" * 40)
         self.assertIn("ANTHROPIC_API_KEY", self.secrets())

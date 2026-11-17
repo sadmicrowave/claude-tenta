@@ -154,6 +154,7 @@ class WorkerState(Base):
         old = json.loads(stamp.read_text())
         old["at"] -= 3600
         stamp.write_text(json.dumps(old))
+        time.sleep(1.1)                                                   # the file carries its own time to the second; an identical second would be no change to commit
         self.w.fetch()
         self.assertEqual(self.state_commits(), 2)
 
@@ -169,6 +170,77 @@ class WorkerState(Base):
         self.make_worker(state_facts=boom)
         self.w.fetch()
         self.assertTrue(any("worker state" in m for m in self.logged))
+
+
+class SmartSleep(Base):
+    """An idle worker stops asking GitHub every pass; any work ends the idleness at once."""
+
+    def setUp(self):
+        super().setUp()
+        self.syncs = 0
+        real = self.io.sync
+        self.io.sync = lambda: (setattr(self, "syncs", self.syncs + 1), real())[1]
+        self.settings.idle_after_s, self.settings.idle_fetch_s = 600, 90
+
+    def age(self, name, seconds):
+        p = self.state / name
+        t = time.time() - seconds
+        os.utime(p, (t, t))
+
+    def go_idle(self):
+        self.w.fetch()                                                   # a first pass: leaves the stamps
+        (self.state / "activity.stamp").touch()
+        (self.state / "last-sync.stamp").touch()
+        self.age("activity.stamp", 3600)
+        self.age("last-sync.stamp", 5)
+
+    def test_a_worker_with_nothing_to_do_skips_the_check_between_slow_polls(self):
+        self.go_idle()
+        before = self.syncs
+        self.assertEqual(self.w.fetch(), [])
+        self.assertEqual(self.syncs, before)
+        self.assertTrue(self.w.idle_now)
+
+    def test_it_still_checks_at_the_slow_pace(self):
+        self.go_idle()
+        self.age("last-sync.stamp", 100)                                  # longer than idle_fetch_s
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual(self.syncs, before + 1)
+
+    def test_a_new_job_is_seen_by_the_next_slow_check_and_ends_the_idleness(self):
+        self.go_idle()
+        self.job("job-0001", "echo")
+        self.age("last-sync.stamp", 100)
+        self.w.fetch()
+        self.assertFalse(self.w.idle_now and not self.w.has_work())
+        self.assertTrue((self.state / "activity.stamp").stat().st_mtime > time.time() - 60)
+        before = self.syncs
+        self.w.fetch()                                                    # not idle any more: every pass checks again
+        self.assertEqual(self.syncs, before + 1)
+
+    def test_a_job_waiting_for_approval_keeps_the_normal_pace(self):
+        self.job("job-0001", "careful")
+        self.w.fetch()
+        self.age("activity.stamp", 3600)
+        self.age("last-sync.stamp", 5)
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual(self.syncs, before + 1)
+
+    def test_a_locked_worker_keeps_the_normal_pace_so_an_unlock_order_is_seen_quickly(self):
+        self.go_idle()
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual(self.syncs, before + 1)
+
+    def test_zero_turns_smart_sleep_off(self):
+        self.settings.idle_fetch_s = 0
+        self.go_idle()
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual(self.syncs, before + 1)
 
 
 class SignedApproval(Base):

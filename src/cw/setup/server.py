@@ -11,7 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import approvals, config, render, update
+from .. import approvals, claudeupdate, config, render, update
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
 
@@ -429,6 +429,8 @@ class ServerSetup:
         text = config.set_env_var(config.set_env_var(text, other, None), key, value)
         self.host.write(path, text, 0o640)
         self.host.run(["chown", f"root:{w}", path])
+        if auth == "account":                              # a subscription token lasts about a year: remember when this one was made so the worker can say when it is running out
+            self.host.write(f"{cfg.paths.config}/{claudeupdate.TOKEN_FILE}", json.dumps({"set_at": int(time.time()), "route": "account"}) + "\n", 0o644)
         self.note("Claude sign-in", "stored", f"{key} in {path}, readable only by root and the worker account")
 
     def read_secret(self, q):

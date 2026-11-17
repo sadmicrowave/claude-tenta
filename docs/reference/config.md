@@ -100,6 +100,8 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `step_s` | `10` | int | seconds between passes that start queued jobs |
 | `canary_s` | `30` | int | seconds between checks of the decoy credential files |
 | `update_min` | `15` | int | minutes between checks for a new signed release (when updates.mode is signed-tags) |
+| `idle_after_min` | `10` | int | minutes with nothing queued, running or waiting before the worker checks the queue repo less often (smart sleep) |
+| `idle_fetch_s` | `90` | int | while idle, seconds between checks of the queue repo (0 turns smart sleep off). A new job waits at most this long |
 | `registry_sync_min` | `5` | int | minutes between checks for a job registry you approved (signed) from your own computer |
 
 ## [updates]
@@ -109,6 +111,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `mode` | `manual` | `manual` , `signed-tags` | manual = you apply; signed-tags = install only tags signed by your key |
 | `source` | `https://github.com/sadmicrowave/claude-ballast.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
 | `branch` | `main` | text | branch an explicit revision must be on before it may be installed |
+| `check` | `true` | bool | show a one-line note after a command when a newer release exists (checked at most once a day, in the background; nothing is installed) |
 
 ## [registry]
 

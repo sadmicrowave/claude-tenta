@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Cut a release: bump the version, commit it, and tag it `release-X.Y.Z` (annotated, with the notes, signed if you ask).
+
+    scripts/release 0.2.0                 check, bump, commit, tag; prints what to push; pushes nothing
+    scripts/release 0.2.0 --sign          sign the tag with your SSH signing key (git config user.signingkey, gpg.format ssh)
+    scripts/release 0.2.0 --notes FILE    use FILE as the release notes (default: the commit subjects since the last release)
+    scripts/release 0.2.0 --skip-tests    skip the unit tests (the privacy check and a clean tree are always required)
+
+Everything that people or workers learn about a release comes from this tag: `cw-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
+in `updates.mode = "signed-tags"` installs only a tag whose signature checks. Nothing is pushed here: you read the result, then push.
+"""
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+FILES = (("pyproject.toml", re.compile(r'(?m)^version = "[^"]+"'), 'version = "{v}"'), ("src/cw/__init__.py", re.compile(r'(?m)^__version__ = "[^"]+"'), '__version__ = "{v}"'))
+
+
+class ReleaseError(Exception):
+    pass
+
+
+def git(root, *args, check=True):
+    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    if check and r.returncode:
+        raise ReleaseError(f"git {' '.join(args)}: {(r.stderr or r.stdout).strip()[-300:]}")
+    return r.stdout.strip()
+
+
+def previous_tag(root):
+    tags = [t for t in git(root, "tag", "-l", "release-*").split() if re.match(r"^release-\d+\.\d+\.\d+$", t)]
+    key = lambda t: tuple(int(x) for x in t[len("release-"):].split("."))      # noqa: E731
+    return max(tags, key=key, default=None)
+
+
+def notes_since(root, prev):
+    rng = f"{prev}..HEAD" if prev else "HEAD"
+    subjects = git(root, "log", "--format=- %s", "--no-merges", rng)
+    return subjects or "- (no changes recorded)"
+
+
+def check(root, version, skip_tests=False):
+    if not VERSION_RE.match(version):
+        raise ReleaseError("the version is three numbers, like 0.2.0")
+    if git(root, "rev-parse", "--abbrev-ref", "HEAD") != "main":
+        raise ReleaseError("releases are cut from main")
+    if git(root, "status", "--porcelain"):
+        raise ReleaseError("the working tree has uncommitted changes")
+    if git(root, "tag", "-l", f"release-{version}"):
+        raise ReleaseError(f"release-{version} already exists")
+    prev = previous_tag(root)
+    if prev:
+        old = tuple(int(x) for x in prev[len("release-"):].split("."))
+        if tuple(int(x) for x in version.split(".")) <= old:
+            raise ReleaseError(f"{version} is not newer than {prev}")
+    priv = Path(root) / "scripts" / "privacy-check"
+    if priv.exists() and subprocess.run([str(priv), "--history"], cwd=root, capture_output=True, text=True).returncode:
+        raise ReleaseError("the privacy check found something in the history: run scripts/privacy-check --history")
+    if not skip_tests and (Path(root) / "tests").is_dir():
+        r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=root, capture_output=True, text=True)
+        if r.returncode:
+            raise ReleaseError("the unit tests fail:\n" + (r.stderr or r.stdout)[-600:])
+
+
+def bump(root, version):
+    for rel, rx, template in FILES:
+        path = Path(root) / rel
+        text = path.read_text()
+        if not rx.search(text):
+            raise ReleaseError(f"no version line in {rel}")
+        path.write_text(rx.sub(template.format(v=version), text, count=1))
+
+
+def release(root, version, notes=None, sign=False, skip_tests=False):
+    check(root, version, skip_tests)
+    prev = previous_tag(root)
+    body = notes if notes is not None else notes_since(root, prev)
+    bump(root, version)
+    git(root, "add", "pyproject.toml", "src/cw/__init__.py")
+    git(root, "commit", "-q", "-m", f"release {version}")
+    message = f"release {version}\n\n{body}\n"
+    git(root, "tag", "-s" if sign else "-a", f"release-{version}", "-m", message)
+    return f"release-{version}", prev
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], add_help=True)
+    ap.add_argument("version")
+    ap.add_argument("--sign", action="store_true")
+    ap.add_argument("--notes")
+    ap.add_argument("--skip-tests", action="store_true")
+    a = ap.parse_args(argv)
+    try:
+        tag, prev = release(ROOT, a.version, Path(a.notes).read_text() if a.notes else None, a.sign, a.skip_tests)
+    except ReleaseError as e:
+        print(f"release: {e}", file=sys.stderr)
+        return 1
+    print(f"Created {tag}" + (f" (the last one was {prev})" if prev else "") + ". Nothing was pushed. To publish it:\n")
+    print(f"  git push origin main\n  git push origin {tag}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,8 +1,9 @@
-"""cw-setup install | uninstall | demo | client | server | audit
+"""cw-setup install | uninstall | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
+  tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
   demo      try the question and protection screens with sample questions; nothing is saved or changed
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
@@ -57,7 +58,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="cw-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall", "demo"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -180,6 +181,12 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             cfg = config.load()
             rows, bad = audit_mod.run(host, cfg, say=say)
             return 1 if bad else 0
+        if a.cmd == "tripwire-test":
+            from . import tripwire
+            cfg = config.load()
+            ok, why = tripwire.run(host, cfg, say=say, confirm=(lambda p: True) if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y"))
+            emit("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=GREEN if ok else RED)
+            return 0 if ok else 1
         if a.cmd == "demo":
             ui = screen or tui.make(interactive=True)
             if ui is None:

@@ -11,17 +11,18 @@ this program: sudo asks you itself, on your own terminal.
 """
 import argparse
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-from .. import approvals, clihelp, config, registry, render
+from .. import __version__, approvals, clihelp, config, registry, render, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import jobs, regedit, release, workers
+from . import jobs, regedit, release, selfupdate, workers
 from .proposals import Proposals
 from .ssh import Ssh
 
@@ -329,6 +330,87 @@ def follow(ctx, a, rc, jid):
     return rc
 
 
+def cmd_clean(ctx, a):
+    """Remove the signed approvals and orders that are finished or stale from the approvals branch. They are harmless (the worker acts on each at most once, and an
+    approval is for one exact file), but they would pile up. The current signed registry is always kept."""
+    import time
+    ctx.repos.fetch_queue()
+    ref = f"origin/{approvals.BRANCH}"
+    names = subprocess.run(["git", "-C", str(ctx.repos.queue), "ls-tree", "-r", "--name-only", ref], capture_output=True, text=True).stdout.split()
+    if not names:
+        emit("Nothing to tidy", "There are no signed approvals or orders on GitHub.", tag="OK", color=GREEN)
+        return 0
+    ctx.repos.pull_results()
+    old, now = [], time.time()
+    for name in names:
+        if name == approvals.REGISTRY_PATH:
+            continue
+        try:
+            rec = json.loads(json.loads(ctx.repos.show_file(ref, name) or "{}").get("record", "{}"))
+        except ValueError:
+            rec = {}
+        if name.startswith(approvals.CONTROL_DIR + "/"):
+            if rec.get("expires", 0) < now:
+                old.append((name, "expired order"))
+        elif name.startswith("approvals/"):
+            result = ctx.repos.read_result(rec.get("job") or Path(name).stem)
+            if (result and result.get("status") not in ("awaiting_approval", "running", "queued")) or rec.get("expires", 0) < now:
+                old.append((name, "job finished or approval expired"))
+    if not old:
+        emit("Nothing to tidy", f"{len(names)} file(s) on GitHub, none finished or stale.", tag="OK", color=GREEN)
+        return 0
+    emit(f"{len(old)} file(s) can go", *[f"{n}  ({why})" for n, why in old[:12]], tag="TIDY", color=CYAN)
+    if not ctx.confirm("Remove them from GitHub?", a.yes):
+        stop("Nothing removed", "You answered no.")
+    ctx.repos.push_files(approvals.BRANCH, {}, f"tidy: remove {len(old)} finished approvals and orders", remove=[n for n, _ in old])
+    emit("Tidied", f"{len(old)} file(s) removed.", tag="DONE", color=GREEN)
+    return 0
+
+
+def cmd_update(ctx, a):
+    """Is there a newer release? Show what changed, then (only if you say yes) update this computer and, separately, the worker."""
+    entry = updatecheck.check_now(ctx.source.url)
+    if "error" in entry:
+        raise ClientError("Could not look for a newer release", entry["error"], [f"Is {ctx.source.url} reachable? Try: git ls-remote --tags {ctx.source.url}"])
+    old = updatecheck.load(ctx.home)
+    updatecheck.save(ctx.home, {**old, **entry})
+    state = workers.read_state(ctx.repos.results) or {}
+    tag = entry.get("tag")
+    if not tag:
+        emit("No releases yet", f"{ctx.source.url} has no release-X.Y.Z tag.", tag="NOTE", color=YELLOW)
+        return 0
+    info = updatecheck.pending(entry, __version__, state.get("release"))
+    if not info:
+        emit("Up to date", f"This computer is on {__version__} and the latest release is {tag}.", tag="OK", color=GREEN)
+        return 0
+    emit(f"{tag} is available", ("This computer", __version__), ("The worker", (state.get("release") or "unknown")[:9]), ("Latest release", f"{tag} ({entry['commit'][:9]})"), tag="UPDATE", color=CYAN)
+    try:
+        ctx.source.update()
+        notes = ctx.source.git("tag", "-l", "--format=%(contents)", tag, check=False).stdout.strip()
+        if notes:
+            print(paint("What changed\n", BOLD, stream=sys.stdout) + "\n".join("  " + l for l in notes.splitlines()[:15]) + "\n")
+    except ClientError:
+        pass                                                          # the notes are a courtesy; the update does not depend on them
+    if a.check:
+        return 0
+    if info["this_computer"]:
+        if ctx.confirm(f"Update this computer to {tag}?", a.yes):
+            root = selfupdate.checkout_root()
+            if root:
+                new = selfupdate.update_checkout(root, ctx.source.url, tag)
+                emit("This computer is updated", f"{root} is now at {new[:9]}.", tag="DONE", color=GREEN)
+            else:
+                selfupdate.update_package(ctx.source.url, tag)
+                emit("This computer is updated", f"Installed {tag} with pip.", tag="DONE", color=GREEN)
+        else:
+            emit("Left as it is", "Nothing on this computer was changed.", tag="NOTE", color=YELLOW)
+    if info["worker"]:
+        if ctx.confirm(f"Install {tag} on {ctx.ssh.host} now? (this logs in to it and asks for its sudo password)", a.yes):
+            return apply(ctx, argparse.Namespace(rev=entry["commit"], yes=a.yes, force=False, no_verify=False, full=False))
+        emit("The worker was not touched", "To do it later:", tag="NOTE", color=YELLOW, run="cw-admin apply")
+    return 0
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -366,14 +448,10 @@ def cmd_workers(ctx, a):
         emit("No worker matches", "None of the listed workers has Claude access that works and is not locked." if a.claude else "No workers are listed.", tag="NOTE", color=YELLOW,
              run_label="See all of them", run="cw-admin workers")
         return 1 if a.claude else 0
-    lines = workers.table(cells)
-    print("\n" + paint(lines[0], BOLD, CYAN, stream=out))
-    for line, c in zip(lines[1:], cells):
-        print(paint(line, RED, stream=out) if c["locked"] else paint(line, DIM, stream=out) if c["stale"] else line)
-    for c in cells:
-        if c.get("packages") is not None and not c["stale"]:
-            print(paint(f"\n  {c['name']}: {c['classes']} classes, {c['packages']} packages", DIM, stream=out), end="")
-    print("\n")
+    import shutil
+    from .. import ui as ui_mod
+    print()
+    print("\n".join(workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out))))
     for p in problems:
         print(paint("  NOTE  " + p, YELLOW, stream=out))
     return 0
@@ -680,7 +758,7 @@ def selftest(ctx, wait_s=240):
 
 # ---- parser and help ----
 GROUPS = [("Worker", ["status", "check", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
-          ("Registry", ["adopt", "retire", "proposals"]), ("Release", ["diff", "apply"])]
+          ("Registry", ["adopt", "retire", "proposals"]), ("Release", ["diff", "apply", "update", "clean"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "cw-admin status"), ("Look further back", "cw-admin status --hours 48")]),
@@ -696,6 +774,8 @@ HELP = {
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "cw-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "cw-admin retire ssh-version")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "cw-admin proposals publish")]),
+    "clean": ("remove signed approvals and orders that are finished or stale from GitHub", [("Show what can go and ask", "cw-admin clean")]),
+    "update": ("is there a newer release? show what changed, then update this computer and the worker if you agree", [("Look and ask", "cw-admin update"), ("Only say whether there is one", "cw-admin update --check")]),
     "diff": ("show what installing a version would change", [("Compare the installed version with the latest", "cw-admin diff"), ("All the code, not only root-run files", "cw-admin diff --full")]),
     "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest", "cw-admin apply"), ("Install one commit", "cw-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "cw-admin apply --force")]),
 }
@@ -716,6 +796,11 @@ def build_parser():
     s.add_argument("--all", action="store_true", help="approve every waiting job you have viewed and that has not changed since")
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
+    yes(s)
+    s = sp.add_parser("clean", add_help=False)
+    yes(s)
+    s = sp.add_parser("update", add_help=False)
+    s.add_argument("--check", action="store_true", help="only say whether a newer release exists; change nothing")
     yes(s)
     s = sp.add_parser("workers", add_help=False)
     s.add_argument("action", nargs="?", choices=["list", "add", "remove"], help="list (default): compare the workers; add or remove one")
@@ -765,7 +850,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 
@@ -784,9 +869,14 @@ def main(argv=None, ctx=None, cfg=None):
         emit("No command given", "Run cw-admin help to see the commands.", tag="ERROR", color=RED)
         return 2
     try:
+        real = ctx is None
         if ctx is None:
-            ctx = Context.from_config(cfg or config.load())
-        return DISPATCH[a.cmd](ctx, a)
+            cfg = cfg or config.load()
+            ctx = Context.from_config(cfg)
+        rc = DISPATCH[a.cmd](ctx, a)
+        if real and a.cmd != "update" and not getattr(a, "json", False):
+            updatecheck.after_command(cfg.updates, ctx.home, __version__, (workers.read_state(ctx.repos.results) or {}).get("release"))
+        return rc
     except ClientError as e:
         return fail_from(e)
     except Stop as e:

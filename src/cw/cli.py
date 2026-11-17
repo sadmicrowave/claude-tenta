@@ -77,12 +77,13 @@ class Context:
     """Everything a command needs: the worker, and the names that appear in messages."""
 
     def __init__(self, worker, *, product="the worker", admin="cw-admin", installed_rev=None, notifier=None, canary_status=None,
-                 ask=input, hardware=None, uptime=None):
+                 ask=input, hardware=None, uptime=None, token_days=None):
         self.w, self.product, self.admin = worker, product, admin
         self.installed_rev, self.notifier = installed_rev, notifier
         self.canary_status = canary_status or Path(f"/run/{product}/canary-watch.json")
         self.ask = ask
         self.hardware = hardware or {}
+        self.token_days = token_days
         self.uptime = uptime or self._uptime
 
     @staticmethod
@@ -103,7 +104,8 @@ class Context:
         state = Path(cfg.path("state"))
         settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
-                            exec_argv=[sys.executable, "-m", "cw.cli", "exec"], require_netns=cfg.isolation.require_netns)
+                            exec_argv=[sys.executable, "-m", "cw.cli", "exec"], require_netns=cfg.isolation.require_netns,
+                            idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=int(cfg.schedule.idle_fetch_s))
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
@@ -127,6 +129,10 @@ class Context:
             cpuinfo = read("/proc/cpuinfo")
             flags = re.search(r"^flags\s*:\s*(.*)$", cpuinfo, re.M)
             claude = {"auth": cfg.claude.auth}
+            if cfg.claude.auth == "account":
+                days = claudeupdate.token_age_days(cfg.paths.config)
+                if days is not None:
+                    claude["token_days"] = days
             if cfg.claude.auth != "none":
                 if time.time() - claude_memo.get("at", 0) > 1800:
                     claude_memo.update(at=time.time(), tool=claudeupdate.tool_info(cfg.paths.worker_home))
@@ -148,7 +154,8 @@ class Context:
                    signed_approval=signed_approval, approvers_file=approvers, state_facts=state_facts, hostname=None, jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
-        return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json")
+        return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json",
+                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None)
 
 
 def _log(msg):
@@ -493,7 +500,12 @@ def cmd_status(ctx, hours=12):
         elif time.time() - p["ts"] > 300:
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
-            line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what})")
+            slow = f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s" if p.get("idle") else ""
+            line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what}{slow})")
+    if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
+        gone = claudeupdate.token_state(ctx.token_days) == "expired"
+        line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {ctx.token_days} days old (it lasts about a year); "
+             + ("Claude jobs fail until it is renewed" if gone else "renew it soon") + ": run cw-setup install on your computer and choose account again")
     cu = claudeupdate.load(w.state)
     if cu:
         when = f"{int((time.time() - cu['ts']) / 86400)} days ago" if time.time() - cu["ts"] > 86400 else "today"
@@ -534,13 +546,13 @@ def cmd_status(ctx, hours=12):
 PASS_FILE = "pass-status.json"
 
 
-def record_pass(state, which, ok, error=""):
+def record_pass(state, which, ok, error="", idle=False):
     f = Path(state) / PASS_FILE
     try:
         data = json.loads(f.read_text())
     except (OSError, ValueError):
         data = {}
-    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300]}
+    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300], "idle": idle}
     try:
         f.write_text(json.dumps(data))
     except OSError:
@@ -553,7 +565,7 @@ def run_pass(ctx, which):
     except Exception as e:
         record_pass(ctx.w.state, which, False, f"{type(e).__name__}: {e}")
         raise
-    record_pass(ctx.w.state, which, True)
+    record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch")
     return 0
 
 

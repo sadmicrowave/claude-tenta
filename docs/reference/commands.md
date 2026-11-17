@@ -50,6 +50,8 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `cw-admin diff` | show what installing a version would change |
 | `cw-admin apply` | install a version on the worker, check it, offer to roll back |
+| `cw-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
+| `cw-admin clean` | remove signed approvals and orders that are finished or stale from GitHub |
 
 ## cw-run
 
@@ -68,11 +70,12 @@ Run on your computer. Sends work to the worker and reads the results.
 ## cw-setup
 
 ```
-cw-setup install | uninstall | demo | client | server | audit
+cw-setup install | uninstall | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   audit     read-only: check a server against its configuration and report anything that drifted
+  tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
   demo      try the question and protection screens with sample questions; nothing is saved or changed
   install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
