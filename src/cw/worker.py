@@ -50,6 +50,8 @@ class Settings:
     require_netns: bool = True
     idle_after_s: int = 600                 # smart sleep: nothing to do for this long ...
     idle_fetch_s: int = 90                  # ... and the fetch pass only really runs this often (0: never slows down)
+    sleep_after_s: int = 7200               # sleep mode: nothing to do for this long ...
+    sleep_fetch_s: int = 300                # ... and the fetch pass only really runs this often (0: no sleep mode)
 
 
 class Worker:
@@ -63,6 +65,7 @@ class Worker:
         self.oauth_token = oauth_token
         self.approvers_file = approvers_file
         self.idle_now = False
+        self.mode = "active"                       # active (checks every fetch_s) | idle (every idle_fetch_s) | sleep (every sleep_fetch_s)
         self.privileged_call = privileged_call            # (exact job file, signed approval text, timeout) -> the root helper's answer; the worker never runs a root-level action itself
         self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
@@ -652,25 +655,28 @@ class Worker:
         Any activity ends the idleness at once."""
         s = self.s
         if not s.idle_fetch_s:
-            self.idle_now = False
+            self.idle_now, self.mode = False, "active"
             return False
         activity, last = self._p("activity.stamp"), self._p("last-sync.stamp")
         now = time.time()
         if self.has_work() or self.lock.locked():
             activity.touch()
-            self.idle_now = False
+            self.idle_now, self.mode = False, "active"
             return False
         try:
             idle_for = now - activity.stat().st_mtime
         except OSError:
             activity.touch()
-            self.idle_now = False
+            self.idle_now, self.mode = False, "active"
             return False
         self.idle_now = idle_for >= s.idle_after_s
         if not self.idle_now:
+            self.mode = "active"
             return False
+        asleep = bool(s.sleep_fetch_s) and idle_for >= s.sleep_after_s and s.sleep_fetch_s > s.idle_fetch_s
+        self.mode = "sleep" if asleep else "idle"
         try:
-            return now - last.stat().st_mtime < s.idle_fetch_s
+            return now - last.stat().st_mtime < (s.sleep_fetch_s if asleep else s.idle_fetch_s)
         except OSError:
             return False
 

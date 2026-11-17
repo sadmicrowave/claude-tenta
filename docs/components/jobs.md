@@ -32,13 +32,13 @@ Commands are **argument lists built from the class's template**; there is no she
 
 | Pass | When | What it does |
 |---|---|---|
-| `fetch` | timer, default every 30 s | pulls both repositories, publishes anything pending, snapshots each new job file once, validates, and rejects, holds or queues it |
-| `step` | timer, default every 10 s | starts queued jobs oldest first while capacity, load and temperature allow, and never while locked down |
+| `fetch` | timer, default every 5 s | pulls both repositories, publishes anything pending, snapshots each new job file once, validates, and rejects, holds or queues it |
+| `step` | timer, default every 5 s | starts queued jobs oldest first while capacity, load and temperature allow, and never while locked down |
 | `exec <id>` | started by `step`, one process per job | runs the job, measures it, shapes and scans the output, publishes the result |
 
 ### Smart sleep
 
-A worker with nothing to do stops asking GitHub every pass. The timers still fire every `schedule.fetch_s` seconds (a pass that skips costs almost nothing), but once nothing has been queued, running or waiting (for approval, say) for `schedule.idle_after_min` minutes (default 10), the fetch pass only really runs every `schedule.idle_fetch_s` seconds (default 90). Any work ends the idleness at once and the normal pace returns: a queued, running or waiting job, a lockdown (so a signed unlock is seen quickly), or a new job found by one of the slow checks. The cost is that a job sent to an idle worker waits at most `idle_fetch_s` seconds before it is noticed; `idle_fetch_s = 0` turns smart sleep off. `status` says when a worker is idle and how often it is asking.
+A worker with nothing to do stops asking GitHub every pass. The timers still fire every `schedule.fetch_s` seconds (a pass that skips costs almost nothing), but once nothing has been queued, running or waiting (for approval, say) for `schedule.idle_after_min` minutes (default 10), the fetch pass only really runs every `schedule.idle_fetch_s` seconds (default 90). After `schedule.sleep_after_min` minutes with nothing to do (default 120) it goes into **sleep mode**: the fetch pass only really runs every `schedule.sleep_fetch_s` seconds (default 300, five minutes; `0` means no sleep mode). Any work ends the idleness at once and the normal pace returns: a queued, running or waiting job, a lockdown (so a signed unlock is seen quickly), or a new job found by one of the slow checks. The cost is that a job sent to an idle worker waits at most `idle_fetch_s` seconds before it is noticed; a job sent to a sleeping worker waits at most `sleep_fetch_s`, and then the worker is active again (every `schedule.fetch_s`, default 5 s). `idle_fetch_s = 0` turns smart sleep off, sleep mode included. `status` says whether a worker is active, idle or asleep and how often it is asking.
 
 ### Status values
 

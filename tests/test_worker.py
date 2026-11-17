@@ -201,6 +201,33 @@ class SmartSleep(Base):
         self.assertEqual(self.syncs, before)
         self.assertTrue(self.w.idle_now)
 
+    def test_after_a_longer_quiet_it_sleeps_and_checks_only_at_the_sleep_pace(self):
+        self.settings.sleep_after_s, self.settings.sleep_fetch_s = 7200, 300
+        self.go_idle()
+        self.age("activity.stamp", 8000)                                  # quiet for longer than sleep_after_s
+        self.age("last-sync.stamp", 100)                                  # past the idle pace (90) but not the sleep pace (300)
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual((self.syncs, self.w.mode), (before, "sleep"))
+        self.age("last-sync.stamp", 400)
+        self.w.fetch()
+        self.assertEqual(self.syncs, before + 1)
+
+    def test_sleep_mode_can_be_turned_off_and_work_wakes_it(self):
+        self.settings.sleep_after_s, self.settings.sleep_fetch_s = 7200, 0
+        self.go_idle()
+        self.age("activity.stamp", 8000)
+        self.age("last-sync.stamp", 100)
+        before = self.syncs
+        self.w.fetch()
+        self.assertEqual((self.syncs, self.w.mode), (before + 1, "idle"))     # no sleep mode: it stays at the idle pace
+        self.settings.sleep_fetch_s = 300
+        self.job("job-0002", "echo")
+        self.age("last-sync.stamp", 400)
+        self.w.fetch()                                                    # the slow check finds the job ...
+        self.w.fetch()                                                    # ... and from then on the worker is active again
+        self.assertEqual(self.w.mode, "active")
+
     def test_it_still_checks_at_the_slow_pace(self):
         self.go_idle()
         self.age("last-sync.stamp", 100)                                  # longer than idle_fetch_s

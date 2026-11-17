@@ -132,9 +132,10 @@ def cmd_review(ctx, a):
         if raw is None:
             gone.append(jid)
             continue
-        print(paint(f"\n=== {jid} " + "=" * max(4, 60 - len(jid)), BOLD, CYAN, stream=sys.stdout))
         import json
-        print(review.color_review(jobs.describe(json.loads(raw), pub, ctx.name, info=class_info(ctx, json.loads(raw))), ctx.name))
+        job = json.loads(raw)
+        card = jobs.review_card(job, pub, ctx.name, info=class_info(ctx, job), digest=jobs.digest_of(raw))
+        _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
         emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on GitHub. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
@@ -305,14 +306,14 @@ def approve_one(ctx, a):
     if banner:
         emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
              run=["cw-admin quarantine", "cw-admin unlock"])
-    print(review.color_review(jobs.describe(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job)), ctx.name))
+    card = jobs.review_card(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job), digest=digest)
+    _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
     ctx.viewed.mark(jid, digest)
-    print("\n" + paint(f"Job file digest {digest[:12]}...  (approval is pinned to this exact file)", DIM, stream=sys.stdout))
     if not ctx.confirm("Approve this exact job?", a.yes):
         stop("Not approved", "You answered no. The job stays waiting.")
     if use_signed(ctx, a):
         sign_and_publish(ctx, [(jid, digest)])
-        emit("Approved", f"{jid}, signed on this computer. No login to {ctx.name} was needed; it picks the job up within a minute.", tag="APPROVED", color=GREEN)
+        emit("Approved", f"{jid}, signed on this computer. No login to {ctx.name} was needed; it picks the job up within seconds.", tag="APPROVED", color=GREEN)
         rc = 0
     else:
         rc = ctx.remote("approve", jid, "--sha256", digest)

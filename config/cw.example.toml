@@ -58,12 +58,14 @@ update_days = 7                 # days between automatic updates of the claude t
 sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask
 
 [schedule]
-fetch_s = 30                    # seconds between checks of the queue repo for new jobs
-step_s = 10                     # seconds between passes that start queued jobs
+fetch_s = 5                     # seconds between checks of the queue repo for new jobs while the worker is active
+step_s = 5                      # seconds between passes that start queued jobs
 canary_s = 30                   # seconds between checks of the decoy credential files
 update_min = 15                 # minutes between checks for a new signed release (updates.mode = "signed-tags")
 idle_after_min = 10             # minutes with nothing to do before the worker checks the queue repo less often (smart sleep)
 idle_fetch_s = 90               # while idle: seconds between those checks (0 = never slow down). A new job waits at most this long
+sleep_after_min = 120            # minutes with nothing to do before the worker goes into sleep mode (even less checking)
+sleep_fetch_s = 300             # in sleep mode: seconds between checks of the queue repo (0 = no sleep mode). A new job waits at most this long
 registry_sync_min = 5           # minutes between checks for a job registry you approved (signed) from your own computer
 
 [updates]

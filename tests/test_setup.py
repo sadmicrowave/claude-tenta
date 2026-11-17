@@ -621,6 +621,19 @@ class RootLevelAudit(unittest.TestCase):
 
     def test_an_install_without_one_has_no_such_row(self):
         self.assertNotIn("the sandbox for root-level actions is enforced", self.rows("classes: {}\n", "OPEN\n"))
+        self.assertNotIn("the root-level helper answers", self.rows("classes: {}\n", "OPEN\n"))
+
+    def test_the_helper_is_asked_something_it_must_refuse_and_any_answer_shows_it_starts(self):
+        h, cfg = FakeHost(), cfg_of()
+        h.put(cfg.path("registry"), self.ACTIONS)
+        h.replies["systemd-run"] = Result(0, "ENFORCED\n")
+        h.replies["python3 -c"] = Result(0, '{"status": "refused", "note": "x"}\n')
+        rows = {r[0]: r for r in audit.run(h, cfg, say=lambda s: None)[0]}
+        self.assertTrue(rows["the root-level helper answers"][1])
+        h.replies["python3 -c"] = Result(1, "ConnectionResetError: [Errno 104] Connection reset by peer\n")
+        rows = {r[0]: r for r in audit.run(h, cfg, say=lambda s: None)[0]}
+        self.assertFalse(rows["the root-level helper answers"][1])
+        self.assertIn("Connection reset", rows["the root-level helper answers"][2])
 
 
 class CliTests(unittest.TestCase):

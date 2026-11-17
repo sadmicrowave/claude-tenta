@@ -77,7 +77,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
 
         def row(text=""):
             return edge("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + edge("│")
-        out.append(row())
+        if body:
+            out.append(row())
     else:
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731
         row = rail
@@ -104,7 +105,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             first, *rest = wrap(item, inner - 4)
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
-        out += [row(), edge("╰" + "─" * (inner + 2) + "╯")]
+        out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]
     return out
 
 

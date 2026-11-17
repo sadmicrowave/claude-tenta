@@ -121,3 +121,14 @@ def color_review(text, product="the worker"):
             line, in_cmd = P(line, BOLD, GREEN), False                # the exact command that will run
         out.append(line)
     return "\n".join(out)
+
+
+def text_card(jid, text, product="the worker", digest=None, kind="REVIEW"):
+    """The approval screen as a card (see cw.cards) for `ui.say`: the job id as its subject, the review text inside it as it is, and the digest the approval is pinned to.
+    A profile run executes a command nobody has seen, so it is drawn in the caution outline; anything else gets the plain rail."""
+    from . import cards, ui
+    caution = text.startswith("PROFILE RUN") or kind == "PROFILE RUN"
+    rows = [cards.Block(text.split("\n"))] if text else []
+    if digest:
+        rows += [("Digest", f"{digest[:12]}...  approval is pinned to this exact file")]
+    return dict(title=jid, details=rows, tag="PROFILE RUN" if caution else kind, color=ui.YELLOW if caution else ui.ACCENT)

@@ -54,14 +54,22 @@ def parse_when(text):
         return None
 
 
-def round_trip(res):
-    """(total, waited, ran) in seconds for a finished job: from the client sending it to the worker publishing its result, how much of that was waiting to be picked up
-    (and approved), and how much was running. None when the result does not say when it was sent (an older result) or never started. Never negative: two clocks differ."""
+def round_trip(res, received=None):
+    """(total, waited, ran, back) in seconds for a finished job: from the client sending it to the client having its result in hand, and where the time went:
+    waiting to be picked up (and approved), running, and the result coming back (the worker publishing it to GitHub and this computer fetching it). `received` is the
+    moment of seeing it; it defaults to now. Without it there is no honest end to the trip, so `back` is None and the total stops at the worker's publish time.
+    None when the result does not say when it was sent (an older result) or never started. Never negative: two clocks differ."""
     sent, started, done = parse_when(res.get("created")), parse_when(res.get("started")), parse_when(res.get("finished"))
     if not (sent and started and done):
         return None
-    secs = lambda a, b: max(0, int((b - a).total_seconds()))             # noqa: E731
-    return secs(sent, done), secs(sent, started), secs(started, done)
+    secs = lambda a, b: max(0, int(round((b - a).total_seconds())))      # noqa: E731
+    end = received if received is not None else datetime.now(timezone.utc)
+    return secs(sent, end), secs(sent, started), secs(started, done), max(0, secs(sent, end) - secs(sent, done))
+
+
+def trip_text(trip):
+    total, waited, ran, back = trip
+    return f"{human_dur(total)} from sending it to seeing its result  ({human_dur(waited)} until it started, {human_dur(ran)} running, {human_dur(back)} coming back)"
 
 
 # ---- one result ----
@@ -79,7 +87,7 @@ def describe_profile(pr):
     return "\n".join(L) + "\n"
 
 
-def format_result(res, admin="cw-admin", suggest_name=None):
+def format_result(res, admin="cw-admin", suggest_name=None, received=None):
     """A result as the lines the person reads (to stderr, with the OUTPUT block printed separately by the caller). Returns (head, output, tail)."""
     status = res["status"]
     head = [f"\n{paint('JOB', BOLD, CYAN)}     {res['id']}",
@@ -88,7 +96,7 @@ def format_result(res, admin="cw-admin", suggest_name=None):
         head.append(describe_profile(res["profile"]))
     head.append(paint("OUTPUT", BOLD, CYAN))
     tail, m = [], res.get("metrics")
-    trip = round_trip(res)
+    trip = round_trip(res, received)
     if m or trip:
         tail.append(f"\n{paint('MEASURED', BOLD, CYAN)}")
         rows = []
@@ -97,8 +105,7 @@ def format_result(res, admin="cw-admin", suggest_name=None):
             rows += [("time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"),
                      ("heat", f"peak {temp}"), ("disk", f"{m.get('disk_mb')} MB")]
         if trip:
-            total, waited, ran = trip
-            rows.append(("round trip", f"{human_dur(total)} from sending it to its result  ({human_dur(waited)} until it started, {human_dur(ran)} running)"))
+            rows.append(("round trip", trip_text(trip)))
         for label, val in rows:
             tail.append(f"  {paint(f'{label:<12}', DIM)}{val}")
     pr = res.get("profile")
@@ -126,10 +133,10 @@ def format_result(res, admin="cw-admin", suggest_name=None):
     return head, res.get("output") or "", tail
 
 
-def result_card(res, admin="cw-admin", suggest_name=None):
+def result_card(res, admin="cw-admin", suggest_name=None, received=None):
     """The same result as ONE card (for a person watching): the status as its chip, the job id as its subject, then the output and the measurements inside it."""
     import shlex
-    status, m, pr, trip = res["status"], res.get("metrics"), res.get("profile"), round_trip(res)
+    status, m, pr, trip = res["status"], res.get("metrics"), res.get("profile"), round_trip(res, received)
     rows = [("Status", status)] + ([("Note", res["note"])] if res.get("note") else [])
     if pr:
         rows += [("Command", " ".join(shlex.quote(str(a)) for a in pr.get("argv", [])))]
@@ -142,7 +149,7 @@ def result_card(res, admin="cw-admin", suggest_name=None):
             temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
             rows += [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
         if trip:
-            rows.append(("Round trip", f"{human_dur(trip[0])} from sending it to its result ({human_dur(trip[1])} until it started, {human_dur(trip[2])} running)"))
+            rows.append(("Round trip", trip_text(trip)))
     run, run_label = None, "Next"
     if pr:
         rows += [cards.Heading("Verdict"), ("Verdict", pr["verdict"] + (f"   cost {pr['cost']}" if pr.get("cost") else ""))] + [f"- {why}" for why in pr.get("reasons", [])]
@@ -296,7 +303,7 @@ def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", w
     if not res and late:
         return f"sent {waited // 60} min ago and {product} has not picked it up: run `{admin} status` to see whether it is running", RED
     if not res:
-        return f"sent: waiting for {product} to notice it (it checks about every 30 seconds)", YELLOW
+        return f"sent: waiting for {product} to notice it (it checks every few seconds)", YELLOW
     if status == "queued":
         return f"queued on {product}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
     if status == "awaiting_approval":

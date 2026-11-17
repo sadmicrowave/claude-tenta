@@ -84,6 +84,26 @@ def describe(job, pub=None, product="the worker", info=None):
     return json.dumps(shown, indent=2)
 
 
+def review_card(job, pub=None, product="the worker", info=None, digest=None):
+    """What a person reads before approving, as a card for `ui.say`. Something that runs as ROOT is drawn in the root outline with its program, where it may write, its
+    network and its time limit as labelled rows, then the job file itself; a profile run gets the caution outline; anything else the plain rail."""
+    from .. import actions, cards, ui
+    jid = job.get("id", "")
+    pin = [("Digest", f"{digest[:12]}...  approval is pinned to this exact file")] if digest else []
+    if info and info.get("privileged"):
+        try:
+            argv = " ".join(actions.build_argv(info, job.get("params") or {}))
+        except ValueError as e:
+            argv = f"{' '.join(info.get('run') or [])}   (these parameters are not allowed: {e})"
+        shown = {k: v for k, v in job.items() if k != "files"}
+        rows = [("Program", argv), ("May write", ", ".join(info.get("writable") or []) or "nothing, and nothing else on the system"), ("Network", "yes" if info.get("network") else "none"),
+                ("Limit", f"{info.get('timeout_s', 30)} s"),
+                "Your signature is the only thing that lets it run, and it covers exactly this file. Approve only a program and arguments you recognise.",
+                cards.Heading("Job file"), cards.Block(json.dumps(shown, indent=2).split("\n"))] + pin
+        return dict(title=f"{job.get('class')} on {product}", details=rows, tag="RUNS AS ROOT", color=ui.ROOT)
+    return review_mod.text_card(jid, describe(job, pub, product, info), product, digest)
+
+
 def classify(waiting_jobs, seen, current):
     """Split waiting jobs into (ready, skipped): ready = [(id, digest)] viewed and unchanged, skipped = [(id, why)]."""
     ready, skipped = [], []

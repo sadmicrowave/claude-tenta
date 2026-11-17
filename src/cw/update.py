@@ -285,6 +285,7 @@ def registry_sync(cfg, *, run=None, install_packages=None, now=time.time, out=pr
     if not ok:
         return f"refused: {why}", False
     if mark.get("sha256") == rec["sha256"] and _dest(prefix, cfg.path("registry")).exists():
+        sync_helper_socket(cfg, systemctl=systemctl, prefix=prefix)           # idempotent: an install that predates the helper's folder gets it on the next pass
         return "up to date", True
     result = install_registry(cfg, None, run=run, prefix=prefix, install_packages=install_packages, out=out, user_text=text)
     _write_atomic(mark_path, json.dumps({"sha256": rec["sha256"], "issued": rec["issued"]}), 0o644)
@@ -301,6 +302,12 @@ def sync_helper_socket(cfg, *, systemctl=None, prefix="/"):
     except Exception:
         wanted = False
     unit = cfg.unit("helper.socket")
+    if wanted:                                           # the helper's unit makes this folder writable; systemd refuses to start it at all when the folder is missing
+        try:
+            folder = _dest(prefix, cfg.path("helper_state"))
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError:
+            return "could not create the helper's state folder"
     try:
         systemctl("enable", "--now", unit) if wanted else systemctl("disable", "--now", unit)
     except (subprocess.CalledProcessError, OSError):

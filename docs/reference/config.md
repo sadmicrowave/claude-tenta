@@ -96,12 +96,14 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `fetch_s` | `30` | int | seconds between checks of the queue repo for new jobs |
-| `step_s` | `10` | int | seconds between passes that start queued jobs |
+| `fetch_s` | `5` | int | seconds between checks of the queue repo for new jobs while the worker is active |
+| `step_s` | `5` | int | seconds between passes that start queued jobs |
 | `canary_s` | `30` | int | seconds between checks of the decoy credential files |
 | `update_min` | `15` | int | minutes between checks for a new signed release (when updates.mode is signed-tags) |
 | `idle_after_min` | `10` | int | minutes with nothing queued, running or waiting before the worker checks the queue repo less often (smart sleep) |
-| `idle_fetch_s` | `90` | int | while idle, seconds between checks of the queue repo (0 turns smart sleep off). A new job waits at most this long |
+| `idle_fetch_s` | `90` | int | while idle, seconds between checks of the queue repo (0 turns smart sleep off, including sleep mode). A new job waits at most this long |
+| `sleep_after_min` | `120` | int | minutes with nothing to do before the worker goes into sleep mode, which checks even less often |
+| `sleep_fetch_s` | `300` | int | in sleep mode, seconds between checks of the queue repo (0 = no sleep mode: stay in idle). A new job waits at most this long |
 | `registry_sync_min` | `5` | int | minutes between checks for a job registry you approved (signed) from your own computer |
 
 ## [updates]

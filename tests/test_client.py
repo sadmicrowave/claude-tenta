@@ -96,7 +96,7 @@ class Human(unittest.TestCase):
 
     def test_phases(self):
         p = lambda res, **kw: view.phase_of(res, "job-1", "tcw-admin", product="tcw", **kw)[0]    # noqa: E731
-        self.assertEqual(p(None), "sent: waiting for tcw to notice it (it checks about every 30 seconds)")
+        self.assertEqual(p(None), "sent: waiting for tcw to notice it (it checks every few seconds)")
         self.assertEqual(p({"status": "queued"}), "queued on tcw: waiting for a free slot")
         self.assertIn("2 min so far", p({"status": "queued"}, waited=130))
         self.assertIn("has not picked it up", p(None, waited=130))               # a job nobody picks up is no longer described as "within a minute"
@@ -470,17 +470,24 @@ class RoundTrip(unittest.TestCase):
     RES = {"id": "j", "status": "ok", "created": "2026-11-17T04:49:00Z", "started": "2026-11-17T04:49:30Z", "finished": "2026-11-17T04:49:36Z",
            "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 52, "disk_mb": 0.0}}
 
-    def test_a_result_says_how_long_the_whole_round_trip_took_and_where_the_time_went(self):
-        total, waited, ran = view.round_trip(self.RES)
-        self.assertEqual((total, waited, ran), (36, 30, 6))
-        tail = "\n".join(view.format_result(self.RES)[2])
-        self.assertIn("round trip", tail)
-        self.assertIn("36 s from sending it to its result  (30 s until it started, 6 s running)", tail)
+    SEEN = datetime(2026, 11, 17, 4, 49, 39, tzinfo=timezone.utc)          # three seconds after the worker published it
+
+    def test_the_round_trip_ends_when_the_result_is_in_hand_not_when_the_worker_finished(self):
+        self.assertEqual(view.round_trip(self.RES, self.SEEN), (39, 30, 6, 3))
+        tail = "\n".join(view.format_result(self.RES, received=self.SEEN)[2])
+        self.assertIn("39 s from sending it to seeing its result  (30 s until it started, 6 s running, 3 s coming back)", tail)
+
+    def test_the_card_says_the_same(self):
+        rows = view.result_card(self.RES, received=self.SEEN)["details"]
+        self.assertIn(("Round trip", "39 s from sending it to seeing its result  (30 s until it started, 6 s running, 3 s coming back)"), rows)
+
+    def test_without_a_moment_of_receiving_it_is_measured_to_now(self):
+        self.assertGreater(view.round_trip(self.RES)[0], 36)               # the sample result is long past: the trip is as long as it has been since it was sent
 
     def test_an_older_result_without_a_send_time_just_leaves_the_row_out(self):
         res = {k: v for k, v in self.RES.items() if k != "created"}
-        self.assertIsNone(view.round_trip(res))
-        self.assertNotIn("round trip", "\n".join(view.format_result(res)[2]))
+        self.assertIsNone(view.round_trip(res, self.SEEN))
+        self.assertNotIn("round trip", "\n".join(view.format_result(res, received=self.SEEN)[2]))
 
     def test_two_clocks_that_disagree_never_give_a_negative_time(self):
-        self.assertEqual(view.round_trip({**self.RES, "created": "2026-11-17T04:50:00Z"})[0], 0)
+        self.assertEqual(view.round_trip({**self.RES, "created": "2026-11-17T04:50:00Z"}, self.SEEN)[0], 0)

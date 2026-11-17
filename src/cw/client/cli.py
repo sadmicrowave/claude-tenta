@@ -92,7 +92,7 @@ def cmd_submit(ctx, a):
         emit(f"{len(files)} files split into {len(batches)} independent jobs", *ids, tag="NOTE", color=YELLOW)
     for jid, chunk in zip(ids, batches):
         sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
-        emit(f"Queued {jid}", f"{ctx.product} picks it up within a minute.", tag="QUEUED", color=CYAN)
+        emit(f"Queued {jid}", f"{ctx.product} picks it up within a few seconds (up to 20 s if it was idle).", tag="QUEUED", color=CYAN)
     try:
         r.prune_jobs()
     except ClientError:
@@ -110,17 +110,31 @@ def should_wait(ctx, a):
     return bool(a.wait) or ctx.is_tty()
 
 
+def waiting_rows(ctx, jid, res=None):
+    """What a job that waits for approval IS, so the waiting card never says 'waiting' about nothing: its class, the exact command, and whether it runs as root."""
+    res = res or ctx.repos.read_result(jid) or {}
+    cls = res.get("class")
+    info = ((ctx.repos.registry_info() or {}).get("classes") or {}).get(cls) or {}
+    rows = [("Job", jid)] + ([("Class", cls)] if cls else [])
+    if info.get("run"):
+        rows.append(("Runs", " ".join(info["run"])))
+    if info.get("privileged"):
+        rows.append(("Runs as", "ROOT, outside the jail that limits every other job"))
+    rows.append(("Why it waits", "approval is pinned to this exact job file; nothing runs until you OK it"))
+    return rows
+
+
 def awaiting_approval_screen(ctx, jid):
     """`result` on a job nobody has approved yet. A person at a terminal can approve it right here; a captured run only gets the instructions."""
     if ctx.is_tty() and ctx.run_admin:
-        print(f"\n{paint('STATUS', BOLD, CYAN)}  {paint('awaiting_approval', BOLD, YELLOW)}", file=sys.stderr)
+        emit("Waiting for your approval", *waiting_rows(ctx, jid), tag="WAITING", color=YELLOW, stream=sys.stderr)
         try:
             yes = ctx.ask(_ui.confirm_prompt("Review it and approve it now?")).strip().lower() == "y"
         except (EOFError, KeyboardInterrupt):
             yes = False
         if yes:
             return ctx.run_admin(["approve", jid])
-    emit("Not approved yet", f"{ctx.product} has not started this job. If you have not approved it yet, run this:", tag="WAITING", color=YELLOW,
+    emit("Not approved yet", f"{ctx.product} has not started this job. If you have not approved it yet, run this:", *waiting_rows(ctx, jid), tag="WAITING", color=YELLOW,
          run=f"{ctx.admin} approve {jid}", run_label="Approve it", stream=sys.stderr)
     return 0
 
@@ -150,7 +164,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
                      color=RED, run=f"{ctx.admin} unlock", stream=sys.stderr)
                 return 3
             if res and res["status"] == "awaiting_approval" and not told:
-                emit("Waiting for your approval", tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
+                emit("Waiting for your approval", *waiting_rows(ctx, jid, res), tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
                 told = True
             if res and res["status"] == "running" and told != "running":
                 emit(f"Running on {ctx.product} now", "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr)
@@ -162,7 +176,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             if waited >= 120 and not late_told and (not res or res["status"] in (None, "queued")):
                 late_told = True
                 prog.clear()
-                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", "It normally does within a minute. The worker may be stopped, locked, or failing.",
+                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", "It normally does within seconds. The worker may be stopped, locked, or failing.",
                      tag="SLOW", color=RED, run_label="See what the worker is doing", run=f"{ctx.admin} status", stream=sys.stderr)
             text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product, waited)
             for _ in range(25):                               # redraw ~5 times a second; ask GitHub again every ~5 s

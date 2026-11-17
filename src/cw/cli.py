@@ -105,7 +105,8 @@ class Context:
         settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "cw.cli", "exec"], require_netns=cfg.isolation.require_netns,
-                            idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=int(cfg.schedule.idle_fetch_s))
+                            idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=int(cfg.schedule.idle_fetch_s),
+                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=int(cfg.schedule.sleep_fetch_s))
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
@@ -222,12 +223,12 @@ def cmd_review(ctx, ids):
     ctx.w.io.sync()
     for jid in ids:
         raw = ctx.w.io.job_bytes(jid) if jobs.ID_RE.match(jid) else None
-        print(paint(f"\n=== {jid} " + "=" * max(4, 60 - len(jid)), BOLD, CYAN, stream=sys.stdout))
         if raw is None:
-            print(paint(f"  {ctx.product} has no copy of this job.", RED, stream=sys.stdout))
+            emit(jid, f"{ctx.product} has no copy of this job.", tag="MISSING", color=RED, stream=sys.stdout)
             continue
-        text = describe_job(ctx, raw)
-        print(review.color_review(text, ctx.product) if text else raw.decode("utf-8", "replace"))
+        text = describe_job(ctx, raw) or raw.decode("utf-8", "replace")
+        card = review.text_card(jid, text, ctx.product, hashlib.sha256(raw).hexdigest())
+        _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
     return 0
 
 
@@ -243,14 +244,15 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
         stop("NOT approved: the job changed", f"{ctx.product}'s copy has digest {digest[:12]}..., not the {sha[:12]}... you reviewed.",
              "Look at it again before approving.", tag="REFUSED", color=RED)
     if not yes and not sha:
-        text = describe_job(ctx, raw)
-        print(review.color_review(text, ctx.product) if text else raw.decode("utf-8", "replace"))
+        text = describe_job(ctx, raw) or raw.decode("utf-8", "replace")
+        card = review.text_card(jid, text, ctx.product, digest)
+        _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         if ctx.ask(_ui.confirm_prompt("Approve this exact job?")).strip().lower() != "y":
             stop("Not approved", "You answered no. The job stays waiting.")
     ok, why = ctx.w.approve(jid, sha=None if yes else sha)
     if not ok:
         stop("NOT approved", why, tag="REFUSED", color=RED)
-    emit("Approved", f"Job {jid}", f"{ctx.product} picks it up within a minute.", tag="APPROVED", color=GREEN, run_label="Watch for the result", run=f"cw-run result {jid}")
+    emit("Approved", f"Job {jid}", f"{ctx.product} picks it up within a few seconds.", tag="APPROVED", color=GREEN, run_label="Watch for the result", run=f"cw-run result {jid}")
     return 0
 
 
@@ -265,7 +267,7 @@ def cmd_approve_many(ctx, items):
         word, color = ("APPROVED", GREEN) if ok else ("REFUSED", RED)
         print(f"{paint(f'{word:<9}', BOLD, color, stream=sys.stdout)}{jid}" + ("" if ok else f"  {why}"))
     print()
-    stop(f"{len(items) - bad} approved, {bad} refused", f"{ctx.product} runs the approved ones within a minute, one at a time.",
+    stop(f"{len(items) - bad} approved, {bad} refused", f"{ctx.product} runs the approved ones within seconds, one at a time.",
          tag="DONE" if not bad else "PARTLY", color=GREEN if not bad else YELLOW, code=1 if bad else 0)
 
 
@@ -519,7 +521,7 @@ def cmd_status(ctx, hours=12):
         elif time.time() - p["ts"] > 300:
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
-            slow = f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s" if p.get("idle") else ""
+            slow = (f"; asleep, so it asks GitHub every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s") if p.get("idle") else ""
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago ({what}{slow})")
     if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
         gone = claudeupdate.token_state(ctx.token_days) == "expired"
@@ -565,13 +567,13 @@ def cmd_status(ctx, hours=12):
 PASS_FILE = "pass-status.json"
 
 
-def record_pass(state, which, ok, error="", idle=False):
+def record_pass(state, which, ok, error="", idle=False, mode="active"):
     f = Path(state) / PASS_FILE
     try:
         data = json.loads(f.read_text())
     except (OSError, ValueError):
         data = {}
-    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300], "idle": idle}
+    data[which] = {"ts": int(time.time()), "ok": ok, "error": error[:300], "idle": idle, "mode": mode}
     try:
         f.write_text(json.dumps(data))
     except OSError:
@@ -584,7 +586,7 @@ def run_pass(ctx, which):
     except Exception as e:
         record_pass(ctx.w.state, which, False, f"{type(e).__name__}: {e}")
         raise
-    record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch")
+    record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"))
     return 0
 
 

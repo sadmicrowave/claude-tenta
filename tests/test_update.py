@@ -691,6 +691,17 @@ class RootLevelActions(RegistryInstall):
         update.sync_helper_socket(self.cfg, systemctl=lambda *a: calls.append(a), prefix=self.prefix)
         self.assertEqual(calls, [("disable", "--now", "homecw-helper.socket")])
 
+    def test_the_helpers_state_folder_exists_before_its_socket_starts(self):
+        """The unit makes {state_root}-helper writable; when it is missing systemd will not start the service, and the worker sees `Connection reset by peer`."""
+        import os
+        self.go(check_exe=lambda p, s: (True, ""))
+        folder = update._dest(self.prefix, self.cfg.path("helper_state"))
+        self.assertFalse(folder.exists())
+        seen = []
+        update.sync_helper_socket(self.cfg, systemctl=lambda *a: seen.append(folder.is_dir()), prefix=self.prefix)
+        self.assertEqual(seen, [True])                                               # it was there when the socket was enabled
+        self.assertEqual(oct(os.stat(folder).st_mode & 0o777), "0o700")
+
 
 for _name in [n for n in dir(RegistryInstall) if n.startswith("test_") and n not in RootLevelActions.__dict__]:
     setattr(RootLevelActions, _name, None)          # only this class's own tests: the inherited ones assume the plain registry

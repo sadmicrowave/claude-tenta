@@ -6,6 +6,10 @@ from .. import config
 from . import hardening
 
 
+PING = ("import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(15); s.connect(sys.argv[1]); s.sendall(b'{}'); s.shutdown(socket.SHUT_WR); "
+        "print(s.recv(65536).decode())")           # a request the helper must refuse: any answer at all proves its service starts
+
+
 def run(host, cfg, say=print):
     """Returns (rows, failures) where rows = [(what, ok, detail)]."""
     rows = []
@@ -27,6 +31,9 @@ def run(host, cfg, say=print):
             r = host.run(cmd)
             return type("R", (), {"stdout": r.out, "returncode": 0 if r.ok else 1})()
         enforced = helper.sandbox_enforced(probe)
+        ping = host.run(["python3", "-c", PING, cfg.path("helper_socket")])
+        answered = ping.ok and '"refused"' in (ping.out or "")
+        rows.append(("the root-level helper answers", answered, "ok" if answered else "it did not start: " + ((ping.out or "").strip()[-160:] or "no answer") + f"  (see: journalctl -u {cfg.identity.name}-helper@*)"))
         rows.append(("the sandbox for root-level actions is enforced", enforced,
                      "ok" if enforced else "this machine's systemd ignores the sandbox settings (a container does), so the helper refuses every root-level action here"))
     for mid, title, check in hardening.audit(host, cfg):
