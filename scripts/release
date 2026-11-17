@@ -93,7 +93,11 @@ def release(root, version, notes=None, sign=False, skip_tests=False):
     if git(root, "status", "--porcelain"):                   # the files may already say this version (the first release): then there is nothing to commit
         git(root, "commit", "-q", "-m", f"release {version}")
     message = f"release {version}\n\n{body}\n"
-    git(root, "tag", "-s" if sign else "-a", f"release-{version}", "-m", message)
+    git(root, "tag", "-s" if sign else "-a", "--cleanup=verbatim", f"release-{version}", "-m", message)          # verbatim: git would otherwise drop every line that starts with # (the notes' headings)
+    said = git(root, "tag", "-l", "--format=%(contents)", f"release-{version}")
+    if body.strip() and body.strip() not in said:                       # people read the notes from the tag: a tag that lost them (a later re-tag with a short message) is not a release
+        git(root, "tag", "-d", f"release-{version}")
+        raise ReleaseError(f"the tag release-{version} does not carry the release notes, so it was removed; nothing was pushed")
     return f"release-{version}", prev
 
 

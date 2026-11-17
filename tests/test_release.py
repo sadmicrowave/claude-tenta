@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,30 @@ class Release(unittest.TestCase):
         notes = g(self.root, "tag", "-l", "--format=%(contents)", "release-0.2.0")
         self.assertIn("- add a thing", notes)
         self.assertEqual(g(self.root, "rev-parse", "release-0.2.0^{commit}"), g(self.root, "rev-parse", "HEAD"))
+
+    def test_the_tag_carries_the_whole_notes_including_lines_that_start_with_a_hash(self):
+        (self.root / "f.txt").write_text("x")
+        g(self.root, "add", "-A")
+        g(self.root, "commit", "-q", "-m", "add a thing")
+        notes = "The first release.\n\n## Requirements\n- a worker\n\n## Known limits\n- one worker\n"
+        rel.release(str(self.root), "0.3.0", notes=notes, skip_tests=True)
+        said = g(self.root, "tag", "-l", "--format=%(contents)", "release-0.3.0")
+        self.assertIn(notes.strip(), said)                                             # git's default cleanup would have dropped both headings
+
+    def test_a_tag_without_the_notes_is_removed_and_nothing_is_released(self):
+        (self.root / "f.txt").write_text("x")
+        g(self.root, "add", "-A")
+        g(self.root, "commit", "-q", "-m", "add a thing")
+        real = rel.git
+
+        def shortened(root, *args, **kw):
+            if args[:1] == ("tag",) and "-a" in args:
+                args = (*args[:args.index("-m") + 1], "release 0.3.0")                 # a re-tag with a short message
+            return real(root, *args, **kw)
+        with mock.patch.object(rel, "git", shortened):
+            with self.assertRaises(rel.ReleaseError):
+                rel.release(str(self.root), "0.3.0", notes="Real notes.\n", skip_tests=True)
+        self.assertEqual(g(self.root, "tag", "-l", "release-0.3.0"), "")
 
     def test_the_notes_are_only_what_changed_since_the_last_release(self):
         self.cut("0.2.0")

@@ -51,6 +51,20 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tag carries the release notes
+        run: |
+          # `ct-admin update` shows people the tag's message: it must contain docs/releases/<version>.md, so a re-tag with a short message cannot slip through
+          tag="${GITHUB_REF_NAME#release-}"
+          git fetch --quiet --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > /tmp/tag-message.txt
+          test -s "docs/releases/${tag}.md" || { echo "docs/releases/${tag}.md is missing"; exit 1; }
+          python3 - "docs/releases/${tag}.md" /tmp/tag-message.txt <<'PY' || { echo "the tag message does not contain docs/releases/${tag}.md"; exit 1; }
+          import sys
+          notes, message = (open(p).read().strip() for p in sys.argv[1:3])
+          sys.exit(0 if notes in message else 1)
+          PY
       - name: The tag matches the version in the code
         run: |
           tag="${GITHUB_REF_NAME#release-}"
