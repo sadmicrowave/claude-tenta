@@ -543,24 +543,15 @@ class WaitingChip(unittest.TestCase):
             self.assertIn(text.partition(" ")[2], re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line), text)
 
 
-class SharedConnection(unittest.TestCase):
-    def repos(self, root):
-        return ClientRepos(Path(root) / "queue", Path(root) / "results", "u1", "u2")
-
-    def test_git_commands_share_one_connection_to_github_and_keep_your_ssh_settings(self):
-        import tempfile
-        with tempfile.TemporaryDirectory(dir="/tmp") as d:                    # short: a socket path is limited to 103 bytes
-            cmd = self.repos(d).ssh_command()
-            self.assertTrue(cmd.startswith("ssh -o ControlMaster=auto -o ControlPath="))
-            self.assertIn("ControlPersist=120", cmd)
-            self.assertNotIn("-i ", cmd)                                    # no key is named: the user's own ssh configuration still decides
-            self.assertEqual(oct((Path(d) / "ssh").stat().st_mode & 0o777), "0o700")
-
-    def test_a_folder_too_deep_for_a_socket_path_just_means_no_sharing(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            deep = Path(d) / ("x" * 90)
-            self.assertEqual(self.repos(deep).ssh_command(), "ssh")
+class NoBackgroundSsh(unittest.TestCase):
+    """A shared ssh connection (ControlMaster) leaves a background process holding the captured output pipes of the git command, so every pass or fetch hangs until it exits.
+    The end-to-end test found this on a real machine; keep it out."""
+    def test_nothing_in_the_package_starts_a_background_ssh_master_for_git(self):
+        src = Path(__file__).resolve().parents[1] / "src" / "ct"
+        for f in src.rglob("*.py"):
+            text = f.read_text()
+            if ("ControlMaster auto" in text or "ControlMaster=auto" in text) and f.name != "ssh.py":                                  # admin/ssh.py's own use is for interactive commands, not captured git output
+                self.fail(f"{f.relative_to(src)} turns on ssh connection sharing")
 
 
 class FasterPolling(unittest.TestCase):

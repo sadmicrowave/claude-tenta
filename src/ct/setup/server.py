@@ -65,8 +65,7 @@ def ssh_config_text(cfg):
     out = ["# Written by ct-setup: one deploy key per repository (GitHub allows a key on one repository only).\n"]
     for which in ("queue", "results"):
         out.append(f"Host {alias_for(cfg, which)}\n  HostName github.com\n  User git\n  IdentityFile {keydir}/id_{which}\n  IdentitiesOnly yes\n"
-                   "  StrictHostKeyChecking accept-new\n"
-                   f"  ControlMaster auto\n  ControlPath {keydir}/cm-%C\n  ControlPersist 60\n")             # one connection serves every pass for a minute: no new handshake each time
+                   "  StrictHostKeyChecking accept-new\n")      # no ControlMaster here: its background process keeps the pass's output pipes open, so every pass hung until it exited (found by the end-to-end test)
     return "\n".join(out)
 
 

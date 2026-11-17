@@ -375,8 +375,7 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
         self.assertEqual(self.h.read("/etc/claude-tenta/installed-rev").strip(), "a" * 40)
         self.assertIn("Host github-claude-tenta-queue", self.h.read(H + "/ctworker/.ssh/config"))
-        for needle in ("ControlMaster auto", "ControlPersist 60", "ControlPath " + H + "/ctworker/.ssh/cm-%C"):
-            self.assertIn(needle, self.h.read(H + "/ctworker/.ssh/config"))                  # one connection serves every pass
+        self.assertNotIn("ControlMaster", self.h.read(H + "/ctworker/.ssh/config"))                # a background ssh master would hold a pass's output pipes open
 
     def test_it_waits_for_deploy_keys_before_cloning_and_hardening(self):
         self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied (publickey)")

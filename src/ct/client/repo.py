@@ -32,24 +32,10 @@ class ClientRepos:
 
     # ---- plain git ----
     def git(self, repo, *args, check=True, env=None, input=None):
-        env = {**os.environ, **(env or {})}
-        env.setdefault("GIT_SSH_COMMAND", self.ssh_command())
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env, input=input)
         if check and r.returncode:
             raise ClientError(f"git {' '.join(args)} failed in {repo}", r.stderr.strip())
         return r
-
-    def ssh_command(self):
-        """ssh that keeps one connection to GitHub open for a couple of minutes, so waiting for a result does not make a new handshake every few seconds. Your own ssh
-        configuration (keys, hosts) still applies; this only adds connection sharing. A folder that cannot be made just means no sharing."""
-        try:
-            ctl = Path(self.queue).parent / "ssh"
-            if len(str(ctl)) + 1 + 40 + 17 > 103:                   # a unix socket path is limited to 103 bytes; ssh would refuse to start
-                return "ssh"
-            ctl.mkdir(mode=0o700, parents=True, exist_ok=True)
-            return f"ssh -o ControlMaster=auto -o ControlPath={ctl}/%C -o ControlPersist=120"
-        except OSError:
-            return "ssh"
 
     def is_set_up(self):
         return (self.queue / ".git").exists() and (self.results / ".git").exists()
