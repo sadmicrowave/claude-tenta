@@ -170,18 +170,35 @@ class GitIO:
             f.write_text(text)
             self.git(self.results, "add", rel)
         name, email = self.committer
-        self.git(self.results, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-m", msg)
+        ident = ["-c", f"user.name={name}", "-c", f"user.email={email}"]                  # every git step that writes a commit needs it: a worker account has no global git identity
+        self.git(self.results, *ident, "commit", "-m", msg)
+        mine = self.git(self.results, "rev-parse", "HEAD").stdout.strip()
         self.last_push_error = ""
         for _ in range(3):
             # HEAD:refs/heads/<branch> works whatever the local branch is called (master vs main)
             r = self.git(self.results, "push", "origin", f"HEAD:refs/heads/{self.results_branch}")
-            if r.returncode == 0:
+            if r.returncode == 0 and self.on_remote(mine):                               # "success" is the result being on the remote, not git's exit code
                 return True
             self.last_push_error = (getattr(r, "stderr", "") or "") if isinstance(getattr(r, "stderr", ""), str) else ""
             if self.remote_has(self.results, self.results_branch):
-                self.git(self.results, "pull", "--rebase", "--quiet", "origin", self.results_branch)
+                p = self.git(self.results, *ident, "pull", "--rebase", "--quiet", "origin", self.results_branch)
+                if p.returncode:
+                    self.last_push_error = ((p.stderr or "") + (p.stdout or "")).strip()[-300:]
+                    self.git(self.results, "rebase", "--abort")                          # never leave a half-done rebase: HEAD would stand at the remote's tip and a push would call that done
+                else:
+                    mine = self.git(self.results, "rev-parse", "HEAD").stdout.strip()     # the rebase wrote the commit again
         self.log(f"push failed: {msg}: {self.last_push_error.strip()[-200:]}")
         return False
+
+    def on_remote(self, sha):
+        """True when the results repository's branch is at `sha` or has it in its history."""
+        tip = self.git(self.results, "ls-remote", "origin", f"refs/heads/{self.results_branch}").stdout.split()
+        if not tip:
+            return False
+        if tip[0] == sha:
+            return True
+        self.git(self.results, "fetch", "--quiet", "origin", self.results_branch)
+        return self.git(self.results, "merge-base", "--is-ancestor", sha, "FETCH_HEAD").returncode == 0
 
     # ---- keeping the results history small ----
     def _identity_env(self, idx=None):

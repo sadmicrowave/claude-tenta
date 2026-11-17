@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from datetime import timedelta
 from pathlib import Path
 
@@ -143,6 +144,33 @@ class Publishing(Repos):
         graph = sh("git", "log", "--all", "--graph", "--format=%h %an|%s (%ci)", cwd=self.tmp / "results.git") + "\nworker: " + sh("git", "log", "--all", "--graph", "--format=%h %an|%s", cwd=self.tmp / "w-results") + "\nlog: " + " | ".join(self.logged) + "\ngit: " + "\n     ".join(calls)
         self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok", graph)
         self.assertIn("other writer", " ".join(self.results_log()))
+
+    def test_a_worker_with_no_git_identity_still_publishes_after_losing_a_race(self):
+        home = tempfile.mkdtemp()
+        clean = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_AUTHOR", "GIT_COMMITTER", "EMAIL"))}
+        with mock.patch.dict(os.environ, {**clean, "HOME": home, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}, clear=True):
+            self.io.publish(self.res)
+            other = self.tmp / "other"
+            sh("git", "clone", "-q", str(self.tmp / "results.git"), str(other))
+            (other / "README.md").write_text("someone else\n")
+            sh("git", "add", "-A", cwd=other)
+            sh("git", "commit", "-q", "-m", "other writer", cwd=other)
+            sh("git", "push", "-q", "origin", "main", cwd=other)
+            self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
+        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok")          # on the remote, on top of the other writer's commit
+
+    def test_a_push_that_says_up_to_date_without_the_result_on_the_remote_is_not_a_success(self):
+        self.io.publish(self.res)
+        real = self.io._run
+
+        def lying(argv, timeout, **kw):
+            if argv[3] == "push":
+                return subprocess.CompletedProcess(argv, 0, "", "Everything up-to-date")
+            return real(argv, timeout, **kw)
+        self.io._run = lying
+        self.assertFalse(self.io.publish({"id": "job-0002", "status": "ok"}))               # the worker keeps the result and tries again later
+        self.assertIn("push failed", " ".join(self.logged))
+        self.assertEqual(self.results_log(), ["ct-worker|result job-0001: ok"])
 
     def test_a_failing_remote_reports_false_and_logs(self):
         sh("git", "remote", "set-url", "origin", str(self.tmp / "nowhere.git"), cwd=self.tmp / "w-results")
