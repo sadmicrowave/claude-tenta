@@ -25,14 +25,31 @@ class ClientError(Exception):
 
 
 class ClientRepos:
-    def __init__(self, queue, results, queue_url, results_url, *, results_branch="main", jobs_branch="jobs", keep_commits=150, sleep=time.sleep):
+    def __init__(self, queue, results, queue_url, results_url, *, results_branch="main", jobs_branch="jobs", keep_commits=150, sleep=time.sleep, ssh_command=None,
+                 where="GitHub", unreachable_steps=None):
         self.queue, self.results = Path(queue), Path(results)
+        self.ssh_command, self.where = ssh_command, where                 # the transport's way of reaching the repositories (None: the person's own ssh) and what to call the other end
+        self.unreachable_steps = unreachable_steps or ["Check that your GitHub SSH key is set up on this computer:  ssh -T git@github.com"]
         self.queue_url, self.results_url = queue_url, results_url
         self.results_branch, self.jobs_branch, self.keep_commits, self._sleep = results_branch, jobs_branch, keep_commits, sleep
 
+    @classmethod
+    def from_config(cls, cfg, **kw):
+        """The two repositories of a configuration, reached the way its transport says."""
+        from .. import transport
+        t = transport.for_config(cfg)
+        return cls(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch,
+                   ssh_command=t.client_ssh_command(cfg), where=t.where(cfg), unreachable_steps=t.unreachable_steps(cfg), **kw)
+
+    def _net_env(self, env=None):
+        """The environment for a git command that talks to the other end: with the transport's own ssh command when it has one."""
+        if not self.ssh_command:
+            return env
+        return {**(os.environ if env is None else env), "GIT_SSH_COMMAND": self.ssh_command}
+
     # ---- plain git ----
     def git(self, repo, *args, check=True, env=None, input=None):
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env, input=input)
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=self._net_env(env), input=input)
         if check and r.returncode:
             raise ClientError(f"git {' '.join(args)} failed in {repo}", r.stderr.strip())
         return r
@@ -52,10 +69,9 @@ class ClientRepos:
             if (path / ".git").exists():
                 rows.append(("exists", str(path)))
                 continue
-            r = subprocess.run(["git", "clone", "--quiet", url, str(path)], capture_output=True, text=True)
+            r = subprocess.run(["git", "clone", "--quiet", url, str(path)], capture_output=True, text=True, env=self._net_env())
             if r.returncode:
-                raise ClientError("Could not clone a repo from GitHub", f"{url}: {r.stderr.strip()[:200]}",
-                                  ["Check that your GitHub SSH key is set up on this computer:  ssh -T git@github.com"])
+                raise ClientError(f"Could not clone a repository from {self.where}", f"{url}: {r.stderr.strip()[:200]}", self.unreachable_steps)
             rows.append(("cloned", str(path)))
         return rows
 
@@ -102,7 +118,7 @@ class ClientRepos:
                 self.fetch_queue()
                 return commit
             self._sleep(2)
-        raise ClientError(f"Could not push to branch {branch} on GitHub", "Check your connection and your GitHub access, then try again.")
+        raise ClientError(f"Could not push to branch {branch} on {self.where}", "Check your connection and access, then try again.", self.unreachable_steps)
 
     # ---- the results repo ----
     def pull_results(self):

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .. import config
 from . import ptyrun, questions, report, toml_out
+from .. import transport
 from . import legacy
 from .server import SetupError, missing_steps
 from .report import sink as _sink
@@ -163,6 +164,25 @@ class ClientSetup:
             repos.push_files(self.cfg.github.main_branch, {"registry.yaml": SEED_REGISTRY}, "chore(registry): your own job classes start here")
             self.note("registry", "seeded", "empty: the core classes come from the core pack")
 
+    @property
+    def direct(self):
+        return transport.for_config(self.cfg).kind == "direct"
+
+    def mailbox_key(self):
+        """The key this computer uses for the Direct mailbox on the worker. It has no passphrase (git uses it unattended), no other use, and the worker's mailbox account accepts
+        only it, and only to run git on the two repositories."""
+        key = transport.for_config(self.cfg).client_key(self.cfg)
+        if self.host.exists(key) and self.host.exists(str(key) + ".pub"):
+            self.note("mailbox key", "ok", f"{key}")
+            return
+        if self.dry_run:
+            self.note("mailbox key", "planned", f"{key}")
+            return
+        os.makedirs(self.host.path(key.parent), mode=0o700, exist_ok=True)
+        if not self.host.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ct-mailbox", "-f", str(self.host.path(key))]).ok:
+            raise SetupError("The mailbox key could not be made", "ssh-keygen did not make it.", [f"Run: ssh-keygen -t ed25519 -N '' -f {key}", "Then run ct-setup install again."])
+        self.note("mailbox key", "created", f"{key}")
+
     def approval_key(self):
         """The key that signs approvals on this computer (see ct.approvals). Made once; it is what lets you approve jobs here without logging in to the worker.
         On a terminal ssh-keygen asks for a passphrase (Enter for none), which then protects every approval; otherwise the key has none."""
@@ -270,11 +290,23 @@ class ClientSetup:
         self.approval_key()
         self._sub("Commands on your PATH")
         self.commands_on_path()
+        if self.direct:
+            self._sub("Mailbox key")
+            self.mailbox_key()
         self._sub("SSH to the server")
         self.ssh_login()
+        if self.direct:                         # the mailbox is on the worker: nothing exists to clone until the worker's half has made it (the installer calls finish_direct then)
+            self.note("repositories", "later", "the worker makes them in its half")
+            return self.report
         self._sub("Private repositories")
         self.create_repos()
         self.deploy_keys()
+        self._sub("Clones and registry")
+        self.clone_and_seed()
+        return self.report
+
+    def finish_direct(self):
+        """Direct: after the worker made its mailbox, clone the two repositories over SSH and seed the registry."""
         self._sub("Clones and registry")
         self.clone_and_seed()
         return self.report

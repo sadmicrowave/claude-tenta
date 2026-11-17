@@ -10,6 +10,8 @@ A transport answers, for each of the two repositories (`queue`, `results`):
 and says `uses_deploy_keys` (whether setup must put the worker's public keys on a server, as it does on GitHub).
 
 `github` and `direct` exist; `lan` comes later in 0.2."""
+import shlex
+from pathlib import Path
 
 
 class GitHub:
@@ -17,6 +19,17 @@ class GitHub:
     kind = "github"
     label = "GitHub"
     uses_deploy_keys = True
+    gain = "Most isolated: nothing on your network listens, and the worker only connects out to github.com. Needs no always-on machine of yours."
+    cost = "Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party."
+
+    def client_ssh_command(self, cfg):
+        return None                                           # your own GitHub key, as for any git command
+
+    def where(self, cfg):
+        return "GitHub"
+
+    def unreachable_steps(self, cfg):
+        return ["Check that your GitHub SSH key is set up on this computer:  ssh -T git@github.com"]
 
     def repo(self, cfg, which):
         return cfg.github.queue_repo if which == "queue" else cfg.github.results_repo
@@ -47,6 +60,23 @@ class Direct:
     kind = "direct"
     label = "Direct"
     uses_deploy_keys = False
+    gain = "Fastest: a job is picked up within seconds and nothing leaves your network. The worker reaches nothing on your network."
+    cost = "The worker's SSH port is open to your computer's address, and the worker must be reachable when you send a job."
+
+    def client_key(self, cfg):
+        """The key your computer uses for the mailbox: made by ct-setup, with no other use, and the only key the mailbox account accepts."""
+        return Path(cfg.paths.client_home).expanduser() / "mailbox" / "key"
+
+    def client_ssh_command(self, cfg):
+        key = shlex.quote(str(self.client_key(cfg)))
+        return f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+
+    def where(self, cfg):
+        return "the worker"
+
+    def unreachable_steps(self, cfg):
+        s = cfg.server
+        return [f"Is the worker on, and on this network? Try: ssh {s.admin_user}@{s.host} true", "If that works, the mailbox key may be missing: run ct-setup install again."]
 
     def mail_user(self, cfg):
         """The account your computer logs in as; it has no other use and runs only the mailbox shell."""

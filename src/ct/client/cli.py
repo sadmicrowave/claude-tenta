@@ -52,7 +52,7 @@ class Context:
     @classmethod
     def from_config(cls, cfg):
         view.set_pace(cfg.schedule)
-        repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+        repos = ClientRepos.from_config(cfg)
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser())

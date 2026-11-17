@@ -38,7 +38,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `kind` | `github` | `github` , `direct` | how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2) |
+| `kind` | `github` | `direct` , `github` | how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2) |
 
 ## [paths]
 

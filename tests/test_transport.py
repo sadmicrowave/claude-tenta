@@ -13,7 +13,54 @@ def cfg_with(**over):
     return config.Config(clean)
 
 
+class Words(unittest.TestCase):
+    def test_every_transport_says_what_you_gain_and_what_you_give_up(self):
+        from ct.setup import questions
+        for kind, t in transport.TRANSPORTS.items():
+            self.assertGreater(len(t.gain), 30, kind)
+            self.assertGreater(len(t.cost), 30, kind)
+            self.assertLess(len(t.gain) + len(t.cost), 330, kind)                      # short: a line of gain and a line of cost
+        offered = dict(questions.CHOICES["transport.kind"])
+        self.assertEqual(set(offered), set(transport.TRANSPORTS))                        # the wizard offers every transport, with the same words
+        for kind, text in offered.items():
+            self.assertIn(transport.TRANSPORTS[kind].gain, text)
+            self.assertIn(transport.TRANSPORTS[kind].cost, text)
+
+    def test_the_github_questions_are_not_asked_for_a_direct_install(self):
+        from ct.setup import questions
+        by = questions.BY_KEY
+        self.assertTrue(by["github.owner"]["when"]({"transport.kind": "github"}))
+        self.assertFalse(by["github.owner"]["when"]({"transport.kind": "direct"}))
+        self.assertTrue(by["github.owner"]["when"]({}))                                  # the default is GitHub
+
+
 class Direct(unittest.TestCase):
+    def test_the_client_uses_its_own_mailbox_key_and_never_asks_a_question(self):
+        cfg = cfg_with(transport={"kind": "direct"})
+        cmd = transport.for_config(cfg).client_ssh_command(cfg)
+        self.assertIn("mailbox/key", cmd)
+        for option in ("IdentitiesOnly=yes", "BatchMode=yes"):
+            self.assertIn(option, cmd)
+        self.assertIsNone(transport.for_config(cfg_with()).client_ssh_command(cfg_with()))   # GitHub uses the person's own ssh
+
+    def test_the_repositories_are_reached_with_that_ssh_command(self):
+        from unittest import mock
+        from ct.client.repo import ClientRepos
+        cfg = cfg_with(transport={"kind": "direct"})
+        repos = ClientRepos.from_config(cfg)
+        self.assertEqual((repos.where, repos.queue_url), ("the worker", cfg.queue_url))
+        with mock.patch("ct.client.repo.subprocess.run") as run:
+            run.return_value.returncode, run.return_value.stdout, run.return_value.stderr = 0, "", ""
+            repos.git("/tmp/x", "fetch")
+        self.assertIn("mailbox/key", run.call_args.kwargs["env"]["GIT_SSH_COMMAND"])
+        github = ClientRepos.from_config(cfg_with())
+        with mock.patch("ct.client.repo.subprocess.run") as run:
+            run.return_value.returncode, run.return_value.stdout, run.return_value.stderr = 0, "", ""
+            github.git("/tmp/x", "fetch")
+        self.assertIsNone(run.call_args.kwargs["env"])
+
+
+class DirectAddresses(unittest.TestCase):
     def direct(self, **server):
         return cfg_with(transport={"kind": "direct"}, server={"admin_user": "me", "host": "worker.example", **server})
 

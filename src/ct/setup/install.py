@@ -21,7 +21,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from .. import config
+from .. import config, transport
 from .. import ui as ui_mod
 from ..admin.ssh import Ssh
 from ..client.repo import ClientError
@@ -284,6 +284,7 @@ class Installer:
         c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory,
                         confirm_card=self.confirm_card, interactive=self.interactive, styled=self.ui is not None, verbose=self.verbose,
                         **({"ask": self.ask} if self.ask is not None and self.ui is None else {}))
+        self.client = c
         c.run_all()
         self.report += c.report
 
@@ -379,6 +380,12 @@ class Installer:
         self.approver_sent = bool(pub and pub.strip())
         if self.approver_sent:
             self.ssh.send(f"cat > {d}/approver.pub", pub.encode())                       # a public key: it only lets the worker CHECK approvals
+        self.mailbox_sent = False
+        if getattr(getattr(self, "client", None), "direct", False):
+            mail = self.machine.read(str(transport.for_config(self.cfg).client_key(self.cfg)) + ".pub")
+            if mail and mail.strip().startswith("ssh-"):
+                self.ssh.send(f"cat > {d}/mailbox-client.pub", mail.encode())             # a public key: it lets this computer into the mailbox shell and nothing else
+                self.mailbox_sent = True
         if self.claude_secret:
             self.ssh.send(f"umask 077; cat > {d}/claude.secrets", f"{self.claude_secret[0]}={self.claude_secret[1]}\n".encode())
         self.note("release sent to the server", "ok", f"commit {rev[:9]}, {size // 1024} KB")
@@ -395,7 +402,7 @@ class Installer:
         # no bytecode: root runs this from the administrator's folder and must not leave files there that the administrator cannot remove
         base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src python3 -m ct.setup server --no-banner --answers {d}/answers.toml --rev {rev} --source {d}"
                 + (f" --secrets-file {d}/claude.secrets" if self.claude_secret else "")
-                + (f" --approver-file {d}/approver.pub" if getattr(self, "approver_sent", False) else "") + (" --verbose" if self.verbose else ""))
+                + (f" --approver-file {d}/approver.pub" if getattr(self, "approver_sent", False) else "") + (f" --mailbox-key-file {d}/mailbox-client.pub" if getattr(self, "mailbox_sent", False) else "") + (" --verbose" if self.verbose else ""))
         if self.dry_run:
             r = self.ssh.capture(base)
             self.say((r.stdout or "") + (r.stderr or ""))
@@ -510,6 +517,8 @@ class Installer:
             self.server_half(d, rev)
         finally:
             self.cleanup(d)
+        if getattr(getattr(self, "client", None), "direct", False) and not self.dry_run:
+            self.report += self.client.finish_direct()
         if not self.dry_run:
             self.first_job()
         return self.report

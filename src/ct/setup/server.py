@@ -81,7 +81,7 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=None, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, verbose=False):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, mailbox_pubkey=None, verbose=False):
         say = say or _sink()
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
@@ -90,6 +90,7 @@ class ServerSetup:
         self.wait_for_keys, self._sleep, self._clock, self.ui = wait_for_keys, sleep, clock, ui
         self.advanced = advanced
         self.r = report.Styler(styled=ui is not None, verbose=verbose)          # prints notes, headings and commands in the setup's style (plain text without a terminal)
+        self.mailbox_pubkey = mailbox_pubkey            # Direct: the PUBLIC key your computer uses for the mailbox
         self.approver_pubkey = approver_pubkey          # the administrator's approval PUBLIC key: lets this worker check approvals signed on their own computer
         self.claude_secrets = claude_secrets or {}          # {KEY: value} handed over by the installer on the administrator's computer, so nothing is asked here
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
@@ -286,6 +287,8 @@ class ServerSetup:
             if path not in gitconfig:
                 self.run(["git", "config", "--global", "--add", "safe.directory", path], step="allow the worker to read the mailbox", as_user=w)
         keyfile = f"{cfg.paths.config}/mailbox-client.pub"
+        if self.mailbox_pubkey and self.mailbox_pubkey.strip().startswith("ssh-") and not self.dry_run:
+            self.host.write(keyfile, self.mailbox_pubkey.strip() + "\n", 0o644)           # a public key: it only lets that computer in, and only to the mailbox shell
         pub = (self.host.read(keyfile) or "").strip()
         if pub.startswith("ssh-"):
             if not self.dry_run:

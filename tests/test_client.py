@@ -167,7 +167,7 @@ class Repo(RepoFixture):
         bad = ClientRepos(self.tmp / "x" / "queue", self.tmp / "x" / "results", str(self.tmp / "nope.git"), str(self.tmp / "nope2.git"))
         with self.assertRaises(ClientError) as cm:
             bad.clone_all(self.tmp / "x")
-        self.assertEqual(cm.exception.title, "Could not clone a repo from GitHub")
+        self.assertEqual(cm.exception.title, "Could not clone a repository from GitHub")
         self.assertIn("ssh -T git@github.com", cm.exception.steps[0])
         with self.assertRaises(ClientError):
             bad.need_setup()

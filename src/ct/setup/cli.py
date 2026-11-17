@@ -74,6 +74,7 @@ def build_parser():
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
         s.add_argument("--secrets-file", help="a KEY=value file of sign-in secrets from the installer (server only)")
         s.add_argument("--approver-file", help="the public key that may approve jobs from the administrator's computer (server only)")
+        s.add_argument("--mailbox-key-file", help="the public key your computer uses for the Direct mailbox (server only)")
         s.add_argument("name", nargs="?", help="with rename: the new name")
         s.add_argument("--to", help="with rename --here (on the server): the new name")
         s.add_argument("--json", action="store_true", help="with rename --here: print the plan as JSON (the client half draws it)")
@@ -90,7 +91,7 @@ def build_parser():
 
 def default_repos(cfg):
     from ..client.repo import ClientRepos
-    return ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+    return ClientRepos.from_config(cfg)
 
 
 def demo(ui, say):
@@ -250,12 +251,13 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
                                 claude_secrets=config.read_env_file(a.secrets_file) if a.secrets_file else None,
-                                approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None), verbose=a.verbose, ui=screen_, advanced=a.advanced,
+                                approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None),
+                                mailbox_pubkey=(Path(a.mailbox_key_file).read_text() if a.mailbox_key_file else None), verbose=a.verbose, ui=screen_, advanced=a.advanced,
                                 confirm=(lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
                 from ..client.repo import ClientRepos
-                repos_factory = lambda cfg: ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)  # noqa: E731
+                repos_factory = ClientRepos.from_config
             setup = ClientSetup(host, Path(host.env.get("HOME", "~")).expanduser() / ".ct", ask=ask if interactive else None,
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
                                 ui=screen_, advanced=a.advanced, verbose=a.verbose,

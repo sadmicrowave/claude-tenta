@@ -6,7 +6,7 @@ that nobody answered is reported by name, never guessed.
 """
 import re
 
-from .. import config
+from .. import config, transport
 from .report import sink as _sink
 
 _Q = lambda key, title, why, **kw: dict(key=key, title=title, why=why, **kw)      # noqa: E731
@@ -27,10 +27,13 @@ QUESTIONS = [
        "The account you log in with. It must already exist and have your SSH key. Its sudo password is what protects every change, so a stolen SSH key alone cannot change the server.",
        risk="This account is never locked or removed, but the wizard needs it to have sudo rights.",
        examples=["admin", "ubuntu", "pi"], half="both", required=True),
+    _Q("transport.kind", "How should your computer and the worker pass jobs?",
+       "Jobs and results travel through two private git repositories. The choice is where those live and who connects to whom. It changes how fast a job is picked up and how much of your network is exposed.",
+       risk="You can move an existing install to another method later (ct-setup transport). Nothing is exposed until the install finishes.", half="both"),
     _Q("github.owner", "What is your GitHub username?",
        "Two private repositories are created under it: one for the jobs you send and one for the results. They are the mailbox between your computer and the server. An organisation name works too.",
        risk="Both are created private and nothing is ever pushed publicly. It needs your signed-in `gh` command; without it you create the repositories by hand.",
-       examples=["your-username", "your-organisation"], half="both", required=True),
+       examples=["your-username", "your-organisation"], half="both", required=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("hardware.profile", "How strong is the server?",
        "Sets how many jobs run at once (a heavy job counts as 4 points) and when new jobs wait because the machine is busy or hot. It was suggested from what the server reported.",
        risk="Too high for a weak machine makes jobs slow and the machine hot; too low just makes jobs wait their turn. Easy to change later in ct.toml.", half="server"),
@@ -59,10 +62,10 @@ QUESTIONS = [
        risk="Never your own account: the wizard refuses a name that is the admin account.", examples=["ctworker", "tenta"], half="server", advanced=True),
     _Q("github.queue_repo", "What should the private repository that holds your jobs be called?",
        "Created private. The server gets a read-only key to it, so it can fetch jobs but never change or delete them.",
-       risk="A name that already exists is reused as it is, so pick an empty one.", examples=["claude-tenta-queue"], half="both", advanced=True),
+       risk="A name that already exists is reused as it is, so pick an empty one.", examples=["claude-tenta-queue"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("github.results_repo", "What should the private repository that holds the results be called?",
        "Created private. The server gets a write key to it so it can publish results.",
-       risk="A key that can write can also rewrite history, so results are always treated as data, never as instructions.", examples=["claude-tenta-results"], half="both", advanced=True),
+       risk="A key that can write can also rewrite history, so results are always treated as data, never as instructions.", examples=["claude-tenta-results"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("updates.source", "Where do software updates come from?",
        "The address of the project repository (or your fork) the server installs releases from. Only commits on its main branch can be installed, and only when you run `ct-admin apply`.",
        risk="Point it at a fork you do not control and you will be offered whatever it contains. Every update is shown to you before it is installed.",
@@ -98,6 +101,7 @@ CHOICES = {
                      ("disabled", "Turn IPv6 off on the server. Less to attack and nothing extra to firewall. Choose this if nothing needs IPv6 to reach it.")],
     "access.sudo": [("readonly-nopasswd", "status, show, review, quarantine and output work without a password."),
                     ("password", "Every admin command asks for your sudo password, even the ones that only read.")],
+    "transport.kind": [(t.kind, f"{t.label}. Gains: {t.gain} Gives up: {t.cost}") for t in (transport.TRANSPORTS["direct"], transport.TRANSPORTS["github"])],
     "alerts.kind": [("none", "No push alerts. Security events are only in the log and in `ct-admin status`."),
                     ("ntfy", "A push notification to your phone through ntfy (ntfy.sh or your own server)."),
                     ("webhook", "A short message posted to any https address you choose.")],
@@ -109,7 +113,7 @@ CHOICES = {
     "network.lan_deny_out": [("yes", "Block it. The server can reach the internet but not your other devices."),
                              ("no", "Allow it. A compromised server could reach everything on your network.")],
 }
-LABELS = {"identity.name": "Install name", "server.host": "Server address", "server.admin_user": "Admin account", "server.worker_user": "Worker account", "server.ssh_port": "SSH port",
+LABELS = {"transport.kind": "Connection", "identity.name": "Install name", "server.host": "Server address", "server.admin_user": "Admin account", "server.worker_user": "Worker account", "server.ssh_port": "SSH port",
           "github.owner": "GitHub account", "github.queue_repo": "Queue repository", "github.results_repo": "Results repository", "updates.source": "Release source",
           "updates.mode": "Updates", "hardware.profile": "Machine", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
           "network.lan_allow_out": "LAN exceptions", "network.dns_servers": "DNS servers", "network.ssh_from": "SSH allowed from", "access.sudo": "Passwordless commands",

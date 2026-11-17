@@ -27,7 +27,7 @@ BAR = 24
 DOT = "•"
 BRAND = "@claude-tenta"
 
-SECTIONS = {"identity": "INSTALL", "server": "SERVER", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
+SECTIONS = {"identity": "INSTALL", "server": "SERVER", "transport": "CONNECTION", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
             "access": "ACCESS", "alerts": "ALERTS", "claude": "CLAUDE", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
 
 

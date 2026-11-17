@@ -59,7 +59,7 @@ class Context:
 
     @classmethod
     def from_config(cls, cfg):
-        repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
+        repos = ClientRepos.from_config(cfg)
         home = Path(cfg.paths.client_home).expanduser()
         return cls(repos, Ssh(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port), release.Source(home / "source.git", cfg.updates.source, cfg.updates.branch),
                    name=cfg.identity.name, config_dir=cfg.paths.config, code_dir=cfg.paths.code, home=home, main_branch=cfg.github.main_branch,
@@ -71,7 +71,7 @@ class Context:
         for name, path in workers.load_list(self.workers_file).items():
             try:
                 c = config.load(path, env={"CT_CONFIG": ""})
-                out.append((name, ClientRepos(c.path("client_queue"), c.path("client_results"), c.queue_url, c.results_url, jobs_branch=c.github.jobs_branch)))
+                out.append((name, ClientRepos.from_config(c)))
             except Exception:
                 out.append((name, ClientRepos(self.home / name / "queue", self.home / name / "results", "", "")))       # listed but its configuration is unreadable: a row with no state
         return out
