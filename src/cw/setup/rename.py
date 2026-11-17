@@ -189,6 +189,23 @@ def retitle_keys(host, cfg, new):
     return notes
 
 
+def rewrite_local(host, cfg, cfg2, new):
+    """Everything on this computer that says the old name: the configuration, the answers saved for the next install (a reinstall would otherwise go back to the
+    old name, taking it from there), and the two clones' remote URLs. Returns the files changed."""
+    from pathlib import Path
+    changed = []
+    host.write(cfg.source, with_name(host.read(cfg.source) or "", new), 0o600)
+    changed.append(cfg.source)
+    answers = str(Path(cfg.paths.client_home).expanduser() / "install-answers.toml")
+    if host.exists(answers):
+        host.write(answers, with_name(host.read(answers) or "", new), 0o600)
+        changed.append(answers)
+    for clone, url in ((cfg2.path("client_queue"), cfg2.queue_url), (cfg2.path("client_results"), cfg2.results_url)):
+        if host.exists(clone + "/.git") or host.exists(clone + "/HEAD"):
+            host.run(["git", "-C", clone, "remote", "set-url", "origin", url])
+    return changed
+
+
 def rename_command(a, host, ask, ssh_factory, say, verify=None):
     """cw-setup rename NEW: from your computer. Preview, ask once, run the server half over ssh -t, then the GitHub and local halves."""
     from .. import ui as _ui
@@ -246,10 +263,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
         return 1
     for step, status, detail in retitle_keys(host, cfg, new):
         say(f"  {status.upper():<10} {step}" + (f"  ({detail})" if detail else ""))
-    host.write(cfg.source, with_name(host.read(cfg.source) or "", new), 0o600)
-    for clone, url in ((cfg2.path("client_queue"), cfg2.queue_url), (cfg2.path("client_results"), cfg2.results_url)):
-        if host.exists(clone + "/.git") or host.exists(clone + "/HEAD"):
-            host.run(["git", "-C", clone, "remote", "set-url", "origin", url])
+    rewrite_local(host, cfg, cfg2, new)
     emit("Renamed", f"{old} is now {new} on {cfg.server.host}, on GitHub and in {cfg.source}.", tag="DONE", color=GREEN,
          run_label="Check that it works", run="cw-admin status")
     return 0

@@ -162,6 +162,33 @@ class Apply(Installed):
         self.assertFalse(any(c[0] == "systemctl" and c[1] == "enable" for c in self.h.calls))        # nothing was started on a half-renamed machine
 
 
+class Local(unittest.TestCase):
+    def test_the_configuration_the_saved_answers_and_the_clones_all_get_the_new_name(self):
+        from pathlib import Path
+        h = FakeHost()
+        cfg = cfg_of()
+        cfg.source = h.path("/me/.config/claude-ballast/cw.toml").as_posix()
+        text = '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD
+        h.write(cfg.source, text)
+        answers = Path(cfg.paths.client_home).expanduser() / "install-answers.toml"
+        h.write(str(answers), text)
+        cfg2 = rename.load_new_config(text, NEW)
+        h.put(cfg2.path("client_queue") + "/.git/HEAD", "x")
+        changed = rename.rewrite_local(h, cfg, cfg2, NEW)
+        self.assertEqual(changed, [cfg.source, str(answers)])
+        for path in changed:
+            self.assertIn(f'name = "{NEW}"', h.read(path))
+            self.assertNotIn(OLD, h.read(path))
+        self.assertTrue(h.ran(f"git -C {cfg2.path('client_queue')} remote set-url origin git@github.com:someone/{NEW}-queue.git"))
+
+    def test_without_saved_answers_only_the_configuration_changes(self):
+        h = FakeHost()
+        cfg = cfg_of()
+        cfg.source = h.path("/me/.config/claude-ballast/cw.toml").as_posix()
+        h.write(cfg.source, '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD)
+        self.assertEqual(rename.rewrite_local(h, cfg, rename.load_new_config(h.read(cfg.source), NEW), NEW), [cfg.source])
+
+
 class GitHub(unittest.TestCase):
     def setUp(self):
         self.h = FakeHost(env={"TOOLS": "git ssh gh"})
