@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run the unit tests for the modules named, with the project's own Python, showing only failures.
+#   scripts/t test_cli test_worker        (names of files in tests/, without .py)
+#   scripts/t                             (the whole suite: slow, only for release or real-machine changes)
+# Long runs: start it with run_in_background and wait once; never pipe it to tail.
+cd "$(dirname "$0")/../tests" || exit 1
+PY="${CT_PY:-$HOME/.ct-venv/bin/python}"
+[ -x "$PY" ] || { echo "no $PY: create the venv (python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e ..)"; exit 1; }
+if [ $# -eq 0 ]; then set -- discover -p 'test_*.py'; fi
+"$PY" -m unittest "$@" 2>&1 | grep -v "^\.*$" | grep -v "WARNING: .*can be read by every account" | tail -60
+exit "${PIPESTATUS:-0}"
