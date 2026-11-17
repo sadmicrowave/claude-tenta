@@ -11,6 +11,7 @@ deploy keys' titles and rewrites your own configuration and clones. Job history,
 """
 import re
 import tomllib
+from pathlib import Path
 
 from .. import config, render
 from . import hardening, toml_out
@@ -37,7 +38,9 @@ class Rename:
         self.say, self.dry_run, self.confirm = say, dry_run, confirm
         self.old = cfg.identity.name
         self.report = []
-        self.text = host.read(cfg.path("config_file")) or ""
+        legacy = f"{cfg.paths.config}/{config.LEGACY_CONFIG}"               # an install made before the project was renamed keeps its settings in cw.toml
+        self.legacy = not host.exists(cfg.path("config_file")) and host.exists(legacy)
+        self.text = host.read(legacy if self.legacy else cfg.path("config_file")) or ""
         self.cfg2 = None
         self.skip_sandbox_test = skip_sandbox_test
 
@@ -101,6 +104,16 @@ class Rename:
         for stale in (f"/etc/sudoers.d/{old}", f"{c2.paths.code}/bin/{old}"):
             if h.exists(stale):
                 gone.append(A("remove", path=stale))
+        if self.legacy:                                         # what the old version wrote under names the new one does not use
+            gone.append(A("remove", path=f"{c2.paths.config}/{config.LEGACY_CONFIG}"))
+            for old_cmd in ("/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update"):
+                if h.exists(old_cmd):
+                    gone.append(A("remove", path=old_cmd))
+            if h.exists(f"{c.paths.code}/lib/cw"):
+                gone.append(A("run", argv=["rm", "-rf", f"{c2.paths.code}/lib/cw"], why="the old package folder; the new release installed its own as lib/ct"))
+            secrets = c2.path("secrets")
+            if h.exists(c.path("secrets")):
+                gone.append(A("run", argv=["sed", "-i", "s/^CW_/CT_/", secrets], why="the secrets file's keys use the new prefix (the values are not shown or changed)"))
         out.append(("Remove what is named after the old name", gone + [A("run", argv=["systemctl", "daemon-reload"])]))
         out.append(("Start the services again", [A("run", argv=["systemctl", "enable", "--now", c2.unit(p)]) for p in enabled]))
         return out
@@ -194,9 +207,20 @@ def rewrite_local(host, cfg, cfg2, new):
     old name, taking it from there), and the two clones' remote URLs. Returns the files changed."""
     from pathlib import Path
     changed = []
-    host.write(cfg.source, with_name(host.read(cfg.source) or "", new), 0o600)
-    changed.append(cfg.source)
-    answers = str(Path(cfg.paths.client_home).expanduser() / "install-answers.toml")
+    text = with_name(host.read(cfg.source) or "", new)
+    old_home, new_home = Path(cfg.paths.client_home).expanduser(), Path(cfg2.paths.client_home).expanduser()
+    if old_home != new_home and host.exists(str(old_home)) and not host.exists(str(new_home)):
+        host.run(["mv", str(old_home), str(new_home)])                       # a computer set up before the project was renamed keeps its clones, keys and notes in the old folder
+        changed.append(str(new_home))
+    target = cfg.source
+    if Path(cfg.source) == config.legacy_config_paths()[0]:                   # the old default place and name: move to the new ones
+        target = str(Path.home() / ".config" / "claude-tenta" / "ct.toml")
+    host.write(target, text, 0o600)
+    changed.append(target)
+    if target != cfg.source:
+        host.run(["rm", "-f", cfg.source])
+    host.run(["sh", "-c", "for c in cw-run cw-admin cw-setup cw-help; do l=\"$HOME/.local/bin/$c\"; [ -L \"$l\" ] && rm -f \"$l\"; done; true"])      # the old command links; `ct-setup client` makes the new ones
+    answers = str(Path(cfg2.paths.client_home).expanduser() / "install-answers.toml")
     if host.exists(answers):
         host.write(answers, with_name(host.read(answers) or "", new), 0o600)
         changed.append(answers)
@@ -228,7 +252,8 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
-        base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={cfg.paths.config}/ct.toml python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
+        conf_name = Path(cfg.source).name if cfg.source else "ct.toml"            # an install made before the rename keeps its settings in cw.toml on the server too
+        base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={cfg.paths.config}/{conf_name} python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
         say(f"\nOn {cfg.server.host}:")
         r = ssh.capture(base)
         say((r.stdout or "") + (r.stderr or ""))

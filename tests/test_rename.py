@@ -72,6 +72,11 @@ class Plan(Installed):
         self.assertIn(f"CT_CONFIG=/etc/{NEW}/ct.toml", act.argv)
         self.assertEqual(act.argv[-5:-2], ["-m", "ct.update", "--local"])
 
+    def test_a_current_install_has_none_of_the_old_name_cleanup(self):
+        _, steps = self.plan()
+        gone = steps["Remove what is named after the old name"]
+        self.assertFalse([a for a in gone if a.kind == "run" and a.argv and a.argv[0] in ("sed", "rm")])
+
     def test_the_sandbox_check_is_on_unless_a_test_machine_asks_to_skip_it(self):
         _, steps = self.plan()
         (act,) = steps["Write every file that is named after the install (the same installer an update uses)"]
@@ -187,6 +192,56 @@ class Local(unittest.TestCase):
         cfg.source = h.path("/me/.config/claude-tenta/ct.toml").as_posix()
         h.write(cfg.source, '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD)
         self.assertEqual(rename.rewrite_local(h, cfg, rename.load_new_config(h.read(cfg.source), NEW), NEW), [cfg.source])
+
+
+class LegacyInstall(Installed):
+    """An install made before the project was renamed: its settings are in cw.toml and its commands, package folder and secrets keys carry the old prefix."""
+
+    def setUp(self):
+        super().setUp()
+        text = self.h.read(self.cfg.path("config_file"))
+        import os
+        os.remove(self.h.path(self.cfg.path("config_file")))
+        self.h.put(f"{self.cfg.paths.config}/cw.toml", text)
+        for p in ("/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update", f"{self.cfg.paths.code}/lib/cw/cli.py", self.cfg.path("secrets")):
+            self.h.put(p, "x\n")
+
+    def test_the_old_settings_file_is_read_and_the_new_one_written(self):
+        r, steps = self.plan()
+        self.assertTrue(r.legacy)
+        (act,) = steps["Write the new name into the configuration"]
+        self.assertEqual(act.path, f"/etc/{NEW}/ct.toml")
+        self.assertIn(f'name = "{NEW}"', act.text)
+
+    def test_what_the_old_version_wrote_under_old_names_is_removed_without_showing_secrets(self):
+        r, steps = self.plan()
+        gone = steps["Remove what is named after the old name"]
+        removed = {a.path for a in gone if a.kind == "remove"}
+        for path in (f"/etc/{NEW}/cw.toml", "/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update"):
+            self.assertIn(path, removed)
+        runs = [a.argv for a in gone if a.kind == "run" and a.argv]
+        self.assertIn(["rm", "-rf", f"/opt/{NEW}/lib/cw"], runs)
+        sed = next(a for a in runs if a[0] == "sed")
+        self.assertEqual(sed[-2:], ["s/^CW_/CT_/", f"/etc/{NEW}/secrets.env"])         # the keys are renamed in place; no value is read or printed
+
+
+class LegacyClient(unittest.TestCase):
+    def test_a_computer_set_up_before_the_rename_moves_its_folder_and_settings_to_the_new_names(self):
+        from pathlib import Path
+        h = FakeHost()
+        cfg = cfg_of(paths={"client_home": "~/.cw"})
+        cfg.source = str(config.legacy_config_paths()[0])
+        text = '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD
+        h.write(cfg.source, text)
+        h.write(str(Path("~/.cw").expanduser() / "approval" / "key"), "k")
+        cfg2 = rename.load_new_config(text, NEW)
+        changed = rename.rewrite_local(h, cfg, cfg2, NEW)
+        new_cfg = str(Path.home() / ".config" / "claude-tenta" / "ct.toml")
+        self.assertIn(new_cfg, changed)
+        self.assertIn(f'name = "{NEW}"', h.read(new_cfg))
+        self.assertTrue(h.ran(f"rm -f {cfg.source}"))                                       # the old file is removed
+        self.assertTrue(h.ran(f"mv {Path('~/.cw').expanduser()} {Path('~/.ct').expanduser()}"))
+        self.assertTrue([c for c in h.calls if c[0] == "sh" and "cw-run" in c[-1]])         # the old command links
 
 
 class GitHub(unittest.TestCase):

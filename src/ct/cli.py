@@ -110,8 +110,8 @@ class Context:
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
-        url = (secrets.get("CT_ALERT_URL") or cfg.alerts.url) if cfg.alerts.kind != "none" else ""
-        notifier = alerts.Notifier(url=url or "", token=secrets.get("CT_ALERT_TOKEN", ""), log=_log, product=name)
+        url = (secrets.get("CT_ALERT_URL") or secrets.get("CW_ALERT_URL") or cfg.alerts.url) if cfg.alerts.kind != "none" else ""
+        notifier = alerts.Notifier(url=url or "", token=secrets.get("CT_ALERT_TOKEN") or secrets.get("CW_ALERT_TOKEN", ""), log=_log, product=name)
         seclog = guard.SecurityLog(state / "security.log")
         lock = alerts.Lockdown(state, notifier, seclog, product=name, remind_at=cfg.alerts.remind_hours, repeat_h=cfg.alerts.remind_repeat_h)
         keeper = results.OutputKeeper(state)

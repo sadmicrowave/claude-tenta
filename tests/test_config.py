@@ -202,3 +202,30 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LegacyInstall(unittest.TestCase):
+    """An install made before the project was renamed keeps working: its settings are in cw.toml in the old folder, its clones and keys in ~/.cw."""
+
+    def test_the_old_settings_file_is_found_and_its_client_folder_is_the_old_one(self):
+        legacy = config.legacy_config_paths()[0]
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text('[identity]\nname = "claude-ballast"\n')
+        try:
+            self.assertEqual(config.default_config_path({}), legacy)
+            c = config.load(None, env={})
+            self.assertEqual((c.identity.name, c.paths.client_home), ("claude-ballast", "~/.cw"))
+            new = Path.home() / ".config" / "claude-tenta" / "ct.toml"
+            new.parent.mkdir(parents=True, exist_ok=True)
+            new.write_text('[identity]\nname = "claude-tenta"\n')
+            self.assertEqual(config.default_config_path({}), new)                        # the new place wins once it exists
+            self.assertEqual(config.load(None, env={}).paths.client_home, "~/.ct")
+        finally:
+            for p in (legacy, Path.home() / ".config" / "claude-tenta" / "ct.toml"):
+                p.unlink(missing_ok=True)
+
+    def test_an_explicit_client_folder_in_an_old_file_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cw.toml"
+            p.write_text('[paths]\nclient_home = "~/elsewhere"\n')
+            self.assertEqual(config.load(p, env={}).paths.client_home, "~/elsewhere")

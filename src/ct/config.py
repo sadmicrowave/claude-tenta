@@ -434,13 +434,22 @@ class Config:
         return {s: dict(v) for s, v in self._clean.items()}
 
 
+LEGACY_CONFIG = "cw.toml"                                  # what the configuration file was called before the project was renamed (claude-tenta, ct-*)
+LEGACY_CLIENT_HOME = "~/.cw"
+
+
+def legacy_config_paths():
+    """Where an install made before the rename keeps its configuration (the old default folder names)."""
+    return (Path.home() / ".config" / "claude-ballast" / LEGACY_CONFIG, Path("/etc/claude-ballast") / LEGACY_CONFIG)
+
+
 def default_config_path(env=None):
     env = os.environ if env is None else env
     if env.get("CT_CONFIG"):
         return Path(env["CT_CONFIG"])
-    for p in (Path.home() / ".config" / "claude-tenta" / "ct.toml", Path("/etc/claude-tenta/ct.toml")):
+    for p in (Path.home() / ".config" / "claude-tenta" / "ct.toml", Path("/etc/claude-tenta/ct.toml"), *legacy_config_paths()):
         if p.exists():
-            return p
+            return p                                       # an old install keeps working until `ct-setup rename` moves it to the new names
     return None
 
 
@@ -456,6 +465,8 @@ def load(path=None, env=None):
             raise ConfigError([f"cannot read {path}: {e.strerror}"])
         except tomllib.TOMLDecodeError as e:
             raise ConfigError([f"{path} is not valid TOML: {e}"])
+    if path is not None and path.name == LEGACY_CONFIG and isinstance(raw.get("paths", {}), dict):
+        raw.setdefault("paths", {}).setdefault("client_home", LEGACY_CLIENT_HOME)         # its clones, keys and notes are still where the old version put them
     clean, problems = validate(_env_overrides(raw, env), require_alert_url=False)         # the address is in secrets.env (read where the notifier is built)
     if problems:
         raise ConfigError(problems)

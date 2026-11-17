@@ -109,6 +109,23 @@ unless you say otherwise; IPv6 stays off until the next restart if it was off (t
 
 If the server half stops partway, nothing on this computer was changed and the repositories are already renamed on GitHub; run the same command again, or rename back with `ct-setup rename <old-name>`. The command names (`ct-run`, `ct-admin`, `ct-setup`, `ct-worker`, `ct-update`) never contain the name, so they are not affected. `--no-sandbox-test` skips the check of the services' sandbox, for a test machine whose systemd cannot enforce one (a container): never on a real worker.
 
+### Moving an install made before the project was renamed (claude-ballast, cw-*)
+
+The project became **claude-tenta**: the commands are `ct-*`, the package is `ct`, the settings file is `ct.toml`, the environment variables start with `CT_`, and your computer's folder is `~/.ct`.
+An install made under the old names keeps working from the new code: the old settings file (`~/.config/claude-ballast/cw.toml`) is found, and its clones, keys and notes are still read from `~/.cw`.
+To move it to the new names, run the same rename:
+
+```bash
+ct-setup rename claude-tenta
+ct-setup rename claude-tenta --apply
+```
+
+As well as everything above, it handles what the old version wrote under old names: on the server it moves `cw.toml` to `ct.toml`, removes the old `cw-worker` and `cw-update` commands and the old package folder
+(`lib/cw`), and renames the `CW_` keys in the secrets file to `CT_` (the values are never shown or changed). On your computer it moves the settings to `~/.config/claude-tenta/ct.toml`, moves `~/.cw` to
+`~/.ct` (the approval key, clones and notes come with it) and removes the old `cw-*` command links. Afterwards make the new commands with a fresh virtual environment (`python3 -m venv ~/.ct-venv &&
+~/.ct-venv/bin/pip install -e .`) and run `ct-setup client` once to link them. The GitHub repositories that carry the install's name (`claude-ballast-queue`, `claude-ballast-results`) are renamed to `claude-tenta-queue` and `claude-tenta-results`;
+the project's own repository is renamed on GitHub by hand, and `git remote set-url origin` points your checkout at it.
+
 ### Approving from this computer
 
 Jobs of a class that needs approval (`tier: approve`, every profile run, and the `claude-read` class) used to be approved by logging in to the worker and typing a sudo password, which cannot work for several workers. The client half now makes an **approval key** on this computer (`~/.ct/approval/key`, an ordinary ed25519 key; at a terminal `ssh-keygen` asks for a passphrase, which then protects every approval) and the install gives the worker its **public** half, in a root-owned file of its own (`<config>/approvers`, never the file used for release signatures, so a release key cannot approve jobs and the reverse). After that `ct-admin approve <job>` and `ct-admin approve --all` sign the approval here, pinned to the SHA-256 of the exact job file you reviewed, and publish it to an `approvals` branch of the queue repository; the worker checks the signature, the job id, the file digest and the expiry (a week) before it runs anything, and says in its log when it finds one it will not accept. Pushing to GitHub alone can ask for a job but can never approve it. The worker publishes the fingerprint of the key it trusts, so `ct-admin approve` tells you plainly when the worker was set up with a different key (run `ct-setup install` again), and `--ssh` still approves the old way. To retire a lost key, run the install again from the computer with the new one: it replaces the old key on the worker.
