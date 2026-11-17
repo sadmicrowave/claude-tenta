@@ -6,6 +6,7 @@
 cd "$(dirname "$0")/../tests" || exit 1
 PY="${CT_PY:-$HOME/.ct-venv/bin/python}"
 [ -x "$PY" ] || { echo "no $PY: create the venv (python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e ..)"; exit 1; }
+"$PY" preflight.py || exit 1                     # a missing package or tool is one clear message, not hundreds of errors
 if [ $# -eq 0 ]; then set -- discover -p 'test_*.py'; fi
 "$PY" -m unittest "$@" 2>&1 | grep -v "^\.*$" | grep -v "WARNING: .*can be read by every account" | tail -60
 exit "${PIPESTATUS:-0}"

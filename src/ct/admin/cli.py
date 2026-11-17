@@ -669,6 +669,15 @@ def cmd_audit(ctx, a):
     return rc
 
 
+def cmd_tripwire_test(ctx, a):
+    """On the worker, as root (asks for the worker's sudo password): read a decoy credential, prove the worker locks itself down, then unlock it. Needs a machine with a kernel audit."""
+    rc = 0
+    for name, c in ctx.targets(a.worker):
+        emit(f"Testing the tripwire on {name}", tag="TRIPWIRE", color=CYAN, stream=sys.stdout)
+        rc = c.ssh.interactive(f"sudo {render.UPDATE_CMD} --tripwire-test") or rc
+    return rc
+
+
 def cmd_unlock(ctx, a):
     if not use_signed(ctx, a):
         return ctx.remote("unlock")
@@ -930,7 +939,7 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "wake", "audit", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
           ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
@@ -938,6 +947,7 @@ HELP = {
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")]),
     "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
     "audit": ("check that each worker still matches its configuration (read-only; asks for the worker's sudo password)", [("Audit every worker", "ct-admin audit"), ("Audit one", "ct-admin audit --worker studio")]),
+    "tripwire-test": ("prove the worker locks itself down when a job reads a decoy credential, then unlock it (needs the worker's sudo password)", [("Run it on every worker", "ct-admin tripwire-test"), ("Run it on one", "ct-admin tripwire-test --worker studio")]),
     "check": ("check the connection to the worker", [("Is key login working, and do read-only commands need no password?", "ct-admin check")]),
     "review": ("show waiting jobs and note you viewed them (asks nothing)", [("Show every waiting job", "ct-admin review"), ("Show one", "ct-admin review profile-k7m2xq")]),
     "approve": ("approve a job exactly as you saw it, then watch it", [("Review, approve and wait for the result", "ct-admin approve profile-k7m2xq"), ("Approve every waiting job you viewed", "ct-admin approve --all")]),
@@ -979,7 +989,7 @@ def build_parser():
     s.add_argument("verb", choices=["add", "remove", "list"], help="add: register (or pin again) a root-level action | remove: take one away, with its class | list: show what is registered")
     s.add_argument("source", nargs="?", help="add: a YAML file or pack folder such as packs/fan-control | remove: an action's name, or that folder")
     yes(s)
-    for verb in ("wake", "audit"):
+    for verb in ("wake", "audit", "tripwire-test"):
         s = sp.add_parser(verb, add_help=False)
         s.add_argument("--worker", metavar="NAME", help="only this worker, by the name in ct-admin workers (default: every worker)")
     sp.add_parser("theme", add_help=False)
@@ -1038,7 +1048,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

@@ -19,6 +19,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 | `ct-admin check` | check the connection to the worker |
 | `ct-admin wake` | end idle or sleep now: every worker, or one, looks for jobs right away |
 | `ct-admin audit` | check that each worker still matches its configuration (read-only; asks for the worker's sudo password) |
+| `ct-admin tripwire-test` | prove the worker locks itself down when a job reads a decoy credential, then unlock it (needs the worker's sudo password) |
 | `ct-admin workers` | compare the workers you administer: hardware, Claude access and state, side by side |
 
 ### Jobs

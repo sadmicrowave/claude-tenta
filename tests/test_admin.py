@@ -129,7 +129,8 @@ class WakeAndAudit(AdminBase):
         self.ctx.workers_file = self.tmp / "workers.toml"
         self.assertEqual(self.admin("wake")[0], 0)
         self.assertEqual(self.admin("audit")[0], 0)
-        self.assertEqual(self.ssh.calls, ["ct-worker wake", "sudo ct-update --audit"])
+        self.assertEqual(self.admin("tripwire-test")[0], 0)
+        self.assertEqual(self.ssh.calls, ["ct-worker wake", "sudo ct-update --audit", "sudo ct-update --tripwire-test"])
 
     def test_a_worker_is_named_once_and_found_by_that_name(self):
         self.ctx.workers_file = self.tmp / "workers.toml"

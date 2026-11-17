@@ -11,6 +11,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+import preflight  # noqa: E402  (before anything else: a missing package or tool is one clear message, not hundreds of errors)
+preflight.require()
+
 # Safety net: no test may ever touch the real home folder (~/.ct, ~/.config, ...). Importing this module points HOME at a throwaway folder.
 os.environ["HOME"] = tempfile.mkdtemp(prefix="ct-test-home-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))

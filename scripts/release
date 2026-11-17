@@ -62,6 +62,9 @@ def check(root, version, skip_tests=False):
     if priv.exists() and subprocess.run([str(priv), "--history"], cwd=root, capture_output=True, text=True).returncode:
         raise ReleaseError("the privacy check found something in the history: run scripts/privacy-check --history")
     if not skip_tests and (Path(root) / "tests").is_dir():
+        pre = subprocess.run([sys.executable, str(Path(root) / "tests" / "preflight.py")], capture_output=True, text=True)
+        if pre.returncode:
+            raise ReleaseError("the tests cannot run here, so nothing was tagged:\n" + pre.stderr.strip())
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=root, capture_output=True, text=True)
         if r.returncode:
             raise ReleaseError("the unit tests fail:\n" + (r.stderr or r.stdout)[-600:])

@@ -421,10 +421,10 @@ def real_sysctl(*args):
 
 
 def main(argv=None):
-    """python3 -m ct.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync | --audit      (run as root)"""
+    """python3 -m ct.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync | --audit | --tripwire-test      (run as root)"""
     from . import config, sandboxtest
     argv = list(sys.argv[1:] if argv is None else argv)
-    usage = "usage: python3 -m ct.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync | --audit"
+    usage = "usage: python3 -m ct.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync | --audit | --tripwire-test"
     try:
         cfg = config.load()
         skip_sandbox = "--no-sandbox-test" in argv                  # for a test machine whose systemd cannot enforce a sandbox (a container): never on a real worker
@@ -434,6 +434,12 @@ def main(argv=None):
             from .setup.host import Host
             rows, bad = audit.run(Host(), cfg)
             return 1 if bad else 0
+        if argv == ["--tripwire-test"]:                              # what ct-admin tripwire-test runs on the worker: reads a decoy credential and proves the lockdown, then unlocks
+            from .setup import tripwire
+            from .setup.host import Host
+            ok, why = tripwire.run(Host(), cfg, confirm=lambda p: input(f"{p} [y/N] ").strip().lower() == "y")
+            _ui.say("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
+            return 0 if ok else 1
         if argv == ["--registry-sync"]:
             status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
             try:
