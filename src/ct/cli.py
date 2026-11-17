@@ -41,6 +41,7 @@ CT_HELP = (("status [--hours N]", "health, what it is doing, recent use, and the
            ("review <job>...", "show what waiting jobs will run, asking nothing"),
            ("quarantine [job]", "list results held back by the output guard, or read one"),
            ("output [job]", "the full output of a failed command (only its error lines were published)"),
+           ("wake", "end idle or sleep now and look for jobs right away"),
            ("unlock", "clear a security lockdown after you have looked at it"),
            ("prune-results [--days N]", "shrink the results repo's history"),
            ("test-alert", "send sample alerts to your phone; nothing is locked"))
@@ -372,6 +373,19 @@ def cmd_prune_results(ctx, days=14, force=False):
     return 0
 
 
+def cmd_wake(ctx):
+    """End idle and sleep now: look for jobs right away, and from here the quick pace applies again (the step timer starts what it finds within seconds)."""
+    w = ctx.w
+    (w.state / "last-sync.stamp").unlink(missing_ok=True)                  # so this pass is not skipped as "too soon"
+    (w.state / "activity.stamp").touch()                                    # and the worker is active again, so the quick pace resumes
+    t0 = time.monotonic()
+    seen = w.fetch()
+    record_pass(w.state, "fetch", True, idle=False, mode="active", took=time.monotonic() - t0)
+    emit("Awake", ("Looked for jobs", f"just now, in {time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
+         ("From here", f"it checks every few seconds while there is work, and idles again after {w.s.idle_after_s // 60} quiet minutes"), tag="AWAKE", color=GREEN)
+    return 0
+
+
 def cmd_test_alert(ctx):
     n = ctx.notifier
     if not n or not n.url.startswith("https://"):
@@ -683,6 +697,8 @@ def main(argv=None, ctx=None, cfg=None):
             hard = _flag(args, "--hard")
             if len(args) == 1:
                 return cmd_kill(ctx, args[0], hard=hard)
+        if cmd == "wake" and not args:
+            return cmd_wake(ctx)
         if cmd == "quarantine" and len(args) <= 1:
             return cmd_quarantine(ctx, args[0] if args else None)
         if cmd == "unlock" and not args:

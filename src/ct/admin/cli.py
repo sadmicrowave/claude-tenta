@@ -76,6 +76,23 @@ class Context:
                 out.append((name, ClientRepos(self.home / name / "queue", self.home / name / "results", "", "")))       # listed but its configuration is unreadable: a row with no state
         return out
 
+    def for_worker(self, name):
+        """The same commands aimed at one named worker: its address, account and repositories come from its own configuration, listed once in workers.toml."""
+        if name in (self.name, "main"):
+            return self
+        path = workers.load_list(self.workers_file).get(name)
+        if not path:
+            raise ClientError(f"There is no worker called {name!r}", "Workers are named once, in ct-admin workers add.", example="ct-admin workers")
+        c = Context.from_config(config.load(path, env={"CT_CONFIG": ""}))
+        c.ask, c.sleep, c.is_tty = self.ask, self.sleep, self.is_tty
+        return c
+
+    def targets(self, name=None):
+        """[(name, Context)]: the one worker named, or every worker this computer administers."""
+        if name:
+            return [(name, self.for_worker(name))]
+        return [(self.name, self)] + [(n, self.for_worker(n)) for n in workers.load_list(self.workers_file)]
+
     # the commands on the server, run as the worker through its own sudo entry point (read-only ones need no password)
     def remote(self, *args):
         return self.ssh.interactive(f"{render.WORKER_CMD} {self.ssh.quote(args)}")
@@ -634,6 +651,24 @@ def cmd_output(ctx, a):
     return rc
 
 
+def cmd_wake(ctx, a):
+    """Tell the worker (or every worker) to stop idling and look for jobs now, over the same SSH login ct-admin check uses. No password: it changes only when the next check happens."""
+    rc = 0
+    for name, c in ctx.targets(a.worker):
+        emit(f"Waking {name}", tag="WAKE", color=CYAN, stream=sys.stdout)
+        rc = c.remote("wake") or rc
+    return rc
+
+
+def cmd_audit(ctx, a):
+    """Read-only check that each worker still matches its configuration. It runs as root through the update entry point, so the worker's sudo asks for your password."""
+    rc = 0
+    for name, c in ctx.targets(a.worker):
+        emit(f"Auditing {name}", tag="AUDIT", color=CYAN, stream=sys.stdout)
+        rc = c.ssh.interactive(f"sudo {render.UPDATE_CMD} --audit") or rc
+    return rc
+
+
 def cmd_unlock(ctx, a):
     if not use_signed(ctx, a):
         return ctx.remote("unlock")
@@ -895,12 +930,14 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
           ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")]),
+    "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
+    "audit": ("check that each worker still matches its configuration (read-only; asks for the worker's sudo password)", [("Audit every worker", "ct-admin audit"), ("Audit one", "ct-admin audit --worker studio")]),
     "check": ("check the connection to the worker", [("Is key login working, and do read-only commands need no password?", "ct-admin check")]),
     "review": ("show waiting jobs and note you viewed them (asks nothing)", [("Show every waiting job", "ct-admin review"), ("Show one", "ct-admin review profile-k7m2xq")]),
     "approve": ("approve a job exactly as you saw it, then watch it", [("Review, approve and wait for the result", "ct-admin approve profile-k7m2xq"), ("Approve every waiting job you viewed", "ct-admin approve --all")]),
@@ -942,6 +979,9 @@ def build_parser():
     s.add_argument("verb", choices=["add", "remove", "list"], help="add: register (or pin again) a root-level action | remove: take one away, with its class | list: show what is registered")
     s.add_argument("source", nargs="?", help="add: a YAML file or pack folder such as packs/fan-control | remove: an action's name, or that folder")
     yes(s)
+    for verb in ("wake", "audit"):
+        s = sp.add_parser(verb, add_help=False)
+        s.add_argument("--worker", metavar="NAME", help="only this worker, by the name in ct-admin workers (default: every worker)")
     sp.add_parser("theme", add_help=False)
     s = sp.add_parser("action-hash", add_help=False)
     s.add_argument("path", help="the program on the worker, for example /usr/local/sbin/fan-profile")
@@ -998,7 +1038,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

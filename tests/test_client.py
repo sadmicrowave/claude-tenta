@@ -100,8 +100,9 @@ class Human(unittest.TestCase):
         self.assertEqual(p(None), "sent: waiting for tct to notice it (an idle worker looks every 90 s)")
         self.assertEqual(p({"status": "queued"}), "queued on tct: waiting for a free slot")
         self.assertIn("2 min so far", p({"status": "queued"}, waited=130))
-        self.assertIn("has not picked it up", p(None, waited=130))               # a job nobody picks up is no longer described as "within a minute"
-        self.assertIn("tct-admin status", p(None, waited=130))
+        self.assertIn("has not picked it up", p(None, waited=400))               # a job nobody picks up is no longer described as "within a minute"
+        self.assertIn("tct-admin wake", p(None, waited=400))
+        self.assertNotIn("has not picked it up", p(None, waited=130))            # a sleeping worker looks every 5 min: two minutes is not late
         self.assertEqual(p({"status": "awaiting_approval"}), "waiting for your approval (tct-admin approve job-1)")
         self.assertEqual(p({"status": "awaiting_approval"}, approved=True), "approved: waiting for tct to pick it up")
         self.assertEqual(p({"status": "running", "note": "fetching packages on tct"}), "fetching packages on tct")

@@ -17,6 +17,8 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `ct-admin status` | health, what the worker is doing, recent use, and its safety checks |
 | `ct-admin check` | check the connection to the worker |
+| `ct-admin wake` | end idle or sleep now: every worker, or one, looks for jobs right away |
+| `ct-admin audit` | check that each worker still matches its configuration (read-only; asks for the worker's sudo password) |
 | `ct-admin workers` | compare the workers you administer: hardware, Claude access and state, side by side |
 
 ### Jobs

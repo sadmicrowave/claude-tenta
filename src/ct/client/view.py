@@ -277,15 +277,20 @@ def pace_text():
     return f"a busy worker looks every few seconds, an idle one every {PACE['idle']} s, a sleeping one every {max(1, PACE['sleep'] // 60)} min"
 
 
+def late_after():
+    """Seconds after which an unnoticed job is called late: the slowest pace the worker keeps (a sleeping one), plus a minute, and never under two minutes."""
+    return max(120, max(PACE.values()) + 60)
+
+
 def phase_of(res, jid, admin="ct-admin", approved=False, product="the worker", waited=0):
     """(what to show, colour) for the one-line progress, from the latest published result (None = not picked up yet). `waited` is how many seconds the job has
     been waiting, so a job nobody picks up is described honestly instead of promising "within a minute" forever."""
     status = (res or {}).get("status")
-    late = waited >= 120
+    late = waited >= late_after()
     if approved and status in (None, "queued", "awaiting_approval"):
-        return (f"approved, but {product} has not picked it up after {waited // 60} min: {admin} status shows why" if late else f"approved: waiting for {product} to pick it up"), (RED if late else CYAN)
+        return (f"approved, but {product} has not picked it up after {waited // 60} min: `{admin} wake` looks now, `{admin} status` shows why" if late else f"approved: waiting for {product} to pick it up"), (RED if late else CYAN)
     if not res and late:
-        return f"sent {waited // 60} min ago and {product} has not picked it up: run `{admin} status` to see whether it is running", RED
+        return f"sent {waited // 60} min ago and {product} has not picked it up: `{admin} wake` looks now, `{admin} status` shows why", RED
     if not res:
         return f"sent: waiting for {product} to notice it (an idle worker looks every {PACE['idle']} s)", YELLOW
     if status == "queued":

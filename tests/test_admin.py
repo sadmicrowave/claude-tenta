@@ -122,6 +122,24 @@ class AdminBase(RepoFixture):
         return code, out.getvalue(), err.getvalue()
 
 
+class WakeAndAudit(AdminBase):
+    """One short command reaches every worker, or the one named, with nothing but its name: its address and account come from its own configuration."""
+
+    def test_wake_and_audit_reach_the_main_worker_with_no_paths_or_options(self):
+        self.ctx.workers_file = self.tmp / "workers.toml"
+        self.assertEqual(self.admin("wake")[0], 0)
+        self.assertEqual(self.admin("audit")[0], 0)
+        self.assertEqual(self.ssh.calls, ["ct-worker wake", "sudo ct-update --audit"])
+
+    def test_a_worker_is_named_once_and_found_by_that_name(self):
+        self.ctx.workers_file = self.tmp / "workers.toml"
+        code, out, err = self.admin("wake", "--worker", "nobody")
+        self.assertEqual(code, 2)
+        self.assertIn("no worker called 'nobody'", out + err)
+        self.assertEqual(self.ssh.calls, [])
+        self.assertIs(self.ctx.for_worker("testct"), self.ctx)                    # the main worker answers to its own name
+
+
 class SignedApprovals(AdminBase):
     """Approving here: signed with a key on this computer and published; nothing is run on the worker."""
 

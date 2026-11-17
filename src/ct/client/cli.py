@@ -174,11 +174,11 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             if res and res["status"] == "queued" and told not in ("queued", "running"):
                 emit(f"Queued on {ctx.product}", "The worker has it and starts it when a slot is free.", tag="QUEUED", color=YELLOW, stream=sys.stderr)
                 told = "queued"
-            if waited >= 120 and not late_told and (not res or res["status"] in (None, "queued")):
+            if waited >= view.late_after() and not late_told and (not res or res["status"] in (None, "queued")):
                 late_told = True
                 prog.clear()
-                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", "It normally does within seconds. The worker may be stopped, locked, or failing.",
-                     tag="SLOW", color=RED, run_label="See what the worker is doing", run=f"{ctx.admin} status", stream=sys.stderr)
+                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", f"Expected: {view.pace_text()}. This is longer than any of those, so the worker may be stopped, locked, or failing.",
+                     tag="SLOW", color=RED, run_label="Wake it so it looks now (then see what it is doing with status)", run=f"{ctx.admin} wake", stream=sys.stderr)
             text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product, waited)
             for _ in range(10):                               # redraw ~5 times a second; ask GitHub again every ~2 s (the connection is shared, so each ask is cheap)
                 prog.draw(text, color)

@@ -327,6 +327,15 @@ class Status(CliBase):
         self.assertIn("No usable temporary", out)
         self.assertRegex(out, r"Step\s+OK")
 
+    def test_wake_ends_the_slow_pace_and_looks_for_jobs_now(self):
+        (self.state / "last-sync.stamp").touch()
+        code, out = self.run_cli("wake")
+        self.assertEqual(code, 0)
+        self.assertIn("AWAKE", out)
+        self.assertRegex(out, r"Looked for jobs")
+        self.assertTrue((self.state / "activity.stamp").exists())
+        self.assertIn("wake", [c for c, _ in cli.CT_HELP] + [c.split()[0] for c, _ in cli.CT_HELP])
+
     def test_status_shows_the_claude_tool_and_is_honest_about_the_older_release(self):
         from ct import claudeupdate
         import time as _t
