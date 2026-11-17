@@ -519,7 +519,7 @@ def cmd_status(ctx, hours=12):
     if cu:
         when = f"{int((time.time() - cu['ts']) / 86400)} days ago" if time.time() - cu["ts"] > 86400 else "today"
         if cu["kind"] == "legacy":
-            line(False, "Claude", f"OLDER {cu['after'] or '?'}", f"pinned older release, cannot be updated on this processor (newer ones need a newer machine)")
+            line(True, "Claude", f"OLDER {cu['after'] or '?'}", f"pinned older release, cannot be updated on this processor (newer ones need a newer machine)")      # expected on an old processor: information, not a problem
         elif not cu["ok"]:
             line(False, "Claude", "UPDATE FAILED", f"{cu['note'] or 'see the journal'}  (last tried {when})")
         elif time.time() - cu["ts"] > 21 * 86400:

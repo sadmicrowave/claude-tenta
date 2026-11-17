@@ -27,13 +27,15 @@ class Styled(list):
     def plain(self):
         return "".join(t for t, _ in self)
 
-    def draw(self, room):
-        out, used = [], 0
-        for text, role in self:
-            text = text[: max(0, room - used)]
-            used += len(text)
-            out.append(theme.sgr(text, role) if role and text else text)
-        return "".join(out)
+    def lines(self, room):
+        """The value as one or more lines: the pieces before the last stay on the first line, and the last (the long explanation) wraps under itself, so nothing is cut off."""
+        *head, (last, last_role) = list(self)
+        lead = "".join(t for t, _ in head)
+        text = [theme.sgr(t, r) if r and t else t for t, r in head]
+        width = max(10, room - len(lead))
+        pieces = wrap(last.lstrip(), width - 2 if lead else width) if last else [""]
+        first = "".join(text) + ("  " if lead and pieces and pieces[0] else "") + (theme.sgr(pieces[0], last_role) if last_role and pieces[0] else pieces[0])
+        return [first] + [(" " * (len(lead) + 2)) + (theme.sgr(p, last_role) if last_role else p) for p in pieces[1:]]
 
 
 class Cmd(str):
@@ -119,7 +121,9 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
             out.append(row(p(item[0].upper(), role if framed else "label")))
         elif kind == "fact" and isinstance(item[1], Styled):
-            out.append(row(label(item[0]) + "  " + item[1].draw(fact_room)))
+            first, *rest = item[1].lines(fact_room)
+            out.append(row(label(item[0]) + "  " + first))
+            out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "fact":
             first, *rest = wrap(item[1], fact_room)
             out.append(row(label(item[0]) + "  " + first))

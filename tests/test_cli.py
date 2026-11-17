@@ -336,6 +336,12 @@ class Status(CliBase):
         out = self.run_cli("status")[1]
         self.assertRegex(out, r"Claude\s+OLDER 2\.1\.112")
         self.assertIn("newer ones need a newer machine", out)
+        from unittest import mock
+        seen = []
+        with mock.patch.object(cli._ui, "say", lambda title, *details, **k: seen.append(details)):
+            self.run_cli("status")
+        row = next(d for d in seen[0] if isinstance(d, tuple) and d[0] == "Claude")
+        self.assertEqual(row[1][0][1], "ok")                                                          # an old processor is expected: information, never a reason for ATTENTION
 
     def test_action_hash_refuses_places_a_program_cannot_be_and_prints_the_pin_for_one_that_can(self):
         code, out = self.run_cli("action-hash", "/tmp/evil")[:2]

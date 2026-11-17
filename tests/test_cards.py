@@ -138,3 +138,14 @@ class YesNoPrompt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StyledValues(unittest.TestCase):
+    def test_a_long_explanation_wraps_under_itself_and_nothing_is_cut_off(self):
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((70, 24))), mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+            raw = shown("status", ("Fetch", cards.Styled([("OK", "ok"), ("  last pass 1 s ago, took 0 s (pulling new jobs from GitHub; asleep, so it asks GitHub every 300 s)", "muted")])), tag="STATUS")
+        text = ANSI.sub("", raw)
+        self.assertTrue(all(len(x) <= 70 for x in text.split("\n")))
+        flat = text.replace("┃", "").replace("\n", " ")
+        for needle in ("pulling new jobs from GitHub", "asleep", "every 300 s"):
+            self.assertIn(needle, " ".join(flat.split()))                                          # all of it is there, on more than one line
