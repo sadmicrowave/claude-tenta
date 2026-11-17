@@ -20,7 +20,8 @@ from pathlib import Path
 # role -> what it is for. The codes are the default theme's.
 ROLES = {
     "strong": "bold text: titles and commands",
-    "label": "the name of a fact in a card or a list (Program, Pinned to ...); bold by default, add a colour here if your font shows bold as plain",
+    "label": "the name of a fact in a card or a list (PROGRAM, PINNED TO, RISK ...): a colour, so it never depends on how your font draws bold",
+    "prompt": "the question line of every yes/no prompt ([y/N]); a different colour from everything else so it cannot be missed",
     "muted": "secondary text: reasons, hints, answered questions",
     "italic": "emphasis",
     "accent": "the rail, section headers, key names",
@@ -42,7 +43,7 @@ ROLES = {
 
 THEMES = {
     "default": {
-        "strong": "1", "label": "1", "muted": "2", "italic": "3",
+        "strong": "1", "label": "38;5;75", "prompt": "38;5;178", "muted": "2", "italic": "3",
         "accent": "38;5;75", "accent_chip": "48;5;27;38;5;255;1",
         "ok": "38;5;41", "ok_chip": "48;5;28;38;5;255;1",
         "warn": "38;5;178", "warn_chip": "48;5;178;38;5;16;1",
@@ -52,7 +53,7 @@ THEMES = {
         "brand": "38;5;80", "brand_dim": "38;5;37", "quiet": "38;5;245",
     },
     "light": {                                              # for a white terminal: darker, no pale tones
-        "strong": "1", "label": "1", "muted": "38;5;241", "italic": "3",
+        "strong": "1", "label": "38;5;25", "prompt": "38;5;130", "muted": "38;5;241", "italic": "3",
         "accent": "38;5;25", "accent_chip": "48;5;25;38;5;255;1",
         "ok": "38;5;28", "ok_chip": "48;5;28;38;5;255;1",
         "warn": "38;5;130", "warn_chip": "48;5;172;38;5;16;1",
@@ -61,7 +62,7 @@ THEMES = {
         "info": "38;5;30", "neutral_chip": "48;5;250;38;5;16;1",
         "brand": "38;5;30", "brand_dim": "38;5;37", "quiet": "38;5;244",
     },
-    "mono": {r: ("1" if r in ("strong", "label", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")
+    "mono": {r: ("1" if r in ("strong", "label", "prompt", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")
              for r in ROLES},
 }
 CODE_RE = re.compile(r"^[0-9]{1,3}(;[0-9]{1,3}){0,9}$")

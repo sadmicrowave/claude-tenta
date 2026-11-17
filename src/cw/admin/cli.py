@@ -85,9 +85,7 @@ class Context:
             return True
         if not self.is_tty():
             raise ClientError("This needs your answer", "It asks a question, and nobody is at the keyboard.", ["Run it in a terminal, or add --yes if you are sure."])
-        cols = max(40, min(shutil.get_terminal_size((100, 24)).columns, 100))
-        question = textwrap.fill(prompt, cols - 6, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False)       # wrapped here, so no word is cut at the screen's edge
-        return self.ask(paint("\n  ❯ ", ACCENT, BOLD) + paint(question, BOLD) + paint("  [y/N] ", DIM)).strip().lower() == "y"
+        return self.ask(_ui.confirm_prompt(prompt)).strip().lower() == "y"
 
 
 def fail_from(e):
@@ -575,14 +573,18 @@ def action_remove(ctx, a):
         raise ClientError(f"There is no root-level action called {missing[0]!r}", "Registered: " + (", ".join(known) or "none") + ".",
                           example=f"cw-admin action remove {close[0]}" if close else "cw-admin action list")
     removed_classes = []
+    have = (registry.parse(text) or {}).get("actions") or {}
+    screen = None if a.yes else tui.make()
     for name in names:
-        removed_classes += regedit.classes_using(text, name)
-        lines = text.splitlines()
-        s, e = regedit.action_block(text, name)
-        emit(f"Remove the root-level action {name}", ("Program", next((l.split(":", 1)[1].strip() for l in lines[s:e] if l.strip().startswith("run:")), "?")),
-             ("Class removed", ", ".join(regedit.classes_using(text, name)) or "none"), ("Queued jobs", "any still waiting for it are rejected"),
-             ("The program itself", "stays on the worker, untouched; it just can no longer be run as root by a job"), tag="REMOVE", color=RED)
-    if not ctx.confirm(f"Remove {', '.join(names)} and install the new registry on {ctx.ssh.host} now?", a.yes):
+        classes = regedit.classes_using(text, name)
+        removed_classes += classes
+        if screen is not None:
+            if not screen.protection(actionadd.card_remove_info(ctx.ssh.target, name, have.get(name) or {}, classes)):
+                stop("Not removed", "You answered no. Nothing was changed.")
+        else:
+            emit(f"Remove the root-level action {name}", ("Program", " ".join((have.get(name) or {}).get("run") or [])), ("Class removed", ", ".join(classes) or "none"),
+                 ("Queued jobs", "any still waiting for it are rejected"), ("The program", "stays on the worker, untouched"), tag="REMOVE", color=RED)
+    if screen is None and not ctx.confirm(f"Remove {', '.join(names)} and install the new registry on {ctx.ssh.host} now?", a.yes):
         stop("Not removed", "You answered no. Nothing was changed.")
     for name in names:
         text = regedit.without_action(text, name)
@@ -885,7 +887,7 @@ def verify(ctx, sha, prev, yes):
     if yes or not ctx.is_tty():
         emit("Not rolled back automatically", "Put the previous version back yourself:", tag="NOTE", color=YELLOW, run=back)
         return False
-    if ctx.ask(paint(f"\nPut the previous version ({release.short(prev)}) back now? [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
+    if ctx.ask(_ui.confirm_prompt(f"Put the previous version ({release.short(prev)}) back now?")).strip().lower() != "y":
         emit("Left as it is", "To go back later:", tag="NOTE", color=YELLOW, run=back)
         return False
     rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {prev}")

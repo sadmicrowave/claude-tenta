@@ -115,7 +115,7 @@ def awaiting_approval_screen(ctx, jid):
     if ctx.is_tty() and ctx.run_admin:
         print(f"\n{paint('STATUS', BOLD, CYAN)}  {paint('awaiting_approval', BOLD, YELLOW)}", file=sys.stderr)
         try:
-            yes = ctx.ask(paint("\nReview it and approve it now? [y/N] ", BOLD, YELLOW, stream=sys.stdout)).strip().lower() == "y"
+            yes = ctx.ask(_ui.confirm_prompt("Review it and approve it now?")).strip().lower() == "y"
         except (EOFError, KeyboardInterrupt):
             yes = False
         if yes:

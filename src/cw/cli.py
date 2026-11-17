@@ -245,7 +245,7 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
     if not yes and not sha:
         text = describe_job(ctx, raw)
         print(review.color_review(text, ctx.product) if text else raw.decode("utf-8", "replace"))
-        if ctx.ask(paint("\nApprove this exact job? [y/N] ", BOLD, YELLOW, stream=sys.stdout)).strip().lower() != "y":
+        if ctx.ask(_ui.confirm_prompt("Approve this exact job?")).strip().lower() != "y":
             stop("Not approved", "You answered no. The job stays waiting.")
     ok, why = ctx.w.approve(jid, sha=None if yes else sha)
     if not ok:

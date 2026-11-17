@@ -94,6 +94,16 @@ def card_info(target, name, action, info, again):
             "apply": "Register", "skip": "Cancel", "lockout": False}
 
 
+def card_remove_info(target, name, action, classes):
+    """The wizard's card for taking an action away: framed in the failure colour, what goes and what stays, Remove / Cancel buttons."""
+    return {"label": "Root-level action", "tag": "removal", "code": "bad", "title": f"Remove {name}",
+            "why": "Jobs of its class will no longer be able to run this program as root.",
+            "rows": [("Program", " ".join(action.get("run") or [])), ("Class removed", ", ".join(classes) or "none"), ("Queued jobs", "any still waiting for it are rejected"),
+                     ("The program", "stays on the worker, untouched")],
+            "risk": "The change is signed and installed on the worker at once. You can register it again with cw-admin action add.", "now": "registered",
+            "steps": [], "apply": "Remove", "skip": "Cancel", "lockout": False}
+
+
 def _spec(v):
     if isinstance(v, dict) and "enum" in v:
         return "one of " + "/".join(map(str, v["enum"]))

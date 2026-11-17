@@ -114,7 +114,7 @@ def uninstall_command(a, host, ask, ssh_factory, say):
         cfg = load_config()
         interactive = not a.yes and sys.stdin.isatty()
         run = Uninstall(host, cfg, say=say, dry_run=not a.apply, keep_data=a.keep_data, remove_account=a.remove_account,
-                        confirm=None if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: False))
+                        confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
         report = run.run_all()
         status = report[-1][1] if report else ""
         if status == "planned":
@@ -139,7 +139,7 @@ def uninstall_command(a, host, ask, ssh_factory, say):
             emit("To remove it", tag="NEXT", color=GREEN, run_label="Run", run="cw-setup uninstall --apply" + "".join(" " + f for f in flags))
             return 0 if r.returncode == 0 else 1
         if not a.yes:
-            if not sys.stdin.isatty() or ask(paint(f"\n  Remove the {cfg.identity.name} install from {cfg.server.host}? Run the preview first if unsure. [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
+            if not sys.stdin.isatty() or ask(_ui.confirm_prompt(f"Remove the {cfg.identity.name} install from {cfg.server.host}? Run the preview first if unsure.")).strip().lower() != "y":
                 emit("Not removed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
                 return 1
         rc = ssh.interactive(f"sudo {base} --apply --yes")
@@ -192,7 +192,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 interactive = not a.yes and sys.stdin.isatty()
                 run = rename.Rename(host, cfg, a.to, source=a.source, rev=a.rev, say=say, dry_run=not a.apply,
                                     skip_sandbox_test=a.no_sandbox_test,
-                                    confirm=None if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: False))
+                                    confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
                 status = run.run_all()[-1][1]
                 if status == "declined":
                     return 1
@@ -203,7 +203,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         if a.cmd == "tripwire-test":
             from . import tripwire
             cfg = config.load()
-            ok, why = tripwire.run(host, cfg, say=say, confirm=(lambda p: True) if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y"))
+            ok, why = tripwire.run(host, cfg, say=say, confirm=(lambda p: True) if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y"))
             emit("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=GREEN if ok else RED)
             return 0 if ok else 1
         if a.cmd == "demo":
@@ -243,7 +243,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
                                 claude_secrets=config.read_env_file(a.secrets_file) if a.secrets_file else None,
                                 approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None), verbose=a.verbose, ui=screen_, advanced=a.advanced,
-                                confirm=(lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
+                                confirm=(lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: True), **overrides)
         else:
             if repos_factory is None:
                 from ..client.repo import ClientRepos
@@ -252,7 +252,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                                 say=say, dry_run=dry, given=given, use_defaults=not interactive, repos_factory=repos_factory, queue_key=a.queue_key, results_key=a.results_key,
                                 ui=screen_, advanced=a.advanced, verbose=a.verbose,
                                 confirm_card=(screen_.protection if screen_ is not None else
-                                              ((lambda info: ask(f"  {info['title']}? [y/N] ").strip().lower() == "y") if interactive else None)),
+                                              ((lambda info: ask(_ui.confirm_prompt(f"{info['title']}?")).strip().lower() == "y") if interactive else None)),
                                 **({"scripts_dir": overrides.pop("scripts_dir")} if "scripts_dir" in overrides else {}))
         with (screen_.session() if screen_ is not None else contextlib.nullcontext()):
             report = setup.run_all()
@@ -287,6 +287,8 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     elif waiting:
         emit("Almost there", *[f"{s}: {d}" for s, _, d in waiting], tag="WAITING", color=YELLOW)
         return EXIT_WAITING if a.cmd == "server" else 0
+    elif a.cmd == "server" and a.no_banner:
+        pass                                        # run by the installer, which prints its own "server setup" row; a second DONE here would be a stray
     else:
         emit("Done", tag="DONE", color=GREEN)
     return 0

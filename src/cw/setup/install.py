@@ -22,6 +22,7 @@ import tomllib
 from pathlib import Path
 
 from .. import config
+from .. import ui as ui_mod
 from ..admin.ssh import Ssh
 from ..client.repo import ClientError
 from . import detect, keys as keys_mod, ptyrun, questions, report, toml_out
@@ -277,7 +278,7 @@ class Installer:
             return self.ui.protection(info)
         if self.ask is not None:
             self.say("    $ " + info["steps"][0])
-            return self.ask(f"  {info['title']}? [y/N] ").strip().lower() == "y"
+            return self.ask(ui_mod.confirm_prompt(f"{info['title']}?")).strip().lower() == "y"
         return False
 
     def local_claude(self):
@@ -298,7 +299,7 @@ class Installer:
             yes = self.ui.protection(info)
         elif self.ask is not None:
             self.say("    $ " + CLAUDE_ON_THIS_COMPUTER)
-            yes = self.ask("  Install Claude Code on this computer? [y/N] ").strip().lower() == "y"
+            yes = self.ask(ui_mod.confirm_prompt("Install Claude Code on this computer?")).strip().lower() == "y"
         else:
             yes = False
         if yes:
@@ -386,14 +387,14 @@ class Installer:
         user, host = self.ssh.user or "the administrator", self.cfg.server.host
         if self.ui is not None:
             self.ui.sudo_card(user, host)
-            prompt = self.ui.sudo_prompt(user, host)
+            prompt = None             # the card above says what is asked; sudo's own prompt (newer sudo wraps a custom one in "[sudo: ...]") stays as it is
         else:
             self.say(f"  The server will ask for {user}'s sudo password, and for a yes to each protection. Only the server sees the password.\n")
             prompt = f"[sudo] password for {user}: "
         # one remote shell: ask for the password first (`sudo -v`), leave a marker, then run the setup under the sudo that is already unlocked.
         # Nothing else prints until the marker exists, so the password prompt is never interleaved with progress lines.
         marker = f"{d}/.authenticated"
-        remote = f"sh -c {shlex.quote(f'sudo -n true 2>/dev/null || sudo -p {shlex.quote(prompt)} -v; sudo -n true && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
+        remote = f"sh -c {shlex.quote(f'sudo -n true 2>/dev/null || sudo {'-p ' + shlex.quote(prompt) + ' ' if prompt else ''}-v; sudo -n true && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
         proc = self.ssh.popen(remote, tty=True)
         dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say, note=self.note)
         shown = False

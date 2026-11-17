@@ -246,7 +246,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
             return 0
         if not a.yes:
             import sys
-            if not sys.stdin.isatty() or ask(paint(f"\nRename {old} to {new} on {cfg.server.host}, on GitHub and here? The worker is briefly stopped. [y/N] ", BOLD, YELLOW)).strip().lower() != "y":
+            if not sys.stdin.isatty() or ask(_ui.confirm_prompt(f"Rename {old} to {new} on {cfg.server.host}, on GitHub and here? The worker is briefly stopped.")).strip().lower() != "y":
                 emit("Not renamed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
                 return 1
         for step, status, detail in rename_repositories(host, cfg, new):

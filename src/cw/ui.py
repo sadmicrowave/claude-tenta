@@ -6,7 +6,7 @@ Colour is only used when a person is watching a terminal: plain text when piped 
 import os
 import sys
 
-from . import theme
+from . import cards, theme
 
 # Roles, not colours: what each looks like is decided in cw.theme (and the user's theme.toml). The older names stay so every caller keeps working.
 BOLD, DIM, ITALIC, RED, GREEN, YELLOW, CYAN = "strong", "muted", "italic", "bad", "ok", "warn", "info"
@@ -31,6 +31,12 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
     """One shape for every message a person reads: a coloured TAG and a bold title, indented detail lines, optional bullet steps,
     then commands to copy, each alone on its own line (nothing before or after it)."""
     stream = stream or sys.stderr
+    if _color_on(stream):                                      # a person at a terminal: the wizard's card (see cw.cards)
+        out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label)
+        if run:
+            out += cards.commands(run, run_label)
+        print("\n".join(out) + "\n", file=stream)
+        return
     out = ["", f"{paint(tag, BOLD, color, stream=stream)}  {paint(title, BOLD, stream=stream)}"]
     lines = [d for d in details if d]          # a ("Label", "value") pair becomes an aligned bold-label line; "\n" is a blank line
     width = max([len(d[0]) for d in lines if isinstance(d, tuple)] or [0])
@@ -75,3 +81,14 @@ def related(*pairs, title="From here", stream=None, force=False):
         out += ["", paint(what, BOLD, stream=stream), paint(command, BOLD, GREEN, stream=stream)]
     print("\n".join(out) + "\n", file=stream)
     return True
+
+
+def confirm_prompt(question, stream=None):
+    """The text of a yes/no question, for `input()`. Always the `prompt` colour, wrapped before the terminal can cut a word, with the answer hint last.
+    Plain text when nobody is watching a terminal."""
+    stream = stream or sys.stdout
+    if not _color_on(stream):
+        return f"\n  {question} [y/N] "
+    cols = max(40, min(__import__("shutil").get_terminal_size((100, 24)).columns, 100))
+    text = __import__("textwrap").fill(question, cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False)
+    return "\n" + theme.sgr("  ❯ " + text + "  [y/N] ", "prompt", "strong")
