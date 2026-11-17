@@ -77,6 +77,8 @@ def desired_files(src, cfg):
     files[render.wrapper_path(cfg)] = (render.cli_wrapper(cfg), 0o755)
     files[f"{render.BIN_DIR}/{render.WORKER_CMD}"] = (render.sudo_wrapper(cfg), 0o755)
     files[render.update_wrapper_path(cfg)] = (render.update_wrapper(cfg), 0o755)
+    if cfg.transport.kind == "direct":
+        files[render.mail_shell_path(cfg)] = (render.mail_shell(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
         files[f"/etc/systemd/system/{name}"] = (text, 0o644)
     for pack in sorted(set(cfg.registry.packs) | set(cfg.policy.packs)):            # packs the configuration names and this release ships

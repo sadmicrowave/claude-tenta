@@ -21,7 +21,7 @@ data_branch = "data"
 main_branch = "main"
 
 [transport]
-kind = "github"                 # how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct and lan come with 0.2)
+kind = "github"                 # how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct: a mailbox on the worker that your computer reaches over SSH)
 
 [paths]                         # {name} and {worker_user} are filled in from the settings above
 code = "/opt/{name}"            # where the code is installed on the server

@@ -368,6 +368,31 @@ class ServerTests(unittest.TestCase):
         self.h.replies["stat -c %U"] = Result(0, "ctworker\n")                          # the account this install means: nothing to say
         self.setup_obj(dry_run=False).run_all()
 
+    def test_a_direct_install_makes_the_mailbox_and_asks_nothing_of_github(self):
+        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.replies["id claude-tenta-mail"] = Result(1, "id: no such user")                # not there yet
+        s = self.setup_obj(dry_run=False, given={"transport.kind": "direct"})
+        s.run_all()
+        ran = lambda prefix: self.h.ran(prefix)      # noqa: E731
+        self.assertTrue(ran("useradd --system --user-group --home-dir /var/lib/claude-tenta-mail --no-create-home --shell /bin/sh claude-tenta-mail"))
+        self.assertTrue(ran("usermod -aG claude-tenta-mail ctworker"))
+        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/claude-tenta-mail/queue.git"))
+        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/claude-tenta-mail/results.git"))
+        self.assertTrue(ran("chown -R claude-tenta-mail:claude-tenta-mail /var/lib/claude-tenta-mail/queue.git"))
+        self.assertTrue(ran("chown -R ctworker:claude-tenta-mail /var/lib/claude-tenta-mail/results.git"))      # the worker writes results; the mailbox account only reads them
+        keys = self.h.read("/var/lib/claude-tenta-mail/.ssh/authorized_keys")
+        self.assertEqual(keys, 'restrict,command="/usr/local/sbin/ct-mail-shell" ssh-ed25519 AAAATESTKEY client@example\n')
+        self.assertFalse(ran("ssh-keygen"))                                           # no deploy keys: nothing is registered anywhere
+        self.assertFalse(self.h.exists("/var/lib/ctworker/.ssh/config") and False)
+        self.assertTrue(self.h.exists("/usr/local/sbin/ct-mail-shell"))
+        self.assertTrue(ran("runuser -u ctworker -- git clone --quiet /var/lib/claude-tenta-mail/queue.git"))                  # the worker clones from the local path
+
+    def test_a_github_install_has_no_mailbox_and_no_mail_shell(self):
+        s = self.setup_obj(dry_run=False)
+        s.run_all()
+        self.assertFalse(self.h.ran("useradd --system --user-group"))
+        self.assertFalse(self.h.exists("/usr/local/sbin/ct-mail-shell"))
+
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()

@@ -9,7 +9,7 @@ A transport answers, for each of the two repositories (`queue`, `results`):
   worker_ssh_config(cfg)       the text of the worker account's ~/.ssh/config for it ('' when it needs none)
 and says `uses_deploy_keys` (whether setup must put the worker's public keys on a server, as it does on GitHub).
 
-Only `github` exists so far; `direct` and `lan` are added by the 0.2 work."""
+`github` and `direct` exist; `lan` comes later in 0.2."""
 
 
 class GitHub:
@@ -41,7 +41,33 @@ class GitHub:
         return "\n".join(out)
 
 
-TRANSPORTS = {"github": GitHub()}
+class Direct:
+    """Each worker keeps its own two repositories (the mailbox) and your computer connects to the worker over SSH, as a restricted account that can only run git on them: it may
+    push jobs to the queue and read results, nothing else. The worker makes no connection to anything for the mailbox, so its block on the LAN stays on."""
+    kind = "direct"
+    label = "Direct"
+    uses_deploy_keys = False
+
+    def mail_user(self, cfg):
+        """The account your computer logs in as; it has no other use and runs only the mailbox shell."""
+        return f"{cfg.identity.name}-mail"
+
+    def repo_path(self, cfg, which):
+        return f"{cfg.path('mailbox')}/{which}.git"
+
+    def client_url(self, cfg, which):
+        cfg.require("server.host")
+        port = f":{cfg.server.ssh_port}" if int(cfg.server.ssh_port) != 22 else ""
+        return f"ssh://{self.mail_user(cfg)}@{cfg.server.host}{port}{self.repo_path(cfg, which)}"
+
+    def worker_url(self, cfg, which):
+        return self.repo_path(cfg, which)                     # a path on the worker itself: reading its own queue and writing its own results touches no network
+
+    def worker_ssh_config(self, cfg):
+        return ""
+
+
+TRANSPORTS = {"github": GitHub(), "direct": Direct()}
 
 
 def for_config(cfg):

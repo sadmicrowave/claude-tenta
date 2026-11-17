@@ -13,6 +13,27 @@ def cfg_with(**over):
     return config.Config(clean)
 
 
+class Direct(unittest.TestCase):
+    def direct(self, **server):
+        return cfg_with(transport={"kind": "direct"}, server={"admin_user": "me", "host": "worker.example", **server})
+
+    def test_the_mailbox_is_on_the_worker_and_your_computer_reaches_it_as_the_mail_account(self):
+        cfg = self.direct()
+        t = transport.for_config(cfg)
+        self.assertEqual((t.kind, t.uses_deploy_keys, t.mail_user(cfg)), ("direct", False, "claude-tenta-mail"))
+        self.assertEqual(cfg.queue_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/queue.git")
+        self.assertEqual(cfg.results_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/results.git")
+
+    def test_a_non_standard_ssh_port_is_in_the_address(self):
+        self.assertIn("worker.example:2222/", self.direct(ssh_port=2222).queue_url)
+
+    def test_the_worker_uses_plain_paths_and_needs_no_ssh_configuration_at_all(self):
+        cfg = self.direct()
+        t = transport.for_config(cfg)
+        self.assertEqual(t.worker_url(cfg, "queue"), "/var/lib/claude-tenta-mail/queue.git")
+        self.assertEqual(t.worker_ssh_config(cfg), "")
+
+
 class GitHub(unittest.TestCase):
     def test_the_default_transport_is_github_with_the_addresses_the_code_always_used(self):
         cfg = cfg_with()

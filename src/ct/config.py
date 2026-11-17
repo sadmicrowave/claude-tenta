@@ -194,7 +194,7 @@ SCHEMA = {
         "main_branch": ("main", _str(BRANCH_RE, "a branch name"), "branch holding the registry"),
     },
     "transport": {
-        "kind": ("github", _enum("github"), "how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct and lan come with 0.2)"),
+        "kind": ("github", _enum("github", "direct"), "how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2)"),
     },
     "paths": {
         "code": ("/opt/{name}", _path, "where the code is installed on the server"),
@@ -428,7 +428,7 @@ class Config:
             "state": f"{p.state_root}/state", "queue_clone": f"{p.state_root}/queue", "results_clone": f"{p.state_root}/results",
             "registry": f"{p.config}/registry.yaml", "secrets": f"{p.config}/secrets.env", "installed_rev": f"{p.config}/installed-rev",
             "allowed_signers": f"{p.config}/allowed_signers", "approvers": f"{p.config}/approvers", "config_file": f"{p.config}/ct.toml",
-            "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}", "helper_socket": f"/run/{n}-helper.sock", "helper_state": f"{p.state_root}-helper", "source_clone": f"{p.state_root}-src",
+            "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}", "helper_socket": f"/run/{n}-helper.sock", "helper_state": f"{p.state_root}-helper", "source_clone": f"{p.state_root}-src", "mailbox": f"{p.state_root}-mail",
             "client_queue": str(Path(p.client_home).expanduser() / "queue"), "client_results": str(Path(p.client_home).expanduser() / "results"),
         }
         return table[what]

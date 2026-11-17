@@ -255,6 +255,47 @@ class ServerSetup:
             raise SetupError("The install was refused", "; ".join(report.errors))
         self.note("code, units and wrappers", "installed", f"{len(report.updated)} files")
 
+    def mailbox(self):
+        """Direct transport: the mailbox account, the worker's two bare repositories, and the one key that may use them. Nothing here reaches GitHub or any other machine."""
+        cfg, w = self.cfg, self.cfg.server.worker_user
+        t = transport.for_config(cfg)
+        mail, home = t.mail_user(cfg), cfg.path("mailbox")
+        if not self.host.run(["id", mail]).ok:
+            self.run(["useradd", "--system", "--user-group", "--home-dir", home, "--no-create-home", "--shell", "/bin/sh", mail], step="create the mailbox account")
+            self.note("mailbox account", "created", f"{mail} (its key can run only git on the two repositories)")
+        else:
+            self.note("mailbox account", "exists", mail)
+        groups = self.host.run(["id", "-nG", w]).out.split() if self.host.run(["id", w]).ok else []
+        if mail not in groups:
+            self.run(["usermod", "-aG", mail, w], step="let the worker read the mailbox")       # the worker reads the queue through this group
+        self.run(["install", "-d", "-m", "750", "-o", mail, "-g", mail, home], step="create the mailbox folder")
+        self.run(["install", "-d", "-m", "755", "-o", "root", "-g", "root", f"{home}/.ssh"], step="create the mailbox's key folder")
+        for which, owner in (("queue", mail), ("results", w)):                 # jobs come in through the mailbox account; results are written by the worker and only read through it
+            path = t.repo_path(cfg, which)
+            if not self.host.exists(path + "/HEAD"):
+                self.run(["git", "init", "--bare", "--quiet", "-b", "main", path], step=f"create the {which} repository")
+                self.run(["git", "-C", path, "config", "core.sharedRepository", "group"], step=f"let the group read the {which} repository")
+                self.run(["chown", "-R", f"{owner}:{mail}", path], step=f"hand the {which} repository to {owner}")
+                self.run(["chmod", "-R", "u+rwX,g+rX,o-rwx", path], step=f"close the {which} repository to everyone else")
+                self.note(f"{which} repository", "created", path)
+            else:
+                self.note(f"{which} repository", "exists", path)
+        gitconfig = self.host.read(f"{cfg.paths.worker_home}/.gitconfig") or ""
+        for which in ("queue", "results"):                                       # git refuses another account's repository unless told it is meant
+            path = t.repo_path(cfg, which)
+            if path not in gitconfig:
+                self.run(["git", "config", "--global", "--add", "safe.directory", path], step="allow the worker to read the mailbox", as_user=w)
+        keyfile = f"{cfg.paths.config}/mailbox-client.pub"
+        pub = (self.host.read(keyfile) or "").strip()
+        if pub.startswith("ssh-"):
+            if not self.dry_run:
+                self.host.write(f"{home}/.ssh/authorized_keys", f'restrict,command="{render.mail_shell_path(cfg)}" {pub}\n', 0o644)
+            self.note("mailbox key", "installed", "your computer's key, allowed to run only the mailbox shell")
+        else:
+            self.note("mailbox key", "waiting", f"your computer's key arrives with ct-setup install ({keyfile})")
+        self.note("repository keys", "ready", "none needed for Direct")
+        return {}
+
     def deploy_keys(self):
         cfg, w = self.cfg, self.cfg.server.worker_user
         keydir, pubs = f"{cfg.paths.worker_home}/.ssh", {}
@@ -480,7 +521,7 @@ class ServerSetup:
         self.remove_legacy_commands()
         self.install_approver()
         self.say(self.r.head("Repository access"))
-        pubs = self.deploy_keys()
+        pubs = self.mailbox() if transport.for_config(self.cfg).kind == "direct" else self.deploy_keys()
         if self.clones(pubs):
             return self.report
         self.say(self.r.head("Job registry"))

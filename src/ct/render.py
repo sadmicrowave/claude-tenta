@@ -143,6 +143,23 @@ def update_wrapper(cfg):
             f"cd / || exit 1\nexec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin PYTHONPATH='{v['lib']}' CT_CONFIG='{v['config']}/ct.toml' /usr/bin/python3 -m ct.update \"$@\"\n")
 
 
+MAIL_CMD = "ct-mail-shell"
+
+
+def mail_shell_path(cfg):
+    return f"{SBIN_DIR}/{MAIL_CMD}"
+
+
+def mail_shell(cfg):
+    """/usr/local/sbin/ct-mail-shell: what the mailbox account's key is allowed to run (Direct transport), with a fixed environment: git on the two repositories, nothing else."""
+    v = values_for(cfg)
+    for k in ("lib", "config"):
+        if not _CHECKS[k].fullmatch(v[k]):
+            raise RenderError(f"the value for {k} is not allowed in a generated file: {v[k]!r}")
+    return ("#!/bin/sh\n# The only command the mailbox account can run: git on the worker's queue and results repositories.\n"
+            f"cd / || exit 1\nexec env -i PATH=/usr/bin:/bin PYTHONPATH='{v['lib']}' CT_CONFIG='{v['config']}/ct.toml' /usr/bin/python3 -m ct.mailshell\n")
+
+
 def sysctl_text(cfg):
     """/etc/sysctl.d file that turns IPv6 off, or None when network.ipv6 is 'enabled'. Settled at install time and at boot."""
     if cfg.network.ipv6 != "disabled":
