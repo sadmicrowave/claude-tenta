@@ -659,3 +659,27 @@ class RootCard(unittest.TestCase):
         info = {"title": "t", "why": "w", "risk": "r", "now": "n", "steps": [], "code": "root"}
         from cw import theme
         self.assertIn(theme.code("root"), p.card(info, 0, False)[0])
+
+
+class StepsKey(unittest.TestCase):
+    """`s` is only offered when pressing it shows something more."""
+    def card(self, steps, full=False):
+        p = tui.TuiPrompter(out=io.StringIO(), width=70, keys=iter([]), color=False)
+        info = {"title": "t", "why": "w", "risk": "r", "now": "n", "steps": steps}
+        return "\n".join(p.card(info, 0, full))
+
+    def test_a_short_step_does_not_offer_the_key(self):
+        self.assertNotIn("s shows", self.card(["ssh host cat /usr/local/sbin/x"]))
+
+    def test_hidden_steps_offer_it_and_pressing_it_shows_them(self):
+        steps = [f"step {n}" for n in range(6)]
+        self.assertIn("s shows every step", self.card(steps))
+        self.assertNotIn("step 5", self.card(steps))
+        self.assertIn("step 5", self.card(steps, full=True))
+        self.assertIn("s shows less", self.card(steps, full=True))
+
+    def test_a_long_line_is_marked_as_cut_and_wrapped_in_full(self):
+        long = "echo " + "x" * 120
+        self.assertIn("…", self.card([long]))
+        self.assertIn("s shows every step", self.card([long]))
+        self.assertEqual(self.card([long], full=True).replace("\n", "").replace("│", "").replace(" ", "").count("x" * 120), 1)

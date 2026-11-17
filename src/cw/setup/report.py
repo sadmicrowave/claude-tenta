@@ -15,7 +15,7 @@ BLUE = "accent"                # a role: the wizard's own blue unless the theme 
 
 GOOD = {"ok", "installed", "created", "written", "linked", "stored", "updated", "removed", "satisfied", "applied", "running", "done", "seeded", "cloned", "present",
         "added", "sent", "set", "captured"}
-QUIET = {"skipped", "exists", "planned", "unchanged", "already cloned", "no change", "off"}
+QUIET = {"skipped", "exists", "planned", "unchanged", "no change", "off"}
 BAD = {"failed", "refused", "stopped", "error", "missing"}
 
 

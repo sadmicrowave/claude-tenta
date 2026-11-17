@@ -506,22 +506,37 @@ class TuiPrompter:
             for k, part in enumerate(wrapped):
                 lines.append(row(self.sgr(label if k == 0 else "      ", code) + (part if label.startswith("Risk") else self.sgr(part, DIM))))
         lines.append(row())
-        steps = info["steps"]
+        steps, room, hidden = info["steps"], inner - 6, False
         for s in steps if full else steps[:4]:
             parts = s.splitlines()
             for k, part in enumerate(parts if full else parts[:3]):
-                lines.append(row(self.sgr(("  $ " if k == 0 else "      ") + part.strip("\n")[:inner - 6], DIM)))
+                part = part.strip("\n")
+                if full:                                                     # everything, long lines wrapped under themselves
+                    pieces = textwrap.wrap(part, room, break_long_words=True, break_on_hyphens=False) or [""]
+                else:                                                        # a long line is cut short, with a mark saying so
+                    pieces = [part[:room - 1] + "…" if len(part) > room else part]
+                    hidden = hidden or len(part) > room
+                for n, piece in enumerate(pieces):
+                    lines.append(row(self.sgr(("  $ " if k == 0 and n == 0 else "      ") + piece, DIM)))
             if not full and len(parts) > 3:
                 lines.append(row(self.sgr("      …", DIM)))
+                hidden = True
         if not full and len(steps) > 4:
             lines.append(row(self.sgr(f"  … and {len(steps) - 4} more steps (press s)", DIM)))
+            hidden = True
         lines.append(row())
         yes_text, no_text = f"  {info.get('apply', 'Apply')}  ", f"  {info.get('skip', 'Skip')}  "
         apply_b = self.sgr(yes_text, GREEN_BTN) if choice == 0 else self.sgr(yes_text, DIM)
         skip_b = self.sgr(no_text, "neutral_chip") if choice == 1 else self.sgr(no_text, DIM)
         lines.append(row("    " + apply_b + "     " + skip_b))
         lines.append(row())
-        foot = "←/→ choose · Enter confirms · y/n · s shows the steps"
+        more = hidden or full                                          # the key is only offered when it would change what is on screen
+        key_s = "· s " + ("shows every step" if hidden else "shows less") if more else ""
+        foot = ""
+        for text in (f"←/→ choose · Enter confirms · y/n {key_s}", f"←/→ · Enter · y/n {key_s}", "←/→ · Enter · y/n"):          # the longest wording that fits the frame
+            foot = text.strip()
+            if len(foot) <= inner - 4:
+                break
         lines.append(a("╰─ ") + self.sgr(foot, frame) + a(" " + "─" * max(1, inner - len(foot) - 2) + "─╯"))
         return lines
 

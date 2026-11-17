@@ -158,7 +158,7 @@ class Human(unittest.TestCase):
 
 class Repo(RepoFixture):
     def test_clone_is_idempotent(self):
-        self.assertEqual([w for w, _ in self.repos.clone_all(self.home)], ["already cloned", "already cloned"])
+        self.assertEqual([w for w, _ in self.repos.clone_all(self.home)], ["exists", "exists"])
         self.assertTrue(self.repos.is_set_up())
 
     def test_a_bad_address_is_explained(self):
@@ -464,3 +464,23 @@ class Config(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoundTrip(unittest.TestCase):
+    RES = {"id": "j", "status": "ok", "created": "2026-11-17T04:49:00Z", "started": "2026-11-17T04:49:30Z", "finished": "2026-11-17T04:49:36Z",
+           "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 52, "disk_mb": 0.0}}
+
+    def test_a_result_says_how_long_the_whole_round_trip_took_and_where_the_time_went(self):
+        total, waited, ran = view.round_trip(self.RES)
+        self.assertEqual((total, waited, ran), (36, 30, 6))
+        tail = "\n".join(view.format_result(self.RES)[2])
+        self.assertIn("round trip", tail)
+        self.assertIn("36 s from sending it to its result  (30 s until it started, 6 s running)", tail)
+
+    def test_an_older_result_without_a_send_time_just_leaves_the_row_out(self):
+        res = {k: v for k, v in self.RES.items() if k != "created"}
+        self.assertIsNone(view.round_trip(res))
+        self.assertNotIn("round trip", "\n".join(view.format_result(res)[2]))
+
+    def test_two_clocks_that_disagree_never_give_a_negative_time(self):
+        self.assertEqual(view.round_trip({**self.RES, "created": "2026-11-17T04:50:00Z"})[0], 0)

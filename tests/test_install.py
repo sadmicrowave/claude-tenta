@@ -87,7 +87,7 @@ class InstallBase(RepoFixture):
         self.machine.replies["gh repo deploy-key list"] = Result(0, "[]")
         self.ssh = FakeSsh()
         self.verified = []
-        self.repos.clone_all = lambda home: [("already cloned", str(self.repos.queue)), ("already cloned", str(self.repos.results))]
+        self.repos.clone_all = lambda home: [("exists", str(self.repos.queue)), ("exists", str(self.repos.results))]
 
     def installer(self, ssh=None, **kw):
         ssh = ssh or self.ssh

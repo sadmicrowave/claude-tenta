@@ -50,7 +50,7 @@ class ClientRepos:
         rows = []
         for path, url in ((self.queue, self.queue_url), (self.results, self.results_url)):
             if (path / ".git").exists():
-                rows.append(("already cloned", str(path)))
+                rows.append(("exists", str(path)))
                 continue
             r = subprocess.run(["git", "clone", "--quiet", url, str(path)], capture_output=True, text=True)
             if r.returncode:

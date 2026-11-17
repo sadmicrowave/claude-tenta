@@ -53,6 +53,16 @@ def parse_when(text):
         return None
 
 
+def round_trip(res):
+    """(total, waited, ran) in seconds for a finished job: from the client sending it to the worker publishing its result, how much of that was waiting to be picked up
+    (and approved), and how much was running. None when the result does not say when it was sent (an older result) or never started. Never negative: two clocks differ."""
+    sent, started, done = parse_when(res.get("created")), parse_when(res.get("started")), parse_when(res.get("finished"))
+    if not (sent and started and done):
+        return None
+    secs = lambda a, b: max(0, int((b - a).total_seconds()))             # noqa: E731
+    return secs(sent, done), secs(sent, started), secs(started, done)
+
+
 # ---- one result ----
 def describe_profile(pr):
     """What was run and why, in the words the requester gave, for the top of a profile result."""
@@ -77,12 +87,19 @@ def format_result(res, admin="cw-admin", suggest_name=None):
         head.append(describe_profile(res["profile"]))
     head.append(paint("OUTPUT", BOLD, CYAN))
     tail, m = [], res.get("metrics")
-    if m:
-        temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
+    trip = round_trip(res)
+    if m or trip:
         tail.append(f"\n{paint('MEASURED', BOLD, CYAN)}")
-        for label, val in (("time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"),
-                           ("heat", f"peak {temp}"), ("disk", f"{m.get('disk_mb')} MB")):
-            tail.append(f"  {paint(f'{label:<8}', DIM)}{val}")
+        rows = []
+        if m:
+            temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
+            rows += [("time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"),
+                     ("heat", f"peak {temp}"), ("disk", f"{m.get('disk_mb')} MB")]
+        if trip:
+            total, waited, ran = trip
+            rows.append(("round trip", f"{human_dur(total)} from sending it to its result  ({human_dur(waited)} until it started, {human_dur(ran)} running)"))
+        for label, val in rows:
+            tail.append(f"  {paint(f'{label:<12}', DIM)}{val}")
     pr = res.get("profile")
     if pr:
         v = pr["verdict"]

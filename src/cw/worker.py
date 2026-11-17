@@ -367,6 +367,7 @@ class Worker:
         wd = self._p("work", jid)
         wd.mkdir(parents=True, exist_ok=True)
         res["started"] = iso(self.clock())
+        res["created"] = job.get("created")                 # when the client sent it, so the result can say how long the whole round trip took
         for name, content in files.items():
             target = wd / name
             target.parent.mkdir(parents=True, exist_ok=True)

@@ -521,7 +521,7 @@ class ClientTests(RepoFixture):
         h, c = self.make(dry_run=False)
         sh("git", "-C", str(self.tmp / "queue.git"), "update-ref", "-d", "refs/heads/main")      # a brand-new, empty repository
         self.repos.pull_results = lambda: None
-        self.repos.clone_all = lambda home: [("already cloned", str(self.repos.queue)), ("already cloned", str(self.repos.results))]
+        self.repos.clone_all = lambda home: [("exists", str(self.repos.queue)), ("exists", str(self.repos.results))]
         c.run_all()
         self.assertEqual(len(h.ran("gh repo create")), 2)
         self.assertTrue(all("--private" in " ".join(x) for x in h.ran("gh repo create")))
