@@ -20,6 +20,9 @@ jobs_branch = "jobs"
 data_branch = "data"
 main_branch = "main"
 
+[transport]
+kind = "github"                 # how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct and lan come with 0.2)
+
 [paths]                         # {name} and {worker_user} are filled in from the settings above
 code = "/opt/{name}"            # where the code is installed on the server
 state_root = "/var/lib/{name}"  # state, the two git clones and job working folders (server)

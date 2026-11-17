@@ -193,6 +193,9 @@ SCHEMA = {
         "data_branch": ("data", _str(BRANCH_RE, "a branch name"), "branch holding exclusions and other kept data"),
         "main_branch": ("main", _str(BRANCH_RE, "a branch name"), "branch holding the registry"),
     },
+    "transport": {
+        "kind": ("github", _enum("github"), "how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct and lan come with 0.2)"),
+    },
     "paths": {
         "code": ("/opt/{name}", _path, "where the code is installed on the server"),
         "state_root": ("/var/lib/{name}", _path, "state, the two git clones and job working folders (server)"),
@@ -410,13 +413,13 @@ class Config:
 
     @property
     def queue_url(self):
-        self.require("github.owner")
-        return f"git@github.com:{self.github.owner}/{self.github.queue_repo}.git"
+        from . import transport
+        return transport.for_config(self).client_url(self, "queue")
 
     @property
     def results_url(self):
-        self.require("github.owner")
-        return f"git@github.com:{self.github.owner}/{self.github.results_repo}.git"
+        from . import transport
+        return transport.for_config(self).client_url(self, "results")
 
     def path(self, what):
         p, n = self.paths, self.identity.name

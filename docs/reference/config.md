@@ -34,6 +34,12 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `data_branch` | `data` | text | branch holding exclusions and other kept data |
 | `main_branch` | `main` | text | branch holding the registry |
 
+## [transport]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `kind` | `github` | `github` | how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct and lan come with 0.2) |
+
 ## [paths]
 
 | Setting | Default | Allowed | What it does |

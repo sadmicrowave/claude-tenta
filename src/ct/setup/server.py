@@ -11,7 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import approvals, claudeupdate, config, render, update
+from .. import approvals, claudeupdate, config, render, transport, update
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
 from .report import sink as _sink
@@ -57,22 +57,16 @@ def read_secret(ui, q):
 
 
 def alias_for(cfg, which):
-    """The ssh host alias a clone uses, so each repository has its own deploy key (GitHub allows a key on one repository only)."""
-    return f"github-{cfg.identity.name}-{which}"
+    return transport.for_config(cfg).alias(cfg, which)
 
 
 def remote_url(cfg, which):
-    repo = cfg.github.queue_repo if which == "queue" else cfg.github.results_repo
-    return f"git@{alias_for(cfg, which)}:{cfg.github.owner}/{repo}.git"
+    """The address of the worker's own clone: what the transport of the configuration says."""
+    return transport.for_config(cfg).worker_url(cfg, which)
 
 
 def ssh_config_text(cfg):
-    keydir = f"{cfg.paths.worker_home}/.ssh"
-    out = ["# Written by ct-setup: one deploy key per repository (GitHub allows a key on one repository only).\n"]
-    for which in ("queue", "results"):
-        out.append(f"Host {alias_for(cfg, which)}\n  HostName github.com\n  User git\n  IdentityFile {keydir}/id_{which}\n  IdentitiesOnly yes\n"
-                   "  StrictHostKeyChecking accept-new\n")      # no ControlMaster here: its background process keeps the pass's output pipes open, so every pass hung until it exited (found by the end-to-end test)
-    return "\n".join(out)
+    return transport.for_config(cfg).worker_ssh_config(cfg)
 
 
 def deploy_key_commands(cfg, pubkeys):
