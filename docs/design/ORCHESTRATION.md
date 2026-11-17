@@ -35,3 +35,5 @@ for that reason: nothing about running several workers should need a login on ea
 - Approvals, orders and registries are already signed with one key that every worker trusts (each worker keeps its own `approvers` file), so a
   signed message can be addressed to one worker or to all.
 - Routing must be deterministic and explainable: when the scheduler picks (or refuses) a worker it says why, in the same terms as the comparison command.
+
+How a job reaches each worker (the transport) is a separate decision, recorded in `TRANSPORTS.md`: with the default **Direct** transport your computer delivers to each worker and does the scheduling, which is what this note assumes.

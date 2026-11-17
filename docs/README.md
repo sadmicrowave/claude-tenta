@@ -21,4 +21,4 @@
 
 **Project papers**
 
-- [Security review of the original install](REVIEW.md) · [Design](DESIGN.md) · [Command-set decisions](design/COMMANDS.md).
+- [Security review of the original install](REVIEW.md) · [Design](DESIGN.md) · [Command-set decisions](design/COMMANDS.md) · [Several workers](design/ORCHESTRATION.md) · [Transports (planned)](design/TRANSPORTS.md).
