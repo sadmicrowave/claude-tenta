@@ -84,6 +84,16 @@ def summary(name, action, info):
             ("Time limit", f"{action.get('timeout_s', 60)} s"), ("Each run", "needs your signature on that exact job; the worker's own approval is not enough")]
 
 
+def card_info(target, name, action, info, again):
+    """The wizard's own card for this action (see cw.setup.tui): framed in the root colour, the facts aligned, the risk in words, and Register / Cancel buttons."""
+    rows = [(k, v) for k, v in summary(name, action, info) if k != "Each run"]
+    return {"label": "Root-level action", "tag": "runs as root", "code": "root", "title": f"{'Pin again' if again else 'Register'} {name}",
+            "why": action.get("description") or f"Lets jobs of its class run {info['path']} as root, and nothing else.",
+            "rows": rows, "risk": "This program runs as root, outside the jail that limits every other job. Read it first. Each run still needs your signature on that exact job.",
+            "now": "registered; only the pin changes" if again else "not registered", "steps": [f"ssh {target} cat {info['path']}"],
+            "apply": "Register", "skip": "Cancel", "lockout": False}
+
+
 def _spec(v):
     if isinstance(v, dict) and "enum" in v:
         return "one of " + "/".join(map(str, v["enum"]))

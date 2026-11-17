@@ -38,6 +38,17 @@ def extract_token(text):
     return found[-1] if found else None
 
 
+def keep_newline_translation(fd):
+    """Make "\\n" start a new line at the left edge again. `ssh -t` and raw mode switch the terminal's output processing off, and then anything this program prints
+    meanwhile (a bare newline) only moves down, so the next line starts wherever the last one ended: a staircase. Input stays raw."""
+    try:
+        attrs = termios.tcgetattr(fd)
+        attrs[1] |= termios.OPOST | termios.ONLCR
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    except (termios.error, OSError, ValueError):
+        pass
+
+
 def run_capture(argv, env=None, out=None):
     """Returns (exit code, everything printed). The child gets a terminal of its own with the size of the person's."""
     out = out or sys.stdout.buffer
@@ -56,6 +67,7 @@ def run_capture(argv, env=None, out=None):
     old = termios.tcgetattr(stdin_fd) if stdin_fd is not None else None
     if old is not None:
         tty.setraw(stdin_fd)
+        keep_newline_translation(stdin_fd)
     captured = bytearray()
     try:
         while True:

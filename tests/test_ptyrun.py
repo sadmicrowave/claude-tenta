@@ -66,3 +66,20 @@ class PastedSecrets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewlineTranslation(unittest.TestCase):
+    def test_a_terminal_in_raw_mode_gets_its_newline_handling_back(self):
+        import os, pty, termios, tty
+        from cw.setup import ptyrun
+        master, slave = pty.openpty()
+        try:
+            tty.setraw(slave)
+            self.assertFalse(termios.tcgetattr(slave)[1] & termios.OPOST)
+            ptyrun.keep_newline_translation(slave)
+            attrs = termios.tcgetattr(slave)
+            self.assertTrue(attrs[1] & termios.OPOST and attrs[1] & termios.ONLCR)
+            self.assertFalse(attrs[3] & termios.ICANON)                       # typing is still raw
+        finally:
+            os.close(master)
+            os.close(slave)

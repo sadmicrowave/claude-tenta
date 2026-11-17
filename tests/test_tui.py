@@ -637,3 +637,25 @@ class Hardening(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RootCard(unittest.TestCase):
+    """The card for something that runs as root is the wizard's own card: every line the same visible width, so the frame is flush at any value length."""
+    def test_every_line_is_exactly_as_wide_as_the_frame_even_with_a_long_hash(self):
+        from cw.admin import actionadd
+        action = {"description": "Hold the fan at a fixed speed", "run": ["/usr/local/sbin/fan-profile", "{mode}"], "params": {"mode": {"enum": ["idle", "load"]}},
+                  "writable": ["/sys/devices/platform/applesmc.768"], "timeout_s": 360}
+        info = {"path": "/usr/local/sbin/fan-profile", "sha256": "ab" * 32}
+        for width in (60, 80, 100):
+            p = tui.TuiPrompter(out=io.StringIO(), width=width, keys=iter([]), color=True)
+            lines = p.card(actionadd.card_info("admin" + "@" + "host.example", "fan-profile", action, info, False), 0, False)
+            self.assertEqual({tui.vlen(l) for l in lines}, {p.width}, width)
+            text = "\n".join(tui.strip(l) for l in lines)
+            self.assertIn("Register", text)
+            self.assertIn("ab" * 32, text.replace("\n", "").replace("│", "").replace(" ", ""))   # wrapped, never cut
+
+    def test_the_frame_takes_its_colour_from_the_theme_role(self):
+        p = tui.TuiPrompter(out=io.StringIO(), width=80, keys=iter([]), color=True)
+        info = {"title": "t", "why": "w", "risk": "r", "now": "n", "steps": [], "code": "root"}
+        from cw import theme
+        self.assertIn(theme.code("root"), p.card(info, 0, False)[0])

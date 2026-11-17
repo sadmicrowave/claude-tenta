@@ -449,7 +449,7 @@ class TuiPrompter:
     def finish(self):
         """Leave the progress bar and every answer on screen as a short review (the last set of answers a question flow produced)."""
         self.erase()
-        if self.review:
+        if self.review and self.review[1]:
             items, total = self.review
             self.emit([self.progress(total, total), ""] + self.answered_lines(items, everything=True) + [""])
         self.review, self.row = None, 0
@@ -480,11 +480,12 @@ class TuiPrompter:
 
     def card(self, info, choice, full):
         inner = self.width - 4
-        a = lambda t: self.sgr(t, AMBER)                                      # noqa: E731
+        frame = info.get("code", AMBER)                                       # a role: warn for a protection, root for something that runs as root
+        a = lambda t: self.sgr(t, frame)                                      # noqa: E731
         label = info.get("label", "Protection")
         title = f"{label} {info['index']} of {info['total']}" if info.get("total") else label
         tag = "could lock you out" if info.get("lockout") else info.get("tag", "recommended")
-        top = a("╭─ ") + self.sgr(title, AMBER, BOLD) + a(" " + "─" * max(1, inner - len(title) - len(tag) - 4) + " ") + self.sgr(tag, AMBER) + a(" ─╮")
+        top = a("╭─ ") + self.sgr(title, frame, BOLD) + a(" " + "─" * max(1, inner - len(title) - len(tag) - 4) + " ") + self.sgr(tag, frame) + a(" ─╮")
 
         def row(text=""):
             return a("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + a("│")
@@ -493,7 +494,14 @@ class TuiPrompter:
         for t in textwrap.wrap(info["why"], inner - 2):
             lines.append(row(self.sgr(t, DIM)))
         lines.append(row())
-        for label, code, text in (("Risk  ", AMBER, info["risk"]), ("Now   ", DIM, info["now"])):
+        facts = info.get("rows") or []                                       # labelled facts: aligned labels, long values wrapped under themselves
+        if facts:
+            lw = max(len(k) for k, _ in facts)
+            for k, v in facts:
+                for n, part in enumerate(textwrap.wrap(str(v), max(10, inner - lw - 4), break_long_words=True, break_on_hyphens=False) or [""]):
+                    lines.append(row(self.sgr((k if n == 0 else "").ljust(lw), BOLD) + "  " + part))
+            lines.append(row())
+        for label, code, text in (("Risk  ", frame, info["risk"]), ("Now   ", DIM, info["now"])):
             wrapped = textwrap.wrap(text, inner - 8) or [""]
             for k, part in enumerate(wrapped):
                 lines.append(row(self.sgr(label if k == 0 else "      ", code) + (part if label.startswith("Risk") else self.sgr(part, DIM))))
@@ -508,12 +516,13 @@ class TuiPrompter:
         if not full and len(steps) > 4:
             lines.append(row(self.sgr(f"  … and {len(steps) - 4} more steps (press s)", DIM)))
         lines.append(row())
-        apply_b = self.sgr("  Apply  ", GREEN_BTN) if choice == 0 else self.sgr("  Apply  ", DIM)
-        skip_b = self.sgr("  Skip  ", "neutral_chip") if choice == 1 else self.sgr("  Skip  ", DIM)
+        yes_text, no_text = f"  {info.get('apply', 'Apply')}  ", f"  {info.get('skip', 'Skip')}  "
+        apply_b = self.sgr(yes_text, GREEN_BTN) if choice == 0 else self.sgr(yes_text, DIM)
+        skip_b = self.sgr(no_text, "neutral_chip") if choice == 1 else self.sgr(no_text, DIM)
         lines.append(row("    " + apply_b + "     " + skip_b))
         lines.append(row())
         foot = "←/→ choose · Enter confirms · y/n · s shows the steps"
-        lines.append(a("╰─ ") + self.sgr(foot, AMBER) + a(" " + "─" * max(1, inner - len(foot) - 2) + "─╯"))
+        lines.append(a("╰─ ") + self.sgr(foot, frame) + a(" " + "─" * max(1, inner - len(foot) - 2) + "─╯"))
         return lines
 
 

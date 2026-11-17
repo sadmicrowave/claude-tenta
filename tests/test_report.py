@@ -1,8 +1,10 @@
+import io
 import os
 import re
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -60,3 +62,49 @@ class Styled(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Alignment(unittest.TestCase):
+    """Spacing is counted on what is visible, never on colour codes, and a long line wraps under itself instead of running off the screen."""
+    class Wide(io.StringIO):
+        def isatty(self):
+            return True
+
+    def styler(self):
+        return report.Styler(styled=True, stream=self.Wide())
+
+    def test_status_columns_line_up_whatever_the_colour(self):
+        r = self.styler()
+        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            rows = [r.note(s, "step") for s in ("ok", "satisfied", "unchanged", "installed")]
+        self.assertEqual({ANSI.sub("", x).index("step") for x in rows}, {13})
+
+    def test_a_long_detail_wraps_under_itself_within_the_terminal(self):
+        r = self.styler()
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))), mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            out = ANSI.sub("", r.note("installed", "approver key", "approvals signed with " + "x" * 30 + " are accepted; no login is needed to approve jobs from your computer"))
+        lines = out.splitlines()
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(len(x) <= 79 for x in lines))
+        self.assertEqual({len(x) - len(x.lstrip()) for x in lines[1:]}, {13 + len("approver key") + 2})
+
+    def test_a_plain_log_is_never_wrapped(self):
+        r = report.Styler(styled=False)
+        self.assertEqual(len(r.note("installed", "x", "y" * 300).splitlines()), 1)
+
+    def test_the_deploy_key_lines_use_the_same_status_column(self):
+        from cw.setup import keys
+        got = []
+        dk = keys.DeployKeys(types_cfg(), lambda *a, **k: None, lambda x: None, say=got.append, note=lambda step, status, detail="": got.append((step, status, detail)))
+        dk.add = lambda which, pub: "present"
+        dk.sync({"queue": "k", "results": "k"})
+        self.assertEqual(got, [("deploy key for o/q", "present", "read-only"), ("deploy key for o/r", "present", "read and write")])
+        plain = []
+        dk = keys.DeployKeys(types_cfg(), lambda *a, **k: None, lambda x: None, say=plain.append)
+        dk.add = lambda which, pub: "added"
+        dk.sync({"queue": "k"})
+        self.assertEqual(plain, ["  ADDED     deploy key for o/q  (read-only)"])
+
+def types_cfg():
+    import types
+    return types.SimpleNamespace(identity=types.SimpleNamespace(name="x"), github=types.SimpleNamespace(owner="o", queue_repo="q", results_repo="r"))

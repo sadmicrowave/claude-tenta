@@ -39,6 +39,7 @@ class Ssh:
         a = ["ssh"] + (["-t"] if tty else [])
         if batch:
             a += ["-o", "BatchMode=yes"]
+        a += ["-o", "LogLevel=ERROR"]                       # no "Shared connection to ... closed." line after every command
         os.makedirs(self.control_dir, mode=0o700, exist_ok=True)
         a += ["-o", f"ConnectTimeout={CONNECT_TIMEOUT_S}", "-p", str(self.port), "-o", "ControlMaster=auto", "-o", f"ControlPersist={SHARE_FOR_S}",
               "-o", f"ControlPath={self.control_dir}/%C", self.target]

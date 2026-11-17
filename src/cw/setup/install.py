@@ -14,6 +14,7 @@ import io
 import json
 import re
 import subprocess
+import sys
 import tarfile
 import shlex
 import time
@@ -394,10 +395,11 @@ class Installer:
         marker = f"{d}/.authenticated"
         remote = f"sh -c {shlex.quote(f'sudo -n true 2>/dev/null || sudo -p {shlex.quote(prompt)} -v; sudo -n true && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}')}"
         proc = self.ssh.popen(remote, tty=True)
-        dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say)
+        dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say, note=self.note)
         shown = False
         authed = False
         while proc.poll() is None:
+            self._left_edge()                                  # ssh -t turns the terminal's newline handling off; what is printed here must still start at the left edge
             if not authed:
                 authed = self.ssh.capture(f"test -e {marker}").returncode == 0
                 if not authed:
@@ -424,6 +426,13 @@ class Installer:
             raise SetupError(f"The server setup stopped (exit {rc})", "Read the messages above. Running cw-setup install again continues where it left off.")
         self.note("server setup", "done")
         self.mark("server", rev=rev)
+
+    def _left_edge(self):
+        try:
+            if sys.stdin.isatty():
+                ptyrun.keep_newline_translation(sys.stdin.fileno())
+        except (ValueError, OSError):
+            pass
 
     def cleanup(self, d):
         remove_remote_dir(self.ssh, d)

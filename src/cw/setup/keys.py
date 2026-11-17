@@ -31,8 +31,8 @@ def blob(pub):
 class DeployKeys:
     """`run(argv) -> Result` runs a local command (gh); `which(name)` finds a program."""
 
-    def __init__(self, cfg, run, which, say=print):
-        self.cfg, self.run, self.which, self.say = cfg, run, which, say
+    def __init__(self, cfg, run, which, say=print, note=None):
+        self.cfg, self.run, self.which, self.say, self.note = cfg, run, which, say, note
         self.done = {}
 
     @property
@@ -77,7 +77,11 @@ class DeployKeys:
             status = self.add(which, pub)
             if status in ("added", "present"):
                 self.done[which] = status
-                self.say(f"  {'ADDED' if status == 'added' else 'PRESENT':<9} deploy key for {self.slug(which)}" + ("  (read and write)" if which == "results" else "  (read-only)"))
+                access = "read and write" if which == "results" else "read-only"
+                if self.note:                                                      # the same status column as every other line of the install
+                    self.note(f"deploy key for {self.slug(which)}", status, access)
+                else:
+                    self.say(f"  {'ADDED' if status == 'added' else 'PRESENT':<9} deploy key for {self.slug(which)}  ({access})")
             out.append((which, status))
         return out
 

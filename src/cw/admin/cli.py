@@ -11,8 +11,10 @@ this program: sudo asks you itself, on your own terminal.
 """
 import argparse
 import json
+import shutil
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -21,7 +23,8 @@ from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
-from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
+from ..ui import ACCENT, BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
+from ..setup import tui
 from . import actionadd, jobs, regedit, release, selfupdate, workers
 from .proposals import Proposals
 from .ssh import Ssh
@@ -82,7 +85,9 @@ class Context:
             return True
         if not self.is_tty():
             raise ClientError("This needs your answer", "It asks a question, and nobody is at the keyboard.", ["Run it in a terminal, or add --yes if you are sure."])
-        return self.ask(paint(f"\n{prompt} [y/N] ", BOLD, YELLOW)).strip().lower() == "y"
+        cols = max(40, min(shutil.get_terminal_size((100, 24)).columns, 100))
+        question = textwrap.fill(prompt, cols - 6, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False)       # wrapped here, so no word is cut at the screen's edge
+        return self.ask(paint("\n  ❯ ", ACCENT, BOLD) + paint(question, BOLD) + paint("  [y/N] ", DIM)).strip().lower() == "y"
 
 
 def fail_from(e):
@@ -479,15 +484,20 @@ def cmd_action(ctx, a):
     text = r.show_file(p.base, "registry.yaml") or ""
     have_actions, have_classes = regedit.action_names(text), regedit.class_names(text)
     plan, pins = [], {}
+    screen = None if a.yes else tui.make()
     for name, action in defn["actions"].items():
         info = actionadd.ask_worker(ctx, actionadd.program_of(action))
         pins[name] = info["sha256"]
         again = name in have_actions
-        emit(f"{'Re-pin' if again else 'Add'} the root-level action {name}", *actionadd.summary(name, action, info),
-             "\n", f"Read the program before you say yes:  ssh {ctx.ssh.target} cat {info['path']}", tag="RUNS AS ROOT", color=_ui.ROOT)
+        if screen is not None:                                              # a real terminal: the wizard's own card, with its buttons
+            if not screen.protection(actionadd.card_info(ctx.ssh.target, name, action, info, again)):
+                stop("Not registered", "You answered no. Nothing was changed.")
+        else:
+            emit(f"{'Re-pin' if again else 'Add'} the root-level action {name}", *actionadd.summary(name, action, info),
+                 "\n", f"Read the program before you say yes:  ssh {ctx.ssh.target} cat {info['path']}", tag="RUNS AS ROOT", color=_ui.ROOT)
         plan.append((name, action, info, again))
     new_classes = {n: b for n, b in defn["classes"].items() if n not in have_classes}
-    if not ctx.confirm(f"Register {', '.join(defn['actions'])} so jobs can run it as root on {ctx.ssh.host}?", a.yes):
+    if screen is None and not ctx.confirm(f"Register {', '.join(defn['actions'])} so jobs can run it as root on {ctx.ssh.host}?", a.yes):
         stop("Not registered", "You answered no. Nothing was changed.")
     for name, action, info, again in plan:
         if again:
