@@ -132,8 +132,15 @@ class Publishing(Repos):
         sh("git", "add", "-A", cwd=other)
         sh("git", "commit", "-q", "-m", "other writer", cwd=other)
         sh("git", "push", "-q", "origin", "main", cwd=other)                              # the remote moves under the worker
+        calls, real = [], self.io._run
+
+        def recording(argv, timeout, **kw):                                              # what git said, kept so a failure on another machine shows it
+            r = real(argv, timeout, **kw)
+            calls.append(f"{' '.join(argv[3:])} -> {r.returncode} {((r.stderr or '') + (r.stdout or '')).strip()[-160:]!r}")
+            return r
+        self.io._run = recording
         self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
-        graph = sh("git", "log", "--all", "--graph", "--format=%h %an|%s (%ci)", cwd=self.tmp / "results.git") + "\nworker: " + sh("git", "log", "--all", "--graph", "--format=%h %an|%s", cwd=self.tmp / "w-results") + "\nlog: " + " | ".join(self.logged)
+        graph = sh("git", "log", "--all", "--graph", "--format=%h %an|%s (%ci)", cwd=self.tmp / "results.git") + "\nworker: " + sh("git", "log", "--all", "--graph", "--format=%h %an|%s", cwd=self.tmp / "w-results") + "\nlog: " + " | ".join(self.logged) + "\ngit: " + "\n     ".join(calls)
         self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok", graph)
         self.assertIn("other writer", " ".join(self.results_log()))
 

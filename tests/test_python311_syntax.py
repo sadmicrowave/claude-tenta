@@ -1,6 +1,7 @@
 """The project supports Python 3.11, whose f-strings are stricter than 3.12's: no quote of the enclosing f-string reused inside its braces. A newer interpreter accepts that
 silently, so this reads every source file's tokens and fails on it, instead of waiting for the 3.11 job of CI to find it."""
 import io
+import sys
 import tokenize
 import unittest
 from pathlib import Path
@@ -32,6 +33,7 @@ def violations(source):
 
 
 class Python311(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (3, 12), "3.11 itself refuses such a file, and its tokenizer does not split f-strings")
     def test_the_scanner_sees_what_3_11_refuses(self):
         self.assertTrue(violations('x = f"a {d["k"]} b"\n'))
         self.assertTrue(violations("x = f'a {\"-p \" + y if y else \"\"}'\n") == [])
