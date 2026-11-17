@@ -55,4 +55,4 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#release-}"
           grep -q "^version = \"$tag\"" pyproject.toml || { echo "pyproject.toml does not say $tag"; exit 1; }
-          grep -q "^__version__ = \"$tag\"" src/cw/__init__.py || { echo "src/cw/__init__.py does not say $tag"; exit 1; }
+          grep -q "^__version__ = \"$tag\"" src/ct/__init__.py || { echo "src/ct/__init__.py does not say $tag"; exit 1; }

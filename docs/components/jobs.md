@@ -2,10 +2,10 @@
 
 ## In plain words
 
-A job is a small file that says "run this class of work with these inputs". You send it with `cw-run submit`. Within a minute the worker
+A job is a small file that says "run this class of work with these inputs". You send it with `ct-run submit`. Within a minute the worker
 notices it, checks it against its list of allowed classes, and does one of three things: **refuses** it (with a plain reason), **holds** it for your
 approval, or **queues** it. Queued jobs start when the machine has room: not too many at once, not too busy, not too hot. When a job finishes, its
-output is checked, trimmed to what the class says may leave, and published for you to read with `cw-run result`.
+output is checked, trimmed to what the class says may leave, and published for you to read with `ct-run result`.
 
 Some classes run on their own (`auto`). Others always wait for you (`approve`): you read exactly what would run, then approve it. A job you are
 testing for the first time (a *profile run*) always waits.
@@ -53,9 +53,9 @@ A worker with nothing to do stops asking GitHub every pass. The timers still fir
 
 ### Approval
 
-`tier: approve` classes, profile runs, and any class a policy rule says needs approval wait. `cw-admin approve` shows the job, computes the SHA-256 of the
-job file it showed you, and sends `approve <id> --sha256 <digest>`. The worker approves only if its own snapshot has that digest. `cw-admin review` records
-what you saw, so `cw-admin approve --all` can approve several jobs at once, but only those that are unchanged since you viewed them.
+`tier: approve` classes, profile runs, and any class a policy rule says needs approval wait. `ct-admin approve` shows the job, computes the SHA-256 of the
+job file it showed you, and sends `approve <id> --sha256 <digest>`. The worker approves only if its own snapshot has that digest. `ct-admin review` records
+what you saw, so `ct-admin approve --all` can approve several jobs at once, but only those that are unchanged since you viewed them.
 
 ### Execution limits
 
@@ -66,7 +66,7 @@ Every job runs inside a **jail** ([security](security.md)): its own process tree
 ### What is published
 
 Only the fields the class declares (`output_keys`), capped in length; for a failed command only its error lines, never stack traces. The full output of a
-failed command stays on the worker (mode 0600, 30 days) and is read with `cw-admin output <job>`. Before anything is published it is scanned by the guard
+failed command stays on the worker (mode 0600, 30 days) and is read with `ct-admin output <job>`. Before anything is published it is scanned by the guard
 ([security](security.md)).
 
 ### Packages

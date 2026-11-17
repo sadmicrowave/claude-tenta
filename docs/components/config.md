@@ -3,7 +3,7 @@
 ## In plain words
 
 Everything that differs between one install and another (the server's name, your GitHub account, how busy the worker may get, whether to turn
-IPv6 off, where alerts go) lives in one file, `cw.toml`. You rarely edit it by hand: the setup wizard asks plain questions and writes it. It only
+IPv6 off, where alerts go) lives in one file, `ct.toml`. You rarely edit it by hand: the setup wizard asks plain questions and writes it. It only
 records the answers you chose; everything else follows the built-in defaults, so a new release can improve a default for everyone who did not choose.
 
 Passwords, API keys and alert tokens never go in this file. They go in a separate `secrets.env` that only the right accounts can read.
@@ -13,8 +13,8 @@ Passwords, API keys and alert tokens never go in this file. They go in a separat
 ### Where it is read from, in order of precedence
 
 1. Built-in defaults.
-2. `cw.toml`: `CW_CONFIG` if set, otherwise `~/.config/claude-ballast/cw.toml`, otherwise `/etc/claude-ballast/cw.toml`.
-3. Environment variables `CW_<SECTION>_<KEY>`, for example `CW_SERVER_HOST=worker.example.lan`. Lists are comma-separated.
+2. `ct.toml`: `CT_CONFIG` if set, otherwise `~/.config/claude-tenta/ct.toml`, otherwise `/etc/claude-tenta/ct.toml`.
+3. Environment variables `CT_<SECTION>_<KEY>`, for example `CT_SERVER_HOST=worker.example.lan`. Lists are comma-separated.
 
 ### Rules
 
@@ -22,7 +22,7 @@ Passwords, API keys and alert tokens never go in this file. They go in a separat
 - **Every value has a pattern or a range.** Host names, user names, paths, ports, CIDRs, URLs and branch names are all checked. Nothing that reaches a shell
   command, a systemd unit, a sudoers line or a firewall rule is free text. Paths must be absolute with no shell characters.
 - **Cross-checks.** `admin_user` and `worker_user` must differ; the code, state and config folders must be three separate folders, none inside another;
-  `alerts.url` is required when alerts are on; `isolation.require_netns = false` is refused unless `CW_ALLOW_UNSAFE=1` is set (for throwaway tests only).
+  `alerts.url` is required when alerts are on; `isolation.require_netns = false` is refused unless `CT_ALLOW_UNSAFE=1` is set (for throwaway tests only).
 - **Hardware profile.** `hardware.profile` (`old-laptop`, `small-server`, `workstation`, `custom`) fills in `capacity`, `max_load` and `max_temp_c`
   unless you set them.
 - **Standard library only** (Python 3.11 or newer for `tomllib`), so it loads on a fresh server before anything is installed.
@@ -31,8 +31,8 @@ Passwords, API keys and alert tokens never go in this file. They go in a separat
 ### Checking and showing
 
 ```
-python3 -m cw config check [path]
-python3 -m cw config show [path]
+python3 -m ct config check [path]
+python3 -m ct config show [path]
 ```
 
 The full list of settings, defaults and allowed values is the generated [configuration reference](../reference/config.md).

@@ -1,4 +1,4 @@
-"""cw-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
+"""ct-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
 import io
 import json
 import os
@@ -10,14 +10,14 @@ from unittest import mock
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from cw import approvals, clihelp, registry, theme
-from cw.admin import cli, jobs, regedit, release
-from cw.admin import workers as workers_mod
-from cw.admin.ssh import Ssh
-from cw.client.repo import ClientError
+from ct import approvals, clihelp, registry, theme
+from ct.admin import cli, jobs, regedit, release
+from ct.admin import workers as workers_mod
+from ct.admin.ssh import Ssh
+from ct.client.repo import ClientError
 
 
-INSTALLED = "cat /etc/testcw/installed-rev 2>/dev/null"
+INSTALLED = "cat /etc/testct/installed-rev 2>/dev/null"
 
 
 class FakeSsh:
@@ -49,7 +49,7 @@ class FakeSsh:
 
 class SshTests(unittest.TestCase):
     def test_argv_is_key_only_and_short_lived(self):
-        a = Ssh("server.example", "admin", 2222, control_dir="/tmp/cw-test-ctl").argv("true", batch=True, tty=False)
+        a = Ssh("server.example", "admin", 2222, control_dir="/tmp/ct-test-ctl").argv("true", batch=True, tty=False)
         self.assertEqual(a[0], "ssh")
         self.assertIn("BatchMode=yes", a)
         self.assertIn("ControlPersist=60", a)
@@ -57,7 +57,7 @@ class SshTests(unittest.TestCase):
         self.assertEqual(a[a.index("-p") + 1], "2222")
         self.assertEqual(a[-1], "true")
         self.assertNotIn("-t", a)
-        self.assertIn("-t", Ssh("h", control_dir="/tmp/cw-test-ctl").argv("x", tty=True))
+        self.assertIn("-t", Ssh("h", control_dir="/tmp/ct-test-ctl").argv("x", tty=True))
 
     def test_the_control_socket_path_fits_a_unix_socket_even_with_macos_style_temp_folders(self):
         import tempfile
@@ -73,7 +73,7 @@ class SshTests(unittest.TestCase):
             Ssh("-oProxyCommand=evil")
 
     def test_a_failed_connection_is_explained(self):
-        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "Permission denied (publickey)"), control_dir="/tmp/cw-test-ctl")
+        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "Permission denied (publickey)"), control_dir="/tmp/ct-test-ctl")
         with self.assertRaises(ClientError) as c:
             s.capture("true")
         self.assertIn("Permission denied", c.exception.why)
@@ -90,10 +90,10 @@ class AdminBase(RepoFixture):
         src = self.tmp / "release-src"
         sh("git", "init", "-q", "-b", "main", str(src))
         self.src_dir = src
-        self.rel = [self.release_commit({"src/cw/a.py": "a=1\n", "README.md": "x\n"}, "first")]
+        self.rel = [self.release_commit({"src/ct/a.py": "a=1\n", "README.md": "x\n"}, "first")]
         self.source = release.Source(self.tmp / "source.git", str(src), "main")
         self.tty = False
-        self.ctx = cli.Context(self.repos, self.ssh, self.source, name="testcw", config_dir="/etc/testcw", code_dir="/opt/testcw", home=self.home,
+        self.ctx = cli.Context(self.repos, self.ssh, self.source, name="testct", config_dir="/etc/testct", code_dir="/opt/testct", home=self.home,
                                ask=lambda p: self.answers.pop(0), is_tty=lambda: self.tty, run_result=lambda jid: self.results_followed.append(jid) or 0)
         self.results_followed = []
         self.repos.pull_results = lambda: None     # the results repo is filled by hand below
@@ -177,7 +177,7 @@ class SignedApprovals(AdminBase):
         self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
         self.answers.append("y")
         self.admin("approve", "job-b", "--ssh")
-        self.assertEqual(self.ssh.calls, [f"cw-worker approve job-b --sha256 {self.digest}"])
+        self.assertEqual(self.ssh.calls, [f"ct-worker approve job-b --sha256 {self.digest}"])
         self.assertIsNone(self.published("job-b"))
 
     def test_a_worker_that_does_not_say_which_keys_it_trusts_gets_the_old_way(self):
@@ -195,7 +195,7 @@ class SignedApprovals(AdminBase):
 
 
 class SignedOrders(SignedApprovals):
-    """cw-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
+    """ct-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
 
     def setUp(self):
         super().setUp()
@@ -240,10 +240,10 @@ class SignedOrders(SignedApprovals):
 
     def test_ssh_forces_the_old_way_and_an_older_worker_gets_it_automatically(self):
         self.admin("cancel", "job-b", "--ssh")
-        self.assertEqual(self.ssh.calls, ["cw-worker cancel job-b"])
+        self.assertEqual(self.ssh.calls, ["ct-worker cancel job-b"])
         self.worker_publishes(capacity=4)
         self.admin("unlock")
-        self.assertEqual(self.ssh.calls[-1], "cw-worker unlock")
+        self.assertEqual(self.ssh.calls[-1], "ct-worker unlock")
 
 
 def state_doc(**over):
@@ -274,7 +274,7 @@ class WorkersCommand(AdminBase):
         super().setUp()
         self.other = self.tmp / "other-results"
         self.other.mkdir()
-        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, False))]
+        self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, False))]
         self.ctx.workers_file = self.tmp / "workers.toml"
         self.put_state(self.repos.results, state_doc(updated=self.fresh()))
         self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "none"}, hardware={"cores": 8, "mem_total_mb": 32000, "native_claude": True}))
@@ -289,13 +289,13 @@ class WorkersCommand(AdminBase):
     def test_every_worker_is_a_row_with_hardware_and_claude_state_side_by_side(self):
         code, out, err = self.admin("workers")
         self.assertEqual(code, 0, err)
-        for needle in ("TESTCW", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON", "┃"):
+        for needle in ("TESTCT", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON", "┃"):
             self.assertIn(needle, out)
 
     def test_claude_filter_keeps_only_workers_with_working_claude_access(self):
         code, out, _ = self.admin("workers", "--claude")
         self.assertEqual(code, 0)
-        self.assertIn("TESTCW", out)
+        self.assertIn("TESTCT", out)
         self.assertNotIn("STUDIO", out)
 
     def test_a_locked_worker_or_one_whose_claude_tool_is_missing_is_not_a_claude_candidate(self):
@@ -318,12 +318,12 @@ class WorkersCommand(AdminBase):
         self.assertIn("token 340 days old (renew soon)", out)
         self.put_state(self.repos.results, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}, "token_days": 400}))
         code, out, _ = self.admin("workers", "--claude")
-        self.assertNotIn("TESTCW", out)
+        self.assertNotIn("TESTCT", out)
 
     def test_json_is_machine_readable_for_a_future_scheduler(self):
         code, out, _ = self.admin("workers", "--json")
         rows = json.loads(out)
-        self.assertEqual([r["name"] for r in rows], ["testcw", "studio"])
+        self.assertEqual([r["name"] for r in rows], ["testct", "studio"])
         self.assertEqual((rows[0]["has_claude"], rows[1]["has_claude"]), (True, False))
 
     def test_a_worker_that_published_nothing_is_a_row_not_a_crash(self):
@@ -338,7 +338,7 @@ class WorkersCommand(AdminBase):
         self.assertIn(" STALE ", out)
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
-        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, True))]
+        self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, True))]
         code, out, _ = self.admin("workers")
         self.assertEqual(code, 0)
         self.assertIn("studio: could not refresh", out)
@@ -357,12 +357,12 @@ class WorkersCommand(AdminBase):
 
 
 class WorkerCards(unittest.TestCase):
-    ROW = {"name": "testcw", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
+    ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
            "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2}
 
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
         lines = workers_mod.cards([self.ROW], width=80, color=False)
-        self.assertEqual(lines[0], "┃  TESTCW ")
+        self.assertEqual(lines[0], "┃  TESTCT ")
         for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "INSTALLED"):
             self.assertTrue(any(l.startswith("┃ " + label) for l in lines), label)
         self.assertIn("┃ INSTALLED 2 classes, 1 package", lines)
@@ -395,7 +395,7 @@ class UpdateCommand(AdminBase):
         self.ctx.home.mkdir(parents=True, exist_ok=True)
         self.tty = True
         self.old = self.rel[0]
-        self.new = self.release_commit({"src/cw/a.py": "a=2\n"}, "the next release")
+        self.new = self.release_commit({"src/ct/a.py": "a=2\n"}, "the next release")
 
     def tag(self, name="release-9.9.9", notes="Adds things\nFixes others"):
         sh("git", "tag", "-a", name, "-m", notes, "HEAD", cwd=self.src_dir)
@@ -579,7 +579,7 @@ class RootLevelReview(AdminBase):
 
     def test_pinning_a_program_asks_the_worker_read_only(self):
         self.admin("action-hash", "/usr/local/sbin/fan-profile")
-        self.assertEqual(self.ssh.calls, ["cw-worker action-hash /usr/local/sbin/fan-profile"])
+        self.assertEqual(self.ssh.calls, ["ct-worker action-hash /usr/local/sbin/fan-profile"])
 
 
 class ActionBase(AdminBase):
@@ -603,7 +603,7 @@ class ActionBase(AdminBase):
 
 
 class ActionAdd(ActionBase):
-    """`cw-admin action add`: registering a root-level action is one command with one question, like adopt."""
+    """`ct-admin action add`: registering a root-level action is one command with one question, like adopt."""
     def test_one_command_adds_the_action_and_its_class_pinned_to_what_the_worker_reported(self):
         code, out, err = self.admin("action", "add", str(self.pack), "--yes")
         self.assertEqual(code, 0, err)
@@ -613,7 +613,7 @@ class ActionAdd(ActionBase):
         self.assertEqual(reg["classes"]["fan-profile"], {"kind": "privileged", "action": "fan-profile", "cost": "heavy"})
         self.assertIn("careful", reg["classes"])                                                     # what was there is still there
         self.assertEqual(registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) and [x for x in registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) if "tools" not in x], [])
-        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))        # installed, like adopt
+        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))        # installed, like adopt
 
     def test_the_preview_says_it_runs_as_root_and_what_it_may_touch_before_anything_is_asked(self):
         self.tty, self.answers = True, ["n"]
@@ -672,7 +672,7 @@ class ActionRemoveAndList(ActionBase):
         code, _, err = self.admin("action", "remove", "fan-profil", "--yes")
         self.assertEqual(code, 2)
         self.assertIn("Registered: fan-profile", err)
-        self.assertIn("cw-admin action remove fan-profile", err)
+        self.assertIn("ct-admin action remove fan-profile", err)
 
     def test_the_same_action_twice_changes_nothing_and_says_so(self):
         before = self.main_registry()
@@ -703,9 +703,9 @@ class ActionRemoveAndList(ActionBase):
         self.assertEqual(code, 2)
         self.assertNotIn("usage:", err)
         self.assertIn("accepts: add, remove, list", err)
-        self.assertIn("cw-admin action list", err)
+        self.assertIn("ct-admin action list", err)
         code, _, err = self.admin("statu")
-        self.assertIn("cw-admin status", err)
+        self.assertIn("ct-admin status", err)
         self.assertNotIn("usage:", err)
         code, _, err = self.admin("action", "add")
         self.assertNotIn("usage:", err)
@@ -713,7 +713,7 @@ class ActionRemoveAndList(ActionBase):
 
 class RegistryTextEdits(unittest.TestCase):
     def test_entries_go_into_an_existing_section_or_make_one(self):
-        from cw.admin import regedit
+        from ct.admin import regedit
         text = "classes:\n  a:\n    kind: command\n"
         out = regedit.add_entries(text, "actions", ["  x:", "    run: []"])
         self.assertTrue(out.endswith("actions:\n  x:\n    run: []\n"))
@@ -722,7 +722,7 @@ class RegistryTextEdits(unittest.TestCase):
         self.assertEqual(regedit.add_entries("actions: {}\nclasses:\n", "actions", ["  x:"]).splitlines()[:2], ["actions:", "  x:"])
 
     def test_a_pin_is_replaced_in_the_right_action_only(self):
-        from cw.admin import regedit
+        from ct.admin import regedit
         text = 'actions:\n  x:\n    sha256: "' + "1" * 64 + '"\n  y:\n    sha256: "' + "2" * 64 + '"\nclasses:\n'
         out = regedit.set_action_pin(text, "y", "3" * 64)
         self.assertIn("1" * 64, out)
@@ -731,9 +731,9 @@ class RegistryTextEdits(unittest.TestCase):
 
 
 class FollowAfterApproving(unittest.TestCase):
-    def test_the_command_cw_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
-        """cw-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""
-        from cw.client import cli as client_cli
+    def test_the_command_ct_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
+        """ct-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""
+        from ct.client import cli as client_cli
         ap, _ = client_cli.build_parser()
         a = ap.parse_args(["result", "job-1", "--wait", "--approved"])
         self.assertTrue(a.approved and a.wait)
@@ -760,7 +760,7 @@ class SignedRegistry(SignedApprovals):
         self.trusted()
         code, out, err = self.admin("retire", "careful", "--yes")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.ssh.calls, [])                                           # no sudo cw-update, no login
+        self.assertEqual(self.ssh.calls, [])                                           # no sudo ct-update, no login
         self.repos.fetch_queue()
         text = self.repos.show_file("origin/main", "registry.yaml")
         self.assertNotIn("  careful:", text)
@@ -802,7 +802,7 @@ class SignedRegistry(SignedApprovals):
         self.worker_publishes(capacity=4)
         self.health(self.rel[0])
         self.admin("retire", "careful", "--yes")
-        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
 
     def health(self, rev):
         self.ssh.answers["systemctl"] = f"timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev={rev}\n"
@@ -821,7 +821,7 @@ class JobTests(AdminBase):
         self.tty = True
         code, _, _ = self.admin("approve", "--all")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"cw-worker approve --many job-a:{digest}"])
+        self.assertEqual(self.ssh.calls, [f"ct-worker approve --many job-a:{digest}"])
 
     def test_a_job_that_changed_after_you_viewed_it_is_not_approved_in_bulk(self):
         self.put_job("job-a")
@@ -849,7 +849,7 @@ class JobTests(AdminBase):
         self.answers.append("y")
         code, out, _ = self.admin("approve", "job-b")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"cw-worker approve job-b --sha256 {digest}"])
+        self.assertEqual(self.ssh.calls, [f"ct-worker approve job-b --sha256 {digest}"])
         self.assertEqual(self.results_followed, ["job-b"])
         self.assertIn(digest[:12], out)
 
@@ -878,7 +878,7 @@ class JobTests(AdminBase):
         self.put_result("old-job", status="awaiting_approval")
         code, _, _ = self.admin("approve", "old-job", "--yes", "--no-follow")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, ["cw-worker approve old-job --yes"])
+        self.assertEqual(self.ssh.calls, ["ct-worker approve old-job --yes"])
         self.assertEqual(jobs.Viewed(self.home).load()["old-job"], "")
 
     def test_a_job_that_is_nowhere_is_an_error(self):
@@ -893,9 +893,9 @@ class JobTests(AdminBase):
         self.assertEqual(self.ssh.calls, [])
 
     def test_passthrough_commands_call_the_workers_own_commands(self):
-        for args, expect in ((["status", "--hours", "48"], "cw-worker status --hours 48"), (["unlock"], "cw-worker unlock"), (["quarantine"], "cw-worker quarantine"),
-                             (["quarantine", "job-x"], "cw-worker quarantine job-x"), (["output", "job-x"], "cw-worker output job-x"), (["cancel", "job-x"], "cw-worker cancel job-x"),
-                             (["kill", "job-x", "--hard"], "cw-worker kill job-x --hard")):
+        for args, expect in ((["status", "--hours", "48"], "ct-worker status --hours 48"), (["unlock"], "ct-worker unlock"), (["quarantine"], "ct-worker quarantine"),
+                             (["quarantine", "job-x"], "ct-worker quarantine job-x"), (["output", "job-x"], "ct-worker output job-x"), (["cancel", "job-x"], "ct-worker cancel job-x"),
+                             (["kill", "job-x", "--hard"], "ct-worker kill job-x --hard")):
             self.ssh.calls.clear()
             self.assertEqual(self.admin(*args)[0], 0)
             self.assertEqual(self.ssh.calls, [expect])
@@ -988,7 +988,7 @@ class RetireAdoptTests(AdminBase):
         self.assertEqual(code, 0, err)
         self.repos.fetch_queue()
         self.assertNotIn("  careful:", self.repos.show_file("origin/main", "registry.yaml"))
-        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
 
     def test_the_profile_class_cannot_be_retired(self):
         code, _, err = self.admin("retire", "profile-run", "--yes")
@@ -1011,7 +1011,7 @@ class ReleaseTests(AdminBase):
 
     def setUp(self):
         super().setUp()
-        self.new = self.release_commit({"src/cw/a.py": "a=2\n", "src/cw/update.py": "u=1\n"}, "second")
+        self.new = self.release_commit({"src/ct/a.py": "a=2\n", "src/ct/update.py": "u=1\n"}, "second")
 
     def installed(self, rev):
         self.ssh.answers[INSTALLED] = rev + "\n"
@@ -1034,7 +1034,7 @@ class ReleaseTests(AdminBase):
         self.installed(self.rel[0])
         code, out, _ = self.admin("diff")
         self.assertEqual(code, 0)
-        self.assertLess(out.index("src/cw/update.py"), out.index("src/cw/a.py"))
+        self.assertLess(out.index("src/ct/update.py"), out.index("src/ct/a.py"))
         self.assertIn("1 of them run as root", out)
 
     def test_apply_installs_the_chosen_commit_and_checks_health(self):
@@ -1042,7 +1042,7 @@ class ReleaseTests(AdminBase):
         self.health(self.new)
         code, out, err = self.admin("apply", "--yes", "--no-verify")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.ssh.calls, [f"sudo cw-update --rev {self.new}"])
+        self.assertEqual(self.ssh.calls, [f"sudo ct-update --rev {self.new}"])
         self.ssh.calls.clear()
         code, out, _ = self.admin("apply", "--yes", "--force")
         self.assertEqual(code, 0)
@@ -1060,7 +1060,7 @@ class ReleaseTests(AdminBase):
         runs = []
         self.ssh._run = lambda argv, **k: runs.append(argv) or subprocess.CompletedProcess(argv, 0, "", "")
         self.assertEqual(cli.cmd_check(self.ctx, None), 0)
-        self.assertEqual(runs[-1][-1], "cw-worker status")                    # `<install name> status` was an old install's command and could still exist and pass
+        self.assertEqual(runs[-1][-1], "ct-worker status")                    # `<install name> status` was an old install's command and could still exist and pass
 
     def test_a_failed_check_offers_the_rollback_and_does_it_on_yes(self):
         self.installed(self.rel[0])
@@ -1076,7 +1076,7 @@ class ReleaseTests(AdminBase):
         with mock.patch.object(release, "health_checks", flaky):
             code, out, err = self.admin("apply")
         self.assertEqual(code, 1)
-        self.assertIn(f"sudo cw-update --rev {self.rel[0]}", self.ssh.calls)
+        self.assertIn(f"sudo ct-update --rev {self.rel[0]}", self.ssh.calls)
         self.assertIn("Rolled back", err)
 
     def test_a_failed_check_without_a_terminal_tells_you_how_to_roll_back(self):
@@ -1084,20 +1084,20 @@ class ReleaseTests(AdminBase):
         self.health(self.new, failed=1)
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 1)
-        self.assertIn(f"cw-admin apply {self.rel[0][:9]} --no-verify", err)
-        self.assertEqual(self.ssh.calls, [f"sudo cw-update --rev {self.new}"])
+        self.assertIn(f"ct-admin apply {self.rel[0][:9]} --no-verify", err)
+        self.assertEqual(self.ssh.calls, [f"sudo ct-update --rev {self.new}"])
 
     def test_a_failing_install_stops_and_does_not_check(self):
         self.installed(self.rel[0])
-        self.ssh.rc["cw-update"] = 1
+        self.ssh.rc["ct-update"] = 1
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 2)
         self.assertIn("install failed", err)
         self.assertEqual(self.ssh.captured.count("x"), 0)
 
     def test_the_health_command_checks_the_things_that_matter(self):
-        c = release.health_command("testcw", "/etc/testcw", "/opt/testcw")
-        for needle in ("testcw-$t.timer", "list-units --failed", "installed-rev", "check-registry /etc/testcw/registry.yaml"):
+        c = release.health_command("testct", "/etc/testct", "/opt/testct")
+        for needle in ("testct-$t.timer", "list-units --failed", "installed-rev", "check-registry /etc/testct/registry.yaml"):
             self.assertIn(needle, c)
 
 

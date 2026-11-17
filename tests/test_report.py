@@ -9,8 +9,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from cw import theme  # noqa: E402
-from cw.setup import report  # noqa: E402
+from ct import theme  # noqa: E402
+from ct.setup import report  # noqa: E402
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -27,11 +27,11 @@ class Plain(unittest.TestCase):
 
 class Styled(unittest.TestCase):
     def setUp(self):
-        self.old = os.environ.get("CW_COLOR")
-        os.environ["CW_COLOR"] = "always"
+        self.old = os.environ.get("CT_COLOR")
+        os.environ["CT_COLOR"] = "always"
 
     def tearDown(self):
-        os.environ.pop("CW_COLOR") if self.old is None else os.environ.__setitem__("CW_COLOR", self.old)
+        os.environ.pop("CT_COLOR") if self.old is None else os.environ.__setitem__("CT_COLOR", self.old)
 
     def test_statuses_are_capitals_in_one_column_and_the_actions_line_up(self):
         r = report.Styler(styled=True)
@@ -75,13 +75,13 @@ class Alignment(unittest.TestCase):
 
     def test_status_columns_line_up_whatever_the_colour(self):
         r = self.styler()
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
             rows = [r.note(s, "step") for s in ("ok", "satisfied", "unchanged", "installed")]
         self.assertEqual({ANSI.sub("", x).index("step") for x in rows}, {13})
 
     def test_a_long_detail_wraps_under_itself_within_the_terminal(self):
         r = self.styler()
-        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))), mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))), mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
             out = ANSI.sub("", r.note("installed", "approver key", "approvals signed with " + "x" * 30 + " are accepted; no login is needed to approve jobs from your computer"))
         lines = out.splitlines()
         self.assertGreater(len(lines), 1)
@@ -93,7 +93,7 @@ class Alignment(unittest.TestCase):
         self.assertEqual(len(r.note("installed", "x", "y" * 300).splitlines()), 1)
 
     def test_the_deploy_key_lines_use_the_same_status_column(self):
-        from cw.setup import keys
+        from ct.setup import keys
         got = []
         dk = keys.DeployKeys(types_cfg(), lambda *a, **k: None, lambda x: None, say=got.append, note=lambda step, status, detail="": got.append((step, status, detail)))
         dk.add = lambda which, pub: "present"

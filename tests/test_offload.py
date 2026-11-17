@@ -8,9 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cw import registry  # noqa: E402
-from cw.client import offload as off  # noqa: E402
-from cw.client.repo import ClientError  # noqa: E402
+from ct import registry  # noqa: E402
+from ct.client import offload as off  # noqa: E402
+from ct.client.repo import ClientError  # noqa: E402
 from support import RepoFixture, sh  # noqa: E402
 
 INFO = {"mem_total_mb": 8000, "classes": {"echo": {"run": ["/bin/echo", "{word}"], "cost": "light", "tier": "auto"},
@@ -39,11 +39,11 @@ class Decision(unittest.TestCase):
         rc = lambda v: off.fit_lookup(*v)["rc"]   # noqa: E731
         self.assertEqual(rc((["/bin/echo", "x"], INFO, [])), 0)
         self.assertEqual(rc((["nope"], INFO, [])), 4)
-        msg = off.fit_message(off.fit_lookup(["/bin/echo", "x"], INFO, []), ["/bin/echo", "x"], "homecw")
-        self.assertEqual(msg, "REGISTERED as class echo (light, tier auto): cw-run submit echo --wait")
-        self.assertIn("propose a profiling run", off.fit_message({"verdict": "unknown"}, ["nope"], "homecw"))
-        self.assertIn("cw-run offload profile -- nope", off.fit_message({"verdict": "unknown"}, ["nope"], "homecw"))
-        self.assertIn("when homecw had 4000 MB", off.fit_message({"verdict": "retry", "reasons": "r", "then_mb": 4000, "now_mb": 8000}, [], "homecw"))
+        msg = off.fit_message(off.fit_lookup(["/bin/echo", "x"], INFO, []), ["/bin/echo", "x"], "homect")
+        self.assertEqual(msg, "REGISTERED as class echo (light, tier auto): ct-run submit echo --wait")
+        self.assertIn("propose a profiling run", off.fit_message({"verdict": "unknown"}, ["nope"], "homect"))
+        self.assertIn("ct-run offload profile -- nope", off.fit_message({"verdict": "unknown"}, ["nope"], "homect"))
+        self.assertIn("when homect had 4000 MB", off.fit_message({"verdict": "retry", "reasons": "r", "then_mb": 4000, "now_mb": 8000}, [], "homect"))
         self.assertIn("Do not offload this", off.fit_message({"verdict": "excluded", "reasons": "r"}, [], "x"))
 
 
@@ -139,12 +139,12 @@ class Profile(unittest.TestCase):
 
     def test_the_required_details_are_named_and_the_fix_is_a_command_to_copy(self):
         with self.assertRaises(ClientError) as cm:
-            off.build_profile_job(["eslint", "."], None, "fast", {"est_time_s": 5, "est_mem_mb": None}, retry_example=lambda extra: "cw-run offload profile --name lint " + extra)
+            off.build_profile_job(["eslint", "."], None, "fast", {"est_time_s": 5, "est_mem_mb": None}, retry_example=lambda extra: "ct-run offload profile --name lint " + extra)
         e = cm.exception
         self.assertEqual(e.title, "This profiling run is missing required details")
         self.assertEqual([s for s in e.steps if s.startswith("Missing")][0][:28], "Missing: --what  \"what the c")
         self.assertEqual(len([s for s in e.steps if s.startswith("Missing")]), 2)
-        self.assertEqual(e.example, "cw-run offload profile --name lint --what 'what the command does' --est-mem-mb 100")
+        self.assertEqual(e.example, "ct-run offload profile --name lint --what 'what the command does' --est-mem-mb 100")
         with self.assertRaises(ClientError):
             off.build_profile_job([], "w", "e", {"est_time_s": 1, "est_mem_mb": 1})
 
@@ -164,8 +164,8 @@ class Profile(unittest.TestCase):
             off.parse_flags(["nothing"])
 
     def test_the_example_command_keeps_the_double_dash_part_intact(self):
-        self.assertEqual(off.own_command_with(["offload", "profile", "--name", "x", "--", "ssh", "-V", "a b"], "--what 'w'"), "cw-run offload profile --name x --what 'w' -- ssh -V 'a b'")
-        self.assertEqual(off.own_command_with(["offload", "profile"], ""), "cw-run offload profile")
+        self.assertEqual(off.own_command_with(["offload", "profile", "--name", "x", "--", "ssh", "-V", "a b"], "--what 'w'"), "ct-run offload profile --name x --what 'w' -- ssh -V 'a b'")
+        self.assertEqual(off.own_command_with(["offload", "profile"], ""), "ct-run offload profile")
 
 
 class RegistryEditing(unittest.TestCase):
@@ -216,7 +216,7 @@ class EndToEnd(RepoFixture):
         self.w.fetch()                                                                              # publishes the registry (classes and RAM)
         code, out, err = self.run_cli("offload", "fit", "--", "/bin/echo", "hello")
         self.assertEqual(code, 0)
-        self.assertIn("REGISTERED as class echo (light, tier auto): cw-run submit echo --wait", out)
+        self.assertIn("REGISTERED as class echo (light, tier auto): ct-run submit echo --wait", out)
         self.assertEqual(self.run_cli("offload", "fit", "--", "nosuchtool")[0], 4)
         req = self.tmp / "requester"
         sh("git", "checkout", "-q", "--orphan", "data", cwd=req)
@@ -241,7 +241,7 @@ class EndToEnd(RepoFixture):
         self.run_cli("offload", "fit", "--", "nosuchtool")
         code, out, err = self.run_cli("offload", "history")
         self.assertEqual(code, 0)
-        for needle in ("every check of whether a command suits testcw", "Checks", "3  (1 registered, 2 unknown)", "Worth a look", "2x  nosuchtool", "echo", "nosuchtool"):
+        for needle in ("every check of whether a command suits testct", "Checks", "3  (1 registered, 2 unknown)", "Worth a look", "2x  nosuchtool", "echo", "nosuchtool"):
             self.assertIn(needle, out)
         rows = json.loads(self.run_cli("offload", "history", "--json", "--verdict", "unknown")[1])
         self.assertEqual([r["command"] for r in rows], ["nosuchtool", "nosuchtool"])
@@ -255,7 +255,7 @@ class EndToEnd(RepoFixture):
         jid = self.run_profile_to_a_result("--name", "my-ls")
         code, out, err = self.run_cli("result", jid)
         self.assertIn("VERDICT  fits", err)
-        self.assertIn(f"tcw-admin adopt {jid} --name my-ls", err)                                        # the remembered name is the suggestion
+        self.assertIn(f"tct-admin adopt {jid} --name my-ls", err)                                        # the remembered name is the suggestion
         code, out, err = self.run_cli("offload", "propose", jid, "--dry-run")
         self.assertEqual(code, 0)
         self.assertIn("Would register the class 'my-ls'", out + err)
@@ -264,7 +264,7 @@ class EndToEnd(RepoFixture):
         code, out, err = self.run_cli("offload", "propose", jid)
         self.assertEqual(code, 0)
         self.assertIn("Proposed the class 'my-ls'", out + err)
-        self.assertIn("tcw-admin apply registry/my-ls", out + err)
+        self.assertIn("tct-admin apply registry/my-ls", out + err)
         text = sh("git", "show", "registry/my-ls:registry.yaml", cwd=self.tmp / "queue.git")
         self.assertIn("my-ls:", text)
         self.assertIn("existing-one:", text)
@@ -302,7 +302,7 @@ class EndToEnd(RepoFixture):
         self.assertIn("VERDICT  does-not-fit", err)
         code, out, err = self.run_cli("offload", "propose", jid)
         self.assertEqual(code, 0)
-        self.assertIn("Recorded: this command does not fit testcw", out + err)
+        self.assertIn("Recorded: this command does not fit testct", out + err)
         self.assertIn("Claude will not offload it again", out + err)
         data = json.loads(sh("git", "show", "data:exclusions.json", cwd=self.tmp / "queue.git"))
         (e,) = data["excluded"]
@@ -353,7 +353,7 @@ class EndToEnd(RepoFixture):
         self.assertEqual(code, 2)
         self.assertIn("This profiling run is missing required details", out + err)
         self.assertIn("--est-time-s", out + err)
-        self.assertIn("cw-run offload profile --what lists --expect 'a few seconds, tiny, prints one line' --est-time-s 10 --est-mem-mb 100 -- ls -l", out + err)
+        self.assertIn("ct-run offload profile --what lists --expect 'a few seconds, tiny, prints one line' --est-time-s 10 --est-mem-mb 100 -- ls -l", out + err)
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("jobs"))
 
@@ -361,7 +361,7 @@ class EndToEnd(RepoFixture):
         code, out, err = self.profile("--name", "my-ls", "--why", "to see")
         self.assertEqual(code, 0)
         jid = out.strip()
-        for needle in ("This profiling run needs YOUR approval.", "command: ls -l", f"job: {jid}", "name: my-ls", f"tcw-admin approve {jid}", f"cw-run result {jid}"):
+        for needle in ("This profiling run needs YOUR approval.", "command: ls -l", f"job: {jid}", "name: my-ls", f"tct-admin approve {jid}", f"ct-run result {jid}"):
             self.assertIn(needle, err)
         self.assertEqual(self.ctx.names.get(jid), "my-ls")                                          # remembered for the job list and the proposal
         self.assertIn("my-ls", self.run_cli("jobs")[1])

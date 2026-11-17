@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import profiling, registry  # noqa: E402
+from ct import profiling, registry  # noqa: E402
 
 RULES = registry.profiling_rules({})
 
@@ -63,8 +63,8 @@ class Verdict(unittest.TestCase):
         self.assertEqual(registry.validate({"classes": {"drafted": v["entry"]}}, "/opt/x/tools"), [])      # a draft is a valid registry entry
 
     def test_the_product_name_is_an_argument(self):
-        r = profiling.profile_verdict("ok", 0, "", {"mem_total_mb": 4000, "peak_rss_mb": 3000, "wall_s": 1}, ["x"], {}, RULES, product="homecw")
-        self.assertIn("homecw's 4000 MB", r["reasons"][0])
+        r = profiling.profile_verdict("ok", 0, "", {"mem_total_mb": 4000, "peak_rss_mb": 3000, "wall_s": 1}, ["x"], {}, RULES, product="homect")
+        self.assertIn("homect's 4000 MB", r["reasons"][0])
 
 
 class Facts(unittest.TestCase):
@@ -98,8 +98,8 @@ class Glance(unittest.TestCase):
     def test_the_screen_shows_estimate_hard_stop_and_headroom(self):
         job = {"est_time_s": 30, "est_mem_mb": 200, "est_cpu_cores": 1, "est_disk_mb": 5}
         lim = profiling.profile_limits(RULES, 8000)
-        text = profiling.glance(job, RULES, lim, self.snap, 600, facts={"binary": "/usr/bin/jq", "size_kb": 300, "package": "jq"}, product="homecw")
-        for needle in ("AT A GLANCE", "homecw now (03:04:05 UTC)", "~30 s", "600 s", "4,800 MB (60% of RAM)", "6,100 MB free of 8,000 MB",
+        text = profiling.glance(job, RULES, lim, self.snap, 600, facts={"binary": "/usr/bin/jq", "size_kb": 300, "package": "jq"}, product="homect")
+        for needle in ("AT A GLANCE", "homect now (03:04:05 UTC)", "~30 s", "600 s", "4,800 MB (60% of RAM)", "6,100 MB free of 8,000 MB",
                        "1 running, 2 waiting", "stops at 85C", "core now 51C", "120.5 GB free", "Program: /usr/bin/jq (300 KB), package jq"):
             self.assertIn(needle, text)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import gitio, util  # noqa: E402
+from ct import gitio, util  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
 
@@ -114,7 +114,7 @@ class Publishing(Repos):
 
     def test_a_result_is_committed_pushed_and_authored_as_the_configured_worker(self):
         self.assertTrue(self.io.publish(self.res))
-        self.assertEqual(self.results_log(), ["cw-worker|result job-0001: ok"])
+        self.assertEqual(self.results_log(), ["ct-worker|result job-0001: ok"])
         shown = sh("git", "show", "main:results/job-0001.json", cwd=self.tmp / "results.git")
         self.assertEqual(json.loads(shown)["output"], "hi")
 
@@ -133,7 +133,7 @@ class Publishing(Repos):
         sh("git", "commit", "-q", "-m", "other writer", cwd=other)
         sh("git", "push", "-q", "origin", "main", cwd=other)                              # the remote moves under the worker
         self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
-        self.assertEqual(self.results_log()[0], "cw-worker|result job-0003: ok")
+        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok")
         self.assertIn("other writer", " ".join(self.results_log()))
 
     def test_a_failing_remote_reports_false_and_logs(self):

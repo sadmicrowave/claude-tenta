@@ -9,9 +9,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import theme, ui  # noqa: E402
+from ct import theme, ui  # noqa: E402
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "cw"
+SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
 
 
 class Themes(unittest.TestCase):
@@ -56,21 +56,21 @@ class Themes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "theme.toml"
             f.write_text('[colors]\nok = "38;5;22"\n')
-            theme.load({"CW_THEME_FILE": str(f)})
+            theme.load({"CT_THEME_FILE": str(f)})
             self.assertEqual(theme.source, str(f))
-            with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
                 self.assertIn("38;5;22", ui.paint("x", ui.GREEN))
                 self.assertIn("38;5;22", ui.paint("x", "ok"))
 
     def test_mono_has_no_colour_only_weight(self):
-        theme.load({"CW_THEME": "mono"})
+        theme.load({"CT_THEME": "mono"})
         self.assertEqual(theme.resolve("ok"), "1")
         self.assertEqual(theme.resolve("accent"), "")
 
     def test_the_theme_is_found_by_environment_then_by_home(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / ".cw").mkdir()
-            (Path(d) / ".cw" / "theme.toml").write_text('theme = "mono"\n')
+            (Path(d) / ".ct").mkdir()
+            (Path(d) / ".ct" / "theme.toml").write_text('theme = "mono"\n')
             with mock.patch.object(Path, "home", return_value=Path(d)):
                 theme.load({})
             self.assertEqual(theme.code("accent"), "")
@@ -83,13 +83,13 @@ class NoColourOutsideTheTheme(unittest.TestCase):
         sgr = re.compile(r"(?:\\x1b|\\033)\[[^A-Za-z\"'\\]*m")
         for f in SRC.rglob("*.py"):
             if f.name != "theme.py":
-                self.assertIsNone(sgr.search(f.read_text()), f"{f.relative_to(SRC)} writes a colour code; ask cw.theme for a role instead")
+                self.assertIsNone(sgr.search(f.read_text()), f"{f.relative_to(SRC)} writes a colour code; ask ct.theme for a role instead")
 
     def test_no_numeric_colour_is_named_outside_theme_py(self):
         number = re.compile(r"[\"']((?:38|48);5;\d+)")
         for f in SRC.rglob("*.py"):
             if f.name != "theme.py":
-                self.assertIsNone(number.search(f.read_text()), f"{f.relative_to(SRC)} names a colour number; add or use a role in cw.theme")
+                self.assertIsNone(number.search(f.read_text()), f"{f.relative_to(SRC)} names a colour number; add or use a role in ct.theme")
 
 
 if __name__ == "__main__":

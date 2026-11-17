@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import guard, jobs, registry, util  # noqa: E402
+from ct import guard, jobs, registry, util  # noqa: E402
 
 LIMITS = registry.limits_of({})
 

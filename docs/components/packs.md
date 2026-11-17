@@ -53,7 +53,7 @@ A rule needs a `reason`. Unknown keys (including any `allow` or `override`) are 
 
 ### Composition
 
-`cw-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
+`ct-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
 registry the worker will trust:
 
 1. packs' classes, in the order named; a name defined twice is an error naming both packs;
@@ -72,7 +72,7 @@ profile run of a denied program, and reports the policy's own reason.
 ### Checking a pack
 
 ```
-python3 -m cw.packs check <pack folder>...
+python3 -m ct.packs check <pack folder>...
 ```
 
 prints each pack's version, counts and SHA-256 digest, or every problem found. The digest covers every file name and content, so what an administrator approves is exactly this.
@@ -84,4 +84,4 @@ Hardening modules and anything that installs a root-owned unit or script. They r
 ### Actions in a pack
 
 A pack may also carry `actions/*.yaml` (root-level actions, see [Root-level actions](privileged.md)). A pack cannot know the hash of a program on your machine, so the
-install refuses its actions until your own registry pins each one (`action_pins`, from `cw-admin action-hash <path>`). `packs/fan-control` is the worked example.
+install refuses its actions until your own registry pins each one (`action_pins`, from `ct-admin action-hash <path>`). `packs/fan-control` is the worked example.

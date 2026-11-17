@@ -1,8 +1,8 @@
-# Running it: `cw-admin`
+# Running it: `ct-admin`
 
 ## In plain words
 
-`cw-admin` is how you, the administrator, look after the worker from your own computer. It connects over SSH with your key (it never asks you to type a password into it;
+`ct-admin` is how you, the administrator, look after the worker from your own computer. It connects over SSH with your key (it never asks you to type a password into it;
 `sudo` asks you itself when something needs it). Its commands are grouped by what you are doing:
 
 - **Worker:** `status` (is it healthy, what is it doing, what did it do lately) and `check` (does the connection work).
@@ -38,12 +38,12 @@ branch; `proposals tidy` deletes merged branches. The `profile-run` class cannot
 
 ### Comparing workers
 
-`cw-admin workers` lists every worker this computer administers, side by side: operating system, processor (and whether it is too old for the current Claude Code), free memory, Claude access and its state (sign-in route, tool version, "older release, pinned"), lockdown and isolation, release, load and heat, and how old the reading is. It reads each worker's published `worker-state.json` from its results repository, so it needs no login to any worker, and an old reading is marked STALE. The worker publishes the part that describes it (release, OS, processor, Claude, the packages its classes need, trusted approver keys, locked or not) whenever that changes, and the live readings (load, heat, memory) at most every half hour. `--claude` keeps only workers whose Claude access works and that are not locked; `--json` prints the same facts for a script or a future scheduler; `--no-refresh` skips pulling from GitHub. The worker in your main configuration is always the first row; others are added with `cw-admin workers add <name> --config <file>` (each is a complete install with its own configuration, queue and results repositories) and removed with `workers remove <name>`. This is the first step of running several workers: see `docs/design/ORCHESTRATION.md`.
+`ct-admin workers` lists every worker this computer administers, side by side: operating system, processor (and whether it is too old for the current Claude Code), free memory, Claude access and its state (sign-in route, tool version, "older release, pinned"), lockdown and isolation, release, load and heat, and how old the reading is. It reads each worker's published `worker-state.json` from its results repository, so it needs no login to any worker, and an old reading is marked STALE. The worker publishes the part that describes it (release, OS, processor, Claude, the packages its classes need, trusted approver keys, locked or not) whenever that changes, and the live readings (load, heat, memory) at most every half hour. `--claude` keeps only workers whose Claude access works and that are not locked; `--json` prints the same facts for a script or a future scheduler; `--no-refresh` skips pulling from GitHub. The worker in your main configuration is always the first row; others are added with `ct-admin workers add <name> --config <file>` (each is a complete install with its own configuration, queue and results repositories) and removed with `workers remove <name>`. This is the first step of running several workers: see `docs/design/ORCHESTRATION.md`.
 
 ### Release
 
 `diff [rev]` and `apply [rev]` use a bare clone of the release source (`updates.source`, branch `updates.branch`) kept in the client home. A commit must be on that branch to be installable.
-`diff` lists the changed files with the root-run ones first and flagged. `apply` shows the diff, asks, runs `sudo cw-update --rev <commit>` on the worker, then:
+`diff` lists the changed files with the root-run ones first and flagged. `apply` shows the diff, asks, runs `sudo ct-update --rev <commit>` on the worker, then:
 
 1. reads the worker's state in one call: the three timers, failed units, the installed revision, and that the installed registry is valid;
 2. if code changed, submits the `sys-status` class as a real end-to-end test job;

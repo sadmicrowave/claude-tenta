@@ -6,8 +6,8 @@ from pathlib import Path
 
 import support  # noqa: F401
 
-from cw import __version__
-from cw.setup import brand
+from ct import __version__
+from ct.setup import brand
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,13 +33,13 @@ class Banner(unittest.TestCase):
         lines = plain(brand.banner(100, brand.spaced("install")))
         text = "\n".join(lines)
         self.assertIn("█", text)
-        self.assertIn(f"CW-BALLAST  I N S T A L L   v{__version__}", text)
+        self.assertIn(f"CLAUDE-TENTA  I N S T A L L   v{__version__}", text)
         self.assertLessEqual(max(len(ln) for ln in lines), 100)
 
     def test_a_narrow_terminal_gets_a_short_header_instead(self):
         lines = [ln for ln in plain(brand.banner(40, "S E T U P")) if ln.strip()]
         self.assertLessEqual(len(lines), 2)
-        self.assertIn("@cw-ballast", lines[0])
+        self.assertIn("@claude-tenta", lines[0])
         self.assertIn(f"v{__version__}", "\n".join(lines))
 
     def test_no_colour_codes_when_colour_is_off(self):

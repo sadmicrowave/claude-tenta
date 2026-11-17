@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import clihelp, theme, ui  # noqa: E402
+from ct import clihelp, theme, ui  # noqa: E402
 
 
 class Tty(io.StringIO):
@@ -19,7 +19,7 @@ class Tty(io.StringIO):
 
 
 def clean_env(**extra):
-    env = {k: v for k, v in os.environ.items() if k not in ("CW_COLOR", "NO_COLOR")}
+    env = {k: v for k, v in os.environ.items() if k not in ("CT_COLOR", "NO_COLOR")}
     env.update(extra)
     return mock.patch.dict(os.environ, env, clear=True)
 
@@ -31,13 +31,13 @@ class Colour(unittest.TestCase):
             self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), theme.sgr("x", "strong"))
         with clean_env(NO_COLOR="1"):
             self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), "x")
-        with clean_env(CW_COLOR="never"):
+        with clean_env(CT_COLOR="never"):
             self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), "x")
-        with clean_env(CW_COLOR="always"):
+        with clean_env(CT_COLOR="always"):
             self.assertEqual(ui.paint("x", ui.RED, stream=io.StringIO()), theme.sgr("x", "bad"))
 
     def test_no_codes_means_no_escape_sequences(self):
-        with clean_env(CW_COLOR="always"):
+        with clean_env(CT_COLOR="always"):
             self.assertEqual(ui.paint("x", stream=io.StringIO()), "x")
 
 
@@ -53,18 +53,18 @@ class Say(unittest.TestCase):
         self.assertEqual(out, "\nDONE  Installed\n\n  Version  1.2\n  Where    here\n  a plain line\n\nNext\n  - one\n  - two\n\nRun this\n\ncmd one\ncmd two\n\n")
 
     def test_each_command_is_alone_on_its_own_line(self):
-        out = self.render("t", run=["git pull --ff-only", "cw-admin apply"])
+        out = self.render("t", run=["git pull --ff-only", "ct-admin apply"])
         lines = out.splitlines()
         self.assertIn("git pull --ff-only", lines)
-        self.assertIn("cw-admin apply", lines)
+        self.assertIn("ct-admin apply", lines)
 
     def test_a_single_command_string(self):
-        self.assertIn("\ncw-admin apply\n", self.render("t", run="cw-admin apply"))
+        self.assertIn("\nct-admin apply\n", self.render("t", run="ct-admin apply"))
 
     def test_fail_prints_and_exits_with_the_code(self):
         err = io.StringIO()
         with clean_env(), redirect_stderr(err), self.assertRaises(SystemExit) as cm:
-            ui.fail("Broke", "because", steps=["fix it"], example="cw-admin check", code=3)
+            ui.fail("Broke", "because", steps=["fix it"], example="ct-admin check", code=3)
         self.assertEqual(cm.exception.code, 3)
         self.assertIn("ERROR  Broke", err.getvalue())
         self.assertIn("How to fix it", err.getvalue())
@@ -121,14 +121,14 @@ class Related(unittest.TestCase):
     def test_commands_that_come_next_are_in_the_house_shape_and_only_for_a_person(self):
         err = Tty()
         with clean_env():
-            self.assertFalse(ui.related(("Add one", "cw-admin add <x>"), stream=err))             # stdout is not a terminal here: nothing is printed
+            self.assertFalse(ui.related(("Add one", "ct-admin add <x>"), stream=err))             # stdout is not a terminal here: nothing is printed
             self.assertEqual(err.getvalue(), "")
-            self.assertTrue(ui.related(("Add one", "cw-admin add <x>"), ("Never shown", None), ("Remove one", "cw-admin remove <x>"), stream=err, force=True))
+            self.assertTrue(ui.related(("Add one", "ct-admin add <x>"), ("Never shown", None), ("Remove one", "ct-admin remove <x>"), stream=err, force=True))
         import re
         text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
-        self.assertIn("Add one\ncw-admin add <x>\n\nRemove one\ncw-admin remove <x>", text)
+        self.assertIn("Add one\nct-admin add <x>\n\nRemove one\nct-admin remove <x>", text)
         self.assertNotIn("Never shown", text)
 
     def test_it_can_be_turned_off(self):
-        with clean_env(CW_HINTS="never"):
+        with clean_env(CT_HINTS="never"):
             self.assertFalse(ui.related(("a", "b"), stream=Tty()))

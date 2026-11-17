@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from cw import cards, theme, ui  # noqa: E402
+from ct import cards, theme, ui  # noqa: E402
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 
@@ -21,7 +21,7 @@ class Tty(io.StringIO):
 
 def shown(*a, **k):
     out = Tty()
-    with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+    with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
         ui.say(*a, stream=out, **k)
     return out.getvalue()
 
@@ -56,9 +56,9 @@ class WizardCards(unittest.TestCase):
             self.assertEqual(text.replace("\n", "").replace("│", "").replace("┃", "").replace(" ", "").count("ab" * 40), 1)
 
     def test_commands_sit_beneath_the_card_alone_on_their_line(self):
-        raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["cw-run submit fan-profile"])
+        raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["ct-run submit fan-profile"])
         lines = ANSI.sub("", raw).split("\n")
-        self.assertIn("cw-run submit fan-profile", lines)                       # no rail, no frame beside it
+        self.assertIn("ct-run submit fan-profile", lines)                       # no rail, no frame beside it
         self.assertIn(" TRY ONE ", lines)
 
     def test_a_plain_log_keeps_the_old_one_line_shape(self):
@@ -73,9 +73,9 @@ class ResultCard(unittest.TestCase):
            "finished": "2026-11-17T05:36:13Z", "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 50, "disk_mb": 0.0}}
 
     def printed(self, res=None):
-        from cw.client import view
+        from ct.client import view
         out = Tty()
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
             view.print_result(res or self.RES, out=out, err=io.StringIO())
         return out.getvalue()
 
@@ -101,7 +101,7 @@ class ResultCard(unittest.TestCase):
         self.assertNotIn(theme.sgr("MEASURED", "label"), raw)
 
     def test_a_script_still_gets_the_output_alone_on_stdout(self):
-        from cw.client import view
+        from ct.client import view
         out, err = io.StringIO(), io.StringIO()
         view.print_result(self.RES, out=out, err=err)
         self.assertEqual(out.getvalue().strip(), "up 10:58,  0 users")
@@ -109,29 +109,29 @@ class ResultCard(unittest.TestCase):
 
 class Breakout(unittest.TestCase):
     def test_the_commands_to_copy_are_their_own_breakout_with_a_chip_and_clear_space_above(self):
-        raw = shown("Set up", tag="DONE", color=ui.GREEN, run_label="Try it", run=["cw-run classes", "cw-admin status"])
+        raw = shown("Set up", tag="DONE", color=ui.GREEN, run_label="Try it", run=["ct-run classes", "ct-admin status"])
         lines = ANSI.sub("", raw).split("\n")
         at = lines.index(" TRY IT ")
         self.assertEqual(lines[at - 2:at], ["", ""])
-        self.assertEqual(lines[at + 1:at + 4], ["", "cw-run classes", "cw-admin status"])
+        self.assertEqual(lines[at + 1:at + 4], ["", "ct-run classes", "ct-admin status"])
         self.assertIn(theme.sgr(" TRY IT ", "primary_chip"), raw)
 
 
 class YesNoPrompt(unittest.TestCase):
     def test_the_question_line_is_always_in_the_prompt_colour_with_the_hint_last(self):
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
             text = ui.confirm_prompt("Remove it?")
         self.assertIn(theme.code("prompt"), text)
         self.assertTrue(ANSI.sub("", text).endswith("Remove it?  [y/N] "))
 
     def test_long_questions_wrap_at_words(self):
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}), mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
+        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}), mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
             text = ANSI.sub("", ui.confirm_prompt("Remove fan-profile and install the new registry on server.example now?"))
         self.assertTrue(all(len(x) <= 60 for x in text.split("\n")))
-        self.assertNotIn("claude\n-ballast", text)
+        self.assertNotIn("claude\n-tenta", text)
 
     def test_no_prompt_in_the_package_is_written_by_hand(self):
-        for f in (Path(__file__).resolve().parents[1] / "src" / "cw").rglob("*.py"):
+        for f in (Path(__file__).resolve().parents[1] / "src" / "ct").rglob("*.py"):
             if f.name not in ("ui.py", "theme.py"):
                 self.assertNotIn("[y/N]", f.read_text(), f"{f.name}: use ui.confirm_prompt")
 

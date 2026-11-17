@@ -11,6 +11,6 @@ TimeoutStartSec=10min
 # jobs are started detached; do not kill them when this short pass exits
 KillMode=process
 Environment=PYTHONPATH={{lib}}
-Environment=CW_CONFIG={{config}}/cw.toml
+Environment=CT_CONFIG={{config}}/ct.toml
 {{sandbox}}
-ExecStart=/usr/bin/python3 -m cw.cli fetch
+ExecStart=/usr/bin/python3 -m ct.cli fetch

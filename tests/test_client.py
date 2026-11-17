@@ -13,8 +13,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cw.client import cli, submit, view  # noqa: E402
-from cw.client.repo import ClientError, ClientRepos  # noqa: E402
+from ct.client import cli, submit, view  # noqa: E402
+from ct.client.repo import ClientError, ClientRepos  # noqa: E402
 from support import Base, RepoFixture, sh  # noqa: E402
 
 NOW = datetime(2026, 1, 2, 3, 0, 0, tzinfo=timezone.utc)
@@ -96,16 +96,16 @@ class Human(unittest.TestCase):
         self.assertEqual([view.human_age(NOW - timedelta(seconds=s), NOW) for s in (10, 300, 7200, 200000)], ["just now", "5 min", "2 h 00 min", "2 days"])
 
     def test_phases(self):
-        p = lambda res, **kw: view.phase_of(res, "job-1", "tcw-admin", product="tcw", **kw)[0]    # noqa: E731
-        self.assertEqual(p(None), "sent: waiting for tcw to notice it (an idle worker looks every 90 s)")
-        self.assertEqual(p({"status": "queued"}), "queued on tcw: waiting for a free slot")
+        p = lambda res, **kw: view.phase_of(res, "job-1", "tct-admin", product="tct", **kw)[0]    # noqa: E731
+        self.assertEqual(p(None), "sent: waiting for tct to notice it (an idle worker looks every 90 s)")
+        self.assertEqual(p({"status": "queued"}), "queued on tct: waiting for a free slot")
         self.assertIn("2 min so far", p({"status": "queued"}, waited=130))
         self.assertIn("has not picked it up", p(None, waited=130))               # a job nobody picks up is no longer described as "within a minute"
-        self.assertIn("tcw-admin status", p(None, waited=130))
-        self.assertEqual(p({"status": "awaiting_approval"}), "waiting for your approval (tcw-admin approve job-1)")
-        self.assertEqual(p({"status": "awaiting_approval"}, approved=True), "approved: waiting for tcw to pick it up")
-        self.assertEqual(p({"status": "running", "note": "fetching packages on tcw"}), "fetching packages on tcw")
-        self.assertEqual(p({"status": "running"}), "running on tcw")
+        self.assertIn("tct-admin status", p(None, waited=130))
+        self.assertEqual(p({"status": "awaiting_approval"}), "waiting for your approval (tct-admin approve job-1)")
+        self.assertEqual(p({"status": "awaiting_approval"}, approved=True), "approved: waiting for tct to pick it up")
+        self.assertEqual(p({"status": "running", "note": "fetching packages on tct"}), "fetching packages on tct")
+        self.assertEqual(p({"status": "running"}), "running on tct")
 
     def test_the_job_list_orders_by_the_jobs_own_time_and_shows_waiting_jobs(self):
         results = {"a": {"id": "a", "status": "ok", "finished": "2026-01-01T00:00:00Z", "started": "2026-01-01T00:00:00Z"},
@@ -119,40 +119,40 @@ class Human(unittest.TestCase):
     def test_a_job_the_worker_has_not_picked_up_is_a_queued_row_with_a_nudge_after_five_minutes(self):
         listing = [("new", {"created": "2026-01-02T02:58:00Z", "class": "echo"}), ("stuck", {"created": "2026-01-02T02:00:00Z", "class": "echo"}),
                    ("old", {"created": "2025-12-01T00:00:00Z"}), ("known", {"created": "2026-01-02T02:59:00Z"})]
-        rows = view.queued_rows({"known"}, listing, at=NOW, admin="tcw-admin")
+        rows = view.queued_rows({"known"}, listing, at=NOW, admin="tct-admin")
         self.assertEqual([r[2] for r in rows], ["new", "stuck"])                                  # an old one with no result is not shown as queued
         self.assertIn("looks about once a minute", rows[0][3])
         self.assertIn("has not picked this up in 60 min", rows[1][3])
-        self.assertIn("tcw-admin check", rows[1][3])
+        self.assertIn("tct-admin check", rows[1][3])
 
     def test_render_status_and_classes(self):
         out = io.StringIO()
         results = {"w": {"id": "w", "status": "awaiting_approval", "class": "careful"}, "a": {"id": "a", "status": "ok", "class": "echo", "finished": "2026-01-01T00:00:00Z"}}
         rows = view.status_rows(results, lambda jid: NOW, None)
-        with mock.patch.dict(os.environ, {"CW_COLOR": "never"}):
-            view.render_status(rows, results, lambda jid, cls: cls or "-", [("on your computer", "tcw-admin approve {}"), ("on tcw", "tcw approve {}")], "tcw-admin", out=out, now=NOW)
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+            view.render_status(rows, results, lambda jid, cls: cls or "-", [("on your computer", "tct-admin approve {}"), ("on tct", "tct approve {}")], "tct-admin", out=out, now=NOW)
         text = out.getvalue()
-        for needle in ("Your most recent jobs, newest first.", "WAITING FOR YOU", "tcw-admin approve w", "approve it:", "on your computer > tcw-admin approve w", "on tcw", "tcw approve w", "echo"):
+        for needle in ("Your most recent jobs, newest first.", "WAITING FOR YOU", "tct-admin approve w", "approve it:", "on your computer > tct-admin approve w", "on tct", "tct approve w", "echo"):
             self.assertIn(needle, text)
         self.assertNotIn("macbook", text)
         out = io.StringIO()
         info = {"updated": "2026-01-02T00:00:00Z", "mem_total_mb": 8000, "capacity": 4,
                 "classes": {"echo": {"kind": "command", "cost": "light", "tier": "auto", "run": ["/bin/echo", "{word}"], "params": ["word"]},
                             "profile-run": {"kind": "profile", "cost": "heavy", "tier": "approve"}}}
-        with mock.patch.dict(os.environ, {"CW_COLOR": "never"}):
-            view.render_classes(info, pending=["newclass"], excluded=2, out=out, product="tcw")
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+            view.render_classes(info, pending=["newclass"], excluded=2, out=out, product="tct")
         text = out.getvalue()
-        for needle in ("What tcw can run for you today.", "echo", "/bin/echo {word}", "params: word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
+        for needle in ("What tct can run for you today.", "echo", "/bin/echo {word}", "params: word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
             self.assertIn(needle, text)
 
     def test_result_formatting_for_a_profile_run_shows_verdict_and_estimate_comparison(self):
         res = {"id": "profile-abc123", "status": "ok", "output": "done", "note": "", "metrics": {"wall_s": 3.0, "cpu_s": 2.5, "peak_rss_mb": 300, "mem_total_mb": 8000, "peak_temp_c": 60, "disk_mb": 1},
                "profile": {"argv": ["ls", "-l"], "what": "lists", "verdict": "fits", "cost": "light", "reasons": ["3.0s, 300 MB"], "estimates": {"time_s": 1, "mem_mb": 100}}}
-        with mock.patch.dict(os.environ, {"CW_COLOR": "never"}):
-            head, output, tail = view.format_result(res, admin="tcw-admin", suggest_name="ls-long")
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+            head, output, tail = view.format_result(res, admin="tct-admin", suggest_name="ls-long")
         text = "\n".join(head + tail)
         for needle in ("JOB     profile-abc123", "STATUS  ok", "Command", "ls -l", "MEASURED", "VERDICT  fits   cost light", "x3.0 over the estimate",
-                       "tcw-admin adopt profile-abc123 --name ls-long"):
+                       "tct-admin adopt profile-abc123 --name ls-long"):
             self.assertIn(needle, text)
         self.assertEqual(output, "done")
 
@@ -176,12 +176,12 @@ class Repo(RepoFixture):
         c1 = self.repos.push_files("jobs", {"jobs/a.json": "{}\n"}, "job: a")
         c2 = self.repos.push_files("jobs", {"jobs/b.json": "{}\n"}, "job: b")
         log = sh("git", "log", "--format=%h|%an|%s", "jobs", cwd=self.tmp / "queue.git").splitlines()
-        self.assertEqual([l.split("|")[1:] for l in log], [["cw-client", "job: b"], ["cw-client", "job: a"]])
+        self.assertEqual([l.split("|")[1:] for l in log], [["ct-client", "job: b"], ["ct-client", "job: a"]])
         self.assertEqual(sh("git", "ls-tree", "--name-only", "-r", "jobs", cwd=self.tmp / "queue.git").splitlines(), ["jobs/a.json", "jobs/b.json"])
         self.assertEqual(sh("git", "rev-parse", "origin/jobs", cwd=self.repos.queue), c2)
         self.assertNotIn("scratch.txt", sh("git", "ls-tree", "--name-only", "-r", "jobs", cwd=self.tmp / "queue.git"))     # the working tree is never read
         self.assertNotEqual(c1, c2)
-        self.assertFalse((self.repos.queue / ".git" / "cw-client.index").exists())
+        self.assertFalse((self.repos.queue / ".git" / "ct-client.index").exists())
 
     def test_a_push_that_loses_a_race_is_fetched_and_retried_never_forced(self):
         self.repos.push_files("jobs", {"jobs/a.json": "{}\n"}, "job: a")
@@ -315,7 +315,7 @@ class EndToEnd(RepoFixture):
         code, out, err = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         self.assertEqual(code, 2)
         self.assertIn("The worker is locked", out + err)
-        self.assertIn("cw-admin unlock", out + err)
+        self.assertIn("ct-admin unlock", out + err)
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("jobs"))
 
@@ -324,7 +324,7 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         code, out, err = self.run_cli("classes")
         self.assertEqual(code, 0)
-        self.assertIn("What testcw can run for you today.", out)
+        self.assertIn("What testct can run for you today.", out)
         self.assertIn("careful", out)
         code, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         jid = out.strip()
@@ -341,11 +341,11 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         code, out, err = self.run_cli("jobs")
         self.assertIn("WAITING FOR YOU", out)
-        self.assertIn(f"tcw-admin approve {jid}", out)
+        self.assertIn(f"tct-admin approve {jid}", out)
         code, out, err = self.run_cli("result", jid)
         self.assertEqual(code, 0)
         self.assertIn("Not approved yet", out + err)
-        self.assertIn(f"tcw-admin approve {jid}", out + err)
+        self.assertIn(f"tct-admin approve {jid}", out + err)
         self.assertEqual(self.admin_calls, [])                                                   # a captured run is never offered the choice
 
     def test_at_a_terminal_a_waiting_job_can_be_approved_on_the_spot(self):
@@ -360,7 +360,7 @@ class EndToEnd(RepoFixture):
         self.admin_calls.clear()
         code, out, err = self.run_cli("result", jid)
         self.assertEqual(self.admin_calls, [])
-        self.assertIn(f"tcw-admin approve {jid}", out + err)
+        self.assertIn(f"tct-admin approve {jid}", out + err)
 
     def test_unknown_and_not_yet_picked_up_jobs(self):
         code, out, err = self.run_cli("result", "job-nosuch1")
@@ -382,12 +382,12 @@ class EndToEnd(RepoFixture):
         self.assertEqual(self.run_cli()[0], 0)                                                   # no arguments is help
 
     def test_not_set_up_is_explained(self):
-        lonely = cli.Context(ClientRepos(self.tmp / "no" / "q", self.tmp / "no" / "r", "x", "y"), product="testcw")
+        lonely = cli.Context(ClientRepos(self.tmp / "no" / "q", self.tmp / "no" / "r", "x", "y"), product="testct")
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(cli.main(["jobs"], ctx=lonely), 2)
         self.assertIn("not set up yet", out.getvalue() + err.getvalue())
-        self.assertIn("cw-run setup", out.getvalue() + err.getvalue())
+        self.assertIn("ct-run setup", out.getvalue() + err.getvalue())
 
 
 class Waiting(RepoFixture):
@@ -421,7 +421,7 @@ class Waiting(RepoFixture):
         code, out2, err = self.run_cli("result", out.strip(), "--wait", "--timeout", "30")
         self.assertEqual(code, 3)
         self.assertIn("the worker is locked", out2 + err)
-        self.assertIn("tcw-admin unlock", out2 + err)
+        self.assertIn("tct-admin unlock", out2 + err)
 
     def test_the_approval_instruction_is_given_once_while_waiting(self):
         self.clock()
@@ -451,15 +451,15 @@ class Waiting(RepoFixture):
 
 class Config(unittest.TestCase):
     def test_the_context_is_built_from_the_configuration(self):
-        from cw import config
-        cfg = config.load(None, env={"CW_CONFIG": "", "CW_IDENTITY_NAME": "homecw", "CW_GITHUB_OWNER": "alice", "CW_PATHS_CLIENT_HOME": "~/.homecw"})
+        from ct import config
+        cfg = config.load(None, env={"CT_CONFIG": "", "CT_IDENTITY_NAME": "homect", "CT_GITHUB_OWNER": "alice", "CT_PATHS_CLIENT_HOME": "~/.homect"})
         ctx = cli.Context.from_config(cfg)
-        self.assertEqual((ctx.product, ctx.admin), ("homecw", "cw-admin"))
-        self.assertEqual((ctx.repos.queue_url, ctx.repos.results_url), ("git@github.com:alice/homecw-queue.git", "git@github.com:alice/homecw-results.git"))          # derived from the install name
-        self.assertEqual(str(ctx.repos.queue), str(Path("~/.homecw/queue").expanduser()))
-        self.assertEqual(ctx.hints, [("on your computer", "cw-admin approve {}"), ("on the worker", "cw-worker approve {}")])
-        self.assertIn("cw-worker", ctx.own_tools)
-        self.assertIn("cw-admin", ctx.own_tools)
+        self.assertEqual((ctx.product, ctx.admin), ("homect", "ct-admin"))
+        self.assertEqual((ctx.repos.queue_url, ctx.repos.results_url), ("git@github.com:alice/homect-queue.git", "git@github.com:alice/homect-results.git"))          # derived from the install name
+        self.assertEqual(str(ctx.repos.queue), str(Path("~/.homect/queue").expanduser()))
+        self.assertEqual(ctx.hints, [("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")])
+        self.assertIn("ct-worker", ctx.own_tools)
+        self.assertIn("ct-admin", ctx.own_tools)
         self.assertNotIn("example-owner", json.dumps([ctx.repos.queue_url, ctx.repos.results_url]))
 
 
@@ -515,7 +515,7 @@ class ProgressLine(unittest.TestCase):
             def fileno(self):
                 raise OSError
         out = Tty()
-        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))), mock.patch.dict(os.environ, {"CW_COLOR": "never"}) if False else mock.patch.dict(os.environ, {}):
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))), mock.patch.dict(os.environ, {"CT_COLOR": "never"}) if False else mock.patch.dict(os.environ, {}):
             p = view.Progress(stream=out, clock=lambda: 0)
             p.draw("sent: waiting for a worker to notice it " * 4, view.YELLOW)
         line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|\r", "", out.getvalue())
@@ -526,7 +526,7 @@ class ProgressLine(unittest.TestCase):
 
 class WaitingChip(unittest.TestCase):
     def test_every_live_line_starts_with_its_status_as_a_capitals_chip_in_the_colour_of_that_status(self):
-        from cw import theme
+        from ct import theme
         class Tty(io.StringIO):
             def isatty(self):
                 return True
@@ -535,7 +535,7 @@ class WaitingChip(unittest.TestCase):
         for colour, role, text, word in ((view.YELLOW, "wait_chip", "sent: waiting for the worker to notice it", " SENT "), (view.CYAN, "primary_chip", "running on the worker", " RUNNING "),
                                           (view.RED, "bad_chip", "approved, but it was not picked up", " APPROVED, ")):
             out = Tty()
-            with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
                 view.Progress(stream=out, clock=lambda: 0).draw(text, colour)
             line = out.getvalue()
             self.assertIn(theme.code(role), line, text)

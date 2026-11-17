@@ -1,5 +1,5 @@
 # Per-install configuration and secrets: these describe YOUR network and must never be committed.
-cw.toml
+ct.toml
 *.local.toml
 secrets.env
 env

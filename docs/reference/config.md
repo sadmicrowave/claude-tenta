@@ -3,7 +3,7 @@
 
 # Configuration reference
 
-Every setting of `cw.toml`, with its default. The file is read from `~/.config/claude-ballast/cw.toml` on your computer and `/etc/<name>/cw.toml` on the server (or the path in `CW_CONFIG`). Any setting can also be set by an environment variable named `CW_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
+Every setting of `ct.toml`, with its default. The file is read from `~/.config/claude-tenta/ct.toml` on your computer and `/etc/<name>/ct.toml` on the server (or the path in `CT_CONFIG`). Any setting can also be set by an environment variable named `CT_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
 
 `{name}` and `{worker_user}` in a default are filled in from the settings of the same name.
 
@@ -12,7 +12,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `name` | `claude-ballast` | text | prefix for services, folders and commands on this install |
+| `name` | `claude-tenta` | text | prefix for services, folders and commands on this install |
 
 ## [server]
 
@@ -20,7 +20,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 |---|---|---|---|
 | `host` | *(not set)* | text | name or address the client connects to over SSH |
 | `admin_user` | *(not set)* | text | the human account on the server; it needs a password to use sudo |
-| `worker_user` | `cwworker` | text | the unprivileged account that runs jobs |
+| `worker_user` | `ctworker` | text | the unprivileged account that runs jobs |
 | `ssh_port` | `22` | int | SSH port on the server |
 
 ## [github]
@@ -42,7 +42,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | `state_root` | `/var/lib/{name}` | text | state, the two git clones and job working folders (server) |
 | `config` | `/etc/{name}` | text | this config, the registry and secrets (server) |
 | `worker_home` | `/home/{worker_user}` | text | home folder of the worker account (server) |
-| `client_home` | `~/.cw` | text | where the client keeps its clone and notes (your computer) |
+| `client_home` | `~/.ct` | text | where the client keeps its clone and notes (your computer) |
 
 ## [hardware]
 
@@ -65,7 +65,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `kind` | `none` | `none` , `ntfy` , `webhook` | where security alerts are sent |
-| `url` | *(not set)* | text | https address to post alerts to. A private topic address is kept in secrets.env as CW_ALERT_URL (the installer does this), not here; this setting is the fallback |
+| `url` | *(not set)* | text | https address to post alerts to. A private topic address is kept in secrets.env as CT_ALERT_URL (the installer does this), not here; this setting is the fallback |
 | `remind_hours` | `[1, 6, 24]` | floatlist | hours after a lockdown starts at which a reminder is sent |
 | `remind_repeat_h` | `24` | float | then repeat the reminder this often |
 
@@ -111,7 +111,7 @@ Every setting of `cw.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `mode` | `manual` | `manual` , `signed-tags` | manual = you apply; signed-tags = install only tags signed by your key |
-| `source` | `https://github.com/sadmicrowave/claude-ballast.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
+| `source` | `https://github.com/sadmicrowave/claude-tenta.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
 | `branch` | `main` | text | branch an explicit revision must be on before it may be installed |
 | `check` | `true` | bool | show a one-line note after a command when a newer release exists (checked at most once a day, in the background; nothing is installed) |
 

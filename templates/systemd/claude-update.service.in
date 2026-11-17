@@ -8,6 +8,6 @@ User={{worker_user}}
 Type=oneshot
 TimeoutStartSec=15min
 Environment=PYTHONPATH={{lib}}
-Environment=CW_CONFIG={{config}}/cw.toml
+Environment=CT_CONFIG={{config}}/ct.toml
 {{sandbox}}
-ExecStart=/usr/bin/python3 -m cw.cli claude-update
+ExecStart=/usr/bin/python3 -m ct.cli claude-update

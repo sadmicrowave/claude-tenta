@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from cw.setup.client import COMMANDS, ClientSetup
-from cw.setup.host import Host
+from ct.setup.client import COMMANDS, ClientSetup
+from ct.setup.host import Host
 
 
 class OnPath(unittest.TestCase):
-    """The cw-* commands must work from any new terminal without typing where they live."""
+    """The ct-* commands must work from any new terminal without typing where they live."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -26,7 +26,7 @@ class OnPath(unittest.TestCase):
         env = {"HOME": str(self.home), "PATH": path if path is not None else "/usr/bin:/bin", "SHELL": shell}
         host = Host(root="/", env=env)
         confirm = (lambda info: self.cards.append(info) or answer) if card else None
-        return ClientSetup(host, self.home / ".cw", say=self.said.append, dry_run=dry_run, scripts_dir=self.scripts if scripts == "default" else scripts, confirm_card=confirm)
+        return ClientSetup(host, self.home / ".ct", say=self.said.append, dry_run=dry_run, scripts_dir=self.scripts if scripts == "default" else scripts, confirm_card=confirm)
 
     def links(self):
         return {c: os.path.realpath(self.home / ".local" / "bin" / c) for c in COMMANDS if os.path.lexists(self.home / ".local" / "bin" / c)}
@@ -43,7 +43,7 @@ class OnPath(unittest.TestCase):
 
     def test_a_file_that_is_already_there_is_never_overwritten(self):
         (self.home / ".local" / "bin").mkdir(parents=True)
-        mine = self.home / ".local" / "bin" / "cw-help"
+        mine = self.home / ".local" / "bin" / "ct-help"
         mine.write_text("my own tool\n")
         s = self.setup_obj(path=f"{self.home}/.local/bin:/usr/bin")
         s.commands_on_path()
@@ -51,7 +51,7 @@ class OnPath(unittest.TestCase):
         row = [r for r in s.report if r[0] == "commands on your PATH"][-1]
         self.assertEqual(row[1], "partial")
         self.assertIn("rm ", row[2])
-        self.assertIn("cw-run", self.links())                                   # the rest were still linked
+        self.assertIn("ct-run", self.links())                                   # the rest were still linked
 
     def test_a_folder_already_on_the_path_needs_no_change_to_the_shell(self):
         s = self.setup_obj(path=f"{self.home}/.local/bin:/usr/bin")
@@ -68,13 +68,13 @@ class OnPath(unittest.TestCase):
         s.commands_on_path()
         text = rc.read_text()
         self.assertTrue(text.startswith("alias ll='ls -l'\n"))                  # what was there is kept, and given its newline
-        self.assertIn("# added by cw-setup: the cw-* commands", text)
+        self.assertIn("# added by ct-setup: the ct-* commands", text)
         self.assertIn(f'export PATH="{self.home}/.local/bin:$PATH"', text)
         self.assertEqual(rc.stat().st_mode & 0o777, 0o600)                      # the file's own mode is kept
         self.assertEqual(len(self.cards), 1)
         self.assertIn(".zshrc", self.cards[0]["risk"])
         self.setup_obj().commands_on_path()
-        self.assertEqual(rc.read_text().count("added by cw-setup"), 1)
+        self.assertEqual(rc.read_text().count("added by ct-setup"), 1)
 
     def test_without_permission_the_startup_file_is_untouched_and_the_line_is_shown(self):
         for kw in ({"answer": False}, {"card": False}):
@@ -113,16 +113,16 @@ class ApprovalKey(OnPath):
 
     def make(self, **kw):
         s = self.setup_obj(**kw)
-        s.home = self.home / ".cw"                                   # where the client keeps its files
+        s.home = self.home / ".ct"                                   # where the client keeps its files
         return s
 
     def test_a_key_is_made_once_with_no_passphrase_when_nobody_is_there_to_ask(self):
         s = self.make()
         s.approval_key()
-        key = self.home / ".cw" / "approval" / "key"
+        key = self.home / ".ct" / "approval" / "key"
         self.assertTrue(key.exists() and key.with_name("key.pub").exists())
         self.assertEqual(key.stat().st_mode & 0o777, 0o600)
-        self.assertEqual((self.home / ".cw" / "approval").stat().st_mode & 0o777, 0o700)
+        self.assertEqual((self.home / ".ct" / "approval").stat().st_mode & 0o777, 0o700)
         first = key.read_bytes()
         again = self.make()
         again.approval_key()
@@ -135,7 +135,7 @@ class ApprovalKey(OnPath):
         def fake(argv):
             calls.append(argv)
             Path(argv[argv.index("-f") + 1]).write_text("k")
-            Path(argv[argv.index("-f") + 1] + ".pub").write_text("ssh-ed25519 AAAA cw-approval")
+            Path(argv[argv.index("-f") + 1] + ".pub").write_text("ssh-ed25519 AAAA ct-approval")
             return 0, ""
         s = self.make()
         s.ask, s.interactive = (lambda q: ""), fake
@@ -147,7 +147,7 @@ class ApprovalKey(OnPath):
     def test_a_preview_makes_nothing_and_a_failure_is_said_not_fatal(self):
         s = self.make(dry_run=True)
         s.approval_key()
-        self.assertFalse((self.home / ".cw" / "approval").exists())
+        self.assertFalse((self.home / ".ct" / "approval").exists())
         s = self.make()
         s.ask, s.interactive = (lambda q: ""), (lambda argv: (1, ""))
         s.approval_key()

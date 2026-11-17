@@ -1,17 +1,17 @@
-# Sending work: `cw-run`
+# Sending work: `ct-run`
 
 ## In plain words
 
-`cw-run` is what you use on your own computer to hand work to the worker and read what comes back.
+`ct-run` is what you use on your own computer to hand work to the worker and read what comes back.
 
-- `cw-run submit sys-status --wait` sends a job and waits for the answer.
-- `cw-run jobs` shows your recent jobs, and the ones waiting for your approval.
-- `cw-run classes` shows what the worker is willing to run.
-- `cw-run offload ...` helps you decide **what is worth sending**. It can quietly learn which of your commands are slow and repeated, check whether a command is already
+- `ct-run submit sys-status --wait` sends a job and waits for the answer.
+- `ct-run jobs` shows your recent jobs, and the ones waiting for your approval.
+- `ct-run classes` shows what the worker is willing to run.
+- `ct-run offload ...` helps you decide **what is worth sending**. It can quietly learn which of your commands are slow and repeated, check whether a command is already
   allowed or was already tested and found unsuitable, and test-run a new command on the worker (you approve that test) to measure how heavy it is. If it is a good fit, it
   becomes a *proposal* for you to review; if not, it is remembered so it is never tried again.
 
-Nothing in `cw-run` can change what the worker is allowed to do. It only sends requests and proposals; you decide in `cw-admin`.
+Nothing in `ct-run` can change what the worker is allowed to do. It only sends requests and proposals; you decide in `ct-admin`.
 
 ## Technical specification
 
@@ -19,7 +19,7 @@ Nothing in `cw-run` can change what the worker is allowed to do. It only sends r
 
 | Command | What it does |
 |---|---|
-| `setup` | clone the two repositories into the client home (`~/.cw` by default) |
+| `setup` | clone the two repositories into the client home (`~/.ct` by default) |
 | `submit <class> [-p name=value]... [--prompt T] [--file F] [--dir D --include G] [--wait] [--timeout S]` | validate the parameters against the worker's published registry, push `jobs/<id>.json` to the `jobs` branch, optionally wait |
 | `result <job> [--wait]` | read a result; `--wait` polls (exit 0 only for status `ok`, 3 if the worker is locked, 1 on timeout) |
 | `jobs [-n N]` | recent jobs and those waiting for approval, with the command to approve each |
@@ -51,8 +51,8 @@ seconds of job overhead.
 A profile run (`kind: profile`, class `profile-run` in the core pack) names exactly one command as an argument list, says what it does and what to expect, and estimates time and memory. It always
 needs approval. The worker looks the command up, runs it under hard ceilings (a fraction of RAM, a temperature ceiling, a disk ceiling), measures it and publishes a verdict (`fits`,
 `does-not-fit`, `inconclusive`) with the reasons and a drafted registry entry with limits set from the measurement plus a margin. `offload propose` turns a fit into a branch for
-the administrator, or a misfit into an exclusion; `cw-admin adopt` does the review and install in one guided step.
+the administrator, or a misfit into an exclusion; `ct-admin adopt` does the review and install in one guided step.
 
 ### Claude Code integration
 
-A Claude Code skill that tells Claude when a command is worth offloading, and how to check with `cw-run offload fit`, is planned. The command log hooks above already work with Claude Code's Bash hooks.
+A Claude Code skill that tells Claude when a command is worth offloading, and how to check with `ct-run offload fit`, is planned. The command log hooks above already work with Claude Code's Bash hooks.

@@ -3,10 +3,10 @@
 
 # Command reference
 
-Each command also describes itself: `cw-run help`, `cw-admin help`, `cw-setup help`, and `<command> help <subcommand>` for the options of one.
+Each command also describes itself: `ct-run help`, `ct-admin help`, `ct-setup help`, and `<command> help <subcommand>` for the options of one.
 
 
-## cw-admin
+## ct-admin
 
 Run on your computer. Everything that changes the worker asks first and shows what it will do.
 
@@ -15,70 +15,70 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 
 | Command | What it does |
 |---|---|
-| `cw-admin status` | health, what the worker is doing, recent use, and its safety checks |
-| `cw-admin check` | check the connection to the worker |
-| `cw-admin workers` | compare the workers you administer: hardware, Claude access and state, side by side |
+| `ct-admin status` | health, what the worker is doing, recent use, and its safety checks |
+| `ct-admin check` | check the connection to the worker |
+| `ct-admin workers` | compare the workers you administer: hardware, Claude access and state, side by side |
 
 ### Jobs
 
 | Command | What it does |
 |---|---|
-| `cw-admin review` | show waiting jobs and note you viewed them (asks nothing) |
-| `cw-admin approve` | approve a job exactly as you saw it, then watch it |
-| `cw-admin cancel` | stop a job that has not started yet |
-| `cw-admin kill` | stop a running job |
+| `ct-admin review` | show waiting jobs and note you viewed them (asks nothing) |
+| `ct-admin approve` | approve a job exactly as you saw it, then watch it |
+| `ct-admin cancel` | stop a job that has not started yet |
+| `ct-admin kill` | stop a running job |
 
 ### Security
 
 | Command | What it does |
 |---|---|
-| `cw-admin quarantine` | list results held back by the output guard, or read one |
-| `cw-admin unlock` | clear a security lockdown after you have looked at it |
-| `cw-admin output` | the full output of a failed command (GitHub only gets its error lines) |
+| `ct-admin quarantine` | list results held back by the output guard, or read one |
+| `ct-admin unlock` | clear a security lockdown after you have looked at it |
+| `ct-admin output` | the full output of a failed command (GitHub only gets its error lines) |
 
 ### Registry
 
 | Command | What it does |
 |---|---|
-| `cw-admin adopt` | turn a finished profile run into a class and install it |
-| `cw-admin retire` | remove a class from the registry and install that |
-| `cw-admin action` | register, list or remove commands that must run as root |
-| `cw-admin proposals` | list, merge or tidy the changes waiting on branches |
-| `cw-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
+| `ct-admin adopt` | turn a finished profile run into a class and install it |
+| `ct-admin retire` | remove a class from the registry and install that |
+| `ct-admin action` | register, list or remove commands that must run as root |
+| `ct-admin proposals` | list, merge or tidy the changes waiting on branches |
+| `ct-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
 
 ### Release
 
 | Command | What it does |
 |---|---|
-| `cw-admin diff` | show what installing a version would change |
-| `cw-admin apply` | install a version on the worker, check it, offer to roll back |
-| `cw-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
-| `cw-admin clean` | remove signed approvals and orders that are finished or stale from GitHub |
+| `ct-admin diff` | show what installing a version would change |
+| `ct-admin apply` | install a version on the worker, check it, offer to roll back |
+| `ct-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
+| `ct-admin clean` | remove signed approvals and orders that are finished or stale from GitHub |
 
 ### Look
 
 | Command | What it does |
 |---|---|
-| `cw-admin theme` | show the colour roles, what they look like and where the theme came from |
+| `ct-admin theme` | show the colour roles, what they look like and where the theme came from |
 
-## cw-run
+## ct-run
 
 Run on your computer. Sends work to the worker and reads the results.
 
 | Command | What it does |
 |---|---|
-| `cw-run setup` | clone the two private repos on this computer |
-| `cw-run submit` | queue a job |
-| `cw-run result` | read a job's result |
-| `cw-run jobs` | your most recent jobs, and the ones waiting for your approval |
-| `cw-run offload` | find out what is worth running on the worker |
-| `cw-run classes` | what the worker can run today |
-| `cw-run prune` | squash old job files out of the jobs branch |
+| `ct-run setup` | clone the two private repos on this computer |
+| `ct-run submit` | queue a job |
+| `ct-run result` | read a job's result |
+| `ct-run jobs` | your most recent jobs, and the ones waiting for your approval |
+| `ct-run offload` | find out what is worth running on the worker |
+| `ct-run classes` | what the worker can run today |
+| `ct-run prune` | squash old job files out of the jobs branch |
 
-## cw-setup
+## ct-setup
 
 ```
-cw-setup install | uninstall | rename | demo | client | server | audit | tripwire-test
+ct-setup install | uninstall | rename | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)

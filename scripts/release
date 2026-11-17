@@ -6,7 +6,7 @@
     scripts/release 0.2.0 --notes FILE    use FILE as the release notes (default: the commit subjects since the last release)
     scripts/release 0.2.0 --skip-tests    skip the unit tests (the privacy check and a clean tree are always required)
 
-Everything that people or workers learn about a release comes from this tag: `cw-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
+Everything that people or workers learn about a release comes from this tag: `ct-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
 in `updates.mode = "signed-tags"` installs only a tag whose signature checks. Nothing is pushed here: you read the result, then push.
 """
 import argparse
@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-FILES = (("pyproject.toml", re.compile(r'(?m)^version = "[^"]+"'), 'version = "{v}"'), ("src/cw/__init__.py", re.compile(r'(?m)^__version__ = "[^"]+"'), '__version__ = "{v}"'))
+FILES = (("pyproject.toml", re.compile(r'(?m)^version = "[^"]+"'), 'version = "{v}"'), ("src/ct/__init__.py", re.compile(r'(?m)^__version__ = "[^"]+"'), '__version__ = "{v}"'))
 
 
 class ReleaseError(Exception):
@@ -80,7 +80,7 @@ def release(root, version, notes=None, sign=False, skip_tests=False):
     prev = previous_tag(root)
     body = notes if notes is not None else notes_since(root, prev)
     bump(root, version)
-    git(root, "add", "pyproject.toml", "src/cw/__init__.py")
+    git(root, "add", "pyproject.toml", "src/ct/__init__.py")
     git(root, "commit", "-q", "-m", f"release {version}")
     message = f"release {version}\n\n{body}\n"
     git(root, "tag", "-s" if sign else "-a", f"release-{version}", "-m", message)

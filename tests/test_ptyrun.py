@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from cw.setup import ptyrun, tui  # noqa: E402
+from ct.setup import ptyrun, tui  # noqa: E402
 
 TOKEN = "sk-ant" + "-oat01-" + "Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_-x-Q9zZ0mmm"
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
 class NewlineTranslation(unittest.TestCase):
     def test_a_terminal_in_raw_mode_gets_its_newline_handling_back(self):
         import os, pty, termios, tty
-        from cw.setup import ptyrun
+        from ct.setup import ptyrun
         master, slave = pty.openpty()
         try:
             tty.setraw(slave)

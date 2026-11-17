@@ -1,4 +1,4 @@
-"""cw-setup install: one command from your computer. A fake SSH connection and a fake local machine record everything; real git repositories stand in for GitHub."""
+"""ct-setup install: one command from your computer. A fake SSH connection and a fake local machine record everything; real git repositories stand in for GitHub."""
 import json
 import shlex
 import subprocess
@@ -10,17 +10,17 @@ from pathlib import Path
 from support import RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 from test_setup import OS_RELEASE, FakeHost  # noqa: E402
 
-from cw import config
-from cw.admin.ssh import Ssh
-from cw.client.repo import ClientError
-from cw.setup import cli as setup_cli
-from cw.setup import install, keys, toml_out
-from cw.setup.host import Result
-from cw.setup.server import EXIT_WAITING, SetupError
+from ct import config
+from ct.admin.ssh import Ssh
+from ct.client.repo import ClientError
+from ct.setup import cli as setup_cli
+from ct.setup import install, keys, toml_out
+from ct.setup.host import Result
+from ct.setup.server import EXIT_WAITING, SetupError
 
-QUEUE_PUB = "ssh-ed25519 QQQQQQQQ claude-ballast-queue"
-RESULTS_PUB = "ssh-ed25519 RRRRRRRR claude-ballast-results"
-REMOTE = "/tmp/cw-install.AbC123"
+QUEUE_PUB = "ssh-ed25519 QQQQQQQQ claude-tenta-queue"
+RESULTS_PUB = "ssh-ed25519 RRRRRRRR claude-tenta-results"
+REMOTE = "/tmp/ct-install.AbC123"
 GIVEN = {"server.host": "worker.example", "server.admin_user": "admin", "github.owner": "someone"}
 
 
@@ -35,8 +35,8 @@ class FakeProc:
         if self.n == 1:
             self.ssh.exists.add(REMOTE + "/.authenticated")                 # the password was entered: the remote shell leaves this marker
         if self.n == self.publish_after:
-            self.ssh.files["/etc/claude-ballast/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
-            self.ssh.files["/etc/claude-ballast/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
+            self.ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
+            self.ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
         if self.n >= self.polls:
             self.returncode = self.rc
             return self.rc
@@ -107,7 +107,7 @@ class HappyPath(InstallBase):
         inst = self.installer()
         inst.run_all()
         # this side
-        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
+        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
         # the release and the answers went to a private folder on the server, and only there
         sent = dict(self.ssh.sent)
         self.assertEqual(sent[f"tar -xf - -C {REMOTE}"], b"TARDATA")
@@ -117,28 +117,28 @@ class HappyPath(InstallBase):
         self.assertTrue(tty)
         self.assertTrue(remote.startswith("sh -c "))
         self.assertIn("sudo -p", remote)                                    # the password is asked first, with a prompt that says what it is
-        self.assertIn(f"-v; sudo -n true && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m cw.setup server", remote)
+        self.assertIn(f"-v; sudo -n true && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m ct.setup server", remote)
         for piece in ("--apply", "--no-banner", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
             self.assertIn(piece, remote)
         # the keys went to GitHub with the right access, without anyone copying them
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 2)
         by_repo = {a[a.index("-R") + 1]: a for a in adds}
-        self.assertNotIn("--allow-write", by_repo["someone/claude-ballast-queue"])
-        self.assertIn("--allow-write", by_repo["someone/claude-ballast-results"])
-        self.assertEqual(by_repo["someone/claude-ballast-queue"][by_repo["someone/claude-ballast-queue"].index("-t") + 1], "claude-ballast-server")
+        self.assertNotIn("--allow-write", by_repo["someone/claude-tenta-queue"])
+        self.assertIn("--allow-write", by_repo["someone/claude-tenta-results"])
+        self.assertEqual(by_repo["someone/claude-tenta-queue"][by_repo["someone/claude-tenta-queue"].index("-t") + 1], "claude-tenta-server")
         # the working folder was removed and the first job was sent
         self.assertIn(f"rm -rf {REMOTE}", self.ssh.calls)
         self.assertEqual(self.verified, ["someone"])
-        self.assertTrue(any("deploy key for someone/claude-ballast-queue" in line and "read-only" in line for line in self.said))
-        self.assertTrue(any("deploy key for someone/claude-ballast-results" in line and "read and write" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/claude-tenta-queue" in line and "read-only" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/claude-tenta-results" in line and "read and write" in line for line in self.said))
 
     def test_a_key_that_is_already_on_github_is_not_added_twice(self):
-        self.machine.replies["gh repo deploy-key list -R someone/claude-ballast-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
+        self.machine.replies["gh repo deploy-key list -R someone/claude-tenta-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
         self.installer().run_all()
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 1)
-        self.assertIn("someone/claude-ballast-results", adds[0])
+        self.assertIn("someone/claude-tenta-results", adds[0])
         self.assertTrue(any("PRESENT" in line for line in self.said))
 
     def test_the_answers_sent_to_the_server_are_complete_and_valid(self):
@@ -172,8 +172,8 @@ class FirstJobRetries(unittest.TestCase):
 
     def run_verify(self, outcomes):
         """outcomes: one (exit code, LAST_RESULT) per attempt."""
-        from cw.client import cli as client_cli
-        from cw.admin import cli as admin_cli
+        from ct.client import cli as client_cli
+        from ct.admin import cli as admin_cli
         script, said, calls = list(outcomes), [], []
 
         def fake_main(argv):
@@ -347,7 +347,7 @@ class ClaudeSignInHere(InstallBase):
 
 class ApproverKeyDelivery(InstallBase):
     def test_the_public_key_goes_to_the_server_and_the_command_says_where(self):
-        pub = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAI" + "PUBLICKEY" * 4 + " cw-approval"
+        pub = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAI" + "PUBLICKEY" * 4 + " ct-approval"
         (self.tmp / "client-home" / "approval").mkdir(parents=True)
         self.machine.put(str(self.tmp / "client-home" / "approval" / "key.pub"), pub + "\n")
         inst = self.installer()
@@ -423,14 +423,14 @@ class WithTheScreen(InstallBase):
 
     def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
         from test_tui import typed
-        from cw.setup import questions
+        from ct.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
         self.assertEqual(total, 7)                                   # the server, your account on it, GitHub, the machine, IPv6, alerts, Claude sign-in: everything else has a safe default
         events = typed("worker.example", "admin") + typed("someone", "", "", "", "") + ["enter"]       # the connection questions, the rest, then Enter on the review
         inst, term = self.installer_with_screen(events)
         inst.run_all()
         screen = term.screen.text()
-        self.assertIn("@cw-ballast", screen)
+        self.assertIn("@claude-tenta", screen)
         self.assertIn(f"{total} of {total} done", screen)
         for label, value in (("Server address", "worker.example"), ("Admin account", "admin"), ("GitHub account", "someone")):
             self.assertRegex(screen, rf"✓ {label}\s+{value}")
@@ -450,7 +450,7 @@ class WithTheScreen(InstallBase):
         clean, problems = config.validate(data)
         self.assertEqual(problems, [])
         self.assertEqual(clean["server"]["ssh_port"], 22)                              # not asked, so the default
-        self.assertEqual(clean["github"]["queue_repo"], "claude-ballast-queue")          # derived from the install name
+        self.assertEqual(clean["github"]["queue_repo"], "claude-tenta-queue")          # derived from the install name
 
     def test_stepping_back_from_the_first_other_question_returns_to_the_connection_questions(self):
         from test_tui import typed
@@ -462,7 +462,7 @@ class WithTheScreen(InstallBase):
 
     def test_advanced_settings_are_asked_only_when_asked_for(self):
         from test_tui import typed
-        from cw.setup import questions
+        from ct.setup import questions
         every = questions.count_to_ask(("client", "server"), {}, advanced=True)
         self.assertGreater(every, 15)
         inst, term = self.installer_with_screen(typed("worker.example", "admin", "2222") + typed("someone") + typed(*[""] * (every - 4)) + ["enter"])
@@ -482,7 +482,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=ssh).run_all()
         self.assertIn("not supported", e.exception.why)
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
         self.assertEqual(ssh.sent, [])
         self.assertEqual(self.ran_local("gh"), [])
 
@@ -490,7 +490,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=FakeSsh(connect=False)).run_all()
         self.assertIn("ssh-copy-id admin" + "@" + "worker.example", " ".join(e.exception.steps))
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
 
     def test_missing_connection_answers_are_named(self):
         inst = install.Installer(self.tmp, ssh_factory=lambda *a: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=True)
@@ -530,9 +530,9 @@ class WithoutGh(InstallBase):
         self.installer().run_all()
         self.assertEqual(self.ran_local("gh "), [])
         text = "\n".join(self.said)
-        self.assertIn("https://github.com/someone/claude-ballast-queue/settings/keys", text)
+        self.assertIn("https://github.com/someone/claude-tenta-queue/settings/keys", text)
         self.assertIn("leave write access OFF", text)
-        self.assertIn("https://github.com/someone/claude-ballast-results/settings/keys", text)
+        self.assertIn("https://github.com/someone/claude-tenta-results/settings/keys", text)
         self.assertIn("'Allow write access' ticked", text)
         self.assertIn(QUEUE_PUB, text)
         self.assertEqual(text.count("gh` is not available"), 1)
@@ -545,7 +545,7 @@ class Preview(InstallBase):
         self.assertEqual(self.ssh.popen_calls, [])
         self.assertEqual(self.ran_local("gh repo create"), [])
         self.assertEqual(self.ran_local("gh repo deploy-key add"), [])
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-ballast/cw.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
         previews = [c for c in self.ssh.calls if c.startswith("env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=")]
         self.assertEqual(len(previews), 1)
         self.assertNotIn("sudo", previews[0])
@@ -617,9 +617,9 @@ class DeployKeyUnits(unittest.TestCase):
 
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
-        ssh.files["/etc/claude-ballast/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
-        ssh.files["/etc/claude-ballast/deploy-keys/results.pub"] = "not a key\n"
-        self.assertEqual(keys.published(ssh, "/etc/claude-ballast"), {"queue": "ssh-ed25519 AAA c"})
+        ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
+        ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = "not a key\n"
+        self.assertEqual(keys.published(ssh, "/etc/claude-tenta"), {"queue": "ssh-ed25519 AAA c"})
 
     def test_complete_needs_both_keys(self):
         dk = keys.DeployKeys(self.cfg(), lambda a: Result(0, "[]"), lambda n: "gh")

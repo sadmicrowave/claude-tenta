@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import results  # noqa: E402
+from ct import results  # noqa: E402
 
 TRACE = ("." * 50 + "Exception in thread Thread-2 (<lambda>):\nTraceback (most recent call last):\n"
          '  File "/usr/lib/python3.14/urllib/request.py", line 1321, in do_open\n    h.request()\n'

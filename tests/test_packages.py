@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import packages  # noqa: E402
+from ct import packages  # noqa: E402
 
 
 def done(argv, rc=0, out="", err=""):
@@ -174,12 +174,12 @@ class Planning(unittest.TestCase):
         self.assertIn("the limit is 2 MB", p.plan(["apt:jq"])["problems"][0])
 
     def test_the_approval_text_uses_the_product_and_apply_command(self):
-        p, _, _ = make(run=self.fake(), product="homecw", apply_command="homecw-admin apply")
+        p, _, _ = make(run=self.fake(), product="homect", apply_command="homect-admin apply")
         text = p.plan_text(p.plan(["apt:jq"], "j"))
-        for needle in ("INSTALL REQUIRED", "software homecw does not have", "THROWAWAY folder", "`homecw-admin apply`", "NO network", "apt-get install"):
+        for needle in ("INSTALL REQUIRED", "software homect does not have", "THROWAWAY folder", "`homect-admin apply`", "NO network", "apt-get install"):
             self.assertIn(needle, text)
         self.assertEqual(p.plan_text(p.plan([])), "")
-        self.assertNotIn("claude-ballast", text)
+        self.assertNotIn("claude-tenta", text)
 
 
 class Preparing(unittest.TestCase):

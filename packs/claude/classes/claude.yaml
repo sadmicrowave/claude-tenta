@@ -3,7 +3,7 @@
 classes:
   claude-read:
     kind: claude
-    tier: approve              # each job waits for `cw-admin approve`: it spends your Claude usage, and the attached files are untrusted text
+    tier: approve              # each job waits for `ct-admin approve`: it spends your Claude usage, and the attached files are untrusted text
     cost: medium
     accepts_files: true
     allowed_tools: [Read, Grep, Glob]

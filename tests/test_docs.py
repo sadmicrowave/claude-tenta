@@ -43,14 +43,14 @@ class Docs(unittest.TestCase):
         self.assertNotIn("Nothing here installs yet", (ROOT / "README.md").read_text())
 
     def test_documented_commands_exist(self):
-        from cw.admin import cli as admin
-        from cw.client import cli as client
+        from ct.admin import cli as admin
+        from ct.client import cli as client
         current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md")]      # the design papers describe commands that were renamed or removed
         text = "\n".join(p.read_text() for p in current)
-        for name in re.findall(r"cw-admin ([a-z][a-z-]*)", text):
-            self.assertTrue(name in admin.HELP or name in ("help",), f"cw-admin {name}")
-        for name in re.findall(r"cw-run ([a-z][a-z-]*)", text):
-            self.assertTrue(name in client.HELP or name in ("help",), f"cw-run {name}")
+        for name in re.findall(r"ct-admin ([a-z][a-z-]*)", text):
+            self.assertTrue(name in admin.HELP or name in ("help",), f"ct-admin {name}")
+        for name in re.findall(r"ct-run ([a-z][a-z-]*)", text):
+            self.assertTrue(name in client.HELP or name in ("help",), f"ct-run {name}")
 
 
 if __name__ == "__main__":

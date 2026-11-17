@@ -14,8 +14,8 @@
 - [Colours and the look of the output](components/theme.md): one place that decides every colour; change it with one file.
 - [Root-level actions](components/privileged.md): how a job may cause something to happen as root, narrowly, and only with your signature.
 - [Hardening](components/hardening.md): the protections the wizard applies, and how to add one.
-- [The setup wizard](components/setup.md): `cw-setup client`, `server`, `audit`.
-- [Sending work: cw-run](components/client.md) · [Running it: cw-admin](components/admin.md) · the generated [command reference](reference/commands.md).
+- [The setup wizard](components/setup.md): `ct-setup client`, `server`, `audit`.
+- [Sending work: ct-run](components/client.md) · [Running it: ct-admin](components/admin.md) · the generated [command reference](reference/commands.md).
 - [Releases and updates](components/updates.md).
 - [Testing](components/testing.md).
 

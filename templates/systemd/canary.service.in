@@ -1,11 +1,11 @@
 [Unit]
 Description={{name}} canary watch (alarm if anything reads a decoy credential file)
-ConditionPathExists={{lib}}/cw/canarywatch.py
+ConditionPathExists={{lib}}/ct/canarywatch.py
 
 [Service]
 Type=oneshot
 # runs as root only because reading the audit log needs it; the script does nothing else with that power
 TimeoutStartSec=2min
 Environment=PYTHONPATH={{lib}}
-Environment=CW_CONFIG={{config}}/cw.toml
-ExecStart=/usr/bin/python3 -m cw.canarywatch
+Environment=CT_CONFIG={{config}}/ct.toml
+ExecStart=/usr/bin/python3 -m ct.canarywatch

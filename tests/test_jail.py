@@ -10,7 +10,7 @@ from pathlib import Path
 
 import support  # noqa: F401  (points HOME at a throwaway folder)
 
-from cw import jail
+from ct import jail
 
 OK_PROBE = subprocess.CompletedProcess([], 0, "Inter-|   Receive\n face |bytes\n    lo: 0 0 0\n", "")
 PLAIN_FILE = os.stat_result((0o100755,) + (0,) * 9)
@@ -26,7 +26,7 @@ def fake_run(version="bubblewrap 0.11.1", probe=OK_PROBE):
 
 
 def bwrap(path="/usr/bin/bwrap", **kw):
-    return jail.Bwrap(path=path, hide=kw.pop("hide", ["/etc/cw-test"]), isdir=kw.pop("isdir", lambda p: True), **kw)
+    return jail.Bwrap(path=path, hide=kw.pop("hide", ["/etc/ct-test"]), isdir=kw.pop("isdir", lambda p: True), **kw)
 
 
 def pairs(a, flag):
@@ -35,7 +35,7 @@ def pairs(a, flag):
 
 class Arguments(unittest.TestCase):
     def build(self, **over):
-        kw = dict(network=False, wd="/var/lib/cw/work/j1", home="/home/w", claude=False, env={"PATH": "/usr/bin:/bin"})
+        kw = dict(network=False, wd="/var/lib/ct/work/j1", home="/home/w", claude=False, env={"PATH": "/usr/bin:/bin"})
         kw.update(over)
         return bwrap().args(["/bin/echo", "hi"], **kw)
 
@@ -64,24 +64,24 @@ class Arguments(unittest.TestCase):
             self.assertIn([d, d], binds)
         for hidden in ("/var", "/opt", "/root", "/run", "/home", "/srv", "/mnt"):
             self.assertNotIn([hidden, hidden], binds)
-        self.assertEqual(pairs(self.build(), "--bind"), [["/var/lib/cw/work/j1", "/var/lib/cw/work/j1"]])        # the one writable folder
+        self.assertEqual(pairs(self.build(), "--bind"), [["/var/lib/ct/work/j1", "/var/lib/ct/work/j1"]])        # the one writable folder
 
     def test_the_home_folder_and_the_configuration_are_hidden_and_the_machine_is_not_named(self):
         a = self.build()
         tmpfs = [x for i, x in enumerate(a) if i and a[i - 1] == "--tmpfs"]
         self.assertIn("/home/w", tmpfs)
-        self.assertIn("/etc/cw-test", tmpfs)
+        self.assertIn("/etc/ct-test", tmpfs)
         masked = pairs(a, "--ro-bind-try")
         self.assertIn(["/dev/null", "/etc/hostname"], masked)
         self.assertIn(["/dev/null", "/etc/machine-id"], masked)
 
     def test_the_configuration_folder_is_overlaid_after_etc_is_bound(self):
         a = self.build()
-        self.assertGreater(a.index("/etc/cw-test"), a.index("/etc"))
+        self.assertGreater(a.index("/etc/ct-test"), a.index("/etc"))
 
     def test_a_hidden_folder_that_does_not_exist_is_skipped(self):
         a = bwrap(isdir=lambda p: False).args(["x"], network=False, wd="/w", home="/h")
-        self.assertNotIn("/etc/cw-test", a)
+        self.assertNotIn("/etc/ct-test", a)
 
     def test_a_hidden_folder_outside_the_system_folders_needs_no_overlay(self):
         a = bwrap(hide=["/srv/elsewhere"]).args(["x"], network=False, wd="/w", home="/h")
@@ -93,12 +93,12 @@ class Arguments(unittest.TestCase):
         self.assertNotIn("/home/w/.ssh", " ".join(self.build(claude=True)))
 
     def test_a_throwaway_tools_folder_on_the_search_path_is_bound_read_only(self):
-        tools = tempfile.mkdtemp(prefix="cw-tools-")
+        tools = tempfile.mkdtemp(prefix="ct-tools-")
         a = self.build(env={"PATH": f"{tools}/bin:/usr/bin", "PYTHONPATH": tools, "NODE_PATH": "/relative/ignored"})
         self.assertEqual(pairs(a, "--ro-bind"), [[tools, tools]])
 
     def test_the_working_folder_and_home_in_the_search_path_are_not_bound_twice(self):
-        wd = tempfile.mkdtemp(prefix="cw-wd-")
+        wd = tempfile.mkdtemp(prefix="ct-wd-")
         self.assertEqual(jail.extra_ro_paths({"PATH": f"{wd}:/home/w/.local/bin:/usr/bin"}, "/home/w", wd), [])
 
     def test_there_is_no_second_session(self):
@@ -170,7 +170,7 @@ class FailingClosed(unittest.TestCase):
             jail.Unshare(False).wrap(["x"], network=False, wd="/w", home="/h")
 
     def test_from_config_picks_the_method_and_hides_the_configuration(self):
-        from cw import config
+        from ct import config
         cfg = config.Config(config.validate({})[0])
         j = jail.from_config(cfg)
         self.assertEqual((j.name, j.hide), ("bwrap", (cfg.paths.config,)))
@@ -183,8 +183,8 @@ class RealJail(unittest.TestCase):
     """Runs real jailed commands. Skipped where bubblewrap or unprivileged namespaces are unavailable (for example macOS)."""
 
     def run_in_jail(self, script, network=False, claude=False):
-        wd = Path(tempfile.mkdtemp(prefix="cw-real-"))
-        home = Path(tempfile.mkdtemp(prefix="cw-home-"))
+        wd = Path(tempfile.mkdtemp(prefix="ct-real-"))
+        home = Path(tempfile.mkdtemp(prefix="ct-home-"))
         (home / ".ssh").mkdir()
         (home / ".ssh" / "id_test").write_text("not really a key")
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
@@ -243,11 +243,11 @@ if __name__ == "__main__":
 
 class UnitSandboxAndJail(unittest.TestCase):
     def test_the_shared_unit_sandbox_leaves_out_what_breaks_the_jail(self):
-        from cw import render
+        from ct import render
         for prop in ("ProtectHostname", "ProtectKernelLogs", "RestrictNamespaces", "NoNewPrivileges", "ProtectKernelTunables", "PrivateTmp"):
             self.assertNotIn(prop, render.SANDBOX.split("# Sandbox.", 1)[1], prop)        # each was found, or known, to stop bubblewrap from building a jail
 
     def test_the_default_hardening_modules_include_job_isolation_first(self):
-        from cw import config
+        from ct import config
         self.assertEqual(config.SCHEMA["hardening"]["modules"][0][0], "job-isolation")
         self.assertEqual(config.SCHEMA["isolation"]["method"][0], "bwrap")

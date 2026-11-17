@@ -1,6 +1,6 @@
 # Several workers: design notes
 
-Status: **started.** Built so far: each worker publishes `worker-state.json` and `cw-admin workers` compares workers from it (requirement 3, and the data requirement 2 needs). Not built: choosing a worker automatically, dedicated workers and candidate locks, keeping a batch on one worker.
+Status: **started.** Built so far: each worker publishes `worker-state.json` and `ct-admin workers` compares workers from it (requirement 3, and the data requirement 2 needs). Not built: choosing a worker automatically, dedicated workers and candidate locks, keeping a batch on one worker.
 
 Original status: **planned, not built.** These are requirements written down as they came up, so the multi-worker work starts from them. Today there is one
 worker per install. The signed approvals, orders and registry (see `docs/components/setup.md`) already work from the administrator's own computer
@@ -25,13 +25,13 @@ for that reason: nothing about running several workers should need a login on ea
 3. **A command to compare workers.** One command that lists every registered worker with its hardware and its environment state, side by side: Claude
    access and its current state (signed in, which route, tool version, whether the tool is the older pinned release, last update check), packages,
    load, heat, free memory, lock state. It serves both for status comparison and for choosing a worker by hand when the automatic choice is not wanted.
-   A filter such as "only workers with Claude access" is the first use, and `cw-admin status` for one worker is the single-worker case of it.
+   A filter such as "only workers with Claude access" is the first use, and `ct-admin status` for one worker is the single-worker case of it.
 
 ## How this builds on what exists
 
 - The worker already publishes `registry.json` (classes, capacity, memory, jail, trusted approver keys) to the results repository whenever it changes.
   A per-worker state snapshot extends that file, so the Mac can read every worker's state without logging in to any of them.
-- The `Claude` row in `cw-admin status` (version, kind, last update) and `claude.auth` are the first environment facts to publish.
+- The `Claude` row in `ct-admin status` (version, kind, last update) and `claude.auth` are the first environment facts to publish.
 - Approvals, orders and registries are already signed with one key that every worker trusts (each worker keeps its own `approvers` file), so a
   signed message can be addressed to one worker or to all.
 - Routing must be deterministic and explainable: when the scheduler picks (or refuses) a worker it says why, in the same terms as the comparison command.

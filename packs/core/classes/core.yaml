@@ -1,7 +1,7 @@
-# The core job classes every install starts with. Your own classes are added later with `cw-admin adopt`; they live in your private
+# The core job classes every install starts with. Your own classes are added later with `ct-admin adopt`; they live in your private
 # queue repository, not here. Commands are argument lists with typed parameters, never shell text.
 classes:
-  # A quick health read of the worker. `cw-admin apply` runs it as its test job after an install.
+  # A quick health read of the worker. `ct-admin apply` runs it as its test job after an install.
   sys-status:
     tier: auto
     cost: light

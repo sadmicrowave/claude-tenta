@@ -22,24 +22,24 @@ approval is tied to the exact job file you looked at.
 
 | Part | Runs on | What it is |
 |---|---|---|
-| `cw-run` | your computer | queue jobs, read results, test commands (`offload`) |
-| `cw-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
-| `cw-setup` | both | the wizard: `client`, `server`, `audit` |
-| `<name>` (default `claude-ballast`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
-| `cw-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
+| `ct-run` | your computer | queue jobs, read results, test commands (`offload`) |
+| `ct-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
+| `ct-setup` | both | the wizard: `client`, `server`, `audit` |
+| `<name>` (default `claude-tenta`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
+| `ct-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
 | `canary-watch` | the worker, as root | raises the alarm when auditd sees a decoy credential file being read |
 
 ### Data flow
 
 ```
  your computer                          GitHub (private)                          the worker
- cw-run submit ──push jobs/<id>.json──▶ queue repo, branch `jobs` ◀──fetch (read-only deploy key)── fetch timer
+ ct-run submit ──push jobs/<id>.json──▶ queue repo, branch `jobs` ◀──fetch (read-only deploy key)── fetch timer
                                                                       validate against the INSTALLED registry
                                                                       reject | hold for approval | queue
- cw-admin approve ──ssh──▶ `<name> approve <id> --sha256 <digest>` ──▶ approval recorded for that digest
+ ct-admin approve ──ssh──▶ `<name> approve <id> --sha256 <digest>` ──▶ approval recorded for that digest
                                                                       step timer starts jobs (capacity, load, heat)
                                                                       exec: no-network namespace, limits, shape + scan output
- cw-run result ◀──pull── results repo ◀──push (write deploy key)───── publish result
+ ct-run result ◀──pull── results repo ◀──push (write deploy key)───── publish result
 ```
 
 ### Trust boundaries

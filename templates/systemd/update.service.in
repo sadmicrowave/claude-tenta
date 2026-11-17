@@ -6,5 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 Environment=PYTHONPATH={{lib}}
-Environment=CW_CONFIG={{config}}/cw.toml
-ExecStart=/usr/bin/python3 -m cw.update --verified
+Environment=CT_CONFIG={{config}}/ct.toml
+ExecStart=/usr/bin/python3 -m ct.update --verified

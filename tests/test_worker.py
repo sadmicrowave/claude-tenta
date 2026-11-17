@@ -13,9 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from cw import approvals, gitio, guard, runner, util  # noqa: E402
+from ct import approvals, gitio, guard, runner, util  # noqa: E402
 from support import REGISTRY, IP, Base, sh  # noqa: E402
-from cw import jail as jail_mod  # noqa: E402
+from ct import jail as jail_mod  # noqa: E402
 
 
 class Lifecycle(Base):
@@ -106,7 +106,7 @@ class ClaudeJobs(Base):
 
 class WorkerState(Base):
     """worker-state.json: published when the environment changes, refreshed at most every half hour."""
-    FACTS = {"name": "testcw", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "native_claude": True, "capacity": 4,
+    FACTS = {"name": "testct", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "native_claude": True, "capacity": 4,
              "claude": {"auth": "none"}, "approvers": []}
 
     def setUp(self):
@@ -125,7 +125,7 @@ class WorkerState(Base):
     def test_it_is_published_and_says_what_the_worker_is(self):
         self.w.fetch()
         doc = self.published()
-        self.assertEqual((doc["name"], doc["os"]["version"], doc["claude"]["auth"], doc["locked"]), ("testcw", "26.04", "none", False))
+        self.assertEqual((doc["name"], doc["os"]["version"], doc["claude"]["auth"], doc["locked"]), ("testct", "26.04", "none", False))
         self.assertIn("careful", doc["classes"])
         self.assertIn("load_1m", doc["observed"])
 
@@ -561,7 +561,7 @@ class Approval(Base):
         self.w.fetch()
         res = self.result("job-0001")
         self.assertEqual(res["status"], "awaiting_approval")
-        self.assertIn("cw-admin approve job-0001", res["note"])
+        self.assertIn("ct-admin approve job-0001", res["note"])
         self.assertEqual((self.spawned, self.runner.calls), ([], []))
         self.w.fetch()                                                                       # still waiting; not announced a second time
         log = sh("git", "log", "--format=%s", "main", cwd=self.tmp / "results.git").splitlines()
@@ -623,7 +623,7 @@ class Approval(Base):
         self.w.process(self.state / "inbox" / "job-0001.json", self.w.load_registry())         # queued (approved) but not started
         self.assertTrue((self.state / "queued" / "job-0001.json").exists())
         self.assertEqual(self.w.cancel("job-0001"), (True, ""))
-        self.assertEqual(self.result("job-0001")["note"], "cancelled on testcw before it started")
+        self.assertEqual(self.result("job-0001")["note"], "cancelled on testct before it started")
         self.assertFalse((self.state / "approved" / "job-0001").exists())
 
     def test_a_running_job_cannot_be_cancelled(self):
@@ -644,7 +644,7 @@ class Guard(Base):
         self.assertIn(IP, q.read_text())                                                     # the full text stays on the worker
         self.assertEqual(oct(q.stat().st_mode & 0o777), "0o600")
         self.assertTrue(self.lockdown.locked())
-        self.assertEqual([r.get_header("Title") for r in self.pushes], ["testcw QUARANTINE", "testcw LOCKDOWN"])
+        self.assertEqual([r.get_header("Title") for r in self.pushes], ["testct QUARANTINE", "testct LOCKDOWN"])
         self.assertTrue(json.loads(sh("git", "show", "main:security.json", cwd=self.tmp / "results.git"))["locked"])
         self.assertNotIn(IP, "".join(r.data.decode() for r in self.pushes))
         self.assertEqual(self.seclog.verify()[0], True)
@@ -684,7 +684,7 @@ class Guard(Base):
         self.runner.reply = ("ok", 0, f"found {token}\n", {}, "")
         self.run_all()
         self.assertEqual(self.result("job-0001")["status"], "quarantined")
-        self.assertEqual([r.get_header("Title") for r in self.pushes][0], "testcw BREACH")
+        self.assertEqual([r.get_header("Title") for r in self.pushes][0], "testct BREACH")
 
     def test_declared_output_keys_only_are_published(self):
         self.job("job-0001", "keyed")
@@ -817,7 +817,7 @@ class Profile(Base):
         res = self.result("profile-aaa111")
         self.assertEqual(res["status"], "awaiting_approval")
         self.assertIn("AT A GLANCE", res["glance"])
-        self.assertIn("testcw now", res["glance"])
+        self.assertIn("testct now", res["glance"])
         self.assertEqual(res["facts"]["binary"], "/usr/bin/ls")
         self.assertEqual(self.runner.calls, [])
 

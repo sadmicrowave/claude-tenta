@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import config  # noqa: E402
+from ct import config  # noqa: E402
 
 
 def load_text(text, env=None):
     with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "cw.toml"
+        p = Path(d) / "ct.toml"
         p.write_text(text)
         return config.load(p, env=env or {})
 
@@ -30,17 +30,17 @@ def problems(text, env=None):
 
 class Defaults(unittest.TestCase):
     def test_built_in_defaults_are_valid_and_complete(self):
-        c = config.load(None, env={"CW_CONFIG": ""})
-        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("claude-ballast", "cwworker", True))
+        c = config.load(None, env={"CT_CONFIG": ""})
+        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("claude-tenta", "ctworker", True))
         self.assertEqual((c.hardware.capacity, c.hardware.max_load, c.hardware.max_temp_c), (4, 3.0, 75))
         self.assertEqual(c.alerts.remind_hours, [1, 6, 24])
 
     def test_paths_follow_the_name(self):
-        c = load_text('[identity]\nname = "homecw"\n[server]\nworker_user = "runner1"\n')
+        c = load_text('[identity]\nname = "homect"\n[server]\nworker_user = "runner1"\n')
         self.assertEqual((c.paths.code, c.paths.state_root, c.paths.config, c.paths.worker_home),
-                         ("/opt/homecw", "/var/lib/homecw", "/etc/homecw", "/home/runner1"))
-        self.assertEqual(c.path("state"), "/var/lib/homecw/state")
-        self.assertEqual(c.unit("step.timer"), "homecw-step.timer")
+                         ("/opt/homect", "/var/lib/homect", "/etc/homect", "/home/runner1"))
+        self.assertEqual(c.path("state"), "/var/lib/homect/state")
+        self.assertEqual(c.unit("step.timer"), "homect-step.timer")
 
     def test_hardware_profile_fills_limits_and_explicit_values_win(self):
         self.assertEqual(load_text('[hardware]\nprofile = "old-laptop"\n').hardware.capacity, 2)
@@ -100,16 +100,16 @@ class Strictness(unittest.TestCase):
         clean, errs = config.validate({"alerts": {"kind": "ntfy"}})                       # but the wizard's own check still insists on one
         self.assertIn("alerts.url is required", " ".join(errs))
         self.assertIn("three different folders", " ".join(problems('[paths]\ncode = "/opt/x"\nconfig = "/opt/x"\n')))
-        self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/cw"\nstate_root = "/srv/cw/state"\n')))
+        self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/ct"\nstate_root = "/srv/ct/state"\n')))
 
     def test_unsafe_isolation_is_refused_unless_explicitly_overridden(self):
         text = "[isolation]\nrequire_netns = false\n"
         self.assertIn("require_netns = false", " ".join(problems(text)))
-        os.environ["CW_ALLOW_UNSAFE"] = "1"
+        os.environ["CT_ALLOW_UNSAFE"] = "1"
         try:
             self.assertEqual(problems(text), [])
         finally:
-            del os.environ["CW_ALLOW_UNSAFE"]
+            del os.environ["CT_ALLOW_UNSAFE"]
 
     def test_every_problem_is_reported_at_once(self):
         self.assertGreaterEqual(len(problems('[server]\nhost = "a b"\nssh_port = 0\n[github]\nowner = "x/y"\n')), 3)
@@ -117,17 +117,17 @@ class Strictness(unittest.TestCase):
     def test_bad_toml_and_missing_file(self):
         self.assertIn("not valid TOML", " ".join(problems("[server\nhost = 1")))
         with self.assertRaises(config.ConfigError):
-            config.load("/nonexistent/cw.toml", env={})
+            config.load("/nonexistent/ct.toml", env={})
 
 
 class Environment(unittest.TestCase):
     def test_environment_overrides_the_file_and_is_validated(self):
         c = load_text('[server]\nhost = "from-file.example.com"\nssh_port = 22\n',
-                      env={"CW_SERVER_HOST": "from-env.example.com", "CW_SERVER_SSH_PORT": "2222", "CW_HARDWARE_MAX_LOAD": "2.5",
-                           "CW_ALERTS_REMIND_HOURS": "2,12", "CW_NETWORK_LAN_DENY_OUT": "false"})
+                      env={"CT_SERVER_HOST": "from-env.example.com", "CT_SERVER_SSH_PORT": "2222", "CT_HARDWARE_MAX_LOAD": "2.5",
+                           "CT_ALERTS_REMIND_HOURS": "2,12", "CT_NETWORK_LAN_DENY_OUT": "false"})
         self.assertEqual((c.server.host, c.server.ssh_port, c.hardware.max_load, c.alerts.remind_hours, c.network.lan_deny_out),
                          ("from-env.example.com", 2222, 2.5, [2.0, 12.0], False))
-        self.assertIn("server.host", " ".join(problems("", env={"CW_SERVER_HOST": "bad host!"})))
+        self.assertIn("server.host", " ".join(problems("", env={"CT_SERVER_HOST": "bad host!"})))
 
 
 class Requirements(unittest.TestCase):
@@ -139,16 +139,16 @@ class Requirements(unittest.TestCase):
         with self.assertRaises(config.ConfigError):
             c.queue_url
         c2 = load_text('[github]\nowner = "alice"\n')
-        self.assertEqual(c2.queue_url, "git@github.com:alice/claude-ballast-queue.git")
-        self.assertEqual(c2.results_url, "git@github.com:alice/claude-ballast-results.git")
+        self.assertEqual(c2.queue_url, "git@github.com:alice/claude-tenta-queue.git")
+        self.assertEqual(c2.results_url, "git@github.com:alice/claude-tenta-results.git")
 
 
 class ExampleFile(unittest.TestCase):
-    path = ROOT / "config" / "cw.example.toml"
+    path = ROOT / "config" / "ct.example.toml"
 
     def test_the_example_loads_cleanly(self):
         c = config.load(self.path, env={})
-        self.assertEqual(c.server.admin_user, "cwadmin")
+        self.assertEqual(c.server.admin_user, "ctadmin")
 
     def test_every_setting_is_documented_in_the_example(self):
         text = self.path.read_text()
@@ -169,8 +169,8 @@ class Secrets(unittest.TestCase):
     def test_env_file_parsing(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "secrets.env"
-            p.write_text('# comment\nCW_ALERT_TOKEN="tk_x"\n\nANTHROPIC_API_KEY=abc=def\nnot a pair\n')
-            self.assertEqual(config.read_env_file(p), {"CW_ALERT_TOKEN": "tk_x", "ANTHROPIC_API_KEY": "abc=def"})
+            p.write_text('# comment\nCT_ALERT_TOKEN="tk_x"\n\nANTHROPIC_API_KEY=abc=def\nnot a pair\n')
+            self.assertEqual(config.read_env_file(p), {"CT_ALERT_TOKEN": "tk_x", "ANTHROPIC_API_KEY": "abc=def"})
             self.assertEqual(config.read_env_file(Path(d) / "missing"), {})
 
     def test_a_world_readable_secrets_file_is_a_problem(self):
@@ -194,7 +194,7 @@ class Cli(unittest.TestCase):
         self.assertIn("OK", out.getvalue())
         self.assertIn("[server]", out.getvalue())
         with tempfile.TemporaryDirectory() as d, redirect_stderr(err):
-            bad = Path(d) / "cw.toml"
+            bad = Path(d) / "ct.toml"
             bad.write_text('[server]\nhost = "a b"\n')
             self.assertEqual(config.main(["check", str(bad)]), 1)
         self.assertIn("server.host", err.getvalue())

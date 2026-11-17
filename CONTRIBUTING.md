@@ -3,7 +3,7 @@
 ## Set up
 
 ```bash
-git clone <your fork> && cd claude-ballast
+git clone <your fork> && cd claude-tenta
 python3 -m venv .venv && .venv/bin/pip install -e . pyyaml
 scripts/privacy-check --install-hook         # blocks commits that contain personal or environment data
 .venv/bin/python -m unittest discover -s tests
@@ -17,11 +17,11 @@ scripts/privacy-check --install-hook         # blocks commits that contain perso
 4. **Fail closed.** When something cannot be proved safe (isolation, a signature, a validation), refuse and say why, in plain words and with a command to copy.
 5. **Use reserved example values** in code, docs and tests: `example.com`, `192.0.2.0/24`, `someone`. The privacy guard enforces it. Never commit a real host name, address, handle, token or path.
 6. **Keep the generated pages current**: `scripts/gen-docs` after you change a setting or a command (a test fails if you forget).
-7. Messages for people go through `cw.ui.say` (a tag, a bold title, details, commands each on their own line); status to standard error, data to standard output.
+7. Messages for people go through `ct.ui.say` (a tag, a bold title, details, commands each on their own line); status to standard error, data to standard output.
 
 ## Writing a pack
 
-A pack is a folder under `packs/` with `pack.toml`, `classes/*.yaml` and/or `policy/*.toml`. Check it with `python3 -m cw.packs check packs/<name>`. Policy can only add rules, and a class name can belong to only one place.
+A pack is a folder under `packs/` with `pack.toml`, `classes/*.yaml` and/or `policy/*.toml`. Check it with `python3 -m ct.packs check packs/<name>`. Policy can only add rules, and a class name can belong to only one place.
 See [packs](docs/components/packs.md). Personal classes (your own tools, your employer's) belong in your private queue repository, not here.
 
 ## Writing a hardening module

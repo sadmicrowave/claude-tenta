@@ -11,13 +11,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-# Safety net: no test may ever touch the real home folder (~/.cw, ~/.config, ...). Importing this module points HOME at a throwaway folder.
-os.environ["HOME"] = tempfile.mkdtemp(prefix="cw-test-home-")
+# Safety net: no test may ever touch the real home folder (~/.ct, ~/.config, ...). Importing this module points HOME at a throwaway folder.
+os.environ["HOME"] = tempfile.mkdtemp(prefix="ct-test-home-")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from cw import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
-from cw import jail as jail_mod  # noqa: E402
-from cw.client import cli  # noqa: E402
-from cw.client.repo import ClientRepos  # noqa: E402
+from ct import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
+from ct import jail as jail_mod  # noqa: E402
+from ct.client import cli  # noqa: E402
+from ct.client.repo import ClientRepos  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
 IP = "192." + "168." + "7.77"
@@ -104,15 +104,15 @@ class Base(unittest.TestCase):
         self.state.mkdir()
         self.registry_path = t / "registry.yaml"
         self.registry_path.write_text(REGISTRY)
-        self.io = gitio.GitIO(t / "w-queue", t / "w-results", self.state, lock_wait=1, committer=("cw-worker", "cw-worker@localhost"))
+        self.io = gitio.GitIO(t / "w-queue", t / "w-results", self.state, lock_wait=1, committer=("ct-worker", "ct-worker@localhost"))
         self.pushes, self.logged = [], []
-        self.notifier = alerts.Notifier(url="https://ntfy.example/t", opener=self.pushes.append, syslog=False, product="testcw")
+        self.notifier = alerts.Notifier(url="https://ntfy.example/t", opener=self.pushes.append, syslog=False, product="testct")
         self.seclog = guard.SecurityLog(self.state / "security.log")
-        self.lockdown = alerts.Lockdown(self.state, self.notifier, self.seclog, product="testcw")
+        self.lockdown = alerts.Lockdown(self.state, self.notifier, self.seclog, product="testct")
         self.keeper = results.OutputKeeper(self.state)
         self.pk = packages.Packages(t / "tools", self.state / "profile-env", run=lambda argv, timeout, **kw: subprocess.CompletedProcess(argv, 0, "", ""))
         self.sensors, self.runner, self.spawned, self.load = Sensors(), FakeRunner(), [], 0.2
-        self.settings = worker.Settings(state=self.state, registry_path=self.registry_path, tools_root=t / "tools", product="testcw")
+        self.settings = worker.Settings(state=self.state, registry_path=self.registry_path, tools_root=t / "tools", product="testct")
         self.make_worker()
 
     def make_worker(self, **over):
@@ -158,12 +158,12 @@ class RepoFixture(Base):
         self.sleeps = []
         self.repos = ClientRepos(self.home / "queue", self.home / "results", str(self.tmp / "queue.git"), str(self.tmp / "results.git"), sleep=self.sleeps.append)
         self.repos.clone_all(self.home)
-        self.said = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
+        self.said = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
         self.said.start()
         self.addCleanup(self.said.stop)
         self.answers = []
         self.admin_calls = []
-        self.ctx = cli.Context(self.repos, product="testcw", admin="tcw-admin", ask=lambda p: self.answers.pop(0), sleep=lambda s: None,
+        self.ctx = cli.Context(self.repos, product="testct", admin="tct-admin", ask=lambda p: self.answers.pop(0), sleep=lambda s: None,
                                run_admin=lambda args: self.admin_calls.append(args) or 0, is_tty=lambda: False, home=self.home)
 
     def run_cli(self, *args):

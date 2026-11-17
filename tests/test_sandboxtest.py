@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import config, render, sandboxtest  # noqa: E402
+from ct import config, render, sandboxtest  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = """[Unit]
@@ -16,29 +16,29 @@ ProtectSystem=nothing-because-this-is-the-Unit-section
 User=worker
 Type=oneshot
 KillMode=process
-Environment=CW_STATE=/var/lib/x/state
+Environment=CT_STATE=/var/lib/x/state
 # ProtectHome=yes is only a comment
 ProtectSystem=strict
 ReadWritePaths=/var/lib/x /home/worker
 RestrictAddressFamilies=AF_UNIX AF_INET
-ExecStart=/usr/bin/python3 -m cw.cli step
+ExecStart=/usr/bin/python3 -m ct.cli step
 TimeoutStartSec=10min
 """
 
 
 def cfg():
-    return config.load(None, env={"CW_CONFIG": ""})
+    return config.load(None, env={"CT_CONFIG": ""})
 
 
 class Properties(unittest.TestCase):
     def test_only_sandbox_and_environment_settings_are_carried_over(self):
-        self.assertEqual(sandboxtest.unit_properties(UNIT), ["User=worker", "Environment=CW_STATE=/var/lib/x/state", "ProtectSystem=strict",
+        self.assertEqual(sandboxtest.unit_properties(UNIT), ["User=worker", "Environment=CT_STATE=/var/lib/x/state", "ProtectSystem=strict",
                                                              "ReadWritePaths=/var/lib/x /home/worker", "RestrictAddressFamilies=AF_UNIX AF_INET"])
 
     def test_the_real_rendered_units_yield_the_sandbox_that_will_be_tested(self):
-        text = render.unit_files(cfg(), ROOT / "templates")["claude-ballast-step.service"]
+        text = render.unit_files(cfg(), ROOT / "templates")["claude-tenta-step.service"]
         props = sandboxtest.unit_properties(text)
-        for needed in ("User=cwworker", "ProtectSystem=strict", "Environment=PYTHONPATH=/opt/claude-ballast/lib"):
+        for needed in ("User=ctworker", "ProtectSystem=strict", "Environment=PYTHONPATH=/opt/claude-tenta/lib"):
             self.assertIn(needed, props)
         self.assertFalse([p for p in props if p.startswith(("ExecStart", "Type", "KillMode", "TimeoutStartSec"))])
 
@@ -66,7 +66,7 @@ class Checks(unittest.TestCase):
 
     def test_the_commands_name_the_package_module_not_a_script_path(self):
         argv = [a for n, a, e in sandboxtest.checks("/h", "/s", "/q", have=lambda p: False) if n == "the worker starts"][0]
-        self.assertEqual(argv[1:], ["-m", "cw.cli", "status"])
+        self.assertEqual(argv[1:], ["-m", "ct.cli", "status"])
 
 
 class Running(unittest.TestCase):

@@ -1,6 +1,6 @@
 # The program is YOURS: /usr/local/sbin/fan-profile (root, mode 755). Register it from your computer with ONE command; it fetches the program's fingerprint from the
 # worker, shows you what it may do as root, asks once, then signs and installs it:
-#     cw-admin action add packs/fan-control
+#     ct-admin action add packs/fan-control
 # If the program changes later, the worker refuses to run it until you run that command again and agree to the new fingerprint.
 actions:
   fan-profile:

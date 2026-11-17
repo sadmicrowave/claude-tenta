@@ -7,5 +7,5 @@ Wants=network-online.target
 Type=oneshot
 TimeoutStartSec=20min
 Environment=PYTHONPATH={{lib}}
-Environment=CW_CONFIG={{config}}/cw.toml
-ExecStart=/usr/bin/python3 -m cw.update --registry-sync
+Environment=CT_CONFIG={{config}}/ct.toml
+ExecStart=/usr/bin/python3 -m ct.update --registry-sync

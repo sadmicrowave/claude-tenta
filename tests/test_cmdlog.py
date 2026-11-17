@@ -11,8 +11,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw.client import cli, cmdlog  # noqa: E402
-from cw.client.repo import ClientRepos  # noqa: E402
+from ct.client import cli, cmdlog  # noqa: E402
+from ct.client.repo import ClientRepos  # noqa: E402
 
 
 def ev(cmd, tid="t1", tool="Bash"):
@@ -22,7 +22,7 @@ def ev(cmd, tid="t1", tool="Bash"):
 class Log(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.log = cmdlog.CommandLog(self.home, own_tools=("cw-run", "homecw"))
+        self.log = cmdlog.CommandLog(self.home, own_tools=("ct-run", "homect"))
 
     def run_cmd(self, cmd, secs, tid):
         self.log.hook("pre", ev(cmd, tid), now=1000.0)
@@ -74,9 +74,9 @@ class Log(unittest.TestCase):
         self.assertIsNone(cmdlog.classify("   "))
 
     def test_this_installs_own_commands_are_never_candidates(self):
-        self.assertEqual(self.log.rank(records=[{"cmd": "cw-run submit echo", "secs": 99}] * 3), [])
-        self.assertEqual(cmdlog.classify("homecw status", own_tools=("homecw",))[2], cmdlog.OWN)
-        self.assertEqual(cmdlog.classify("cw-run jobs", own_tools=("cw-run",))[2], cmdlog.OWN)
+        self.assertEqual(self.log.rank(records=[{"cmd": "ct-run submit echo", "secs": 99}] * 3), [])
+        self.assertEqual(cmdlog.classify("homect status", own_tools=("homect",))[2], cmdlog.OWN)
+        self.assertEqual(cmdlog.classify("ct-run jobs", own_tools=("ct-run",))[2], cmdlog.OWN)
 
     def test_ranking_by_count_with_the_filters(self):
         for i in range(3):
@@ -121,9 +121,9 @@ def time_now():
 class Command(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homecw", own_tools=("cw-run", "homecw"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
-        self.env = mock.patch.dict(os.environ, {"CW_COLOR": "never"})
+        self.env = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -151,7 +151,7 @@ class Command(unittest.TestCase):
             log.hook("post", ev("python3 -m unittest discover tests", f"t{i}"), now=1060.0)
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertEqual(code, 0)
-        for needle in ("Candidates for homecw (median time at least 30 s).", "From 4 commands recorded on this computer.", "python3 -m unittest",
+        for needle in ("Candidates for homect (median time at least 30 s).", "From 4 commands recorded on this computer.", "python3 -m unittest",
                        "Most recent example of each", "offload fit -- <the example command>"):
             self.assertIn(needle, out + err)
         self.assertRegex(out, r"1\s+4\s+60s\s+240s\s+python3 -m unittest")
