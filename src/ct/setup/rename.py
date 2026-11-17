@@ -183,7 +183,9 @@ class Rename:
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "disable")):
                     raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
-                                     [f"The folders may already be under the new name. Read what is on this machine, then either fix the cause and run the rename again, or put the old name back with: ct-setup rename {self.old}"])
+                                     ["Fix the cause named above, then run the same command again: it carries on from where it stopped and skips what is already done.",
+                                      "The folders may already be under the new name; that is expected and the command copes with it.",
+                                      f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."])
             self.say(STYLER.note("done", title))
         self.report.append(("rename", "done", f"{self.old} -> {self.new}"))
         return self.report
@@ -339,8 +341,9 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
     finally:
         remove_remote_dir(ssh, d)
     if rc:
-        emit("The rename stopped on the server", f"Exit {rc}. Read the messages above. The repositories are already renamed on GitHub (it keeps redirecting the old names); "
-             "your own configuration was not changed.", tag="ERROR", color=RED, run_label="Try again", run=f"ct-setup rename {new} --apply")
+        emit("The rename stopped on the server", f"Exit {rc}. The step that failed is named in the card above.",
+             ("Done already", "the GitHub repositories (they keep redirecting the old names), and whatever steps are listed as done"), ("Not changed", "your own configuration on this computer"),
+             "Fix the cause, then run the same command again. It carries on from where it stopped.", tag="ERROR", color=RED, run_label="Carry on", run=f"ct-setup rename {new} --apply")
         return 1
     for step, status, detail in retitle_keys(host, cfg, new):
         say(st.note(status, step, detail))
