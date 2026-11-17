@@ -72,16 +72,33 @@ class ResultCard(unittest.TestCase):
     RES = {"id": "sys-status-qpr7xp", "status": "ok", "output": " up 10:58,  0 users\n", "created": "2026-11-17T05:35:28Z", "started": "2026-11-17T05:36:11Z",
            "finished": "2026-11-17T05:36:13Z", "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 50, "disk_mb": 0.0}}
 
-    def test_a_person_watching_gets_one_card_with_the_output_and_measurements_inside(self):
+    def printed(self, res=None):
         from cw.client import view
         out = Tty()
         with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
-            view.print_result(self.RES, out=out, err=io.StringIO())
-        lines = ANSI.sub("", out.getvalue()).strip("\n").split("\n")
-        self.assertTrue(all(l.startswith("┃") for l in lines))                       # everything is inside the one card
-        text = "\n".join(lines)
-        for needle in ("OK", "sys-status-qpr7xp", "OUTPUT", "up 10:58,  0 users", "MEASURED", "ROUND TRIP"):
-            self.assertIn(needle, text)
+            view.print_result(res or self.RES, out=out, err=io.StringIO())
+        return out.getvalue()
+
+    def test_the_output_is_in_its_own_box_in_the_status_colour_with_the_numbers_quietly_below(self):
+        raw = self.printed()
+        lines = ANSI.sub("", raw).strip("\n").split("\n")
+        top = next(i for i, l in enumerate(lines) if l.startswith("╭─ Output"))
+        bottom = next(i for i, l in enumerate(lines) if l.startswith("╰"))
+        self.assertIn("up 10:58,  0 users", "\n".join(lines[top:bottom]))                     # the output is inside the box
+        meta = "\n".join(lines[bottom + 1:])
+        for needle in ("MEASURED", "ROUND TRIP", "TOTAL", "COMING BACK"):
+            self.assertIn(needle, meta)                                                        # the numbers are beneath it, not inside
+        self.assertNotIn("MEASURED", "\n".join(lines[:bottom]))
+        self.assertIn(theme.sgr("╭─ ", "ok"), raw)                                             # green box for a success
+
+    def test_the_box_colour_follows_the_status(self):
+        for status, role in (("error", "bad"), ("limit", "warn"), ("ok", "ok")):
+            self.assertIn(theme.sgr("╭─ ", role), self.printed({**self.RES, "status": status}), status)
+
+    def test_the_numbers_are_muted_so_they_do_not_look_like_the_job(self):
+        raw = self.printed()
+        self.assertIn(theme.sgr("MEASURED", "muted"), raw)
+        self.assertNotIn(theme.sgr("MEASURED", "label"), raw)
 
     def test_a_script_still_gets_the_output_alone_on_stdout(self):
         from cw.client import view

@@ -27,12 +27,12 @@ def paint(text, *codes, stream=None):
     return theme.sgr(text, *codes)
 
 
-def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None):
+def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
     """One shape for every message a person reads: a coloured TAG and a bold title, indented detail lines, optional bullet steps,
     then commands to copy, each alone on its own line (nothing before or after it)."""
     stream = stream or sys.stderr
     if _color_on(stream):                                      # a person at a terminal: the wizard's card (see cw.cards)
-        out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label)
+        out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label, framed=framed)
         if run:
             out += cards.commands(run, run_label)
         print("\n".join(out) + "\n", file=stream)

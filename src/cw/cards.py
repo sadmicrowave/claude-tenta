@@ -43,7 +43,7 @@ def wrap(text, room):
     return textwrap.wrap(str(text), max(10, room), break_long_words=True, break_on_hyphens=False) or [""]
 
 
-def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=None):
+def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=None, framed=None):
     """The lines of one message card (a list of strings, colour codes included)."""
     role = role_for(color)
     p = lambda text, *codes: theme.sgr(text, *codes)                    # noqa: E731
@@ -63,7 +63,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
         body += [("blank", None), ("fact", (steps_label, None))] + [("step", s) for s in steps]
-    framed = role in FRAMED
+    framed = (role in FRAMED) if framed is None else framed             # a result's output box is framed in green too, not only for warnings
     inner = w - 4 if framed else w - 2
 
     def label(text):
@@ -106,6 +106,24 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
         out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]
+    return out
+
+
+def meta(sections, cols=None):
+    """Facts ABOUT something (how long it took, what it used), drawn quietly beneath it: muted capitals and muted values, no rail and no frame, so they never compete with
+    the content above. sections is [(heading, [(label, value), ...])]."""
+    w = width(cols=cols)
+    p = lambda text: theme.sgr(text, "muted")                           # noqa: E731
+    out = []
+    for heading, rows in sections:
+        if not rows:
+            continue
+        lw = max(len(k) for k, _ in rows)
+        out += ["", "  " + p(heading.upper())]
+        for k, v in rows:
+            first, *rest = wrap(v, w - lw - 6)
+            out.append("  " + p(k.upper().ljust(lw)) + "  " + p(first))
+            out += ["  " + " " * (lw + 2) + p(line) for line in rest]
     return out
 
 

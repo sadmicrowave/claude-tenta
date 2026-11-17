@@ -138,22 +138,15 @@ def format_result(res, admin="cw-admin", suggest_name=None, received=None):
 
 
 def result_card(res, admin="cw-admin", suggest_name=None, received=None):
-    """The same result as ONE card (for a person watching): the status as its chip, the job id as its subject, then the output and the measurements inside it."""
+    """A result as the three things a person looks at, kept apart: `head` (who and what: the job, its status as a chip, its command and verdict), `output` (the job's own
+    output, to be drawn in a box in the status colour) and `meta` (how long it took and what it used: quiet, beneath). Plus the command that usually comes next."""
     import shlex
     status, m, pr, trip = res["status"], res.get("metrics"), res.get("profile"), round_trip(res, received)
-    rows = [("Status", status)] + ([("Note", res["note"])] if res.get("note") else [])
+    rows = ([("Note", res["note"])] if res.get("note") else [])
     if pr:
         rows += [("Command", " ".join(shlex.quote(str(a)) for a in pr.get("argv", [])))]
         rows += [(label, pr[key]) for label, key in (("What it does", "what"), ("Why", "why"), ("Expected", "expect"), ("Reads/writes/contacts", "side_effects"), ("Bad signs", "watch_for")) if pr.get(key)]
         rows += [(f"Flag {flag}", meaning) for flag, meaning in (pr.get("flags") or {}).items()] + ([("Input files", ", ".join(pr["files"]))] if pr.get("files") else [])
-    rows += [cards.Heading("Output"), cards.Block((res.get("output") or "").rstrip("\n").split("\n") if res.get("output") else ["(no output)"])]
-    if m:
-        rows.append(cards.Heading("Measured"))
-        if m:
-            temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
-            rows += [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
-    if trip:
-        rows += [cards.Heading("Round trip")] + trip_rows(trip, str.capitalize)
     run, run_label = None, "Next"
     if pr:
         rows += [cards.Heading("Verdict"), ("Verdict", pr["verdict"] + (f"   cost {pr['cost']}" if pr.get("cost") else ""))] + [f"- {why}" for why in pr.get("reasons", [])]
@@ -161,16 +154,28 @@ def result_card(res, admin="cw-admin", suggest_name=None, received=None):
             run, run_label = f"{admin} adopt {res['id']} --name {suggest_name}", "Register it and install it on the worker, asking you once"
         elif pr["verdict"] in ("fits", "does-not-fit"):
             run, run_label = f"cw-run offload propose {res['id']}", "Record that it does not fit, so it is never offloaded"
-    return dict(title=res["id"], details=rows, tag=status, color=STATUS_COLOR.get(status, CYAN), run=run, run_label=run_label)
+    measured = []
+    if m:
+        temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
+        measured = [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
+    colour = STATUS_COLOR.get(status, CYAN)
+    return {"head": dict(title=res["id"], details=rows, tag=status, color=colour),
+            "output": {"lines": (res.get("output") or "").rstrip("\n").split("\n") if res.get("output") else ["(no output)"], "tag": status, "color": colour},
+            "meta": [("Measured", measured), ("Round trip", trip_rows(trip, str.capitalize) if trip else [])], "run": run, "run_label": run_label}
 
 
 def print_result(res, as_json=False, out=None, err=None, **kw):
     out, err = out or sys.stdout, err or sys.stderr
     if as_json:
         print(json.dumps(res, indent=2), file=out)
-    elif getattr(out, "isatty", lambda: False)() and ui._color_on(out):              # a person watching: one card, output inside
-        card = result_card(res, **kw)
-        ui.say(card.pop("title"), *card.pop("details"), stream=out, **card)
+    elif getattr(out, "isatty", lambda: False)() and ui._color_on(out):              # a person watching: the job, its output in a box in the status colour, the numbers quietly beneath
+        r = result_card(res, **kw)
+        lines = [""] + cards.card(r["head"]["title"], r["head"]["details"], tag=r["head"]["tag"], color=r["head"]["color"])
+        lines += [""] + cards.card("Output", [cards.Block(r["output"]["lines"])], tag=r["output"]["tag"], color=r["output"]["color"], framed=True)
+        lines += cards.meta(r["meta"])
+        if r["run"]:
+            lines += cards.commands(r["run"], r["run_label"])
+        print("\n".join(lines) + "\n", file=out)
     else:
         head, output, tail = format_result(res, **kw)
         print("\n".join(head), file=err)
@@ -347,10 +352,21 @@ class Progress:
         except (OSError, ValueError, AttributeError):
             width = shutil.get_terminal_size((80, 24)).columns - 1
         clock_text = f"  {el // 60}:{el % 60:02d}"
-        head = f"{SPIN[self.i % len(SPIN)]} {text}"
-        room = width - len(clock_text)
-        plain = (head if len(head) <= room else head[:max(1, room - 1)] + "…") + clock_text         # one line, always: a long phase is cut with a mark, never wrapped
+        spin = SPIN[self.i % len(SPIN)]
+        chip, rest = (None, text)
+        if color == YELLOW:                                   # a waiting line: its first word is a CAPITALS chip, so the eye lands on the status first
+            word, _, rest = text.partition(" ")
+            chip = f" {word.rstrip(':').upper()} "
+        room = width - len(clock_text) - len(spin) - 1 - (len(chip) + 1 if chip else 0)
+        rest = rest if len(rest) <= room else rest[:max(1, room - 1)] + "…"                 # one line, always: a long phase is cut with a mark, never wrapped
         self.i += 1
+        if chip and self.stream.isatty():
+            body = paint(spin + " ", BOLD, color, stream=self.stream) + paint(chip, "wait_chip", stream=self.stream) + " " + paint(rest + clock_text, BOLD, color, stream=self.stream)
+            self.stream.write("\r" + body + "\x1b[K")
+            self.stream.flush()
+            self.shown = True
+            return
+        plain = (f"{spin} {chip.strip() + ' ' if chip else ''}{rest}") + clock_text
         self.stream.write("\r" + paint(plain, BOLD, color, stream=self.stream) + "\x1b[K")
         self.stream.flush()
         self.shown = True

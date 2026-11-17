@@ -34,6 +34,7 @@ ROLES = {
     "bad_chip": "a filled error label",
     "root": "anything that runs as root: it must stand out from every other warning",
     "root_chip": "a filled 'RUNS AS ROOT' label",
+    "wait_chip": "the filled word that starts a live waiting line (SENT, QUEUED, WAITING): a different yellow from the text so the eye lands on it",
     "info": "neutral notes and what is happening now",
     "neutral_chip": "a filled, unselected button",
     "brand": "the logo",
@@ -49,7 +50,7 @@ THEMES = {
         "warn": "38;5;178", "warn_chip": "48;5;178;38;5;16;1",
         "bad": "38;5;203", "bad_chip": "48;5;160;38;5;255;1",
         "root": "38;5;207", "root_chip": "48;5;127;38;5;255;1",
-        "info": "38;5;80", "neutral_chip": "48;5;240;38;5;255;1",
+        "info": "38;5;80", "neutral_chip": "48;5;240;38;5;255;1", "wait_chip": "48;5;220;38;5;16;1",
         "brand": "38;5;80", "brand_dim": "38;5;37", "quiet": "38;5;245",
     },
     "light": {                                              # for a white terminal: darker, no pale tones
@@ -59,7 +60,7 @@ THEMES = {
         "warn": "38;5;130", "warn_chip": "48;5;172;38;5;16;1",
         "bad": "38;5;124", "bad_chip": "48;5;124;38;5;255;1",
         "root": "38;5;90", "root_chip": "48;5;90;38;5;255;1",
-        "info": "38;5;30", "neutral_chip": "48;5;250;38;5;16;1",
+        "info": "38;5;30", "neutral_chip": "48;5;250;38;5;16;1", "wait_chip": "48;5;179;38;5;16;1",
         "brand": "38;5;30", "brand_dim": "38;5;37", "quiet": "38;5;244",
     },
     "mono": {r: ("1" if r in ("strong", "label", "prompt", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")

@@ -482,16 +482,17 @@ class RoundTrip(unittest.TestCase):
     def test_a_worker_that_says_when_it_saw_the_job_splits_the_waiting_into_noticing_and_starting(self):
         res = {**self.RES, "seen": "2026-11-17T04:49:25Z"}
         self.assertEqual(view.round_trip(res, self.SEEN), (39, 30, 6, 3, 25))
-        labels = [r[0] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)]
+        rows = dict(view.result_card(res, received=self.SEEN)["meta"])["Round trip"]
+        labels = [r[0] for r in rows]
         self.assertIn("Noticing", labels)
         self.assertIn("Starting", labels)
         self.assertNotIn("Waiting", labels)
-        self.assertIn("25 s  until the worker's next look at GitHub found it", [r[1] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)])
-        self.assertIn("5 s  your approval, a free slot, and the next start pass", [r[1] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)])
+        self.assertIn("25 s  until the worker's next look at GitHub found it", [r[1] for r in rows])
+        self.assertIn("5 s  your approval, a free slot, and the next start pass", [r[1] for r in rows])
 
     def test_the_card_says_the_same(self):
-        rows = view.result_card(self.RES, received=self.SEEN)["details"]
-        self.assertEqual([r[0] for r in rows if isinstance(r, tuple) and r[0] in ("Total", "Waiting", "Running", "Coming back")], ["Total", "Waiting", "Running", "Coming back"])
+        rows = dict(view.result_card(self.RES, received=self.SEEN)["meta"])["Round trip"]
+        self.assertEqual([r[0] for r in rows], ["Total", "Waiting", "Running", "Coming back"])
         self.assertIn(("Total", "39 s  from sending the job to having its result here"), rows)
 
     def test_without_a_moment_of_receiving_it_is_measured_to_now(self):
@@ -521,3 +522,22 @@ class ProgressLine(unittest.TestCase):
         self.assertLessEqual(len(line), 59)
         self.assertIn("…", line)
         self.assertTrue(line.endswith("0:00"))
+
+
+class WaitingChip(unittest.TestCase):
+    def test_a_yellow_waiting_line_starts_with_its_status_as_a_capitals_chip(self):
+        from cw import theme
+        class Tty(io.StringIO):
+            def isatty(self):
+                return True
+            def fileno(self):
+                raise OSError
+        out = Tty()
+        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            p = view.Progress(stream=out, clock=lambda: 0)
+            p.draw("sent: waiting for the worker to notice it", view.YELLOW)
+            p.draw("cyan stays plain", view.CYAN)
+        first, second = out.getvalue().split("\r")[1:3]
+        self.assertIn(theme.sgr(" SENT ", "wait_chip"), first)
+        self.assertNotIn(theme.code("wait_chip"), second)
+        self.assertIn("waiting for the worker to notice it", re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", first))
