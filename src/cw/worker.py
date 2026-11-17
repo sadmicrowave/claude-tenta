@@ -17,6 +17,7 @@ import shutil
 import signal
 import subprocess
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -371,6 +372,10 @@ class Worker:
         wd.mkdir(parents=True, exist_ok=True)
         res["started"] = iso(self.clock())
         res["created"] = job.get("created")                 # when the client sent it, so the result can say how long the whole round trip took
+        try:                                                # when this worker first saw it (the inbox copy is written then): splits "waiting" into noticing and starting
+            res["seen"] = iso(datetime.fromtimestamp(self._p("inbox", f"{jid}.json").stat().st_mtime, timezone.utc))
+        except OSError:
+            pass
         for name, content in files.items():
             target = wd / name
             target.parent.mkdir(parents=True, exist_ok=True)

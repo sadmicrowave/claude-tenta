@@ -897,6 +897,15 @@ class Isolation(Base):
         self.assertEqual((self.result("job-0001")["status"], self.result("job-0001")["output"].strip()), ("ok", "42"))
 
 
+class SeenTime(Base):
+    def test_a_result_says_when_the_worker_first_saw_the_job(self):
+        self.job("job-0001", "echo")
+        self.run_all()
+        res = self.result("job-0001")
+        self.assertRegex(res.get("seen", ""), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertLessEqual(res["seen"], res["started"])
+
+
 class Housekeeping(Base):
     def test_old_snapshots_work_folders_and_kept_output_are_cleaned_but_unfinished_work_is_kept(self):
         old = time.time() - 10 * 86400

@@ -474,10 +474,20 @@ class RoundTrip(unittest.TestCase):
     SEEN = datetime(2026, 11, 17, 4, 49, 39, tzinfo=timezone.utc)          # three seconds after the worker published it
 
     def test_the_round_trip_ends_when_the_result_is_in_hand_not_when_the_worker_finished(self):
-        self.assertEqual(view.round_trip(self.RES, self.SEEN), (39, 30, 6, 3))
+        self.assertEqual(view.round_trip(self.RES, self.SEEN), (39, 30, 6, 3, None))
         tail = "\n".join(view.format_result(self.RES, received=self.SEEN)[2])
         for needle in ("ROUND TRIP", "total", "39 s  from sending the job to having its result here", "waiting", "30 s  until the worker started it", "running", "6 s  on the worker", "coming back", "3 s  the result published"):
             self.assertIn(needle, tail)
+
+    def test_a_worker_that_says_when_it_saw_the_job_splits_the_waiting_into_noticing_and_starting(self):
+        res = {**self.RES, "seen": "2026-11-17T04:49:25Z"}
+        self.assertEqual(view.round_trip(res, self.SEEN), (39, 30, 6, 3, 25))
+        labels = [r[0] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)]
+        self.assertIn("Noticing", labels)
+        self.assertIn("Starting", labels)
+        self.assertNotIn("Waiting", labels)
+        self.assertIn("25 s  until the worker's next look at GitHub found it", [r[1] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)])
+        self.assertIn("5 s  your approval, a free slot, and the next start pass", [r[1] for r in view.result_card(res, received=self.SEEN)["details"] if isinstance(r, tuple)])
 
     def test_the_card_says_the_same(self):
         rows = view.result_card(self.RES, received=self.SEEN)["details"]

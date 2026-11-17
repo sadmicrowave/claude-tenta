@@ -64,14 +64,18 @@ def round_trip(res, received=None):
         return None
     secs = lambda a, b: max(0, int(round((b - a).total_seconds())))      # noqa: E731
     end = received if received is not None else datetime.now(timezone.utc)
-    return secs(sent, end), secs(sent, started), secs(started, done), max(0, secs(sent, end) - secs(sent, done))
+    seen = parse_when(res.get("seen"))                                    # when the worker first saw it, if it says (newer workers do)
+    return secs(sent, end), secs(sent, started), secs(started, done), max(0, secs(sent, end) - secs(sent, done)), (min(secs(sent, seen), secs(sent, started)) if seen else None)
 
 
 def trip_rows(trip, label=str):
     """The round trip as four labelled rows, so each part reads on its own line."""
-    total, waited, ran, back = trip
-    return [(label("total"), f"{human_dur(total)}  from sending the job to having its result here"), (label("waiting"), f"{human_dur(waited)}  until the worker started it (noticing it, and your approval)"),
-            (label("running"), f"{human_dur(ran)}  on the worker"), (label("coming back"), f"{human_dur(back)}  the result published to GitHub and fetched here")]
+    total, waited, ran, back, noticed = trip
+    wait_rows = ([(label("noticing"), f"{human_dur(noticed)}  until the worker's next look at GitHub found it"),
+                  (label("starting"), f"{human_dur(waited - noticed)}  your approval, a free slot, and the next start pass")] if noticed is not None
+                 else [(label("waiting"), f"{human_dur(waited)}  until the worker started it (noticing it, and your approval)")])
+    return [(label("total"), f"{human_dur(total)}  from sending the job to having its result here")] + wait_rows + [
+        (label("running"), f"{human_dur(ran)}  on the worker"), (label("coming back"), f"{human_dur(back)}  the result published to GitHub and fetched here")]
 
 
 # ---- one result ----
