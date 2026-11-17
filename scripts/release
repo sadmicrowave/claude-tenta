@@ -14,6 +14,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +68,11 @@ def check(root, version, skip_tests=False):
             raise ReleaseError("the tests cannot run here, so nothing was tagged:\n" + pre.stderr.strip())
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=root, capture_output=True, text=True)
         if r.returncode:
-            raise ReleaseError("the unit tests fail:\n" + (r.stderr or r.stdout)[-600:])
+            out = (r.stderr or "") + (r.stdout or "")
+            log = Path(tempfile.gettempdir()) / "ct-release-tests.log"
+            log.write_text(out)
+            names = [ln for ln in out.splitlines() if ln.startswith(("FAIL:", "ERROR:"))]          # every failing test at once, so one run is enough to fix them all
+            raise ReleaseError(f"{len(names)} unit test(s) fail (full output: {log}):\n" + "\n".join(names[:40]) + "\n" + "\n".join(out.splitlines()[-4:]))
 
 
 def bump(root, version):
