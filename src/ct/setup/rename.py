@@ -71,6 +71,7 @@ class Rename:
         # the folder, so the same command run again finds the file under the new folder name and carries on from there.
         source = getattr(cfg, "source", None) or cfg.path("config_file")
         self.legacy = Path(source).name == config.LEGACY_CONFIG
+        self.resumed = Path(source).parent != Path(cfg.paths.config)               # the settings are not where the old name puts them: an earlier run already moved the folder
         self.text = host.read(source) or host.read(cfg.path("config_file")) or ""
         self.cfg2 = None
         self.skip_sandbox_test = skip_sandbox_test
@@ -111,6 +112,10 @@ class Rename:
         A = hardening.Action
         timers = [p for p in render.UNITS if p.endswith((".timer", ".socket")) and h.exists(f"/etc/systemd/system/{c.unit(p)}")]
         enabled = [p for p in timers if h.run(["systemctl", "is-enabled", c.unit(p)]).out.strip() == "enabled"]
+        if self.resumed and not enabled:
+            # The earlier run had already switched the timers off, so what was running is no longer knowable. Start what a normal install runs, or the worker would be left stopped.
+            enabled = ["fetch.timer", "step.timer", "canary.timer", "claude-update.timer", "registry-sync.timer"] + (["update.timer"] if c.updates.mode == "signed-tags" else []) \
+                + (["helper.socket"] if "actions:" in (h.read(c2.path("registry")) or "") else [])
         out = [("Stop the services", [A("run", argv=["systemctl", "disable", "--now", c.unit(p)]) for p in timers]
                 + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and "@" not in p and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
         out.append(("Move the folders", [A("run", argv=["mv", a, b]) for _, a, b in self.moves()]))
@@ -347,7 +352,8 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
         return 1
     for step, status, detail in retitle_keys(host, cfg, new):
         say(st.note(status, step, detail))
-    rewrite_local(host, cfg, cfg2, new)
-    emit("Renamed", f"{old} is now {new} on {cfg.server.host}, on GitHub and in {cfg.source}.", tag="DONE", color=GREEN,
+    changed = rewrite_local(host, cfg, cfg2, new)
+    where = next((x for x in changed if x.endswith("ct.toml")), cfg.source)
+    emit("Renamed", f"{old} is now {new} on {cfg.server.host}, on GitHub and in {where}.", tag="DONE", color=GREEN,
          run_label="Check that it works", run="ct-admin status")
     return 0

@@ -420,3 +420,22 @@ class WorkerAccountMustExist(Installed):
             self.rn().check()
         self.assertIn("does not exist", e.exception.title)
         self.assertFalse([c for c in self.h.calls if c[0] in ("mv", "systemctl")])
+
+
+class ResumedRenameRestartsTheWorker(Installed):
+    def test_a_resumed_rename_starts_the_timers_even_though_the_earlier_run_switched_them_off(self):
+        import os
+        import shutil
+        for old, new in ((self.cfg.paths.code, f"/opt/{NEW}"), (self.cfg.paths.config, f"/etc/{NEW}"), (self.cfg.paths.state_root, f"/var/lib/{NEW}")):
+            shutil.move(self.h.path(old), self.h.path(new))
+        self.h.put(f"/etc/{NEW}/cw.toml", '[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n')
+        self.h.put(f"/etc/{NEW}/registry.yaml", "actions:\n  a:\n    run: [/usr/local/sbin/x]\n")
+        self.h.replies["systemctl is-enabled"] = Result(1, "disabled\n")                              # the first run disabled them
+        cfg = config.load(self.h.path(f"/etc/{NEW}/cw.toml"), env={})
+        cfg.source = f"/etc/{NEW}/cw.toml"
+        r = rename.Rename(self.h, cfg, NEW, source="/opt/src", rev="a" * 40, say=self.said.append)
+        r.check()
+        self.assertTrue(r.resumed)
+        started = [a.argv[-1] for a in dict(r.steps())["Start the services again"]]
+        for unit in ("fetch.timer", "step.timer", "registry-sync.timer", "helper.socket"):
+            self.assertIn(f"{NEW}-{unit}", started)
