@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import perms, review  # noqa: E402
+from cw import perms, review, theme  # noqa: E402
 
 JOB = {"argv": ["eslint", "--max-warnings", "0", "src/"], "what": "Lints the source tree", "why": "before release", "expect": "10 seconds, 200 MB",
        "side_effects": "reads files only", "watch_for": "network access", "flags": {"--max-warnings": "fail if there are more than N warnings"},
@@ -82,12 +82,13 @@ class Colour(unittest.TestCase):
                  package_text="INSTALL REQUIRED. x\n\n    apt-get install jq\n    apt: jq", product="homecw")
         with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
             c = review.color_review(t, product="homecw")
-        self.assertIn("\033[1;32m", c)                                                     # the command is bold green
-        self.assertIn("\033[1;36mWHAT IT DOES", c)                                         # a label is bold cyan
-        self.assertIn("\033[1;31mWARNING", c)
-        self.assertIn("\033[1;33mINSTALL REQUIRED", c)
-        self.assertIn("\033[1;36mLOOKED UP BY HOMECW ITSELF", c)                           # the product-specific label is recognised too
-        self.assertEqual(c.count("\033[1;32m"), 1)                                         # and only the command line is green
+        OK_ = theme.sgr("", "strong", "ok")[:-4]; INFO_ = theme.sgr("", "strong", "info")[:-4]
+        self.assertIn(OK_, c)                                                     # the command is bold green
+        self.assertIn(INFO_ + "WHAT IT DOES", c)                                         # a label is bold cyan
+        self.assertIn(theme.sgr("", "strong", "bad")[:-4] + "WARNING", c)
+        self.assertIn(theme.sgr("", "strong", "warn")[:-4] + "INSTALL REQUIRED", c)
+        self.assertIn(INFO_ + "LOOKED UP BY HOMECW ITSELF", c)                           # the product-specific label is recognised too
+        self.assertEqual(c.count(OK_), 1)                                         # and only the command line is green
 
 
 class Modes(unittest.TestCase):

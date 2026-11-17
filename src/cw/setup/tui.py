@@ -16,9 +16,12 @@ import shutil
 import sys
 import textwrap
 
+from .. import theme
+
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
-BLUE, BLUE_CHIP, AMBER, AMBER_CHIP = "38;5;75", "48;5;27;38;5;255;1", "38;5;178", "48;5;178;38;5;16;1"
-GREEN, GREEN_BTN, RED, DIM, BOLD = "38;5;41", "48;5;28;38;5;255;1", "38;5;203", "2", "1"
+# Roles, not colours: cw.theme decides what they look like (and the user's theme.toml can change them).
+BLUE, BLUE_CHIP, AMBER, AMBER_CHIP = "accent", "accent_chip", "warn", "warn_chip"
+GREEN, GREEN_BTN, RED, DIM, BOLD = "ok", "ok_chip", "bad", "muted", "strong"
 WINDOW = 4                           # answered questions kept on screen above the active one; the rest are summarised
 BAR = 24
 DOT = "•"
@@ -197,7 +200,7 @@ class TuiPrompter:
 
     # ---- drawing helpers ----
     def sgr(self, text, *codes):
-        return f"\x1b[{';'.join(codes)}m{text}\x1b[0m" if self.color and codes else text
+        return theme.sgr(text, *codes) if self.color and codes else text
 
     @property
     def width(self):
@@ -506,7 +509,7 @@ class TuiPrompter:
             lines.append(row(self.sgr(f"  … and {len(steps) - 4} more steps (press s)", DIM)))
         lines.append(row())
         apply_b = self.sgr("  Apply  ", GREEN_BTN) if choice == 0 else self.sgr("  Apply  ", DIM)
-        skip_b = self.sgr("  Skip  ", BOLD, "48;5;240") if choice == 1 else self.sgr("  Skip  ", DIM)
+        skip_b = self.sgr("  Skip  ", "neutral_chip") if choice == 1 else self.sgr("  Skip  ", DIM)
         lines.append(row("    " + apply_b + "     " + skip_b))
         lines.append(row())
         foot = "←/→ choose · Enter confirms · y/n · s shows the steps"

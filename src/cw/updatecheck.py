@@ -123,8 +123,8 @@ def after_command(updates_cfg, home, local_version, worker_release=None, stream=
         if not info or now() - cache.get("banner", 0) < BANNER_EVERY_S:
             return False
         from . import ui
-        BLUE = "38;5;75"
-        print(ui.paint("▸ ", BLUE, stream=stream) + ui.paint(banner_text(info, local_version), "2", stream=stream), file=stream)
+        BLUE = ui.ACCENT
+        print(ui.paint("▸ ", BLUE, stream=stream) + ui.paint(banner_text(info, local_version), ui.DIM, stream=stream), file=stream)
         cache["banner"] = int(now())
         save(home, cache)
         return True

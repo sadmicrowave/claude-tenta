@@ -3,11 +3,11 @@
 Wide terminals get the mark and the big name; narrower ones get the big name alone; a very narrow one gets a single line. It is drawn once at the start of a
 setup, and the progress line keeps the name on screen after that. Everything is plain text and ANSI colour, generated here from a small glyph table.
 """
-from .. import __version__
+from .. import __version__, theme
 
 NAME = "cw-ballast"
 HANDLE = "@cw-ballast"
-TEAL, TEAL_DIM, GREY = "38;5;80", "38;5;37", "38;5;245"
+TEAL, TEAL_DIM, GREY = "brand", "brand_dim", "quiet"          # roles: cw.theme decides the colours
 
 # Block letters, 6 rows high. The solid body is drawn bright and the box-drawing shadow darker, so the letters look raised.
 GLYPHS = {
@@ -50,7 +50,7 @@ def mark(radius=5):
 
 
 def paint(text, code, on=True):
-    return f"\x1b[{code}m{text}\x1b[0m" if on and code else text
+    return theme.sgr(text, code) if on and code else text
 
 
 def colour_letters(row, on=True):

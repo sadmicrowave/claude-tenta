@@ -28,8 +28,8 @@ job (class kind: privileged)  ->  worker  ->  unix socket  ->  cw.helper (root) 
   the like) and the privilege tools are refused.
 - **Class** `kind: privileged`, `action: <name>`: it takes its program, parameters and limits from the action and cannot set its own `run`, `params`, `network`,
   `packages` or `tier`. It always needs approval.
-- **A pack's action** cannot know the hash of a program on your machine, so you pin it in your own `registry.yaml`: `action_pins: {fan-profile: "<sha256>"}`.
-  `cw-admin action-hash <path>` prints it (and says whether the program could be an action at all). Without the pin the pack does not install.
+- **A pack's action** cannot know the hash of a program on your machine. `cw-admin action add` pins it for you; a pack enabled on the server instead needs `action_pins: {name: "<sha256>"}`
+  in your registry (`cw-admin action-hash <path>` prints the value). Without the pin it does not install.
 - **Registry install** (`cw-update`, `registry-sync`): the root-owned registry is only written if every action's program passes `actions.check_executable` (a regular file
   owned by root and writable by nobody else, in folders that are the same, with the pinned SHA-256), and the policy's refused programs apply to actions too. The helper's socket
   (`<name>-helper.socket`) runs only while the installed registry has an action.
@@ -58,34 +58,39 @@ in the journal.
 `cw-admin review` and `cw-admin approve` show a banner for such a job: **RUNS AS ROOT**, the exact program and arguments with the job's values substituted, what it may write,
 its network and its time limit. Approval must be signed (`cw-admin approve` from your computer); `cw-worker approve` on the worker refuses it, and a job waiting for approval says so.
 
-### Example: the fan controller
+### Registering one: the same shape as adopting a class
+
+```
+cw-admin action add packs/fan-control
+```
+
+One command, one question, like `adopt`:
+
+1. It reads the definition (a YAML file, or a pack folder such as `packs/fan-control`).
+2. It asks the worker, read-only, for the program's **fingerprint** (its SHA-256 and whether only root could have changed it). You do not look the hash up or type it anywhere.
+3. It shows a **RUNS AS ROOT** card: the exact program, its pin, the arguments it takes, the only paths it may write, whether it has a network, its time limit, and
+   a line telling you how to read the program before you answer.
+4. You say yes once. It writes the registry change on a branch, merges it, signs it with your approval key and the worker installs it. No login to the worker.
+
+Why the program is pinned at all: the worker will run a root program only if its fingerprint is the one you saw in step 3. If the program is edited later, it refuses to run
+it until you look again, which is what `cw-admin action add` does when you run it a second time (it shows the new fingerprint and only moves the pin).
+`cw-admin action-hash <path>` still prints the fingerprint by itself, for the curious.
+
+After that a fan job is an ordinary job with a louder warning:
+
+```
+cw-run submit fan-profile -p mode=fixed -p rpm=3000
+cw-admin approve <job>
+```
+
+The approval screen starts with **RUNS AS ROOT** in its own colour (the `root` role in the theme: no other warning looks like it).
 
 `packs/fan-control` wraps a program of your own, `/usr/local/sbin/fan-profile idle | load | fixed <rpm>` (a bounded thermal profiling script for a Mac mini that samples the
 temperatures, runs a CPU load, or holds the fan at a fixed speed, and puts the fan daemon back afterwards). Its action writes only `/sys/devices/platform/applesmc.768`, has no
 network, and may run for six minutes.
 
-To use it without touching the server's configuration, put this in your own `registry.yaml` (a branch such as `registry/fan`, then `cw-admin proposals merge registry/fan`,
-which validates, merges, signs and publishes it):
-
-```yaml
-actions:
-  fan-profile:
-    run: [/usr/local/sbin/fan-profile, "{mode}", "{rpm}"]
-    params:
-      mode: {enum: [idle, load, fixed]}
-      rpm: {int: [1800, 5500], optional: true}
-    sha256: "<cw-admin action-hash /usr/local/sbin/fan-profile>"
-    writable: [/sys/devices/platform/applesmc.768]
-    timeout_s: 360
-classes:
-  fan-profile:
-    kind: privileged
-    action: fan-profile
-    cost: heavy
-```
-
-Then `cw-run submit fan-profile -p mode=fixed -p rpm=3000` waits for approval; `cw-admin approve <job>` shows the banner and signs it. If the program is ever changed, the helper
-refuses it until you pin the new hash.
+Packs that the server enables itself (`registry.packs` in cw.toml) can carry actions too; those need the admin's `action_pins` (see Packs). `action add` is the simpler road and
+does not need the pack to be enabled on the server.
 
 ### Limits and honest notes
 

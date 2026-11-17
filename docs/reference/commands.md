@@ -42,6 +42,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `cw-admin adopt` | turn a finished profile run into a class and install it |
 | `cw-admin retire` | remove a class from the registry and install that |
+| `cw-admin action` | register a command that must run as root: shows exactly what it may do, asks once, then signs and installs it |
 | `cw-admin proposals` | list, merge or tidy the changes waiting on branches |
 | `cw-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
 
@@ -53,6 +54,12 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 | `cw-admin apply` | install a version on the worker, check it, offer to roll back |
 | `cw-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
 | `cw-admin clean` | remove signed approvals and orders that are finished or stale from GitHub |
+
+### Look
+
+| Command | What it does |
+|---|---|
+| `cw-admin theme` | show the colour roles, what they look like and where the theme came from |
 
 ## cw-run
 

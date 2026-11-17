@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from cw import clihelp, ui  # noqa: E402
+from cw import clihelp, theme, ui  # noqa: E402
 
 
 class Tty(io.StringIO):
@@ -28,13 +28,13 @@ class Colour(unittest.TestCase):
     def test_plain_when_not_a_terminal_or_when_asked(self):
         with clean_env():
             self.assertEqual(ui.paint("x", ui.BOLD, stream=io.StringIO()), "x")
-            self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), "\033[1mx\033[0m")
+            self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), theme.sgr("x", "strong"))
         with clean_env(NO_COLOR="1"):
             self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), "x")
         with clean_env(CW_COLOR="never"):
             self.assertEqual(ui.paint("x", ui.BOLD, stream=Tty()), "x")
         with clean_env(CW_COLOR="always"):
-            self.assertEqual(ui.paint("x", ui.RED, stream=io.StringIO()), "\033[31mx\033[0m")
+            self.assertEqual(ui.paint("x", ui.RED, stream=io.StringIO()), theme.sgr("x", "bad"))
 
     def test_no_codes_means_no_escape_sequences(self):
         with clean_env(CW_COLOR="always"):

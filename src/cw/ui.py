@@ -6,7 +6,11 @@ Colour is only used when a person is watching a terminal: plain text when piped 
 import os
 import sys
 
-BOLD, DIM, ITALIC, RED, GREEN, YELLOW, CYAN = "1", "2", "3", "31", "32", "33", "36"
+from . import theme
+
+# Roles, not colours: what each looks like is decided in cw.theme (and the user's theme.toml). The older names stay so every caller keeps working.
+BOLD, DIM, ITALIC, RED, GREEN, YELLOW, CYAN = "strong", "muted", "italic", "bad", "ok", "warn", "info"
+ACCENT, ROOT = "accent", "root"
 
 
 def _color_on(stream):
@@ -17,10 +21,10 @@ def _color_on(stream):
 
 
 def paint(text, *codes, stream=None):
-    """ANSI colour for a person reading a terminal; plain text when piped, captured by Claude, or NO_COLOR is set."""
+    """Colour (by role, see cw.theme) for a person reading a terminal; plain text when piped, captured by Claude, or NO_COLOR is set."""
     if not codes or not _color_on(stream or sys.stderr):
         return text
-    return "\033[" + ";".join(codes) + "m" + text + "\033[0m"
+    return theme.sgr(text, *codes)
 
 
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None):

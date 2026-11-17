@@ -10,7 +10,7 @@ from unittest import mock
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from cw import approvals, clihelp
+from cw import approvals, clihelp, registry
 from cw.admin import cli, jobs, regedit, release
 from cw.admin import workers as workers_mod
 from cw.admin.ssh import Ssh
@@ -580,6 +580,87 @@ class RootLevelReview(AdminBase):
     def test_pinning_a_program_asks_the_worker_read_only(self):
         self.admin("action-hash", "/usr/local/sbin/fan-profile")
         self.assertEqual(self.ssh.calls, ["cw-worker action-hash /usr/local/sbin/fan-profile"])
+
+
+class ActionAdd(AdminBase):
+    """`cw-admin action add`: registering a root-level action is one command with one question, like adopt."""
+    PIN = "ab" * 32
+
+    def health(self, rev):
+        self.ssh.answers["systemctl"] = "timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev=" + rev + "\n"
+
+    def setUp(self):
+        super().setUp()
+        self.ssh.answers[INSTALLED] = self.rel[0] + "\n"
+        self.health(self.rel[0])
+        self.ssh.answers["action-hash --json"] = json.dumps({"path": "/usr/local/sbin/fan-profile", "sha256": self.PIN, "ok": True, "problem": None}) + "\n"
+        self.pack = Path(__file__).resolve().parents[1] / "packs" / "fan-control"
+
+    def main_registry(self):
+        self.repos.fetch_queue()
+        return self.repos.show_file("origin/main", "registry.yaml")
+
+    def test_one_command_adds_the_action_and_its_class_pinned_to_what_the_worker_reported(self):
+        code, out, err = self.admin("action", "add", str(self.pack), "--yes")
+        self.assertEqual(code, 0, err)
+        text = self.main_registry()
+        reg = registry.parse(text)
+        self.assertEqual(reg["actions"]["fan-profile"]["sha256"], self.PIN)
+        self.assertEqual(reg["classes"]["fan-profile"], {"kind": "privileged", "action": "fan-profile", "cost": "heavy"})
+        self.assertIn("careful", reg["classes"])                                                     # what was there is still there
+        self.assertEqual(registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) and [x for x in registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) if "tools" not in x], [])
+        self.assertTrue(any(c.startswith("sudo cw-update --rev ") for c in self.ssh.calls))        # installed, like adopt
+
+    def test_the_preview_says_it_runs_as_root_and_what_it_may_touch_before_anything_is_asked(self):
+        self.tty, self.answers = True, ["n"]
+        code, out, err = self.admin("action", "add", str(self.pack))
+        self.assertIn("RUNS AS ROOT", err)
+        for needle in ("/usr/local/sbin/fan-profile", self.PIN, "/sys/devices/platform/applesmc.768", "none", "needs your signature"):
+            self.assertIn(needle, err)
+        self.assertNotIn("fan-profile", self.main_registry().split("classes:")[0])                  # said no: nothing was changed
+
+    def test_a_program_the_worker_says_anybody_could_change_is_refused(self):
+        self.ssh.answers["action-hash --json"] = json.dumps({"path": "/usr/local/sbin/fan-profile", "sha256": self.PIN, "ok": False, "problem": "it is writable by others"}) + "\n"
+        code, _, err = self.admin("action", "add", str(self.pack), "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be a root-level action", err)
+        self.assertNotIn("fan-profile", self.main_registry())
+
+    def test_a_definition_with_a_shell_is_refused_before_the_worker_is_asked(self):
+        bad = self.tmp / "bad.yaml"
+        bad.write_text("actions:\n  x:\n    run: [/usr/bin/bash, '-c', '{cmd}']\n    params: {cmd: {regex: '.+'}}\n")
+        code, _, err = self.admin("action", "add", str(bad), "--yes")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.ssh.captured, [])
+
+    def test_running_it_again_after_the_program_changed_only_moves_the_pin(self):
+        self.admin("action", "add", str(self.pack), "--yes")
+        new = "cd" * 32
+        self.ssh.answers["action-hash --json"] = json.dumps({"path": "/usr/local/sbin/fan-profile", "sha256": new, "ok": True, "problem": None}) + "\n"
+        code, _, err = self.admin("action", "add", str(self.pack), "--yes")
+        self.assertEqual(code, 0, err)
+        reg = registry.parse(self.main_registry())
+        self.assertEqual(reg["actions"]["fan-profile"]["sha256"], new)
+        self.assertEqual(len(reg["classes"]), len(registry.parse(REGISTRY)["classes"]) + 1)
+
+
+class RegistryTextEdits(unittest.TestCase):
+    def test_entries_go_into_an_existing_section_or_make_one(self):
+        from cw.admin import regedit
+        text = "classes:\n  a:\n    kind: command\n"
+        out = regedit.add_entries(text, "actions", ["  x:", "    run: []"])
+        self.assertTrue(out.endswith("actions:\n  x:\n    run: []\n"))
+        out = regedit.add_entries(out, "actions", ["  y:", "    run: []"])
+        self.assertEqual(regedit.action_names(out), ["x", "y"])
+        self.assertEqual(regedit.add_entries("actions: {}\nclasses:\n", "actions", ["  x:"]).splitlines()[:2], ["actions:", "  x:"])
+
+    def test_a_pin_is_replaced_in_the_right_action_only(self):
+        from cw.admin import regedit
+        text = 'actions:\n  x:\n    sha256: "' + "1" * 64 + '"\n  y:\n    sha256: "' + "2" * 64 + '"\nclasses:\n'
+        out = regedit.set_action_pin(text, "y", "3" * 64)
+        self.assertIn("1" * 64, out)
+        self.assertNotIn("2" * 64, out)
+        self.assertIsNone(regedit.set_action_pin(text, "z", "3" * 64))
 
 
 class FollowAfterApproving(unittest.TestCase):

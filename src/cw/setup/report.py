@@ -9,7 +9,7 @@ import sys
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW
 
-BLUE = "38;5;75"            # the wizard's own blue
+BLUE = "accent"                # a role: the wizard's own blue unless the theme says otherwise
 
 GOOD = {"ok", "installed", "created", "written", "linked", "stored", "updated", "removed", "satisfied", "applied", "running", "done", "seeded", "cloned", "present",
         "added", "sent", "set", "captured"}

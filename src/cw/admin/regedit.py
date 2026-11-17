@@ -56,3 +56,54 @@ def without_class(text, name):
 def is_profile_kind(text, name):
     where = class_block(text, name)
     return bool(where) and any(re.match(r"^    kind:\s*profile\s*$", line) for line in text.splitlines()[where[0]:where[1]])
+
+
+def section_end(lines, section):
+    """Index just after the last line of a top-level `section:` (trailing blank and comment lines belong to what follows), or None if the section is not there."""
+    try:
+        at = next(i for i, l in enumerate(lines) if re.match(rf"^{section}:\s*(\{{\}})?\s*$", l))
+    except StopIteration:
+        return None
+    end = next((i for i in range(at + 1, len(lines)) if re.match(r"^\S", lines[i]) and not lines[i].startswith("#")), len(lines))
+    while end > at + 1 and (not lines[end - 1].strip() or lines[end - 1].startswith("#")):
+        end -= 1
+    return at, end
+
+
+def add_entries(text, section, entry_lines):
+    """Add the (already indented) lines to the end of a top-level section, creating the section when the file has none. `section: {}` becomes a normal section."""
+    lines = text.splitlines()
+    found = section_end(lines, section)
+    if found is None:
+        lines += ([""] if lines and lines[-1].strip() else []) + [f"{section}:"] + entry_lines
+    else:
+        at, end = found
+        if lines[at].strip().endswith("{}"):
+            lines[at] = f"{section}:"
+        lines[end:end] = entry_lines
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def action_names(text):
+    lines, out = text.splitlines(), []
+    found = section_end(lines, "actions")
+    if found:
+        out = [m.group(1) for l in lines[found[0] + 1:found[1]] if (m := CLASS_LINE.match(l))]
+    return out
+
+
+def set_action_pin(text, name, digest):
+    """Replace the `sha256:` line of one action (the new pin after you changed its program). None if the action or its pin line is not there."""
+    lines = text.splitlines()
+    found = section_end(lines, "actions")
+    if not found:
+        return None
+    at = next((i for i in range(found[0] + 1, found[1]) if (m := CLASS_LINE.match(lines[i])) and m.group(1) == name), None)
+    if at is None:
+        return None
+    end = next((i for i in range(at + 1, found[1]) if CLASS_LINE.match(lines[i])), found[1])
+    for i in range(at + 1, end):
+        if re.match(r"^    sha256:", lines[i]):
+            lines[i] = f'    sha256: "{digest}"'
+            return "\n".join(lines) + "\n"
+    return None

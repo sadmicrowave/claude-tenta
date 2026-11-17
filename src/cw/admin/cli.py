@@ -16,13 +16,13 @@ import sys
 import time
 from pathlib import Path
 
-from .. import __version__, approvals, clihelp, config, registry, render, updatecheck
+from .. import __version__, approvals, clihelp, config, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import jobs, regedit, release, selfupdate, workers
+from . import actionadd, jobs, regedit, release, selfupdate, workers
 from .proposals import Proposals
 from .ssh import Ssh
 
@@ -132,7 +132,7 @@ def cmd_review(ctx, a):
             continue
         print(paint(f"\n=== {jid} " + "=" * max(4, 60 - len(jid)), BOLD, CYAN, stream=sys.stdout))
         import json
-        print(jobs.describe(json.loads(raw), pub, ctx.name, info=class_info(ctx, json.loads(raw))))
+        print(review.color_review(jobs.describe(json.loads(raw), pub, ctx.name, info=class_info(ctx, json.loads(raw))), ctx.name))
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
         emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on GitHub. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
@@ -303,7 +303,7 @@ def approve_one(ctx, a):
     if banner:
         emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
              run=["cw-admin quarantine", "cw-admin unlock"])
-    print(jobs.describe(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job)))
+    print(review.color_review(jobs.describe(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job)), ctx.name))
     ctx.viewed.mark(jid, digest)
     print("\n" + paint(f"Job file digest {digest[:12]}...  (approval is pinned to this exact file)", DIM, stream=sys.stdout))
     if not ctx.confirm("Approve this exact job?", a.yes):
@@ -464,6 +464,54 @@ def cmd_workers(ctx, a):
 
 def cmd_action_hash(ctx, a):
     return ctx.remote("action-hash", a.path)
+
+
+def cmd_action(ctx, a):
+    """cw-admin action add <definition>: register a root-level action. One command, like adopt: it asks the worker for the program's fingerprint, shows what it
+    would be allowed to do as root, asks once, then writes the registry change, merges, signs and installs it."""
+    r, p = ctx.repos, ctx.props
+    r.need_setup()
+    defn = actionadd.load_definition(a.source)
+    problems = actionadd.check_definition(defn)
+    if problems:
+        raise ClientError("That definition would be refused", "\n".join(problems[:6]), ["Fix the file; nothing was sent anywhere."])
+    p.fetch()
+    text = r.show_file(p.base, "registry.yaml") or ""
+    have_actions, have_classes = regedit.action_names(text), regedit.class_names(text)
+    plan, pins = [], {}
+    for name, action in defn["actions"].items():
+        info = actionadd.ask_worker(ctx, actionadd.program_of(action))
+        pins[name] = info["sha256"]
+        again = name in have_actions
+        emit(f"{'Re-pin' if again else 'Add'} the root-level action {name}", *actionadd.summary(name, action, info),
+             "\n", f"Read the program before you say yes:  ssh {ctx.ssh.target} cat {info['path']}", tag="RUNS AS ROOT", color=_ui.ROOT)
+        plan.append((name, action, info, again))
+    new_classes = {n: b for n, b in defn["classes"].items() if n not in have_classes}
+    if not ctx.confirm(f"Register {', '.join(defn['actions'])} so jobs can run it as root on {ctx.ssh.host}?", a.yes):
+        stop("Not registered", "You answered no. Nothing was changed.")
+    for name, action, info, again in plan:
+        if again:
+            text = regedit.set_action_pin(text, name, info["sha256"]) or text
+        else:
+            text = regedit.add_entries(text, "actions", actionadd.entry_lines(name, action, info["sha256"]))
+    for name, body in new_classes.items():
+        text = regedit.add_entries(text, "classes", actionadd.class_lines(name, body))
+    branch = "registry/action-" + "-".join(defn["actions"])[:40]
+    r.push_files(branch, {"registry.yaml": text}, f"feat(registry): root-level action {', '.join(defn['actions'])}\n\nAdded with cw-admin action add; pinned to the program's SHA-256 as the worker reported it.", base=p.main)
+    merge_branch(ctx, branch, yes=True)
+    rc = install_registry_change(ctx, a, name=next(iter(new_classes), None), present=True)
+    if rc == 0:
+        emit("Ready", f"Jobs of the class {', '.join(new_classes) or ', '.join(defn['actions'])} run as root, each one only after you approve it.", tag="DONE", color=GREEN,
+             run_label="Try one", run=f"cw-run submit {next(iter(new_classes), '<class>')}")
+    return rc
+
+
+def cmd_theme(ctx, a):
+    """Show every colour role, what it looks like now and where the theme came from (so a theme.toml can be checked before you rely on it)."""
+    rows = [(r, _ui.paint(f" {r} ", r if not r.endswith("_chip") else r, stream=sys.stdout) + "  " + what) for r, code, what in theme.preview()]
+    emit("Colours", ("Theme", theme.source), *rows, *(("Problem", p) for p in theme.problems), tag="THEME" if not theme.problems else "PROBLEM", color=_ui.ACCENT if not theme.problems else RED,
+         steps=["Change a role in theme.toml (see docs/components/theme.md); every command picks it up, nothing else to edit."], steps_label="To change it", stream=sys.stdout)
+    return 1 if theme.problems else 0
 
 
 def cmd_cancel(ctx, a):
@@ -767,7 +815,7 @@ def selftest(ctx, wait_s=240):
 
 # ---- parser and help ----
 GROUPS = [("Worker", ["status", "check", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
-          ("Registry", ["adopt", "retire", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"])]
+          ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "cw-admin status"), ("Look further back", "cw-admin status --hours 48")]),
@@ -782,6 +830,8 @@ HELP = {
     "output": ("the full output of a failed command (GitHub only gets its error lines)", [("List the kept outputs", "cw-admin output"), ("Read one", "cw-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "cw-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "cw-admin retire ssh-version")]),
+    "action": ("register a command that must run as root: shows exactly what it may do, asks once, then signs and installs it", [("From a pack or a YAML file", "cw-admin action add packs/fan-control"), ("After you changed the program, pin it again", "cw-admin action add packs/fan-control")]),
+    "theme": ("show the colour roles, what they look like and where the theme came from", [("Show them", "cw-admin theme")]),
     "action-hash": ("print the SHA-256 to pin for a root-level action's program, and check it could be one", [("Hash a program on the worker", "cw-admin action-hash /usr/local/sbin/fan-profile")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "cw-admin proposals publish")]),
     "clean": ("remove signed approvals and orders that are finished or stale from GitHub", [("Show what can go and ask", "cw-admin clean")]),
@@ -807,6 +857,11 @@ def build_parser():
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
     yes(s)
+    s = sp.add_parser("action", add_help=False)
+    s.add_argument("verb", choices=["add"], help="add: register (or re-pin) a root-level action")
+    s.add_argument("source", help="a YAML file, or a pack folder such as packs/fan-control")
+    yes(s)
+    sp.add_parser("theme", add_help=False)
     s = sp.add_parser("action-hash", add_help=False)
     s.add_argument("path", help="the program on the worker, for example /usr/local/sbin/fan-profile")
     s = sp.add_parser("clean", add_help=False)
@@ -862,7 +917,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

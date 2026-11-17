@@ -13,6 +13,8 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import theme
+
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 STALE_S = 7200
 
@@ -117,8 +119,8 @@ def row_for(name, doc, now=None):
 
 
 # ---- the cards: the wizard's question-card look (a coloured rail down the left, a chip, labelled rows) ----------------------------------------------
-BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "38;5;75", "48;5;27;38;5;255;1", "48;5;178;38;5;16;1", "48;5;160;38;5;255;1"
-RED, AMBER, DIM, BOLD = "38;5;203", "38;5;178", "2", "1"
+BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "accent", "accent_chip", "warn_chip", "bad_chip"          # roles: cw.theme decides the colours
+RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
 ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
 HANG = 10
 
@@ -126,7 +128,7 @@ HANG = 10
 def cards(rows, width=80, color=True):
     """One boxed card per worker, stacked, in the wizard's own style: a rail down the left (blue; red while the worker is locked; dim when its reading is
     stale), a chip with the worker's name, then labelled rows. Plain text when `color` is false."""
-    sgr = (lambda text, *codes: f"\x1b[{';'.join(codes)}m{text}\x1b[0m") if color else (lambda text, *codes: text)
+    sgr = theme.sgr if color else (lambda text, *codes: text)
     room = max(20, min(width, 100) - 4 - HANG)
     out = []
     for r in rows:

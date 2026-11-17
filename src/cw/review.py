@@ -99,6 +99,8 @@ def color_review(text, product="the worker"):
         label = next((l for l in labels if line == l or line.startswith(l + "  (")), None)
         if line.startswith("PROFILE RUN"):
             line, in_cmd = P(line, BOLD), True
+        elif line.startswith("RUNS AS ROOT"):
+            line = P(line, BOLD, "root")                          # its own colour: it must not look like any other warning
         elif line.startswith("INSTALL REQUIRED"):
             line = P(line, BOLD, YELLOW)
         elif line.startswith(("PROBLEMS", "WARNING")):

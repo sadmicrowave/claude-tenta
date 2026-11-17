@@ -344,9 +344,10 @@ class Status(CliBase):
         self.assertEqual(self.run_cli("action-hash", "/usr/local/sbin/../../tmp/x")[0], 2)
         self.assertEqual(self.run_cli("action-hash", "relative")[0], 2)
         code, out = self.run_cli("action-hash", "/bin/ls")[:2]
-        self.assertIn("sha256  ", out)
-        self.assertRegex(out, r'sha256: "[0-9a-f]{64}"')
-        self.assertIn("action_pins", out)
+        self.assertRegex(out, r"sha256\s+[0-9a-f]{64}")
+        self.assertIn("cw-admin action add", out)
+        info = json.loads(self.run_cli("action-hash", "--json", "/bin/ls")[1])
+        self.assertEqual(sorted(info), ["ok", "path", "problem", "sha256"])
 
     def test_hours_are_clamped(self):
         self.assertIn("LAST 168 HOURS", self.run_cli("status", "--hours", "9999")[1])

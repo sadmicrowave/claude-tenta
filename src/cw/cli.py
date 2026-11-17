@@ -269,24 +269,22 @@ def cmd_approve_many(ctx, items):
          tag="DONE" if not bad else "PARTLY", color=GREEN if not bad else YELLOW, code=1 if bad else 0)
 
 
-def cmd_action_hash(ctx, path):
-    """Print the SHA-256 to pin in an action, and say whether the program could be a root-level action at all (read-only: it only reads the file)."""
-    import os
+def cmd_action_hash(ctx, path, as_json=False):
+    """The SHA-256 a root-level action's program is pinned to, and whether it could be one at all (read-only: it only reads the file).
+    --json is for `cw-admin action add`, which asks this and shows you the answer."""
     from . import actions
-    if not os.path.isabs(path) or os.path.normpath(path) != path or os.path.dirname(path) not in actions.ALLOWED_DIRS:
-        stop("That is not a place an action's program can be", f"It must be a plain absolute path in one of: {', '.join(actions.ALLOWED_DIRS)}.", tag="ERROR", color=RED, code=2)
-    try:
-        digest = actions.sha256_of(path)
-    except OSError as e:
-        stop(f"Cannot read {path}", e.strerror or str(e), tag="ERROR", color=RED)
-    ok, why = actions.check_executable(path, digest)
-    print(f"{path}\n  sha256  {digest}")
-    if ok:
-        print("  owner and mode: fine (a regular file owned by root that nobody else can write, in folders the same)")
-    else:
-        print(f"  PROBLEM: {why.split(' (')[0] if 'approved' in why else why}")
-    print(f'\nIn your registry.yaml, under the action: \n  sha256: "{digest}"\n(or, for a pack\'s action, under  action_pins:  the action\'s name  ->  this value)')
-    return 0 if ok else 1
+    info = actions.inspect(path)
+    if as_json:
+        print(json.dumps(info))
+        return 0 if info["ok"] else 1
+    if info["ok"]:
+        emit("Program fingerprint", ("Program", path), ("sha256", info["sha256"]), ("Owner and mode", "fine: a regular file owned by root that nobody else can write, in folders the same"),
+             tag="OK", color=GREEN, run_label="Register it as a root-level action from your own computer", run="cw-admin action add <definition file or pack folder>")
+        return 0
+    if info["sha256"] is None and info["problem"].startswith("it must be"):
+        stop("That is not a place an action's program can be", ("Program", path), ("Problem", info["problem"]), tag="ERROR", color=RED, code=2)
+    stop("This program cannot be a root-level action", ("Program", path), *([("sha256", info["sha256"])] if info["sha256"] else []), ("Problem", info["problem"].split(" (")[0] if "approved" in info["problem"] else info["problem"]),
+         tag="PROBLEM", color=RED, code=1)
 
 
 def cmd_cancel(ctx, jid):
@@ -681,8 +679,8 @@ def main(argv=None, ctx=None, cfg=None):
             yes, sha = _flag(args, "--yes"), _value(args, "--sha256", None, str)
             if len(args) == 1:
                 return cmd_approve(ctx, args[0], sha=sha, yes=yes)
-        if cmd == "action-hash" and len(args) == 1:
-            return cmd_action_hash(ctx, args[0])
+        if cmd == "action-hash" and len(args) in (1, 2) and (len(args) == 1 or args[0] == "--json"):
+            return cmd_action_hash(ctx, args[-1], as_json=len(args) == 2)
         if cmd == "cancel" and len(args) == 1:
             return cmd_cancel(ctx, args[0])
         if cmd == "kill":

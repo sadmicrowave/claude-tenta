@@ -152,3 +152,16 @@ def sandbox_properties(action, state_dir):
     if writable:
         props.append("ReadWritePaths=" + " ".join(writable))
     return props
+
+
+def inspect(path):
+    """Facts about a program for `action-hash` and `cw-admin action add`: where it is, its SHA-256 and whether nobody but root could have changed it.
+    {'path', 'sha256', 'ok', 'problem'}; 'problem' says why a program cannot be an action (a place it must not live, unreadable, writable by others)."""
+    if not os.path.isabs(path) or os.path.normpath(path) != path or os.path.dirname(path) not in ALLOWED_DIRS:
+        return {"path": path, "sha256": None, "ok": False, "problem": f"it must be a plain absolute path in one of: {', '.join(ALLOWED_DIRS)}"}
+    try:
+        digest = sha256_of(path)
+    except OSError as e:
+        return {"path": path, "sha256": None, "ok": False, "problem": f"cannot be read ({e.strerror or e})"}
+    ok, why = check_executable(path, digest)
+    return {"path": path, "sha256": digest, "ok": ok, "problem": None if ok else why}
