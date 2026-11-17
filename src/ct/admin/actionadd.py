@@ -7,8 +7,6 @@ change (a branch, merged and signed by the same code `adopt` uses). Nothing here
 import json
 from pathlib import Path
 
-import yaml
-
 from .. import actions as actions_mod
 from .. import render
 from ..client.repo import ClientError
@@ -18,6 +16,7 @@ HEADER = "  # root-level action: added with ct-admin action add; the worker only
 
 def load_definition(source):
     """{'actions': {...}, 'classes': {...}} from a YAML file, or from a pack folder (its actions/*.yaml and classes/*.yaml). Raises ClientError in plain words."""
+    import yaml                                          # PyYAML: only these functions need it, so ct-admin starts without it
     path = Path(source).expanduser()
     files = sorted(list((path / "actions").glob("*.yaml")) + list((path / "classes").glob("*.yaml"))) if path.is_dir() else [path]
     if not files or not all(f.is_file() for f in files):
@@ -64,6 +63,7 @@ def ask_worker(ctx, path):
 
 def entry_lines(name, action, digest):
     """The action as registry.yaml text, with the pin the worker reported."""
+    import yaml
     body = {k: v for k, v in action.items() if k != "sha256"}
     body["sha256"] = digest
     text = yaml.safe_dump({name: body}, sort_keys=False, default_flow_style=None, width=140)
@@ -71,6 +71,7 @@ def entry_lines(name, action, digest):
 
 
 def class_lines(name, body):
+    import yaml
     return [""] + ["  " + l for l in yaml.safe_dump({name: body}, sort_keys=False, default_flow_style=False).rstrip().splitlines()]
 
 

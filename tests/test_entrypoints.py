@@ -1,6 +1,8 @@
 """Every command in pyproject.toml points at a real function, and ct-help lists every command that exists."""
 import importlib
 import io
+import os
+import sys
 import tomllib
 import unittest
 from contextlib import redirect_stdout
@@ -47,3 +49,21 @@ class EntryPoints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WithoutPyYAML(unittest.TestCase):
+    """The commands on your computer must at least start in a virtual environment where PyYAML is missing, and say what to do; and the package must declare it."""
+
+    def test_every_command_module_imports_without_yaml(self):
+        import subprocess
+        src = str(Path(__file__).resolve().parents[1] / "src")
+        code = (f"import sys; sys.path.insert(0, {src!r}); sys.modules['yaml'] = None\n"
+                "import ct.admin.cli, ct.client.cli, ct.setup.cli, ct.help, ct.cli\n"
+                "print('ok')")
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "ok"), r.stderr[-400:])
+
+    def test_the_package_declares_pyyaml_for_the_commands_on_your_computer(self):
+        import tomllib
+        deps = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["dependencies"]
+        self.assertTrue(any(d.lower().startswith("pyyaml") for d in deps), deps)
