@@ -38,6 +38,15 @@ class Rendering(unittest.TestCase):
 
 
 class Units(unittest.TestCase):
+    def test_a_direct_workers_services_may_write_the_mailbox_and_a_github_workers_do_not(self):
+        """Found on a real machine: the sandbox stopped the worker pushing results into its own mailbox ('unpacker error'), so no job ever came back."""
+        direct = cfg(CT_IDENTITY_NAME="homect", CT_TRANSPORT_KIND="direct")
+        for unit in ("homect-fetch.service", "homect-step.service"):
+            rw = [l for l in render.unit_files(direct, TEMPLATES)[unit].splitlines() if l.startswith("ReadWritePaths=")][0]
+            self.assertIn(" " + direct.path("mailbox") + " ", rw + " ", unit)
+        github = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)
+        self.assertTrue(all("-mail" not in t for t in github.values()))
+
     def test_every_unit_is_rendered_with_the_installs_names_and_no_placeholder_is_left(self):
         c = cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1", CT_SCHEDULE_FETCH_S="45", CT_SCHEDULE_UPDATE_MIN="30")
         units = render.unit_files(c, TEMPLATES)

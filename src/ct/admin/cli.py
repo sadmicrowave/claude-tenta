@@ -25,7 +25,7 @@ from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from ..setup import tui
-from . import actionadd, jobs, regedit, release, selfupdate, workers
+from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workers
 from .proposals import Proposals
 from .ssh import Ssh
 
@@ -651,6 +651,29 @@ def cmd_output(ctx, a):
     return rc
 
 
+def cmd_watch(ctx, a):
+    """One pass (or a loop) over every worker: read what each published and alert on changes. A Direct worker cannot reach a phone, so this computer does it for it."""
+    import os
+    from ..alerts import Notifier
+    cfg = ctx.cfg
+    url = (os.environ.get("CT_ALERT_URL") or (cfg.alerts.url if cfg and cfg.alerts.kind != "none" else "")) or ""
+    notifier = Notifier(url=url, product=(cfg.identity.name if cfg else "claude-tenta"), syslog=False, log=lambda m: None)
+    memory = watch_mod.Memory(ctx.home / "watch.json")
+    said = []
+
+    def say(name, kind, text):
+        said.append(name)
+        emit(f"{name}: {kind}", text, tag="ALERT" if kind in ("locked", "unreachable", "silent") else "NOTE", color=RED if kind in ("locked", "unreachable", "silent") else YELLOW, stream=sys.stdout)
+    while True:
+        raised = watch_mod.one_pass(ctx.fleet(), memory, notifier, say=say, force=not a.loop)
+        if not a.loop:
+            break
+        time.sleep(watch_mod.BASE_S)
+    if not raised:
+        emit("Nothing has changed", f"Every worker was read; none locked, went quiet or became unreachable since the last look.{'' if url else ' No alert address is set, so changes show here only.'}", tag="OK", color=GREEN, stream=sys.stdout)
+    return 0
+
+
 def cmd_wake(ctx, a):
     """Tell the worker (or every worker) to stop idling and look for jobs now, over the same SSH login ct-admin check uses. No password: it changes only when the next check happens."""
     rc = 0
@@ -941,12 +964,13 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
           ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")]),
+    "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
     "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
     "audit": ("check that each worker still matches its configuration (read-only; asks for the worker's sudo password)", [("Audit every worker", "ct-admin audit"), ("Audit one", "ct-admin audit --worker studio")]),
     "tripwire-test": ("prove the worker locks itself down when a job reads a decoy credential, then unlock it (needs the worker's sudo password)", [("Run it on every worker", "ct-admin tripwire-test"), ("Run it on one", "ct-admin tripwire-test --worker studio")]),
@@ -994,6 +1018,8 @@ def build_parser():
     for verb in ("wake", "audit", "tripwire-test"):
         s = sp.add_parser(verb, add_help=False)
         s.add_argument("--worker", metavar="NAME", help="only this worker, by the name in ct-admin workers (default: every worker)")
+    s = sp.add_parser("watch", add_help=False)
+    s.add_argument("--loop", action="store_true", help="keep going: look at every worker on its own schedule (a quiet worker every minute, an unreachable one less often each time)")
     sp.add_parser("theme", add_help=False)
     s = sp.add_parser("action-hash", add_help=False)
     s.add_argument("path", help="the program on the worker, for example /usr/local/sbin/fan-profile")
@@ -1050,7 +1076,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

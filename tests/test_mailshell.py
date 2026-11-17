@@ -41,5 +41,30 @@ class Main(unittest.TestCase):
             ex.assert_not_called()
 
 
+class TheInstalledWrapper(unittest.TestCase):
+    def test_the_command_the_client_sent_survives_the_wrapper_s_clean_environment(self):
+        """Found on a real machine: `env -i` dropped SSH_ORIGINAL_COMMAND, so every clone was refused. Run the real wrapper and see the command arrive."""
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        from ct import config, render
+        from test_setup import cfg_of
+        cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
+        v = render.values_for(cfg)
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "ct.toml").write_text('[server]\nhost = "h"\nadmin_user = "me"\n[github]\nowner = "o"\n[transport]\nkind = "direct"\n')
+        text = render.mail_shell(cfg).replace(v["lib"], str(Path(mailshell.__file__).parents[1])).replace(v["config"], str(tmp)).replace("/usr/bin/python3", sys.executable)
+        script = tmp / "shell"
+        script.write_text(text)
+        mailbox = config.load(str(tmp / "ct.toml")).path("mailbox")
+        run = lambda command: subprocess.run(["sh", str(script)], env={**({"SSH_ORIGINAL_COMMAND": command} if command else {}), "PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
+        self.assertNotIn("can only fetch", run(f"git-upload-pack '{mailbox}/queue.git'").stderr)        # an allowed command reaches the shell (git then fails: no such repository here)
+        self.assertIn("can only fetch", run("id").stderr)
+        r = run(None)
+        self.assertIn("can only fetch", r.stderr)        # a login with no command at all is refused, not an error about an unset variable
+        self.assertEqual(r.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -380,6 +380,9 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(ran("git init --bare --quiet -b main /var/lib/claude-tenta-mail/results.git"))
         self.assertTrue(ran("chown -R claude-tenta-mail:claude-tenta-mail /var/lib/claude-tenta-mail/queue.git"))
         self.assertTrue(ran("chown -R ctworker:claude-tenta-mail /var/lib/claude-tenta-mail/results.git"))      # the worker writes results; the mailbox account only reads them
+        self.assertTrue(ran("git -C /var/lib/claude-tenta-mail/queue.git config core.sharedRepository group"))
+        self.assertFalse(ran("git -C /var/lib/claude-tenta-mail/results.git config core.sharedRepository"))     # found on a real machine: group-shared (setgid) object files are refused by the worker's services (RestrictSUIDSGID)
+        self.assertTrue(ran("find /var/lib/claude-tenta-mail/results.git -type d -exec chmod g+s"))     # real machine: the worker's umask is 027 and its group is its own, so without inheritance the mailbox account could not read a new result
         keys = self.h.read("/var/lib/claude-tenta-mail/.ssh/authorized_keys")
         self.assertEqual(keys, 'restrict,command="/usr/local/sbin/ct-mail-shell" ssh-ed25519 AAAATESTKEY client@example\n')
         self.assertFalse(ran("ssh-keygen"))                                           # no deploy keys: nothing is registered anywhere

@@ -275,9 +275,12 @@ class ServerSetup:
             path = t.repo_path(cfg, which)
             if not self.host.exists(path + "/HEAD"):
                 self.run(["git", "init", "--bare", "--quiet", "-b", "main", path], step=f"create the {which} repository")
-                self.run(["git", "-C", path, "config", "core.sharedRepository", "group"], step=f"let the group read the {which} repository")
+                if which == "queue":        # the mailbox account writes it and the worker reads it through the group. NOT the results: the worker's services run with RestrictSUIDSGID, which refuses git's group-shared (setgid) object files ("unable to create temporary file")
+                    self.run(["git", "-C", path, "config", "core.sharedRepository", "group"], step=f"let the group read the {which} repository")
                 self.run(["chown", "-R", f"{owner}:{mail}", path], step=f"hand the {which} repository to {owner}")
                 self.run(["chmod", "-R", "u+rwX,g+rX,o-rwx", path], step=f"close the {which} repository to everyone else")
+                if which == "results":      # new folders inherit the mailbox group from their parent (the kernel does it; nothing calls chmod, which the sandbox refuses), so the mailbox account can read what the worker adds
+                    self.run(["find", path, "-type", "d", "-exec", "chmod", "g+s", "{}", "+"], step="make new results folders belong to the mailbox group")
                 self.note(f"{which} repository", "created", path)
             else:
                 self.note(f"{which} repository", "exists", path)

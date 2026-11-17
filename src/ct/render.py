@@ -23,7 +23,7 @@ from .config import NAME_RE, PATH_RE, USER_RE
 SANDBOX = """\
 # Sandbox. See sandboxtest: the update tool checks these before keeping a changed unit file.
 ProtectSystem=strict
-ReadWritePaths={{state_root}} {{worker_home}} /tmp -/run/sudo -/run/sudo-rs
+ReadWritePaths={{state_root}} {{worker_home}}{{mailbox_rw}} /tmp -/run/sudo -/run/sudo-rs
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ProtectClock=yes
@@ -48,7 +48,7 @@ _CHECKS = {
     "name": NAME_RE, "worker_user": USER_RE, "admin_user": USER_RE, "alias": re.compile(r"^[A-Z][A-Z0-9_]{2,40}$"),
     "state_root": PATH_RE, "worker_home": PATH_RE, "lib": PATH_RE, "config": PATH_RE, "code": PATH_RE,
     "fetch_s": re.compile(r"^\d{1,4}$"), "step_s": re.compile(r"^\d{1,4}$"), "canary_s": re.compile(r"^\d{1,4}$"), "update_min": re.compile(r"^\d{1,4}$"), "claude_update_days": re.compile(r"^\d{1,2}$"), "registry_sync_min": re.compile(r"^\d{1,4}$"),
-    "commands": re.compile(r"^[A-Za-z0-9._/ *,-]+$"),
+    "commands": re.compile(r"^[A-Za-z0-9._/ *,-]+$"), "mailbox_rw": re.compile(r"^( /[A-Za-z0-9._/-]+)?$"),
 }
 
 
@@ -73,12 +73,19 @@ def render(template, values):
     return _PLACEHOLDER.sub(fill, template)
 
 
+def _mailbox_rw(cfg):
+    """Direct: the worker's services write its results repository, which lives in the mailbox folder outside the state folder, so the sandbox must allow that folder (found on
+    a real machine: without it every result push failed with 'unpacker error'). GitHub installs have no mailbox and get nothing."""
+    kind = getattr(getattr(cfg, "transport", None), "kind", "github")
+    return f" {cfg.path('mailbox')}" if kind == "direct" else ""
+
+
 def values_for(cfg):
     """Every value any template may use, from the configuration."""
     return {"name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
             "state_root": cfg.paths.state_root, "worker_home": cfg.paths.worker_home, "lib": f"{cfg.paths.code}/lib", "config": cfg.paths.config,
             "code": cfg.paths.code, "fetch_s": cfg.schedule.fetch_s, "step_s": cfg.schedule.step_s, "canary_s": cfg.schedule.canary_s,
-            "update_min": cfg.schedule.update_min, "claude_update_days": int(cfg.claude.update_days), "registry_sync_min": int(cfg.schedule.registry_sync_min), "commands": ""}
+            "update_min": cfg.schedule.update_min, "claude_update_days": int(cfg.claude.update_days), "registry_sync_min": int(cfg.schedule.registry_sync_min), "commands": "", "mailbox_rw": _mailbox_rw(cfg)}
 
 
 def alias_for(cfg):
@@ -157,7 +164,7 @@ def mail_shell(cfg):
         if not _CHECKS[k].fullmatch(v[k]):
             raise RenderError(f"the value for {k} is not allowed in a generated file: {v[k]!r}")
     return ("#!/bin/sh\n# The only command the mailbox account can run: git on the worker's queue and results repositories.\n"
-            f"cd / || exit 1\nexec env -i PATH=/usr/bin:/bin PYTHONPATH='{v['lib']}' CT_CONFIG='{v['config']}/ct.toml' /usr/bin/python3 -m ct.mailshell\n")
+            f"cd / || exit 1\nexec env -i PATH=/usr/bin:/bin SSH_ORIGINAL_COMMAND=\"${{SSH_ORIGINAL_COMMAND-}}\" PYTHONPATH='{v['lib']}' CT_CONFIG='{v['config']}/ct.toml' /usr/bin/python3 -m ct.mailshell\n")
 
 
 def sysctl_text(cfg):
