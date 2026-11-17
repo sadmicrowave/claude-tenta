@@ -24,3 +24,11 @@ two parts of the design are still open (a `systemd-run` isolation method and a p
 Requires Python 3.11+ on both computers, and Ubuntu 24.04+ or Debian 12+ on the worker. Standard library only on the server, plus PyYAML (`python3-yaml`) for the registry.
 
 Licensed under the Apache License 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+## The Claude skill
+
+`skills/tenta-offload/SKILL.md` teaches Claude Code when to send work to the worker and how (check what is registered, profile an unknown command, attach only the files a job needs, never approve anything itself). Install it by linking the folder into Claude Code's skills:
+
+```bash
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/tenta-offload" ~/.claude/skills/tenta-offload
+```
