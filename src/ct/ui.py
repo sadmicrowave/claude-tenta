@@ -97,6 +97,8 @@ def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), fram
     stream = stream or sys.stdout
     if _color_on(stream):
         lines = diffview.lines(text, diffview.room(framed)) if as_diff else (str(text).rstrip("\n").split("\n") or [""])
+        if not str(text).strip():
+            lines = [theme.sgr("(nothing to show)", "muted")]                          # never an empty box
         out = [""] + cards.card(title, [*notes, cards.Block(lines)], tag=tag, color=color or PRIMARY, framed=framed)
         print("\n".join(out) + "\n", file=stream)                                                       # output: a card
     else:

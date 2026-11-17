@@ -39,10 +39,9 @@ class EveryPlace(unittest.TestCase):
     def test_every_place_that_shows_a_diff_or_line_counts_uses_the_colours(self):
         from pathlib import Path
         src = Path(__file__).resolve().parents[1] / "src" / "ct"
-        shown = [(f.name, n, line) for f in src.rglob("*.py") if f.name != "diffview.py" for n, line in enumerate(f.read_text().splitlines(), 1)
-                 if "diff_text(" in line and "def diff_text" not in line]
+        shown = [f for f in src.rglob("*.py") if f.name != "diffview.py" and "diff_text(" in f.read_text().replace("def diff_text(", "")]
         self.assertTrue(shown)
-        self.assertEqual([x for x in shown if "as_diff=True" not in x[2]], [], "a diff shown to a person must go through ui.document(..., as_diff=True)")
+        self.assertEqual([f.name for f in shown if "as_diff=True" not in f.read_text()], [], "a diff shown to a person must go through ui.document(..., as_diff=True)")
         counted = [line for f in src.rglob("*.py") if f.name != "diffview.py" for line in f.read_text().splitlines() if "+{add}" in line or "+{added}" in line]
         self.assertEqual(counted, [], "line counts must use diffview.counts")
 

@@ -867,7 +867,9 @@ def show_diff(ctx, sha, full=False):
               [[("ROOT", "bad") if release.is_root_run(path) else "", diffview.status_cell(status, status), diffview.status_cell(path, status)] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
               tag="CHANGES", color=_ui.YELLOW if root else _ui.PRIMARY, stream=out,
               notes=(f"{len(files)} file(s) change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
-    _ui.document("The change itself", ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN), tag="DIFF", stream=out, as_diff=True)
+    text = ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN)
+    if text.strip():                                         # no root-run file changed: the table above already says so, and an empty box says nothing
+        _ui.document("The change itself", text, tag="DIFF", stream=out, as_diff=True)
     return True
 
 

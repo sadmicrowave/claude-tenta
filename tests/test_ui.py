@@ -78,6 +78,14 @@ class Say(unittest.TestCase):
         self.assertIn("fatal: not a repo", err.getvalue())
 
 
+class EmptyDocument(unittest.TestCase):
+    def test_an_empty_document_says_so_instead_of_drawing_an_empty_box(self):
+        with clean_env():
+            out = Tty()
+            ui.document("Kept output", "", tag="SHOW", stream=out)
+        self.assertIn("nothing to show", out.getvalue())
+
+
 class CopyTheCommand(unittest.TestCase):
     """A person at a terminal gets the recommended command on the clipboard (OSC 52) and is told; nobody else is touched."""
 

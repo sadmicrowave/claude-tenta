@@ -1056,6 +1056,12 @@ class ReleaseTests(AdminBase):
         self.assertLess(out.index("src/ct/update.py"), out.index("src/ct/a.py"))
         self.assertIn("1 of them run as root", out)
 
+    def test_a_diff_with_no_root_run_change_shows_no_empty_box(self):
+        self.installed(self.rel[0])
+        with mock.patch.object(self.source, "diff_text", return_value=""), mock.patch.object(cli._ui, "document") as doc:
+            self.assertEqual(self.admin("diff")[0], 0)
+        doc.assert_not_called()
+
     def test_apply_installs_the_chosen_commit_and_checks_health(self):
         self.installed(self.rel[0])
         self.health(self.new)
