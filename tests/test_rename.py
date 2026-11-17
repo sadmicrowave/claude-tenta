@@ -55,6 +55,12 @@ class Plan(Installed):
         self.assertIn((f"/var/lib/{OLD}", f"/var/lib/{NEW}"), moved)
         self.assertEqual(len(moved), 5)
 
+    def test_the_root_level_helpers_record_of_what_ran_moves_with_the_install(self):
+        self.h.put(self.cfg.path("helper_state") + "/ran-job-1", "x")
+        r, steps = self.plan()
+        moved = {(a.argv[1], a.argv[2]) for a in steps["Move the folders"]}
+        self.assertIn((f"/var/lib/{OLD}-helper", f"/var/lib/{NEW}-helper"), moved)
+
     def test_every_service_of_the_old_name_is_stopped_then_removed_and_the_enabled_timers_start_under_the_new_name(self):
         r, steps = self.plan()
         stopped = [a.argv[-1] for a in steps["Stop the services"]]

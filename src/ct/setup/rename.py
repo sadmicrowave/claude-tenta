@@ -94,7 +94,8 @@ class Rename:
         """[(what, old path, new path)] for each folder whose path follows the name (a folder with a custom path is left where it is)."""
         pairs = (("code", self.cfg.paths.code, self.cfg2.paths.code), ("configuration", self.cfg.paths.config, self.cfg2.paths.config),
                  ("state", self.cfg.paths.state_root, self.cfg2.paths.state_root), ("watch state", self.cfg.path("watch_state"), self.cfg2.path("watch_state")),
-                 ("release clone", self.cfg.path("source_clone"), self.cfg2.path("source_clone")))
+                 ("release clone", self.cfg.path("source_clone"), self.cfg2.path("source_clone")),
+                 ("root-level helper state", self.cfg.path("helper_state"), self.cfg2.path("helper_state")))          # its record of what already ran: losing it would let an old approval run again
         return [(w, a, b) for w, a, b in pairs if a != b and self.host.exists(a)]
 
     # ---- the plan ----
