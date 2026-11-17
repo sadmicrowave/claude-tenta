@@ -360,7 +360,7 @@ class Status(CliBase):
         code, out = self.run_cli("wake")
         self.assertEqual(code, 0)
         self.assertIn("AWAKE", out)
-        self.assertRegex(out, r"Looked for jobs")
+        self.assertIn("Looked for jobs now", out)
         self.assertTrue((self.state / "activity.stamp").exists())
         self.assertIn("wake", [c for c, _ in cli.CT_HELP] + [c.split()[0] for c, _ in cli.CT_HELP])
 

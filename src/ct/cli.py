@@ -381,7 +381,7 @@ def cmd_wake(ctx):
     t0 = time.monotonic()
     seen = w.fetch()
     record_pass(w.state, "fetch", True, idle=False, mode="active", took=time.monotonic() - t0)
-    emit("Awake", ("Looked for jobs", f"just now, in {time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
+    emit("Looked for jobs now", ("Took", f"{time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
          ("From here", f"it checks every few seconds while there is work, and idles again after {w.s.idle_after_s // 60} quiet minutes"), tag="AWAKE", color=GREEN)
     return 0
 
