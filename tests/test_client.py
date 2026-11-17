@@ -532,7 +532,7 @@ class WaitingChip(unittest.TestCase):
                 return True
             def fileno(self):
                 raise OSError
-        for colour, role, text, word in ((view.YELLOW, "wait_chip", "sent: waiting for the worker to notice it", " SENT "), (view.CYAN, "accent_chip", "running on the worker", " RUNNING "),
+        for colour, role, text, word in ((view.YELLOW, "wait_chip", "sent: waiting for the worker to notice it", " SENT "), (view.CYAN, "primary_chip", "running on the worker", " RUNNING "),
                                           (view.RED, "bad_chip", "approved, but it was not picked up", " APPROVED, ")):
             out = Tty()
             with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
