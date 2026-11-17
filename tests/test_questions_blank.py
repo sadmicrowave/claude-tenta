@@ -45,3 +45,18 @@ class Blank(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultsFollowTheChosenName(unittest.TestCase):
+    """A default written in terms of another answer follows that answer. A reinstall under another name once defaulted its repositories to the built-in name."""
+
+    def test_the_repository_defaults_use_the_name_that_was_chosen(self):
+        from ct.setup import questions
+        self.assertEqual(questions.default_for("github.queue_repo", None, {"identity.name": "tenta-two"}), "tenta-two-queue")
+        self.assertEqual(questions.default_for("github.results_repo", None, {"identity.name": "tenta-two"}), "tenta-two-results")
+        self.assertEqual(questions.default_for("github.queue_repo"), "claude-tenta-queue")                   # nothing chosen: the built-in name
+
+    def test_collecting_with_a_given_name_gives_repositories_of_that_name(self):
+        from ct.setup import questions
+        nested, missing = questions.collect("client", given={"identity.name": "tenta-two", "server.host": "worker.example", "server.admin_user": "me", "github.owner": "someone"}, use_defaults=True)
+        self.assertEqual((nested["identity"]["name"], nested["github"]["queue_repo"], nested["github"]["results_repo"]), ("tenta-two", "tenta-two-queue", "tenta-two-results"))

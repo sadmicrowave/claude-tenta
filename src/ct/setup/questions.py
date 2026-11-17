@@ -166,12 +166,19 @@ def check_one(key, value):
     return value, err
 
 
-def default_for(key, suggestions=None):
+def default_for(key, suggestions=None, answers=None):
+    """What a question defaults to. A default written in terms of another answer ({name}-queue, /opt/{name}) follows THAT answer when it is known: a reinstall under
+    another name must default its repositories and folders to that name, not to the built-in one."""
     section, _, name = key.partition(".")
     if suggestions and key in suggestions:
         return suggestions[key]
     default = config.SCHEMA[section][name][0]
-    return default.replace("{name}", "claude-tenta").replace("{worker_user}", "ctworker") if isinstance(default, str) else default
+    if not isinstance(default, str):
+        return default
+    answers = answers or {}
+    ident = str(answers.get("identity.name") or "claude-tenta")
+    worker = str(answers.get("server.worker_user") or "ctworker")
+    return default.replace("{name}", ident).replace("{worker_user}", worker)
 
 
 def show(value):
@@ -231,7 +238,7 @@ def collect(half, *, ask=None, say=None, given=None, suggestions=None, use_defau
             continue
         if q.get("when") and not q["when"]({**{k: default_for(k) for k in BY_KEY}, **flat}):
             continue
-        default = default_for(key, suggestions)
+        default = default_for(key, suggestions, {**given, **flat})
         asked = key not in given and ask is not None and not use_defaults and (advanced or not q["advanced"])
         if key in given:
             raw = given[key]
@@ -305,7 +312,7 @@ def _flow(halves, given, suggestions, only, ui, blanks, allow_back, pre_items, c
         key = q["key"]
         if key not in given:
             continue
-        raw, default = given[key], default_for(key, suggestions)
+        raw, default = given[key], default_for(key, suggestions, given)
         if raw in (None, "") and q.get("required"):
             missing.append(key)
         elif not (raw in (None, "") and default in (None, "")):
@@ -345,7 +352,7 @@ def _flow(halves, given, suggestions, only, ui, blanks, allow_back, pre_items, c
             vis, key = visible(), cur["key"]
             idx = vis.index(cur)
             items = pre_items + [(x["label"], display(x)) for x in vis[:idx] if x["key"] in answers or x["key"] in blank_here]
-            default = answers[key] if key in answers else default_for(key, suggestions)
+            default = answers[key] if key in answers else default_for(key, suggestions, {**given, **answers})
             total = len(pre_items) + len(vis)
             if only and getattr(ui, "total_hint", 0):          # a short first pass of a longer walk: show the whole walk's size from the start
                 total = max(total, ui.total_hint)
