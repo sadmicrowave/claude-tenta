@@ -375,6 +375,8 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.exists("/usr/local/bin/cw-worker"))
         self.assertEqual(self.h.read("/etc/claude-ballast/installed-rev").strip(), "a" * 40)
         self.assertIn("Host github-claude-ballast-queue", self.h.read(H + "/cwworker/.ssh/config"))
+        for needle in ("ControlMaster auto", "ControlPersist 60", "ControlPath " + H + "/cwworker/.ssh/cm-%C"):
+            self.assertIn(needle, self.h.read(H + "/cwworker/.ssh/config"))                  # one connection serves every pass
 
     def test_it_waits_for_deploy_keys_before_cloning_and_hardening(self):
         self.h.replies["runuser -u cwworker -- git ls-remote"] = Result(128, "Permission denied (publickey)")

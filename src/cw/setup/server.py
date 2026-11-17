@@ -64,7 +64,8 @@ def ssh_config_text(cfg):
     out = ["# Written by cw-setup: one deploy key per repository (GitHub allows a key on one repository only).\n"]
     for which in ("queue", "results"):
         out.append(f"Host {alias_for(cfg, which)}\n  HostName github.com\n  User git\n  IdentityFile {keydir}/id_{which}\n  IdentitiesOnly yes\n"
-                   "  StrictHostKeyChecking accept-new\n")
+                   "  StrictHostKeyChecking accept-new\n"
+                   f"  ControlMaster auto\n  ControlPath {keydir}/cm-%C\n  ControlPersist 60\n")             # one connection serves every pass for a minute: no new handshake each time
     return "\n".join(out)
 
 

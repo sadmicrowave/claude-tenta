@@ -541,3 +541,30 @@ class WaitingChip(unittest.TestCase):
             self.assertIn(theme.code(role), line, text)
             self.assertIn(word.strip().rstrip(","), re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line).upper(), text)
             self.assertIn(text.partition(" ")[2], re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line), text)
+
+
+class SharedConnection(unittest.TestCase):
+    def repos(self, root):
+        return ClientRepos(Path(root) / "queue", Path(root) / "results", "u1", "u2")
+
+    def test_git_commands_share_one_connection_to_github_and_keep_your_ssh_settings(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:                    # short: a socket path is limited to 103 bytes
+            cmd = self.repos(d).ssh_command()
+            self.assertTrue(cmd.startswith("ssh -o ControlMaster=auto -o ControlPath="))
+            self.assertIn("ControlPersist=120", cmd)
+            self.assertNotIn("-i ", cmd)                                    # no key is named: the user's own ssh configuration still decides
+            self.assertEqual(oct((Path(d) / "ssh").stat().st_mode & 0o777), "0o700")
+
+    def test_a_folder_too_deep_for_a_socket_path_just_means_no_sharing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            deep = Path(d) / ("x" * 90)
+            self.assertEqual(self.repos(deep).ssh_command(), "ssh")
+
+
+class FasterPolling(unittest.TestCase):
+    def test_a_waiting_client_asks_github_every_two_seconds_not_five(self):
+        src = Path(cli.__file__).read_text()
+        self.assertIn("for _ in range(10):", src)
+        self.assertNotIn("for _ in range(25):", src)

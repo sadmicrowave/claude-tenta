@@ -180,7 +180,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
                 emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", "It normally does within seconds. The worker may be stopped, locked, or failing.",
                      tag="SLOW", color=RED, run_label="See what the worker is doing", run=f"{ctx.admin} status", stream=sys.stderr)
             text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product, waited)
-            for _ in range(25):                               # redraw ~5 times a second; ask GitHub again every ~5 s
+            for _ in range(10):                               # redraw ~5 times a second; ask GitHub again every ~2 s (the connection is shared, so each ask is cheap)
                 prog.draw(text, color)
                 ctx.sleep(0.2)
         prog.clear()
