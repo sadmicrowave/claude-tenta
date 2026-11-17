@@ -68,6 +68,13 @@ def round_trip(res, received=None):
     return secs(sent, end), secs(sent, started), secs(started, done), max(0, secs(sent, end) - secs(sent, done)), (min(secs(sent, seen), secs(sent, started)) if seen else None)
 
 
+def trip_line(trip):
+    """The round trip on one line: the total, then where the time went."""
+    total, waited, ran, back, noticed = trip
+    parts = ([f"noticing {human_dur(noticed)}", f"starting {human_dur(waited - noticed)}"] if noticed is not None else [f"waiting {human_dur(waited)}"]) + [f"running {human_dur(ran)}", f"back {human_dur(back)}"]
+    return f"{human_dur(total)}  =  {' + '.join(parts)}"
+
+
 def trip_rows(trip, label=str):
     """The round trip as four labelled rows, so each part reads on its own line."""
     total, waited, ran, back, noticed = trip
@@ -156,12 +163,12 @@ def result_card(res, admin="cw-admin", suggest_name=None, received=None):
             run, run_label = f"cw-run offload propose {res['id']}", "Record that it does not fit, so it is never offloaded"
     measured = []
     if m:
-        temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
-        measured = [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
+        temp = f"{m['peak_temp_c']} C peak" if m.get("peak_temp_c") else "heat unknown"
+        measured = [("Measured", f"{m.get('wall_s')} s wall · {m.get('cpu_s')} s cpu · {m.get('peak_rss_mb')} MB memory · {temp} · {m.get('disk_mb')} MB disk")]
     colour = STATUS_COLOR.get(status, CYAN)
     return {"head": dict(title=res["id"], details=rows, tag=status, color=colour),
             "output": {"lines": (res.get("output") or "").rstrip("\n").split("\n") if res.get("output") else ["(no output)"], "tag": status, "color": colour},
-            "meta": [("Measured", measured), ("Round trip", trip_rows(trip, str.capitalize) if trip else [])], "run": run, "run_label": run_label}
+            "meta": measured + ([("Round trip", trip_line(trip))] if trip else []), "run": run, "run_label": run_label}
 
 
 def print_result(res, as_json=False, out=None, err=None, **kw):
@@ -172,7 +179,9 @@ def print_result(res, as_json=False, out=None, err=None, **kw):
         r = result_card(res, **kw)
         lines = [""] + cards.card(r["head"]["title"], r["head"]["details"], tag=r["head"]["tag"], color=r["head"]["color"])
         lines += [""] + cards.card("Output", [cards.Block(r["output"]["lines"])], tag=r["output"]["tag"], color=r["output"]["color"], framed=True)
-        lines += cards.meta(r["meta"])
+        if r["meta"]:
+            lines.append("")
+            lines += cards.meta_lines(r["meta"])
         if r["run"]:
             lines += cards.commands(r["run"], r["run_label"])
         print("\n".join(lines) + "\n", file=out)

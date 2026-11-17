@@ -86,8 +86,9 @@ class ResultCard(unittest.TestCase):
         bottom = next(i for i, l in enumerate(lines) if l.startswith("╰"))
         self.assertIn("up 10:58,  0 users", "\n".join(lines[top:bottom]))                     # the output is inside the box
         meta = "\n".join(lines[bottom + 1:])
-        for needle in ("MEASURED", "ROUND TRIP", "TOTAL", "COMING BACK"):
+        for needle in ("MEASURED", "ROUND TRIP", "back"):
             self.assertIn(needle, meta)                                                        # the numbers are beneath it, not inside
+        self.assertEqual(len([l for l in lines[bottom + 1:] if l.strip()]), 2)                # and they take two lines in all
         self.assertNotIn("MEASURED", "\n".join(lines[:bottom]))
         self.assertIn(theme.sgr("╭─ ", "ok"), raw)                                             # green box for a success
 
@@ -97,8 +98,8 @@ class ResultCard(unittest.TestCase):
 
     def test_the_numbers_are_muted_so_they_do_not_look_like_the_job(self):
         raw = self.printed()
-        self.assertIn(theme.sgr("MEASURED", "muted"), raw)
-        self.assertNotIn(theme.sgr("MEASURED", "label"), raw)
+        self.assertIn(theme.code("muted"), raw.split("╰")[1])
+        self.assertNotIn(theme.code("label"), raw.split("╰")[1])
 
     def test_a_script_still_gets_the_output_alone_on_stdout(self):
         from cw.client import view

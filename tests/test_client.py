@@ -482,18 +482,13 @@ class RoundTrip(unittest.TestCase):
     def test_a_worker_that_says_when_it_saw_the_job_splits_the_waiting_into_noticing_and_starting(self):
         res = {**self.RES, "seen": "2026-11-17T04:49:25Z"}
         self.assertEqual(view.round_trip(res, self.SEEN), (39, 30, 6, 3, 25))
-        rows = dict(view.result_card(res, received=self.SEEN)["meta"])["Round trip"]
-        labels = [r[0] for r in rows]
-        self.assertIn("Noticing", labels)
-        self.assertIn("Starting", labels)
-        self.assertNotIn("Waiting", labels)
-        self.assertIn("25 s  until the worker's next look at GitHub found it", [r[1] for r in rows])
-        self.assertIn("5 s  your approval, a free slot, and the next start pass", [r[1] for r in rows])
+        line = dict(view.result_card(res, received=self.SEEN)["meta"])["Round trip"]
+        self.assertEqual(line, "39 s  =  noticing 25 s + starting 5 s + running 6 s + back 3 s")
+        self.assertNotIn("waiting", view.trip_line(view.round_trip(res, self.SEEN)))
 
     def test_the_card_says_the_same(self):
-        rows = dict(view.result_card(self.RES, received=self.SEEN)["meta"])["Round trip"]
-        self.assertEqual([r[0] for r in rows], ["Total", "Waiting", "Running", "Coming back"])
-        self.assertIn(("Total", "39 s  from sending the job to having its result here"), rows)
+        line = dict(view.result_card(self.RES, received=self.SEEN)["meta"])["Round trip"]
+        self.assertEqual(line, "39 s  =  waiting 30 s + running 6 s + back 3 s")
 
     def test_without_a_moment_of_receiving_it_is_measured_to_now(self):
         self.assertGreater(view.round_trip(self.RES)[0], 36)               # the sample result is long past: the trip is as long as it has been since it was sent

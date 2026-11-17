@@ -127,6 +127,19 @@ def meta(sections, cols=None):
     return out
 
 
+def meta_lines(rows, cols=None):
+    """Quiet facts about something, one line each: muted capitals labels lined up, then the facts, wrapped under themselves only when they are long."""
+    w = width(cols=cols)
+    lw = max([len(k) for k, _ in rows] or [0])
+    p = lambda t: theme.sgr(t, "muted")                                 # noqa: E731
+    out = []
+    for label, text in rows:
+        first, *rest = wrap(text, w - lw - 4)
+        out.append("  " + p(label.upper().ljust(lw) + "  " + first))
+        out += ["  " + p(" " * (lw + 2) + line) for line in rest]
+    return out
+
+
 def commands(run, label="Run this"):
     """The commands to copy: a label, then each command alone on its own line with nothing before or after it."""
     cmds = [run] if isinstance(run, str) else list(run)
