@@ -23,6 +23,12 @@ class SetupError(Exception):
         self.title, self.why, self.steps = title, why, steps or []
 
 
+def missing_steps(missing):
+    """What to do when answers have no default: answer when asked, or give that answer on the command line."""
+    first = sorted(missing)[0] if missing else "section.key"
+    return ["Run ct-setup install again and answer each question that is asked.", f"Or give the answer on the command line, for example: ct-setup install --set {first}=<value>"]
+
+
 EXIT_WAITING = 10          # the server half stopped because the repositories cannot be reached yet (the deploy keys are not added); run it again to continue
 CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"          # Anthropic's documented installer for Linux; it needs no root
 CLAUDE_LEGACY = "2.1.112"          # the last release that is plain JavaScript (runs on Node, on processors the native program cannot run on); later ones are native only
@@ -148,7 +154,7 @@ class ServerSetup:
         if self.ui is not None:
             self.ui.finish()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
         uses_claude = (nested.get("claude") or {}).get("auth", "none") != "none"
         if uses_claude or "registry" in nested:                   # the read-only Claude class comes with the install exactly when Claude is used
             reg = nested.setdefault("registry", {})
@@ -158,7 +164,7 @@ class ServerSetup:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
         unknown = [m for m in clean["hardening"]["modules"] if m not in hardening.MODULES]
         if unknown:
-            raise SetupError("Unknown hardening module", ", ".join(unknown), [f"Known: {', '.join(hardening.MODULES)}"])
+            raise SetupError("Unknown hardening module", ", ".join(unknown), [f"Remove {', '.join(unknown)} from hardening.modules in your answers or ct.toml, or use one of: {', '.join(hardening.MODULES)}."])
         self.cfg = config.Config(clean)
         self.alert_url = (nested.get("alerts") or {}).get("url") or ""
         public = {sec: {k: v for k, v in vals.items() if not (sec == "alerts" and k == "url")} for sec, vals in nested.items()}
@@ -323,8 +329,19 @@ class ServerSetup:
         try:
             result = self.registry_installer(self.cfg, self.source, run=lambda argv: (lambda r: (r.rc, r.out))(self.host.run(argv)), prefix=str(self.host.root),
                                              install_packages=self.install_packages, out=self.say)
+        except update.FetchError as e:                                     # the worker could not even read the queue repository: not a problem with its contents
+            c = self.cfg
+            raise SetupError("The worker could not read the queue repository, so the job registry was not installed", str(e),
+                             [f"See the real reason: ssh -t {c.server.admin_user}@{c.server.host} 'sudo -u {c.server.worker_user} git -C {c.path('queue_clone')} fetch origin'",
+                              "If it says Permission denied (publickey): run ct-setup install again; it adds the missing deploy key on GitHub.",
+                              "If it says could not resolve host, or timed out: check the server's internet connection, then run ct-setup install again.",
+                              "If it says cannot change to the folder, Permission denied: the folder belongs to another account. ls -l shows the owner; run ct-setup install --set server.worker_user=<that owner>."])
         except update.InstallError as e:
-            raise SetupError("The job registry was not installed", str(e), ["Fix registry.yaml on the main branch of your queue repository, then run this again"])
+            g = self.cfg.github
+            raise SetupError("The job registry was not installed", str(e),
+                             [f"Open registry.yaml on the main branch of https://github.com/{g.owner}/{g.queue_repo}",
+                              "In registry.yaml, change the line or setting the message above names, and commit it to main.",
+                              "Then run ct-setup install again."])
         self.note("job registry", result)
 
     def hardening_step(self):

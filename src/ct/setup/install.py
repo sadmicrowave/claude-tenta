@@ -28,7 +28,7 @@ from ..client.repo import ClientError
 from . import detect, keys as keys_mod, ptyrun, questions, report, toml_out
 from .client import ClientSetup
 from .remote import RemoteHost
-from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, read_secret
+from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, missing_steps, read_secret
 from .report import sink as _sink
 
 CONNECTION = {"server.host", "server.admin_user", "server.ssh_port"}
@@ -214,7 +214,7 @@ class Installer:
         conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced,
                                           suggestions=self.previous_answers())
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
         c = conn.get("server", {})
         self.ssh = self.ssh_factory(c["host"], c["admin_user"], c.get("ssh_port", 22))
         try:
@@ -249,7 +249,7 @@ class Installer:
         self.asked = True
         self.flush()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
         nested = merge(conn, rest)
         clean, problems = questions.validate_answers(nested)
         if problems:
@@ -426,7 +426,9 @@ class Installer:
         rc = proc.returncode
         if rc == EXIT_WAITING:
             raise SetupError("The server is still waiting for its deploy keys", "They were not added in time.",
-                             ["Add them (see above), then run ct-setup install again; it continues from here."])
+                             [f"Add the queue key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.queue_repo}/settings/keys (leave write access OFF).",
+                              f"Add the results key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.results_repo}/settings/keys (tick Allow write access).",
+                              "The keys themselves were printed above. Then run ct-setup install again; it continues from here."])
         if rc != 0:
             raise SetupError(f"The server setup stopped (exit {rc})", "Read the messages above. Running ct-setup install again continues where it left off.")
         self.note("server setup", "done")

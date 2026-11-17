@@ -370,7 +370,7 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     argv, ex = pr["argv"], read_exclusions(repos)
     ex.setdefault("excluded", [])
     if pr["verdict"] == "inconclusive":
-        raise ClientError("Nothing to propose: the profiling run was inconclusive", "The command did not complete cleanly.", pr["reasons"] + ["Fix the command, then profile it again."])
+        raise ClientError("Nothing to propose: the profiling run was inconclusive", "The command did not complete cleanly.", pr["reasons"] + ["Run the command by hand to see why it fails, correct it, then profile it again."])
     if pr["verdict"] == "does-not-fit":
         ex["excluded"] = [e for e in ex["excluded"] if e["argv"] != argv] + [exclusion_entry(res, jid)]
         repos.push_files("data", {"exclusions.json": json.dumps(ex, indent=2) + "\n"}, f"exclude: {' '.join(argv)[:60]} (profile {jid})")

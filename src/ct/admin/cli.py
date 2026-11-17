@@ -524,7 +524,7 @@ def action_add(ctx, a):
     defn = actionadd.load_definition(a.source)
     problems = actionadd.check_definition(defn)
     if problems:
-        raise ClientError("That definition would be refused", "\n".join(problems[:6]), ["Fix the file; nothing was sent anywhere."])
+        raise ClientError("That definition would be refused", "\n".join(problems[:6]), ["Edit the YAML file to correct each problem listed above, then run the same command again. Nothing was sent anywhere."])
     text = registry_text(ctx)
     have = (registry.parse(text) or {}).get("actions") or {} if text else {}
     have_actions, have_classes = regedit.action_names(text), regedit.class_names(text)
@@ -705,7 +705,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
             problems = [f"not valid YAML: {e}"]
         problems = [x for x in problems if "tools" not in x]
         if problems:
-            raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), ["Fix the proposal; nothing was merged."])
+            raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."])
     subject_line, _, rest = msg.partition("\n")
     emit(f"Merge {branch} into main", ("Adds", f"{len(p.commits(branch))} commit(s), squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", f"{path}  +{add} -{gone}") for path, add, gone in p.files(branch)], ("Becomes", subject_line),
@@ -878,7 +878,7 @@ def apply(ctx, a):
     prev = release.installed_rev(ctx.ssh, ctx.name)
     rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {sha}")
     if rc:
-        raise ClientError(f"The install failed on {ctx.ssh.host} (exit {rc})", "The update tool restores what it changed when it can. Read the messages above.", ["Fix the cause, then run apply again."])
+        raise ClientError(f"The install failed on {ctx.ssh.host} (exit {rc})", "The update tool restores what it changed when it can. Read the messages above.", ["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."])
     if not a.no_verify and not verify(ctx, sha, prev, a.yes):
         return 1
     if not getattr(a, "quiet_done", False):

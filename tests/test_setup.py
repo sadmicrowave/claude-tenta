@@ -427,6 +427,19 @@ class ServerTests(unittest.TestCase):
         self.assertIn("not valid", e.exception.why)
         self.assertFalse(self.h.exists("/etc/claude-tenta/hardening.json"))
 
+    def test_a_queue_repository_that_cannot_be_read_is_not_blamed_on_the_registry_file(self):
+        def unreadable(cfg, src, **k):
+            raise server.update.FetchError("could not fetch the queue repository: fatal: cannot change to '/var/lib/claude-tenta/queue': Permission denied")
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True)
+        s.registry_installer = unreadable
+        with self.assertRaises(server.SetupError) as e:
+            s.run_all()
+        self.assertIn("could not read the queue repository", e.exception.title)
+        steps = " ".join(e.exception.steps)
+        self.assertIn("sudo -u ctworker git -C /var/lib/claude-tenta/queue fetch origin", steps)      # the command that shows git's real reason
+        self.assertIn("--set server.worker_user=", steps)
+        self.assertNotIn("registry.yaml", steps)
+
     def test_the_registry_is_not_installed_while_waiting_for_deploy_keys(self):
         self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied")
         self.setup_obj(dry_run=False).run_all()

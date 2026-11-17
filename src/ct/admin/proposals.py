@@ -82,7 +82,7 @@ class Proposals:
         ref = f"origin/{branch}"
         t = self.git("merge-tree", "--write-tree", self.base, ref, check=False)
         if t.returncode:
-            raise ClientError(f"{branch} does not merge cleanly into main", t.stdout.strip() or None, ["Rebase the branch, or resolve the conflict yourself."])
+            raise ClientError(f"{branch} does not merge cleanly into main", t.stdout.strip() or None, [f"In your copy of the queue repository: git fetch origin && git checkout {branch} && git rebase origin/main, resolve any conflict it stops at, then git push --force-with-lease.", "Then run this again."])
         tree = t.stdout.split()[0]
         subjects = self.git("log", "--reverse", "--format=%s", f"{self.base}..{ref}").stdout.strip().splitlines()
         if not subjects:

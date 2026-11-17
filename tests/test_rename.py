@@ -169,7 +169,7 @@ class Apply(Installed):
         self.h.replies["env "] = Result(1, "boom")
         with self.assertRaises(SetupError) as e:
             self.rn(dry_run=False).run_all()
-        self.assertIn("run the same command again", " ".join(e.exception.steps))
+        self.assertIn("run the same ct-setup rename command again", " ".join(e.exception.steps))
         self.assertIn(f"Do not run `ct-setup rename {OLD}`", " ".join(e.exception.steps))
         self.assertFalse(any(c[0] == "systemctl" and c[1] == "enable" for c in self.h.calls))        # nothing was started on a half-renamed machine
 

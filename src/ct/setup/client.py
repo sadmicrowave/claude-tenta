@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .. import config
 from . import ptyrun, questions, report, toml_out
-from .server import SetupError
+from .server import SetupError, missing_steps
 from .report import sink as _sink
 
 COMMANDS = ("ct-run", "ct-admin", "ct-setup", "ct-help")
@@ -62,7 +62,7 @@ class ClientSetup:
     def prerequisites(self):
         missing = [t for t in ("git", "ssh") if not self.host.which(t)]
         if missing:
-            raise SetupError("Missing tools", ", ".join(missing) + " must be installed first", ["On a Mac: xcode-select --install"])
+            raise SetupError("Missing tools", ", ".join(missing) + " must be installed first", ["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."])
         self.gh = bool(self.host.which("gh"))
         self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found, repository steps will be printed"))
 
@@ -74,7 +74,7 @@ class ClientSetup:
         if self.ui is not None:
             self.ui.finish()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), ["Answer the questions, or pass them with --set section.key=value"])
+            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
         clean, problems = questions.validate_answers(nested)
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))

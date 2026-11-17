@@ -84,7 +84,7 @@ class Rename:
             raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
         if not self.host.run(["id", self.cfg.server.worker_user]).ok:                  # before anything is touched: a plan written for an account that does not exist stops halfway
             raise SetupError(f"The worker account {self.cfg.server.worker_user} does not exist on this machine", "Nothing was changed.",
-                             ["Check which account the worker runs as: ls /home", "Then set it in the configuration: [server] worker_user = \"...\""])
+                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."])
         self.cfg2 = load_new_config(self.text, self.new, self.old, self.legacy)
         for label, before, after in self.moves():
             if self.host.exists(after):
@@ -188,7 +188,7 @@ class Rename:
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "disable")):
                     raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
-                                     ["Fix the cause named above, then run the same command again: it carries on from where it stopped and skips what is already done.",
+                                     ["Run the failing command by hand to see its full error and clear the cause (the message above shows the command), then run the same ct-setup rename command again: it carries on from where it stopped and skips what is already done.",
                                       "The folders may already be under the new name; that is expected and the command copes with it.",
                                       f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."])
             self.say(STYLER.note("done", title))

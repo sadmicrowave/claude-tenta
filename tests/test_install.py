@@ -631,6 +631,19 @@ class DeployKeyUnits(unittest.TestCase):
         self.assertEqual(dk2.sync({"queue": RESULTS_PUB}), [("queue", "present")])               # a read-only queue key is correct: left alone
         self.assertFalse([c for c in calls if c[3] in ("delete", "add")])
 
+    def test_when_github_does_not_answer_the_key_check_nothing_is_added_blindly(self):
+        calls = []
+
+        def run(argv):
+            calls.append(argv)
+            return Result(1, 'Get "https://api.github.com/repos/x/keys": net/http: TLS handshake timeout')
+        dk = keys.DeployKeys(self.cfg(), run, lambda n: "/usr/bin/gh")
+        (which, status), = dk.sync({"results": RESULTS_PUB})
+        self.assertIn("TLS handshake timeout", status)
+        self.assertIn("run ct-setup install again", status)
+        self.assertFalse([c for c in calls if c[3] == "add"])
+        self.assertNotIn("results", dk.done)
+
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
         ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"

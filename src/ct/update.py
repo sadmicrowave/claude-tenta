@@ -33,6 +33,10 @@ class InstallError(Exception):
     pass
 
 
+class FetchError(InstallError):
+    """The queue repository could not be fetched (network, key or folder permission), as opposed to its registry being wrong."""
+
+
 @dataclass
 class Report:
     rev: str
@@ -205,7 +209,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=No
         rc, msg = run(as_worker + ["fetch", "--quiet", "origin", main_branch])
         empty = rc != 0 and "couldn't find remote ref" in msg           # a brand-new repository with nothing pushed yet is not an error
         if rc and not empty:
-            raise InstallError(f"could not fetch the queue repository, so the registry was not updated: {msg.strip()[:200]}")
+            raise FetchError(f"could not fetch the queue repository, so the registry was not updated: {msg.strip()[:200]}")
         rc, body = (1, "") if empty else run(as_worker + ["show", f"origin/{main_branch}:registry.yaml"])
         text = body if rc == 0 else None
     try:

@@ -43,7 +43,7 @@ class DeployKeys:
     def __init__(self, cfg, run, which, say=None, note=None):
         say = say or _sink()
         self.cfg, self.run, self.which, self.say, self.note = cfg, run, which, say, note
-        self.done = {}
+        self.done, self.list_error = {}, ""
 
     @property
     def available(self):
@@ -57,6 +57,7 @@ class DeployKeys:
         """The key texts already on the repository (empty if it cannot be listed)."""
         r = self.run(["gh", "repo", "deploy-key", "list", "-R", self.slug(which), "--json", "id,key,title,readOnly"])
         if not r.ok:
+            self.list_error = (r.out.strip().splitlines() or ["no answer"])[-1][:160]
             return None
         try:
             return {blob(item.get("key", "")): item for item in json.loads(r.out or "[]")}
@@ -66,6 +67,8 @@ class DeployKeys:
     def add(self, which, pub):
         """Add one key. Returns 'added', 'present' or an error text."""
         have, repaired = self.present(which), False
+        if have is None:                                                           # GitHub did not answer: adding blindly would only fail the same way, or duplicate a key
+            return f"could not check the deploy keys on {self.slug(which)} ({self.list_error}); check your connection and run ct-setup install again"
         if have is not None and blob(pub) in have:
             item = have[blob(pub)]
             if which != "results" or not read_only(item, default=False):
