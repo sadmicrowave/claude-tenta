@@ -582,8 +582,8 @@ class RootLevelReview(AdminBase):
         self.assertEqual(self.ssh.calls, ["cw-worker action-hash /usr/local/sbin/fan-profile"])
 
 
-class ActionAdd(AdminBase):
-    """`cw-admin action add`: registering a root-level action is one command with one question, like adopt."""
+class ActionBase(AdminBase):
+    """Shared setup: a worker that answers `action-hash --json`, and the fan-control pack."""
     PIN = "ab" * 32
 
     def health(self, rev):
@@ -600,6 +600,10 @@ class ActionAdd(AdminBase):
         self.repos.fetch_queue()
         return self.repos.show_file("origin/main", "registry.yaml")
 
+
+
+class ActionAdd(ActionBase):
+    """`cw-admin action add`: registering a root-level action is one command with one question, like adopt."""
     def test_one_command_adds_the_action_and_its_class_pinned_to_what_the_worker_reported(self):
         code, out, err = self.admin("action", "add", str(self.pack), "--yes")
         self.assertEqual(code, 0, err)
@@ -642,6 +646,69 @@ class ActionAdd(AdminBase):
         reg = registry.parse(self.main_registry())
         self.assertEqual(reg["actions"]["fan-profile"]["sha256"], new)
         self.assertEqual(len(reg["classes"]), len(registry.parse(REGISTRY)["classes"]) + 1)
+
+
+class ActionRemoveAndList(ActionBase):
+    """Removing mirrors adding, and a wrong word gets help instead of argparse's usage text."""
+    def setUp(self):
+        super().setUp()
+        self.admin("action", "add", str(self.pack), "--yes")
+
+    def test_remove_takes_the_action_and_the_class_that_runs_it(self):
+        code, out, err = self.admin("action", "remove", "fan-profile", "--yes")
+        self.assertEqual(code, 0, err)
+        reg = registry.parse(self.main_registry())
+        self.assertNotIn("fan-profile", reg.get("actions") or {})
+        self.assertNotIn("fan-profile", reg["classes"])
+        self.assertIn("careful", reg["classes"])
+        self.assertIn("stays on the worker", err)
+
+    def test_remove_also_accepts_the_pack_folder_it_was_added_from(self):
+        code, _, err = self.admin("action", "remove", str(self.pack), "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("fan-profile", self.main_registry())
+
+    def test_a_misspelt_name_lists_what_is_registered_and_suggests_the_close_one(self):
+        code, _, err = self.admin("action", "remove", "fan-profil", "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("Registered: fan-profile", err)
+        self.assertIn("cw-admin action remove fan-profile", err)
+
+    def test_the_same_action_twice_changes_nothing_and_says_so(self):
+        before = self.main_registry()
+        code, _, err = self.admin("action", "add", str(self.pack), "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("already registered", err)
+        self.assertEqual(self.main_registry(), before)
+
+    def test_the_same_program_under_a_second_name_is_refused(self):
+        other = self.tmp / "other.yaml"
+        other.write_text("actions:\n  fan-two:\n    run: [/usr/local/sbin/fan-profile, '{mode}']\n    params: {mode: {enum: [idle]}}\n    writable: []\n    timeout_s: 30\n"
+                         "classes:\n  fan-two:\n    kind: privileged\n    action: fan-two\n")
+        code, _, err = self.admin("action", "add", str(other), "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("already registered, as 'fan-profile'", err)
+        self.assertNotIn("fan-two", self.main_registry())
+
+    def test_list_shows_each_action_with_its_pin_and_class(self):
+        code, out, err = self.admin("action", "list")
+        self.assertEqual(code, 0, err)
+        for needle in ("fan-profile", "/usr/local/sbin/fan-profile", self.PIN[:16], "/sys/devices/platform/applesmc.768"):
+            self.assertIn(needle, out)
+        self.admin("action", "remove", "fan-profile", "--yes")
+        self.assertIn("No root-level actions are registered", self.admin("action", "list")[2])
+
+    def test_a_wrong_word_gets_the_choices_and_the_nearest_command_not_argparse_usage_text(self):
+        code, _, err = self.admin("action", "lst")
+        self.assertEqual(code, 2)
+        self.assertNotIn("usage:", err)
+        self.assertIn("accepts: add, remove, list", err)
+        self.assertIn("cw-admin action list", err)
+        code, _, err = self.admin("statu")
+        self.assertIn("cw-admin status", err)
+        self.assertNotIn("usage:", err)
+        code, _, err = self.admin("action", "add")
+        self.assertNotIn("usage:", err)
 
 
 class RegistryTextEdits(unittest.TestCase):

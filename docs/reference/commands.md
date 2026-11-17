@@ -42,7 +42,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `cw-admin adopt` | turn a finished profile run into a class and install it |
 | `cw-admin retire` | remove a class from the registry and install that |
-| `cw-admin action` | register a command that must run as root: shows exactly what it may do, asks once, then signs and installs it |
+| `cw-admin action` | register, list or remove commands that must run as root |
 | `cw-admin proposals` | list, merge or tidy the changes waiting on branches |
 | `cw-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
 

@@ -97,7 +97,9 @@ def fail_from(e):
 
 # ---- worker ----
 def cmd_status(ctx, a):
-    return ctx.remote("status", "--hours", str(a.hours))
+    rc = ctx.remote("status", "--hours", str(a.hours))
+    _ui.related(("Jobs waiting for you", "cw-admin review"), ("Compare every worker you run", "cw-admin workers"), ("See what the worker can run", "cw-run classes"))
+    return rc
 
 
 def cmd_check(ctx, a):
@@ -464,6 +466,8 @@ def cmd_workers(ctx, a):
     print("\n".join(workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out))))
     for p in problems:
         print(paint("  NOTE  " + p, YELLOW, stream=out))
+    _ui.related(("Only workers whose Claude access works", "cw-admin workers --claude"), ("Add another worker", "cw-admin workers add <name> --config <file>"),
+                ("Stop listing a worker", "cw-admin workers remove <name>"), ("Look at one worker's health", "cw-admin status"))
     return 0
 
 
@@ -472,28 +476,69 @@ def cmd_action_hash(ctx, a):
 
 
 def cmd_action(ctx, a):
-    """cw-admin action add <definition>: register a root-level action. One command, like adopt: it asks the worker for the program's fingerprint, shows what it
-    would be allowed to do as root, asks once, then writes the registry change, merges, signs and installs it."""
+    """cw-admin action add|remove|list: root-level actions, registered and removed the same way adopt and retire handle classes."""
+    ctx.repos.need_setup()
+    if a.verb == "list":
+        return action_list(ctx)
+    if not a.source:
+        raise ClientError(f"cw-admin action {a.verb} needs " + ("a definition file or a pack folder" if a.verb == "add" else "the name of an action, or the pack folder it came from"),
+                          example="cw-admin action add packs/fan-control" if a.verb == "add" else "cw-admin action remove fan-profile")
+    return action_add(ctx, a) if a.verb == "add" else action_remove(ctx, a)
+
+
+def registry_text(ctx):
+    ctx.props.fetch()
+    return ctx.repos.show_file(ctx.props.base, "registry.yaml") or ""
+
+
+def action_list(ctx):
+    text = registry_text(ctx)
+    acts = (registry.parse(text) or {}).get("actions") or {} if text else {}
+    if not acts:
+        emit("No root-level actions are registered", "Jobs on this worker never run anything as root.", tag="NOTE", color=YELLOW,
+             run_label="Register one", run="cw-admin action add <definition file or pack folder>")
+        return 0
+    rows = []
+    for name, act in acts.items():
+        used = regedit.classes_using(text, name)
+        rows.append((name, ("Program", " ".join(act.get("run") or [])), ("Pinned to", str(act.get("sha256", ""))[:16] + "…"), ("May write", ", ".join(act.get("writable") or []) or "nothing"),
+                     ("Network", "yes" if act.get("network") else "none"), ("Class", ", ".join(used) or "none: nothing can run it")))
+    for name, *facts in rows:
+        emit(name, *facts, tag="ACTION", color=_ui.ROOT, stream=sys.stdout)
+    _ui.related(("Register another", "cw-admin action add <definition file or pack folder>"), ("Pin one again after you changed its program", "cw-admin action add <definition file or pack folder>"),
+                ("Remove one", "cw-admin action remove <name>"), ("Run one", "cw-run submit <class>"))
+    return 0
+
+
+def action_add(ctx, a):
     r, p = ctx.repos, ctx.props
-    r.need_setup()
     defn = actionadd.load_definition(a.source)
     problems = actionadd.check_definition(defn)
     if problems:
         raise ClientError("That definition would be refused", "\n".join(problems[:6]), ["Fix the file; nothing was sent anywhere."])
-    p.fetch()
-    text = r.show_file(p.base, "registry.yaml") or ""
+    text = registry_text(ctx)
+    have = (registry.parse(text) or {}).get("actions") or {} if text else {}
     have_actions, have_classes = regedit.action_names(text), regedit.class_names(text)
+    for name, action in defn["actions"].items():
+        twin = next((n for n, x in have.items() if n != name and (x.get("run") or [None])[0] == actionadd.program_of(action)), None)
+        if twin:
+            raise ClientError(f"{actionadd.program_of(action)} is already registered, as {twin!r}", "The same program under a second name would be two ways to run it as root.",
+                              [f"Use the existing one, or remove it first: cw-admin action remove {twin}"], example=f"cw-admin action remove {twin}")
     plan, pins = [], {}
     screen = None if a.yes else tui.make()
     for name, action in defn["actions"].items():
         info = actionadd.ask_worker(ctx, actionadd.program_of(action))
         pins[name] = info["sha256"]
         again = name in have_actions
+        if again and (have.get(name) or {}).get("sha256") == info["sha256"] and all(c in have_classes for c in defn["classes"]):
+            emit(f"{name} is already registered", ("Program", info["path"]), ("Pinned to", info["sha256"]), "\n", "The program on the worker is the one it is pinned to, and its class exists. Nothing to change.",
+                 tag="OK", color=GREEN, run_label="See what is registered", run="cw-admin action list")
+            return 0
         if screen is not None:                                              # a real terminal: the wizard's own card, with its buttons
             if not screen.protection(actionadd.card_info(ctx.ssh.target, name, action, info, again)):
                 stop("Not registered", "You answered no. Nothing was changed.")
         else:
-            emit(f"{'Re-pin' if again else 'Add'} the root-level action {name}", *actionadd.summary(name, action, info),
+            emit(f"{'Pin again' if again else 'Register'} the root-level action {name}", *actionadd.summary(name, action, info),
                  "\n", f"Read the program before you say yes:  ssh {ctx.ssh.target} cat {info['path']}", tag="RUNS AS ROOT", color=_ui.ROOT)
         plan.append((name, action, info, again))
     new_classes = {n: b for n, b in defn["classes"].items() if n not in have_classes}
@@ -509,10 +554,44 @@ def cmd_action(ctx, a):
     branch = "registry/action-" + "-".join(defn["actions"])[:40]
     r.push_files(branch, {"registry.yaml": text}, f"feat(registry): root-level action {', '.join(defn['actions'])}\n\nAdded with cw-admin action add; pinned to the program's SHA-256 as the worker reported it.", base=p.main)
     merge_branch(ctx, branch, yes=True)
+    cls = next(iter(defn["classes"]), None)
     rc = install_registry_change(ctx, a, name=next(iter(new_classes), None), present=True)
     if rc == 0:
-        emit("Ready", f"Jobs of the class {', '.join(new_classes) or ', '.join(defn['actions'])} run as root, each one only after you approve it.", tag="DONE", color=GREEN,
-             run_label="Try one", run=f"cw-run submit {next(iter(new_classes), '<class>')}")
+        emit("Ready", f"Jobs of the class {', '.join(defn['classes']) or ', '.join(defn['actions'])} run as root, each one only after you approve it.", tag="DONE", color=GREEN,
+             run_label="Try one", run=f"cw-run submit {cls or '<class>'}")
+    return rc
+
+
+def action_remove(ctx, a):
+    r, p = ctx.repos, ctx.props
+    text = registry_text(ctx)
+    known = regedit.action_names(text)
+    src = Path(a.source).expanduser()
+    names = list(actionadd.load_definition(a.source)["actions"]) if src.exists() else [a.source]       # a name, or the pack folder / file it came from
+    missing = [n for n in names if n not in known]
+    if missing:
+        import difflib
+        close = difflib.get_close_matches(missing[0], known, n=1, cutoff=0.5)
+        raise ClientError(f"There is no root-level action called {missing[0]!r}", "Registered: " + (", ".join(known) or "none") + ".",
+                          example=f"cw-admin action remove {close[0]}" if close else "cw-admin action list")
+    removed_classes = []
+    for name in names:
+        removed_classes += regedit.classes_using(text, name)
+        lines = text.splitlines()
+        s, e = regedit.action_block(text, name)
+        emit(f"Remove the root-level action {name}", ("Program", next((l.split(":", 1)[1].strip() for l in lines[s:e] if l.strip().startswith("run:")), "?")),
+             ("Class removed", ", ".join(regedit.classes_using(text, name)) or "none"), ("Queued jobs", "any still waiting for it are rejected"),
+             ("The program itself", "stays on the worker, untouched; it just can no longer be run as root by a job"), tag="REMOVE", color=RED)
+    if not ctx.confirm(f"Remove {', '.join(names)} and install the new registry on {ctx.ssh.host} now?", a.yes):
+        stop("Not removed", "You answered no. Nothing was changed.")
+    for name in names:
+        text = regedit.without_action(text, name)
+    branch = "chore/remove-action-" + "-".join(names)[:40]
+    r.push_files(branch, {"registry.yaml": text}, f"chore(registry): remove the root-level action {', '.join(names)}\n\nRemoved with cw-admin action remove, with the class that ran it.", base=p.main)
+    merge_branch(ctx, branch, yes=True)
+    rc = install_registry_change(ctx, a, name=removed_classes[0] if removed_classes else None, present=False)
+    if rc == 0:
+        emit("Removed", f"{', '.join(names)} can no longer run as root.", tag="DONE", color=GREEN, run_label="See what is left", run="cw-admin action list")
     return rc
 
 
@@ -548,11 +627,15 @@ def cmd_kill(ctx, a):
 
 # ---- security ----
 def cmd_quarantine(ctx, a):
-    return ctx.remote("quarantine", *([jobs.require_id(a.id)] if a.id else []))
+    rc = ctx.remote("quarantine", *([jobs.require_id(a.id)] if a.id else []))
+    _ui.related(None if a.id else ("Read one held result in full", "cw-admin quarantine <job>"), ("Clear a lockdown after you have looked", "cw-admin unlock"))
+    return rc
 
 
 def cmd_output(ctx, a):
-    return ctx.remote("output", *([jobs.require_id(a.id)] if a.id else []))
+    rc = ctx.remote("output", *([jobs.require_id(a.id)] if a.id else []))
+    _ui.related(None if a.id else ("Read one in full", "cw-admin output <job>"), ("See the job's published result", "cw-run result <job>"))
+    return rc
 
 
 def cmd_unlock(ctx, a):
@@ -582,7 +665,6 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     if p.contained(branch):
         emit(f"{branch} is already merged into main", "Nothing to merge.", tag="OK", color=GREEN)
         return p.git("rev-parse", p.base).stdout.strip()
-    print(p.log(branch))
     sha, msg, tree = p.squash(branch, subject)
     reg = p.tree_file(tree, "registry.yaml")
     if reg is not None:
@@ -593,8 +675,10 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
         problems = [x for x in problems if "tools" not in x]
         if problems:
             raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), ["Fix the proposal; nothing was merged."])
-    print(paint("This becomes ONE commit on main:", BOLD, stream=sys.stdout) + "\n")
-    print("\n".join("  " + line for line in msg.splitlines()) + "\n")
+    subject_line, _, rest = msg.partition("\n")
+    emit(f"Merge {branch} into main", ("Adds", f"{len(p.commits(branch))} commit(s), squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
+         *[("File", f"{path}  +{add} -{gone}") for path, add, gone in p.files(branch)], ("Becomes", subject_line),
+         *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=ACCENT)
     if not ctx.confirm(f"Squash-merge {branch} into main and delete the branch?", yes):
         stop("Not merged", "You answered no.")
     p.push_main(sha)
@@ -713,9 +797,7 @@ def cmd_retire(ctx, a):
     if regedit.is_profile_kind(text, a.cls):
         raise ClientError(f"{a.cls} cannot be retired", "It is what profiling runs on; without it nothing new can be tested on the worker.")
     block = text.splitlines()[where[0]:where[1]]
-    print(paint(f"Retire the class {a.cls}", BOLD, stream=sys.stdout) + "\n")
-    for line in block:
-        print(paint("  - " + line, RED, stream=sys.stdout))
+    emit(f"Retire the class {a.cls}", *[("Removes", line.strip()) for line in block if line.strip() and not line.strip().startswith("#")], tag="RETIRE", color=RED)
     emit("What happens", ("Registry", "the class is removed; the worker refuses new jobs of this class"), ("Queued jobs", "any still waiting for it are rejected"),
          ("Software", "packages it needed stay installed"), ("Profile history", "kept, so `cw-run offload fit` still remembers it was measured"), tag="NOTE", color=YELLOW)
     if not ctx.confirm(f"Remove {a.cls} and install the new registry on {ctx.ssh.host} now?", a.yes):
@@ -840,7 +922,7 @@ HELP = {
     "output": ("the full output of a failed command (GitHub only gets its error lines)", [("List the kept outputs", "cw-admin output"), ("Read one", "cw-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "cw-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "cw-admin retire ssh-version")]),
-    "action": ("register a command that must run as root: shows exactly what it may do, asks once, then signs and installs it", [("From a pack or a YAML file", "cw-admin action add packs/fan-control"), ("After you changed the program, pin it again", "cw-admin action add packs/fan-control")]),
+    "action": ("register, list or remove commands that must run as root", [("Register one from a pack or a YAML file", "cw-admin action add packs/fan-control"), ("After you changed the program, pin it again", "cw-admin action add packs/fan-control"), ("See what is registered", "cw-admin action list"), ("Remove one and the class that runs it", "cw-admin action remove fan-profile")]),
     "theme": ("show the colour roles, what they look like and where the theme came from", [("Show them", "cw-admin theme")]),
     "action-hash": ("print the SHA-256 to pin for a root-level action's program, and check it could be one", [("Hash a program on the worker", "cw-admin action-hash /usr/local/sbin/fan-profile")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "cw-admin proposals publish")]),
@@ -853,7 +935,7 @@ EXAMPLES = [("See what needs your attention", "cw-admin proposals"), ("Approve a
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(add_help=False)
+    ap = clihelp.Parser(prog="cw-admin", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
     yes = lambda s: s.add_argument("--yes", action="store_true", help="do not ask; answer yes")      # noqa: E731
     s = sp.add_parser("status", add_help=False)
@@ -868,8 +950,8 @@ def build_parser():
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
     yes(s)
     s = sp.add_parser("action", add_help=False)
-    s.add_argument("verb", choices=["add"], help="add: register (or re-pin) a root-level action")
-    s.add_argument("source", help="a YAML file, or a pack folder such as packs/fan-control")
+    s.add_argument("verb", choices=["add", "remove", "list"], help="add: register (or pin again) a root-level action | remove: take one away, with its class | list: show what is registered")
+    s.add_argument("source", nargs="?", help="add: a YAML file or pack folder such as packs/fan-control | remove: an action's name, or that folder")
     yes(s)
     sp.add_parser("theme", add_help=False)
     s = sp.add_parser("action-hash", add_help=False)
@@ -939,8 +1021,9 @@ def main(argv=None, ctx=None, cfg=None):
         return 0
     try:
         a = ap.parse_args(argv)
-    except SystemExit:
-        emit("That is not a command cw-admin understands", "Run cw-admin help to see the commands.", tag="ERROR", color=RED)
+    except (clihelp.UsageError, SystemExit) as e:
+        title, why, steps, example = clihelp.usage_problem(e, "cw-admin") if isinstance(e, clihelp.UsageError) else ("That is not a command cw-admin understands", "Run cw-admin help to see the commands.", None, None)
+        emit(title, why, tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     if not a.cmd:
         emit("No command given", "Run cw-admin help to see the commands.", tag="ERROR", color=RED)

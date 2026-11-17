@@ -67,6 +67,16 @@ class Proposals:
     def log(self, branch):
         return self.git("log", "--stat", "--format=%n%h %s%n  %an, %cr", f"{self.base}..origin/{branch}").stdout
 
+    def commits(self, branch):
+        """[(short sha, subject, author, how long ago)] of what the branch adds to main, oldest first."""
+        out = self.git("log", "--reverse", "--format=%h%x09%s%x09%an%x09%cr", f"{self.base}..origin/{branch}").stdout
+        return [tuple(line.split("\t", 3)) for line in out.splitlines() if line.count("\t") == 3]
+
+    def files(self, branch):
+        """[(path, lines added, lines removed)] for the whole branch."""
+        out = self.git("diff", "--numstat", f"{self.base}...origin/{branch}").stdout
+        return [(p, a, d) for a, d, p in (line.split("\t", 2) for line in out.splitlines() if line.count("\t") == 2)]
+
     def squash(self, branch, subject=None):
         """Build (not push) the squash commit of origin/<branch> on origin/main. Returns (sha, message, tree)."""
         ref = f"origin/{branch}"

@@ -1,4 +1,7 @@
 """Styled `--help` for the cw commands: `prog`, `prog help`, `prog -h`, `prog help CMD`, `prog CMD -h`."""
+import argparse
+import difflib
+import re
 import sys
 
 from .ui import BOLD, CYAN, DIM, GREEN, RED, paint, say
@@ -101,3 +104,47 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=
     _table([(f"{prog} help <command>", "every option of one command, with examples")] + list(see or []), out, bold_first=False)
     print()
     return True
+
+
+class UsageError(Exception):
+    """A command line argparse could not accept. Raised instead of letting argparse print its own usage text, so the person sees one message in our style."""
+
+    def __init__(self, parser, message):
+        super().__init__(message)
+        self.parser, self.message = parser, message
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse that never prints or exits: a bad command line becomes a UsageError for `usage_problem` to explain."""
+
+    def error(self, message):
+        raise UsageError(self, message)
+
+
+def _words(parser, prog):
+    """'cw-admin action' for the parser of `cw-admin action` (the root parser is created with prog=, so this is exact)."""
+    return parser.prog if parser.prog.startswith(prog) else prog
+
+
+def usage_problem(err, prog, known=()):
+    """(title, why, steps, example) for a UsageError: what was wrong in plain words, the real choices, and the closest one as a command to copy."""
+    parser, msg = err.parser, err.message
+    here = _words(parser, prog)
+    sub_cmd = here[len(prog):].strip()
+    usage = _usage_of(prog, sub_cmd, parser)
+    m = re.search(r"invalid choice: '([^']*)'.*?\(choose from (.*)\)", msg)
+    if m:
+        bad, choices = m.group(1), [c.strip().strip("'") for c in m.group(2).split(",")]
+        close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.5)
+        top = not sub_cmd
+        what = "command" if top else "option"
+        steps = [f"Choose one of: {', '.join(choices)}"] + ([] if not top else [f"Every command, with examples: {prog} help"])
+        return (f"{bad!r} is not a {what} of {here}", f"{here} accepts: {', '.join(choices)}.", steps,
+                f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else (None if top else usage))
+    m = re.search(r"required: (.*)", msg)
+    if m:
+        return (f"{here} needs {m.group(1)}", "Something it must be told is missing.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None)
+    m = re.search(r"unrecognized arguments: (.*)", msg)
+    if m:
+        return (f"{here} does not know {m.group(1)}", "That option or word is not part of this command.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None)
+    return (f"{here} was given something it cannot use", re.sub(r"^argument [^:]+: ", "", msg), [f"Usage: {usage}"], None)

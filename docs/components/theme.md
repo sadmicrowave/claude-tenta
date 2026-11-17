@@ -27,3 +27,7 @@ accent = "38;5;99"       # any role, as terminal colour numbers
 - A unit test (`tests/test_theme.py`) fails when any module outside `theme.py` writes an escape colour or a numeric colour, so the rule holds as the tool grows.
 - The shape of a message is `ui.say(...)`: a coloured TAG and bold title, aligned labelled rows, steps, then copyable commands, each alone on a line. New commands print with it
   (or `ui.fail` for an error), not with a bare `print`, unless the output is data meant for another program (JSON, a job id, a file's contents).
+- **Where to go next.** A command that shows data ends, for a person at a terminal, with the commands that usually come next (`ui.related`): a bold line saying what it does and the
+  command on its own line beneath it, for example `cw-run classes` ends by offering to add, remove and run a class. It goes to stderr and only when a person is watching, so a pipe,
+  a script or `--json` never sees it; `CW_HINTS=never` turns it off. A command that is wrongly typed gets one message in the same shape (what was wrong, the real choices, the nearest
+  command to copy), never argparse's own usage text.

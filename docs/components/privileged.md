@@ -76,6 +76,19 @@ Why the program is pinned at all: the worker will run a root program only if its
 it until you look again, which is what `cw-admin action add` does when you run it a second time (it shows the new fingerprint and only moves the pin).
 `cw-admin action-hash <path>` still prints the fingerprint by itself, for the curious.
 
+Running it again is safe. If the action is already registered and the program has not changed it says so and changes nothing; if the program has changed it offers to pin the new
+fingerprint; and a program that is already registered under another name is refused (two names for one root program would be two ways to run it).
+
+To see or take one away:
+
+```
+cw-admin action list
+cw-admin action remove fan-profile
+```
+
+`remove` takes the action's name, or the pack folder it came from, shows what goes (the action and the class that runs it; the program itself is never touched), asks once, then merges, signs
+and installs the change. Queued jobs of that class are rejected. A misspelt name lists what is registered and suggests the nearest.
+
 After that a fan job is an ordinary job with a louder warning:
 
 ```

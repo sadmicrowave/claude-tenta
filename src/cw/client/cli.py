@@ -220,6 +220,7 @@ def cmd_jobs(ctx, n=15):
         return next((view.parse_when(j.get("created", "")) for i, j in listing if i == jid), None)
     rows = view.status_rows(results, created_of, None, view.queued_rows(ids, listing, admin=ctx.admin))
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n)
+    _ui.related(("Read one result in full", "cw-run result <job>"), ("Send another job", "cw-run submit <class>"), ("Approve a job that is waiting", f"{ctx.admin} approve <job>"))
     return 0
 
 
@@ -233,6 +234,12 @@ def cmd_classes(ctx):
         emit(f"{ctx.product} has not published its class list yet", "It does this about a minute after an install. Try again shortly.", tag="ERROR", color=RED)
         return 1
     view.render_classes(info, pending=[n for n in off.proposed_names(r) if n not in info["classes"]], excluded=len(off.read_exclusions(r).get("excluded", [])), product=ctx.product)
+    _ui.related(("Run one", "cw-run submit <class>"),
+                ("Add a class from a command you have tested", f"{ctx.admin} adopt <profile-job>"),
+                ("Add a command that must run as root", f"{ctx.admin} action add <definition file or pack folder>"),
+                ("Remove a class", f"{ctx.admin} retire <class>"),
+                ("Remove a root-level action and its class", f"{ctx.admin} action remove <name>"),
+                ("Test whether a new command suits the worker", "cw-run offload fit -- <command>"))
     return 0
 
 
@@ -326,6 +333,7 @@ def cmd_exclusions(ctx):
         print(f"  {paint('why', DIM, stream=out)}         {'; '.join(e.get('reasons', []))}")
         print(f"  {paint('limited by', DIM, stream=out)}  {', '.join(e.get('limiting', [])) or '?'}")
         print(f"  {paint('tested', DIM, stream=out)}      {pr.get('date', '?')} on {pr.get('mem_total_mb', '?')} MB RAM (job {pr.get('job', '?')})")
+    _ui.related(("Check whether another command fits", "cw-run offload fit -- <command>"), ("See every check you have made", "cw-run offload history"))
     return 0
 
 
@@ -494,7 +502,7 @@ def cmd_offload(ctx, a, cfg):
 
 # ---- parsing ----
 def build_parser():
-    ap = argparse.ArgumentParser(description="cw-run", add_help=False)
+    ap = clihelp.Parser(prog="cw-run", description="cw-run", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
     sp.add_parser("setup", add_help=False)
     s = sp.add_parser("submit", add_help=False)
@@ -595,8 +603,9 @@ def main(argv=None, ctx=None, cfg=None):
     try:
         a = ap.parse_args(argv)
         a.argv, a.raw = tail, raw
-    except SystemExit:
-        emit("That is not a command cw-run understands", "Run cw-run help to see the commands.", tag="ERROR", color=RED)
+    except (clihelp.UsageError, SystemExit) as e:
+        title, why, steps, example = clihelp.usage_problem(e, "cw-run") if isinstance(e, clihelp.UsageError) else ("That is not a command cw-run understands", "Run cw-run help to see the commands.", None, None)
+        emit(title, why, tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     try:
         if ctx is None:

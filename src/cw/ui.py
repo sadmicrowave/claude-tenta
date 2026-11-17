@@ -59,3 +59,19 @@ def die(msg, code=2):
     """Anything unexpected (git output and the like): the first line is the title, the rest is the detail."""
     head, _, rest = str(msg).partition("\n")
     fail(head, rest.strip() or None, code=code)
+
+
+def related(*pairs, title="From here", stream=None, force=False):
+    """The commands that usually come next after what was just shown, in the one shape every command uses: a bold line saying what it does, the command to copy on
+    its own line beneath it. Printed to stderr and only for a person at a terminal, so a pipe, a script or `--json` never sees it (CW_HINTS=never turns it off).
+    pairs are (what it does, command); a pair whose command is None is left out, so callers can offer things conditionally."""
+    stream = stream or sys.stderr
+    pairs = [p for p in pairs if p and p[1]]
+    watching = force or (sys.stdout.isatty() and stream.isatty() and os.environ.get("CW_HINTS") != "never")
+    if not pairs or not watching:
+        return False
+    out = ["", paint(title, BOLD, ACCENT, stream=stream)]
+    for what, command in pairs:
+        out += ["", paint(what, BOLD, stream=stream), paint(command, BOLD, GREEN, stream=stream)]
+    print("\n".join(out) + "\n", file=stream)
+    return True

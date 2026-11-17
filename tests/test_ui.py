@@ -115,3 +115,20 @@ class Help(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Related(unittest.TestCase):
+    def test_commands_that_come_next_are_in_the_house_shape_and_only_for_a_person(self):
+        err = Tty()
+        with clean_env():
+            self.assertFalse(ui.related(("Add one", "cw-admin add <x>"), stream=err))             # stdout is not a terminal here: nothing is printed
+            self.assertEqual(err.getvalue(), "")
+            self.assertTrue(ui.related(("Add one", "cw-admin add <x>"), ("Never shown", None), ("Remove one", "cw-admin remove <x>"), stream=err, force=True))
+        import re
+        text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
+        self.assertIn("Add one\ncw-admin add <x>\n\nRemove one\ncw-admin remove <x>", text)
+        self.assertNotIn("Never shown", text)
+
+    def test_it_can_be_turned_off(self):
+        with clean_env(CW_HINTS="never"):
+            self.assertFalse(ui.related(("a", "b"), stream=Tty()))

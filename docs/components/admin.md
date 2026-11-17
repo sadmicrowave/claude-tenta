@@ -31,7 +31,7 @@ read is exactly what it holds. In a terminal, approving then waits and prints th
 
 ### Registry changes
 
-`adopt <profile-job>` previews a proposal from a profile result, asks once, writes the branch, squash-merges it into `main`, then runs `apply`. `action add <definition>` registers a command that must run as root the same way (it fetches the program's fingerprint from the worker, shows a RUNS AS ROOT card, asks once, merges, signs and installs; see [Root-level actions](privileged.md)). `theme` shows the colour roles and where the theme came from ([Colours](theme.md)). `retire <class>` shows the class and its
+`adopt <profile-job>` previews a proposal from a profile result, asks once, writes the branch, squash-merges it into `main`, then runs `apply`. `action add|remove|list` registers, takes away and lists root-level actions; `action add <definition>` registers a command that must run as root the same way (it fetches the program's fingerprint from the worker, shows a RUNS AS ROOT card, asks once, merges, signs and installs; see [Root-level actions](privileged.md)). `theme` shows the colour roles and where the theme came from ([Colours](theme.md)). `retire <class>` shows the class and its
 comments, asks, removes it on a branch, merges it and applies. `proposals` lists branches of the queue repository with whether each is already merged; `proposals merge <branch>` (or `--all`)
 shows the commits, builds **one** squash commit authored as the branch's author with a `Merged-Branch` trailer, **validates a registry change before pushing**, pushes `main`, and deletes the
 branch; `proposals tidy` deletes merged branches. The `profile-run` class cannot be retired.

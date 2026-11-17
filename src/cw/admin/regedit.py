@@ -107,3 +107,49 @@ def set_action_pin(text, name, digest):
             lines[i] = f'    sha256: "{digest}"'
             return "\n".join(lines) + "\n"
     return None
+
+
+def action_block(text, name):
+    """(start, end) of an action in `actions:`: its comment lines above it, the line itself, its body. None when it is not there."""
+    lines = text.splitlines()
+    found = section_end(lines, "actions")
+    if not found:
+        return None
+    at = next((i for i in range(found[0] + 1, found[1]) if (m := CLASS_LINE.match(lines[i])) and m.group(1) == name), None)
+    if at is None:
+        return None
+    start = at
+    while start > found[0] + 1 and lines[start - 1].startswith("  #"):
+        start -= 1
+    end = at + 1
+    while end < found[1] and not CLASS_LINE.match(lines[end]) and not lines[end].startswith("  #"):
+        end += 1
+    return start, end
+
+
+def classes_using(text, action):
+    """Names of the classes that run this action (`kind: privileged`, `action: <name>`)."""
+    lines, out = text.splitlines(), []
+    for cls in class_names(text):
+        s, e = class_block(text, cls)
+        if any(re.match(rf"^    action:\s*{re.escape(action)}\s*$", l) for l in lines[s:e]):
+            out.append(cls)
+    return out
+
+
+def without_action(text, name):
+    """The text without the action and without every class that runs it (and no empty `actions:` left behind). None when the action is not there."""
+    where = action_block(text, name)
+    if not where:
+        return None
+    for cls in classes_using(text, name):
+        text = without_class(text, cls) or text
+    where = action_block(text, name)
+    lines = text.splitlines()
+    del lines[where[0]:where[1]]
+    found = section_end(lines, "actions")
+    if found and found[1] == found[0] + 1:
+        del lines[found[0]]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines) + "\n"
