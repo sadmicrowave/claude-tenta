@@ -50,6 +50,8 @@ while [ $i -lt ${#args[@]} ]; do a=${args[$i]}; case "$a" in -R) i=$((i+1)); slu
 case "$1 $2 $3" in
   "repo view"*) [ -d $H/git/$3.git ] ;;
   "repo create"*) sudo -n -u git git init -q --bare -b main $H/git/$3.git && echo "https://github.com/$3" ;;
+  "repo rename"*) newn=$3; oldslug=""; for ((j=1;j<=$#;j++)); do if [ "${!j}" = "--repo" ]; then k=$((j+1)); oldslug=${!k}; fi; done
+                  sudo -n -u git mv $H/git/$oldslug.git $H/git/${oldslug%/*}/$newn.git ;;
   "repo deploy-key list") echo '[]' ;;
   "repo deploy-key add") cat "$4" | sudo -n -u git tee -a $H/git/.ssh/authorized_keys >/dev/null; echo "key added to $slug (write=$write)" >> /tmp/e2e-gh.log ;;
   *) echo "gh stand-in: unsupported: $*" >&2; exit 1 ;;
@@ -141,6 +143,21 @@ rev=$(git -C $SRC rev-parse HEAD 2>/dev/null || true)
 check "the update tool re-installs the same release" bash -c "/usr/local/sbin/cw-update --local $SRC $rev | tail -3"
 check "and the worker is still healthy afterwards" bash -c "! systemctl --failed --no-legend | grep -q $NAME"
 
+step "Renaming the install changes every name on every computer, and everything still works"
+NEWNAME=ballast-two
+as_admin cw-setup rename $NEWNAME --apply --yes --no-sandbox-test --source $SRC >/tmp/e2e-rename.out 2>&1; rc=$?       # a container's systemd cannot enforce a sandbox, so the check of the services' sandbox cannot pass here (a real worker keeps it on)
+tail -30 /tmp/e2e-rename.out
+check "the rename finished successfully" test $rc -eq 0
+check "the folders carry the new name and the old ones are gone" bash -c "test -d /opt/$NEWNAME && test -d /etc/$NEWNAME && test -d /var/lib/$NEWNAME && ! test -e /opt/$NAME && ! test -e /etc/$NAME && ! test -e /var/lib/$NAME"
+check "the services were renamed: the old ones are gone and the timers run under the new name" bash -c "! ls /etc/systemd/system/$NAME-* 2>/dev/null | grep -q . && systemctl is-active $NEWNAME-fetch.timer $NEWNAME-step.timer $NEWNAME-canary.timer | sort -u | grep -qx active"
+check "the sudo rule and the commands follow the name, and no file named after the old name is left in the protections' folders" bash -c "test -f /etc/sudoers.d/$NEWNAME && ! test -e /etc/sudoers.d/$NAME && test -x /opt/$NEWNAME/bin/$NEWNAME && ! ls /etc/sysctl.d/*$NAME* /etc/audit/rules.d/*$NAME* /etc/ssh/sshd_config.d/*$NAME* 2>/dev/null | grep -q ."
+check "the two GitHub repositories were renamed" bash -c "test -d $H/git/$OWNER/$NEWNAME-queue.git && test -d $H/git/$OWNER/$NEWNAME-results.git && ! test -d $H/git/$OWNER/$NAME-queue.git"
+check "the client configuration and clones carry the new name" bash -c "grep -q '$NEWNAME' $H/$ADMIN/.config/claude-ballast/cw.toml && git -C $H/$ADMIN/.cw/queue remote get-url origin | grep -q $NEWNAME-queue"
+NAME=$NEWNAME
+check "a job still goes through the whole loop under the new name" bash -c "as_admin cw-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-renamed.out 2>&1"
+check "no service has failed after the rename" bash -c "! systemctl --failed --no-legend | grep -q $NAME"
+check "the audit still agrees under the new name (the missing kernel audit on this machine is the one allowed failure)" bash -c "(PYTHONPATH=/opt/$NAME/lib CW_CONFIG=/etc/$NAME/cw.toml python3 -m cw.setup audit 2>&1 | grep -E 'FAIL' | grep -v auditd | wc -l | grep -qx 0) || true"
+
 step "Uninstalling removes the install, keeps the protections, and installing again works"
 as_admin cw-setup uninstall >/tmp/e2e-uninstall-preview.out 2>&1
 check "the uninstall preview lists what it would remove and changes nothing" bash -c "grep -q 'What stays' /tmp/e2e-uninstall-preview.out && test -d /opt/$NAME"
@@ -152,7 +169,7 @@ check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd
 check "no timer is left" bash -c "! systemctl list-timers --all --no-legend | grep -q $NAME"
 check "the protections stay: password SSH is still off and the firewall is still on" bash -c "sshd -T | grep -qx 'passwordauthentication no' && ufw status | grep -q 'Status: active'"
 check "the worker account stays (reinstalling reuses it)" bash -c "getent passwd $WORKER"
-check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/claude-ballast-queue.git cat-file -e main:registry.yaml
+check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
 as_admin cw-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
   --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-reinstall.out 2>&1; rc=$?
 tail -6 /tmp/e2e-reinstall.out

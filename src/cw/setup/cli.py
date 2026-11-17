@@ -1,7 +1,8 @@
-"""cw-setup install | uninstall | demo | client | server | audit | tripwire-test
+"""cw-setup install | uninstall | rename | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   audit     read-only: check a server against its configuration and report anything that drifted
   tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
@@ -58,7 +59,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="cw-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -72,6 +73,9 @@ def build_parser():
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
         s.add_argument("--secrets-file", help="a KEY=value file of sign-in secrets from the installer (server only)")
         s.add_argument("--approver-file", help="the public key that may approve jobs from the administrator's computer (server only)")
+        s.add_argument("name", nargs="?", help="with rename: the new name")
+        s.add_argument("--to", help="with rename --here (on the server): the new name")
+        s.add_argument("--no-sandbox-test", action="store_true", help="rename only: skip the check of the services' sandbox (a test machine whose systemd cannot enforce one; never on a real worker)")
         s.add_argument("--no-test", action="store_true")
         s.add_argument("--advanced", action="store_true")
         s.add_argument("--no-banner", action="store_true")
@@ -181,6 +185,21 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             cfg = config.load()
             rows, bad = audit_mod.run(host, cfg, say=say)
             return 1 if bad else 0
+        if a.cmd == "rename":
+            from . import rename
+            if a.here:                                           # on the server, as root: the half the client half runs over ssh
+                cfg = load_config()
+                interactive = not a.yes and sys.stdin.isatty()
+                run = rename.Rename(host, cfg, a.to, source=a.source, rev=a.rev, say=say, dry_run=not a.apply,
+                                    skip_sandbox_test=a.no_sandbox_test,
+                                    confirm=None if a.yes else (lambda p: ask(paint(f"\n  {p} [y/N] ", BOLD, YELLOW)).strip().lower() == "y") if interactive else (lambda p: False))
+                status = run.run_all()[-1][1]
+                if status == "declined":
+                    return 1
+                if status == "done":
+                    emit("Renamed on this machine", f"{run.old} is now {run.new}.", tag="DONE", color=GREEN)
+                return 0
+            return rename.rename_command(a, host, ask, ssh_factory, say)
         if a.cmd == "tripwire-test":
             from . import tripwire
             cfg = config.load()

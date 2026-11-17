@@ -70,10 +70,11 @@ Run on your computer. Sends work to the worker and reads the results.
 ## cw-setup
 
 ```
-cw-setup install | uninstall | demo | client | server | audit | tripwire-test
+cw-setup install | uninstall | rename | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   audit     read-only: check a server against its configuration and report anything that drifted
   tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay

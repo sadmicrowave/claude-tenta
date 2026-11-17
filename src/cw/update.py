@@ -383,6 +383,8 @@ def main(argv=None):
     usage = "usage: python3 -m cw.update --verified | --rev <commit> | --local <release checkout> <commit> | --registry-sync"
     try:
         cfg = config.load()
+        skip_sandbox = "--no-sandbox-test" in argv                  # for a test machine whose systemd cannot enforce a sandbox (a container): never on a real worker
+        argv = [x for x in argv if x != "--no-sandbox-test"]
         if argv == ["--registry-sync"]:
             status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
             print(f"registry-sync: {status}", file=sys.stdout if ok else sys.stderr)
@@ -395,7 +397,7 @@ def main(argv=None):
         else:
             print(usage, file=sys.stderr)
             return 2
-        report = install_release(src, cfg, rev, sandbox=lambda text: sandboxtest.test_unit(text, cfg), systemctl=real_systemctl, sysctl=real_sysctl)
+        report = install_release(src, cfg, rev, sandbox=None if skip_sandbox else (lambda text: sandboxtest.test_unit(text, cfg)), systemctl=real_systemctl, sysctl=real_sysctl)
         if report.ok:
             result = install_registry(cfg, src, run=real_run, install_packages=real_install_packages(cfg))
             if result != "unchanged":
