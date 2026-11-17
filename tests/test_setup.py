@@ -357,6 +357,17 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
         self.assertTrue(self.h.exists("/usr/local/sbin/ct-update"))
 
+    def test_an_install_that_belongs_to_another_account_stops_before_making_a_second_one(self):
+        self.h.replies["stat -c %U"] = Result(0, "cwworker\n")
+        s = self.setup_obj(dry_run=False)
+        with self.assertRaises(server.SetupError) as e:
+            s.run_all()
+        self.assertIn("already runs as cwworker", e.exception.title)
+        self.assertIn("--set server.worker_user=cwworker", " ".join(e.exception.steps))
+        self.assertFalse(self.h.ran("useradd"))
+        self.h.replies["stat -c %U"] = Result(0, "ctworker\n")                          # the account this install means: nothing to say
+        self.setup_obj(dry_run=False).run_all()
+
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()

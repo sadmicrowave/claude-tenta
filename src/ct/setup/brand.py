@@ -58,18 +58,30 @@ def _cells(row):
     return [(i, ch) for i, text in row for ch in text]
 
 
+CLOUD = (0, 1, 3)                                # the colours of the cloud: its pieces are placed on their own
+
+
 def scene(width, light=False):
-    """[[(colour index or None, character)]] rows exactly `width` wide: the picture centred, its water carried on to both edges (the wave pattern repeats)."""
+    """[[(colour index or None, character)]] rows exactly `width` wide: the creature and its name a little left of centre, the cloud further left, the water carried
+    on to both edges (the wave pattern repeats)."""
     rows = SKY + ART[:len(ART) - 1]                       # the solid bottom row of water is dropped
-    pad = max(0, (width - WIDTH) // 2)
+    free = max(0, width - WIDTH)
+    pad = int(free * 0.35)                                # left of centre, not centred
+    cloud_at = pad - int(free * 0.2)                      # and the cloud nearer the edge, to use the empty space on its side
     out = []
     for n, row in enumerate(rows):
         cells = _cells(row)
         cells += [(None, " ")] * (WIDTH - len(cells))
         if n >= len(rows) - WATER_ROWS:                  # water: repeat the pattern across the whole width
-            line = [cells[(x - pad) % WIDTH] for x in range(width)]
-        else:
-            line = [(None, " ")] * pad + cells + [(None, " ")] * (width - pad - WIDTH)
+            out.append([cells[(x - pad) % WIDTH] for x in range(width)])
+            continue
+        line = [(None, " ")] * width
+        for x, cell in enumerate(cells):                 # the cloud first, so the creature is drawn over it where they meet
+            if cell[0] in CLOUD:
+                line[cloud_at + x] = cell
+        for x, cell in enumerate(cells):
+            if cell[0] is not None and cell[0] not in CLOUD:
+                line[pad + x] = cell
         out.append(line)
     return out
 

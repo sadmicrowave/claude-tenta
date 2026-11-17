@@ -179,6 +179,12 @@ class ServerSetup:
         cfg = self.cfg
         if not self.host.run(["id", cfg.server.admin_user]).ok and not self.dry_run:
             raise SetupError(f"The account {cfg.server.admin_user!r} does not exist", "It is the account you log in as; create it first.", [f"sudo adduser {cfg.server.admin_user}"])
+        owner = self.host.run(["stat", "-c", "%U", cfg.path("queue_clone")])             # an install that already exists belongs to the account it was made for
+        have = owner.out.strip() if owner.ok else ""
+        if have and have not in ("root", "UNKNOWN", cfg.server.worker_user) and self.host.run(["id", have]).ok:
+            raise SetupError(f"This machine's worker already runs as {have}, but this install would use {cfg.server.worker_user}",
+                             f"Creating a second account would leave {have}'s repositories and state unreadable and every job stuck. Nothing was changed by this check.",
+                             [f"Keep the existing account: ct-setup install --set server.worker_user={have}"])
         if not self.host.run(["id", cfg.server.worker_user]).ok:
             self.run(["useradd", "--system", "--create-home", "--home-dir", cfg.paths.worker_home, "--shell", "/usr/sbin/nologin", cfg.server.worker_user], step="create the worker account")
             self.note("worker account", "created", cfg.server.worker_user)
