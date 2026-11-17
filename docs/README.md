@@ -13,6 +13,7 @@
 - [Packs](components/packs.md): job classes and off-limits rules, and how they combine.
 - [Colours and the look of the output](components/theme.md): one place that decides every colour; change it with one file.
 - [Root-level actions](components/privileged.md): how a job may cause something to happen as root, narrowly, and only with your signature.
+- [Connections](components/transports.md): Direct or GitHub, what each gains and gives up, moving an install, `ct-admin watch`.
 - [Hardening](components/hardening.md): the protections the wizard applies, and how to add one.
 - [The setup wizard](components/setup.md): `ct-setup client`, `server`, `audit`.
 - [Sending work: ct-run](components/client.md) · [Running it: ct-admin](components/admin.md) · the generated [command reference](reference/commands.md).
@@ -21,4 +22,4 @@
 
 **Project papers**
 
-- [Security review of the original install](REVIEW.md) · [Design](DESIGN.md) · [Command-set decisions](design/COMMANDS.md) · [Several workers](design/ORCHESTRATION.md) · [Transports (planned)](design/TRANSPORTS.md).
+- [Security review of the original install](REVIEW.md) · [Design](DESIGN.md) · [Command-set decisions](design/COMMANDS.md) · [Several workers](design/ORCHESTRATION.md) · [Transports (design)](design/TRANSPORTS.md).

@@ -8,7 +8,7 @@
   account for you on it (the *admin* account) that you can log in to **with an SSH key** (`ssh-copy-id admin@worker` once, if you have not). Everything else it needs (git, the registry reader, bubblewrap, the firewall tools) is installed for you.
 - **A GitHub account.** The two repositories are created private under it.
 
-Nothing needs to be reachable from the internet. The worker only makes outgoing connections to GitHub.
+Nothing needs to be reachable from the internet. With the GitHub connection the worker only makes outgoing connections to GitHub; with Direct it makes none and your computer connects to it instead (see [Connections](components/transports.md)).
 
 ## 1. Install on your computer
 
