@@ -475,11 +475,13 @@ class RoundTrip(unittest.TestCase):
     def test_the_round_trip_ends_when_the_result_is_in_hand_not_when_the_worker_finished(self):
         self.assertEqual(view.round_trip(self.RES, self.SEEN), (39, 30, 6, 3))
         tail = "\n".join(view.format_result(self.RES, received=self.SEEN)[2])
-        self.assertIn("39 s from sending it to seeing its result  (30 s until it started, 6 s running, 3 s coming back)", tail)
+        for needle in ("ROUND TRIP", "total", "39 s  from sending the job to having its result here", "waiting", "30 s  until the worker started it", "running", "6 s  on the worker", "coming back", "3 s  the result published"):
+            self.assertIn(needle, tail)
 
     def test_the_card_says_the_same(self):
         rows = view.result_card(self.RES, received=self.SEEN)["details"]
-        self.assertIn(("Round trip", "39 s from sending it to seeing its result  (30 s until it started, 6 s running, 3 s coming back)"), rows)
+        self.assertEqual([r[0] for r in rows if isinstance(r, tuple) and r[0] in ("Total", "Waiting", "Running", "Coming back")], ["Total", "Waiting", "Running", "Coming back"])
+        self.assertIn(("Total", "39 s  from sending the job to having its result here"), rows)
 
     def test_without_a_moment_of_receiving_it_is_measured_to_now(self):
         self.assertGreater(view.round_trip(self.RES)[0], 36)               # the sample result is long past: the trip is as long as it has been since it was sent

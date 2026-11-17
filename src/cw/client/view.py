@@ -67,9 +67,11 @@ def round_trip(res, received=None):
     return secs(sent, end), secs(sent, started), secs(started, done), max(0, secs(sent, end) - secs(sent, done))
 
 
-def trip_text(trip):
+def trip_rows(trip, label=str):
+    """The round trip as four labelled rows, so each part reads on its own line."""
     total, waited, ran, back = trip
-    return f"{human_dur(total)} from sending it to seeing its result  ({human_dur(waited)} until it started, {human_dur(ran)} running, {human_dur(back)} coming back)"
+    return [(label("total"), f"{human_dur(total)}  from sending the job to having its result here"), (label("waiting"), f"{human_dur(waited)}  until the worker started it (noticing it, and your approval)"),
+            (label("running"), f"{human_dur(ran)}  on the worker"), (label("coming back"), f"{human_dur(back)}  the result published to GitHub and fetched here")]
 
 
 # ---- one result ----
@@ -97,17 +99,15 @@ def format_result(res, admin="cw-admin", suggest_name=None, received=None):
     head.append(paint("OUTPUT", BOLD, CYAN))
     tail, m = [], res.get("metrics")
     trip = round_trip(res, received)
-    if m or trip:
+    if m:
         tail.append(f"\n{paint('MEASURED', BOLD, CYAN)}")
-        rows = []
-        if m:
-            temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
-            rows += [("time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"),
-                     ("heat", f"peak {temp}"), ("disk", f"{m.get('disk_mb')} MB")]
-        if trip:
-            rows.append(("round trip", trip_text(trip)))
-        for label, val in rows:
+        temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
+        for label, val in (("time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"),
+                           ("heat", f"peak {temp}"), ("disk", f"{m.get('disk_mb')} MB")):
             tail.append(f"  {paint(f'{label:<12}', DIM)}{val}")
+    if trip:
+        tail.append(f"\n{paint('ROUND TRIP', BOLD, CYAN)}")
+        tail += [f"  {paint(f'{label:<12}', DIM)}{val}" for label, val in trip_rows(trip)]
     pr = res.get("profile")
     if pr:
         v = pr["verdict"]
@@ -143,13 +143,13 @@ def result_card(res, admin="cw-admin", suggest_name=None, received=None):
         rows += [(label, pr[key]) for label, key in (("What it does", "what"), ("Why", "why"), ("Expected", "expect"), ("Reads/writes/contacts", "side_effects"), ("Bad signs", "watch_for")) if pr.get(key)]
         rows += [(f"Flag {flag}", meaning) for flag, meaning in (pr.get("flags") or {}).items()] + ([("Input files", ", ".join(pr["files"]))] if pr.get("files") else [])
     rows += [cards.Heading("Output"), cards.Block((res.get("output") or "").rstrip("\n").split("\n") if res.get("output") else ["(no output)"])]
-    if m or trip:
+    if m:
         rows.append(cards.Heading("Measured"))
         if m:
             temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
             rows += [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
-        if trip:
-            rows.append(("Round trip", trip_text(trip)))
+    if trip:
+        rows += [cards.Heading("Round trip")] + trip_rows(trip, str.capitalize)
     run, run_label = None, "Next"
     if pr:
         rows += [cards.Heading("Verdict"), ("Verdict", pr["verdict"] + (f"   cost {pr['cost']}" if pr.get("cost") else ""))] + [f"- {why}" for why in pr.get("reasons", [])]
