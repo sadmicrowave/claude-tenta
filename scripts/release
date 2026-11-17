@@ -5,6 +5,7 @@
     scripts/release 0.2.0 --sign          sign the tag with your SSH signing key (git config user.signingkey, gpg.format ssh)
     scripts/release 0.2.0 --notes FILE    use FILE as the release notes (default: the commit subjects since the last release)
     scripts/release 0.2.0 --skip-tests    skip the unit tests (the privacy check and a clean tree are always required)
+    scripts/release 0.2.0 --dry-run       run every check and show what would be tagged, changing nothing
 
 Everything that people or workers learn about a release comes from this tag: `ct-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
 in `updates.mode = "signed-tags"` installs only a tag whose signature checks. Nothing is pushed here: you read the result, then push.
@@ -81,7 +82,8 @@ def release(root, version, notes=None, sign=False, skip_tests=False):
     body = notes if notes is not None else notes_since(root, prev)
     bump(root, version)
     git(root, "add", "pyproject.toml", "src/ct/__init__.py")
-    git(root, "commit", "-q", "-m", f"release {version}")
+    if git(root, "status", "--porcelain"):                   # the files may already say this version (the first release): then there is nothing to commit
+        git(root, "commit", "-q", "-m", f"release {version}")
     message = f"release {version}\n\n{body}\n"
     git(root, "tag", "-s" if sign else "-a", f"release-{version}", "-m", message)
     return f"release-{version}", prev
@@ -93,14 +95,27 @@ def main(argv=None):
     ap.add_argument("--sign", action="store_true")
     ap.add_argument("--notes")
     ap.add_argument("--skip-tests", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
+    sys.path.insert(0, str(ROOT / "src"))
+    from ct import ui                                        # the same card style as every other screen
     try:
-        tag, prev = release(ROOT, a.version, Path(a.notes).read_text() if a.notes else None, a.sign, a.skip_tests)
+        notes = Path(a.notes).read_text() if a.notes else None
+        if a.dry_run:
+            check(ROOT, a.version, a.skip_tests)
+            prev = previous_tag(ROOT)
+            body = notes if notes is not None else notes_since(ROOT, prev)
+            ui.document(f"What release-{a.version} would say", body, tag="DRY RUN", stream=sys.stdout)
+            ui.say("Every check passed", ("Would tag", f"release-{a.version}" + (" (signed)" if a.sign else "")), ("Previous release", prev or "none"),
+                   ("Files at this version", ", ".join(rel for rel, rx, _ in FILES if f'"{a.version}"' in (ROOT / rel).read_text())),
+                   "Nothing was changed.", tag="OK", color=ui.GREEN, stream=sys.stdout, run_label="To do it for real", run=f"scripts/release {a.version}" + (f" --notes {a.notes}" if a.notes else ""))
+            return 0
+        tag, prev = release(ROOT, a.version, notes, a.sign, a.skip_tests)
     except ReleaseError as e:
-        print(f"release: {e}", file=sys.stderr)
+        ui.say("The release was stopped", str(e), tag="ERROR", color=ui.RED)
         return 1
-    print(f"Created {tag}" + (f" (the last one was {prev})" if prev else "") + ". Nothing was pushed. To publish it:\n")
-    print(f"  git push origin main\n  git push origin {tag}\n")
+    ui.say(f"Created {tag}", ("The last one was", prev or "none"), "Nothing was pushed.", tag="DONE", color=ui.GREEN, stream=sys.stdout, run_label="To publish it",
+           run=["git push origin main", f"git push origin {tag}"])
     return 0
 
 
