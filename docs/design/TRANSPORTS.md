@@ -12,6 +12,26 @@ Jobs and results travel through git repositories, as they do today. What changes
 
 The administrator can pick any of them. GitHub stays supported because "nothing on my network listens" is the strongest isolation for some people, and because it needs no always-reachable machine.
 
+## Decisions for 0.2 (2026-11-17)
+
+1. **Finding a worker:** a name or address in the configuration (`server.host`), as today. mDNS discovery for a computer that moves between networks is a **later enhancement**, not part of 0.2.
+2. **A worker that is off or unreachable:** `ct-run submit` fails with a clear message. No outbox in 0.2 (store and forward stays an open question).
+3. **State and alerts:** the worker never needs to reach your LAN for them. Each worker writes its own state (`worker-state.json`, `security.json`) into its results repository, and the computer collects it; the computer raises the alerts it sees. This is the state-polling the several-workers scheduler needs, so it is built once and shared. Who moves the state depends on the transport, so the strain on the host does not grow with the number of workers:
+   - **GitHub and LAN git server:** workers already push to a shared place, so state check-ins flow *to* the host's reading point, and the host reads them with one cheap fetch (device to host, no per-device connection from the host).
+   - **Direct:** the worker makes no connection to anything, which is the point of Direct. The host reads each worker's state over the SSH it already opens for jobs, with a per-worker schedule and a back-off for quiet workers, in parallel. Letting a worker connect out to the host would give up Direct's isolation, so it is not done.
+
+## The wizard explains the choice
+
+When more than one transport exists, the wizard asks for the connection method with a short plain-words description of what each one gains and costs, in speed and in security. Not long: one line of gain, one of cost. The first draft of the words, to be kept true to the numbers the product really has:
+
+| Choice | Gains | Costs |
+|---|---|---|
+| **Direct** (recommended once built) | Fastest: a job is picked up within seconds, and nothing leaves your network. The worker reaches nothing on your network. | The worker's SSH port is open to your computer's address, and the worker must be reachable when you send a job. |
+| **LAN git server** | Fast, and the right shape for several workers: one place for all the jobs. | A compromised worker can reach that one server's SSH port, and you keep one more service patched. |
+| **GitHub** | Most isolated: nothing on your network listens, and the worker only connects out. Needs no always-on machine of yours. | Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party. |
+
+The same words are used in `ct-setup transport` and in `ct-admin workers`, and a test fails if a transport has no description for each of gain and cost.
+
 ## Why git stays the data model
 
 A transport is only a place to keep and move repositories. Everything that makes the system safe sits above it and does not change:
@@ -112,9 +132,9 @@ kind = "direct"        # direct | lan | github
 
 ## Open questions
 
-1. **Store and forward:** an outbox on your computer for jobs sent while a worker is unreachable, and what "submitted" means then.
-2. **Discovery:** a name or an address in your configuration, or mDNS. A laptop that moves between networks needs the second.
-3. **Notifications without egress** (above): confirm that your computer polling `security.json` is enough, or keep a single allowed HTTPS egress for alerts.
+1. **Store and forward:** an outbox on your computer for jobs sent while a worker is unreachable, and what "submitted" means then. (0.2 fails clearly instead; see Decisions.)
+2. **Discovery:** a name or an address in your configuration, or mDNS. A laptop that moves between networks needs the second. (0.2 uses the configured name; mDNS is a later enhancement.)
+3. **Notifications without egress** (above): decided: the computer collects state and raises the alerts (see Decisions).
 4. **A mixed fleet:** whether one install may have workers on different transports, and how `ct-admin workers` shows it.
 5. **Windows hosts** for the administrator's computer: out of scope until asked.
 
