@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import approvals, guard, jobs, profiling, registry, results, workerstate
+from . import approvals, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
@@ -502,7 +502,9 @@ class Worker:
             res = json.loads(f.read_text())
             if self._p("running", res["id"]).exists():
                 continue
-            if self.io.publish(res):
+            ok = self.io.publish(res)
+            publishdiag.record(self.state, ok, getattr(self.io, "last_push_error", "") if not ok else "")
+            if ok:
                 self._p("done", res["id"]).touch()
                 f.unlink(missing_ok=True)
 

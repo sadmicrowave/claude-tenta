@@ -171,13 +171,16 @@ class GitIO:
             self.git(self.results, "add", rel)
         name, email = self.committer
         self.git(self.results, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-m", msg)
+        self.last_push_error = ""
         for _ in range(3):
             # HEAD:refs/heads/<branch> works whatever the local branch is called (master vs main)
-            if self.git(self.results, "push", "origin", f"HEAD:refs/heads/{self.results_branch}").returncode == 0:
+            r = self.git(self.results, "push", "origin", f"HEAD:refs/heads/{self.results_branch}")
+            if r.returncode == 0:
                 return True
+            self.last_push_error = (getattr(r, "stderr", "") or "") if isinstance(getattr(r, "stderr", ""), str) else ""
             if self.remote_has(self.results, self.results_branch):
                 self.git(self.results, "pull", "--rebase", "--quiet", "origin", self.results_branch)
-        self.log(f"push failed: {msg}")
+        self.log(f"push failed: {msg}: {self.last_push_error.strip()[-200:]}")
         return False
 
     # ---- keeping the results history small ----

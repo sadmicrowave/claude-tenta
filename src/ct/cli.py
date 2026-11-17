@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
-from . import workerstate
+from . import publishdiag, workerstate
 from . import cards
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -525,6 +525,12 @@ def cmd_status(ctx, hours=12):
             slow = (f"; asleep, so it asks GitHub every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s") if p.get("idle") else ""
             took = f", took {p['took_s']:g} s" if p.get("took_s") is not None else ""
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
+    pf = publishdiag.load(w.state)
+    if pf and any((w.state / "finished").glob("*.json")):
+        kind, meaning, fix = publishdiag.classify(pf.get("error"))
+        mins = max(1, int((time.time() - pf["since"]) / 60))
+        line(False, "Publish", "FAILING", f"results have been stuck for {mins} min, so the person waiting sees the job as not picked up although it ran. {meaning}"
+             + (f" Fix: {fix} on your computer, then ct-admin wake." if fix else "") + (f" Git said: {pf['error'][-160:]}" if pf.get("error") else ""))
     if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
         gone = claudeupdate.token_state(ctx.token_days) == "expired"
         line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {ctx.token_days} days old (it lasts about a year); "

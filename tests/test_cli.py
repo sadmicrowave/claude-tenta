@@ -12,6 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ct import publishdiag
 from ct import cli, config, guard, perms  # noqa: E402
 from support import IP, REGISTRY, Base  # noqa: E402
 
@@ -326,6 +327,17 @@ class Status(CliBase):
         self.assertRegex(out, r"Fetch\s+FAILED")
         self.assertIn("No usable temporary", out)
         self.assertRegex(out, r"Step\s+OK")
+
+    def test_status_names_why_a_finished_result_is_not_published_and_the_fix(self):
+        (self.state / "finished").mkdir(exist_ok=True)
+        (self.state / "finished" / "job-1.json").write_text('{"id": "job-1", "status": "ok"}')
+        publishdiag.record(self.state, False, "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.")
+        out = self.run_cli("status")[1]
+        self.assertRegex(out, r"Publish\s+FAILING")
+        self.assertIn("ct-setup install", out)
+        self.assertIn("not picked up although it ran", out)
+        publishdiag.record(self.state, True)
+        self.assertIsNone(publishdiag.load(self.state))
 
     def test_wake_ends_the_slow_pace_and_looks_for_jobs_now(self):
         (self.state / "last-sync.stamp").touch()
