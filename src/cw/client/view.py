@@ -316,7 +316,7 @@ def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", w
     if not res and late:
         return f"sent {waited // 60} min ago and {product} has not picked it up: run `{admin} status` to see whether it is running", RED
     if not res:
-        return f"sent: waiting for {product} to notice it ({pace_text()})", YELLOW
+        return f"sent: waiting for {product} to notice it (an idle worker looks every {PACE['idle']} s)", YELLOW
     if status == "queued":
         return f"queued on {product}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
     if status == "awaiting_approval":
@@ -338,8 +338,14 @@ class Progress:
         if not self.on:
             return
         el = int(self.clock() - self.t0)
-        width = shutil.get_terminal_size((100, 24)).columns - 1
-        plain = f"{SPIN[self.i % len(SPIN)]} {text}  {el // 60}:{el % 60:02d}"[:width]
+        try:
+            width = os.get_terminal_size(self.stream.fileno()).columns - 1          # the terminal this line is drawn on, not the default of a pipe
+        except (OSError, ValueError, AttributeError):
+            width = shutil.get_terminal_size((80, 24)).columns - 1
+        clock_text = f"  {el // 60}:{el % 60:02d}"
+        head = f"{SPIN[self.i % len(SPIN)]} {text}"
+        room = width - len(clock_text)
+        plain = (head if len(head) <= room else head[:max(1, room - 1)] + "…") + clock_text         # one line, always: a long phase is cut with a mark, never wrapped
         self.i += 1
         self.stream.write("\r" + paint(plain, BOLD, color, stream=self.stream) + "\x1b[K")
         self.stream.flush()

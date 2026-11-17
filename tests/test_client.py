@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -96,7 +97,7 @@ class Human(unittest.TestCase):
 
     def test_phases(self):
         p = lambda res, **kw: view.phase_of(res, "job-1", "tcw-admin", product="tcw", **kw)[0]    # noqa: E731
-        self.assertEqual(p(None), "sent: waiting for tcw to notice it (a busy worker looks every few seconds, an idle one every 90 s, a sleeping one every 5 min)")
+        self.assertEqual(p(None), "sent: waiting for tcw to notice it (an idle worker looks every 90 s)")
         self.assertEqual(p({"status": "queued"}), "queued on tcw: waiting for a free slot")
         self.assertIn("2 min so far", p({"status": "queued"}, waited=130))
         self.assertIn("has not picked it up", p(None, waited=130))               # a job nobody picks up is no longer described as "within a minute"
@@ -493,3 +494,20 @@ class RoundTrip(unittest.TestCase):
 
     def test_two_clocks_that_disagree_never_give_a_negative_time(self):
         self.assertEqual(view.round_trip({**self.RES, "created": "2026-11-17T04:50:00Z"}, self.SEEN)[0], 0)
+
+
+class ProgressLine(unittest.TestCase):
+    def test_the_live_line_is_one_line_cut_with_a_mark_never_wrapped(self):
+        class Tty(io.StringIO):
+            def isatty(self):
+                return True
+            def fileno(self):
+                raise OSError
+        out = Tty()
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))), mock.patch.dict(os.environ, {"CW_COLOR": "never"}) if False else mock.patch.dict(os.environ, {}):
+            p = view.Progress(stream=out, clock=lambda: 0)
+            p.draw("sent: waiting for a worker to notice it " * 4, view.YELLOW)
+        line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|\r", "", out.getvalue())
+        self.assertLessEqual(len(line), 59)
+        self.assertIn("…", line)
+        self.assertTrue(line.endswith("0:00"))
