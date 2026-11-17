@@ -59,13 +59,45 @@ class WizardCards(unittest.TestCase):
         raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["cw-run submit fan-profile"])
         lines = ANSI.sub("", raw).split("\n")
         self.assertIn("cw-run submit fan-profile", lines)                       # no rail, no frame beside it
-        self.assertIn("TRY ONE", lines)
+        self.assertIn(" TRY ONE ", lines)
 
     def test_a_plain_log_keeps_the_old_one_line_shape(self):
         out = io.StringIO()
         ui.say("Ready", "It is done.", tag="DONE", stream=out)
         self.assertIn("DONE  Ready", out.getvalue())
         self.assertNotIn("┃", out.getvalue())
+
+
+class ResultCard(unittest.TestCase):
+    RES = {"id": "sys-status-qpr7xp", "status": "ok", "output": " up 10:58,  0 users\n", "created": "2026-11-17T05:35:28Z", "started": "2026-11-17T05:36:11Z",
+           "finished": "2026-11-17T05:36:13Z", "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 50, "disk_mb": 0.0}}
+
+    def test_a_person_watching_gets_one_card_with_the_output_and_measurements_inside(self):
+        from cw.client import view
+        out = Tty()
+        with mock.patch.dict(os.environ, {"CW_COLOR": "always"}):
+            view.print_result(self.RES, out=out, err=io.StringIO())
+        lines = ANSI.sub("", out.getvalue()).strip("\n").split("\n")
+        self.assertTrue(all(l.startswith("┃") for l in lines))                       # everything is inside the one card
+        text = "\n".join(lines)
+        for needle in ("OK", "sys-status-qpr7xp", "OUTPUT", "up 10:58,  0 users", "MEASURED", "ROUND TRIP"):
+            self.assertIn(needle, text)
+
+    def test_a_script_still_gets_the_output_alone_on_stdout(self):
+        from cw.client import view
+        out, err = io.StringIO(), io.StringIO()
+        view.print_result(self.RES, out=out, err=err)
+        self.assertEqual(out.getvalue().strip(), "up 10:58,  0 users")
+
+
+class Breakout(unittest.TestCase):
+    def test_the_commands_to_copy_are_their_own_breakout_with_a_chip_and_clear_space_above(self):
+        raw = shown("Set up", tag="DONE", color=ui.GREEN, run_label="Try it", run=["cw-run classes", "cw-admin status"])
+        lines = ANSI.sub("", raw).split("\n")
+        at = lines.index(" TRY IT ")
+        self.assertEqual(lines[at - 2:at], ["", ""])
+        self.assertEqual(lines[at + 1:at + 4], ["", "cw-run classes", "cw-admin status"])
+        self.assertIn(theme.sgr(" TRY IT ", "accent_chip"), raw)
 
 
 class YesNoPrompt(unittest.TestCase):

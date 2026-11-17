@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import cards, ui
 from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, paint
 from .repo import PENDING
 
@@ -125,10 +126,40 @@ def format_result(res, admin="cw-admin", suggest_name=None):
     return head, res.get("output") or "", tail
 
 
+def result_card(res, admin="cw-admin", suggest_name=None):
+    """The same result as ONE card (for a person watching): the status as its chip, the job id as its subject, then the output and the measurements inside it."""
+    import shlex
+    status, m, pr, trip = res["status"], res.get("metrics"), res.get("profile"), round_trip(res)
+    rows = [("Status", status)] + ([("Note", res["note"])] if res.get("note") else [])
+    if pr:
+        rows += [("Command", " ".join(shlex.quote(str(a)) for a in pr.get("argv", [])))]
+        rows += [(label, pr[key]) for label, key in (("What it does", "what"), ("Why", "why"), ("Expected", "expect"), ("Reads/writes/contacts", "side_effects"), ("Bad signs", "watch_for")) if pr.get(key)]
+        rows += [(f"Flag {flag}", meaning) for flag, meaning in (pr.get("flags") or {}).items()] + ([("Input files", ", ".join(pr["files"]))] if pr.get("files") else [])
+    rows += [cards.Heading("Output"), cards.Block((res.get("output") or "").rstrip("\n").split("\n") if res.get("output") else ["(no output)"])]
+    if m or trip:
+        rows.append(cards.Heading("Measured"))
+        if m:
+            temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
+            rows += [("Time", f"{m.get('wall_s')} s wall, {m.get('cpu_s')} s cpu"), ("Memory", f"peak {m.get('peak_rss_mb')} MB of {m.get('mem_total_mb')} MB"), ("Heat", f"peak {temp}"), ("Disk", f"{m.get('disk_mb')} MB")]
+        if trip:
+            rows.append(("Round trip", f"{human_dur(trip[0])} from sending it to its result ({human_dur(trip[1])} until it started, {human_dur(trip[2])} running)"))
+    run, run_label = None, "Next"
+    if pr:
+        rows += [cards.Heading("Verdict"), ("Verdict", pr["verdict"] + (f"   cost {pr['cost']}" if pr.get("cost") else ""))] + [f"- {why}" for why in pr.get("reasons", [])]
+        if pr["verdict"] == "fits" and suggest_name:
+            run, run_label = f"{admin} adopt {res['id']} --name {suggest_name}", "Register it and install it on the worker, asking you once"
+        elif pr["verdict"] in ("fits", "does-not-fit"):
+            run, run_label = f"cw-run offload propose {res['id']}", "Record that it does not fit, so it is never offloaded"
+    return dict(title=res["id"], details=rows, tag=status, color=STATUS_COLOR.get(status, CYAN), run=run, run_label=run_label)
+
+
 def print_result(res, as_json=False, out=None, err=None, **kw):
     out, err = out or sys.stdout, err or sys.stderr
     if as_json:
         print(json.dumps(res, indent=2), file=out)
+    elif getattr(out, "isatty", lambda: False)() and ui._color_on(out):              # a person watching: one card, output inside
+        card = result_card(res, **kw)
+        ui.say(card.pop("title"), *card.pop("details"), stream=out, **card)
     else:
         head, output, tail = format_result(res, **kw)
         print("\n".join(head), file=err)

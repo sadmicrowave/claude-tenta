@@ -101,20 +101,17 @@ def cmd_status(ctx, a):
 
 
 def cmd_check(ctx, a):
-    out = sys.stdout
-    print(paint(f"Checking the connection to {ctx.ssh.host}", BOLD, stream=out) + "\n")
     r = ctx.ssh._run(ctx.ssh.argv("true", batch=True), capture_output=True, text=True)
     if r.returncode:
-        print(f"{paint('FAIL', BOLD, RED, stream=out)}  key login does not work: {(r.stderr or '').strip()}")
-        emit("Set up SSH key login first", "Password logins are not used by cw-admin.", tag="FIX", color=YELLOW, run=f"ssh-copy-id {ctx.ssh.target}")
+        emit("Key login to the worker does not work", ("Host", ctx.ssh.host), ("Said", (r.stderr or "").strip() or "no answer"), "Password logins are not used by cw-admin.",
+             tag="ERROR", color=RED, run_label="Set up SSH key login first", run=f"ssh-copy-id {ctx.ssh.target}")
         return 1
-    print(f"{paint('OK  ', BOLD, GREEN, stream=out)}  key login works without a password")
+    rows = [("Key login", "works without a password")]
     r = ctx.ssh._run(ctx.ssh.argv(f"{render.WORKER_CMD} status", batch=True), capture_output=True, text=True)
     if r.returncode:
-        print(f"{paint('NOTE', BOLD, YELLOW, stream=out)}  `{render.WORKER_CMD} status` asked for a password or failed; read-only commands normally need none (access.sudo)")
+        emit(f"Connected to {ctx.ssh.host}", *rows, ("Read-only commands", f"`{render.WORKER_CMD} status` asked for a password or failed; they normally need none (access.sudo)"), tag="NOTE", color=YELLOW)
     else:
-        print(f"{paint('OK  ', BOLD, GREEN, stream=out)}  `{render.WORKER_CMD}` read-only commands work without a password")
-    print()
+        emit(f"Connected to {ctx.ssh.host}", *rows, ("Read-only commands", f"`{render.WORKER_CMD}` works without a password"), tag="OK", color=GREEN)
     return 0
 
 

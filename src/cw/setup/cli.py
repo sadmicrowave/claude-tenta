@@ -160,7 +160,8 @@ def finish(a, report, dry):
         emit("The setup finished but the first job did not come back", "Run cw-admin check and cw-admin status to see why.", tag="WARNING", color=YELLOW)
         return 1
     else:
-        emit("The worker is set up", tag="DONE", color=GREEN, run_label="Try it", run=["cw-run classes", "cw-run submit sys-status --wait", "cw-admin status"])
+        emit("The worker is set up", *([("First job", "went through the whole loop: sent, picked up, run and its result came back")] if any(r[0] == "a job went through the whole loop" and r[1] == "ok" for r in report) else []),
+             tag="DONE", color=GREEN, run_label="Try it", run=["cw-run classes", "cw-run submit sys-status --wait", "cw-admin status"])
     return 0
 
 

@@ -17,6 +17,14 @@ CHIP = {"ok": "ok_chip", "bad": "bad_chip", "warn": "warn_chip", "root": "root_c
 ROLE_OF = {"info": "accent", "accent": "accent", "ok": "ok", "bad": "bad", "warn": "warn", "root": "root"}
 
 
+class Heading(str):
+    """A heading inside a card ("Output", "Measured"): a coloured capital line with a blank line above it."""
+
+
+class Block(list):
+    """Lines that are shown as they are (a job's output): not re-flowed, only cut at the card's edge."""
+
+
 def vlen(text):
     return len(ANSI.sub("", text))
 
@@ -47,6 +55,10 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     for d in rows:
         if isinstance(d, tuple):
             body.append(("fact", d))
+        elif isinstance(d, Heading):
+            body += [("blank", None), ("head", str(d))]
+        elif isinstance(d, Block):
+            body += [("raw", line) for line in d]
         else:
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
@@ -70,12 +82,18 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731
         row = rail
         out += [rail(p(f" {tag.upper()} ", CHIP.get(role, "accent_chip"))), rail(), rail(p(title, "strong"))]
+        if body and body[0][0] != "note":                              # context hugs its subject; facts and sections are set apart from it
+            out.append(rail())
     fact_room = inner - (lw + 2 if lw else 0)
     for kind, item in body:
         if kind == "blank":
             out.append(row())
         elif kind == "note":
             out += [row(p(t, "muted")) for t in wrap(item, inner)]
+        elif kind == "head":
+            out.append(row(p(item.upper(), role if framed else "label")))
+        elif kind == "raw":
+            out += [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
             out.append(row(p(item[0].upper(), role if framed else "label")))
         elif kind == "fact":
@@ -93,4 +111,4 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
 def commands(run, label="Run this"):
     """The commands to copy: a label, then each command alone on its own line with nothing before or after it."""
     cmds = [run] if isinstance(run, str) else list(run)
-    return ["", theme.sgr(label.upper(), "label"), ""] + [theme.sgr(c, "ok", "strong") for c in cmds]
+    return ["", "", theme.sgr(f" {label.upper()} ", "accent_chip"), ""] + [theme.sgr(c, "ok", "strong") for c in cmds]       # its own breakout, set apart from the card above

@@ -442,7 +442,10 @@ class Installer:
     def first_job(self):
         self._heading("A first job", "4 of 4")
         ok = self.verify(self.cfg) if self.verify else True
-        self.note("a job went through the whole loop", "ok" if ok else "failed")
+        if ok:
+            self.report.append(("a job went through the whole loop", "ok", ""))      # shown in the closing card, not as a stray row of its own
+        else:
+            self.note("a job went through the whole loop", "failed")
         if ok:
             self.mark("job")
         else:

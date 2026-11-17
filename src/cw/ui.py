@@ -45,6 +45,10 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
         for d in lines:
             if isinstance(d, tuple):
                 out.append(f"  {paint(d[0].ljust(width), BOLD, stream=stream)}  {d[1]}")
+            elif isinstance(d, cards.Block):
+                out += [f"  {x}" for x in d]
+            elif isinstance(d, cards.Heading):
+                out += ["", f"  {paint(str(d).upper(), BOLD, stream=stream)}"]
             else:
                 out.append("" if d == "\n" else f"  {d}")
     if steps:
