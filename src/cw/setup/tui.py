@@ -499,12 +499,12 @@ class TuiPrompter:
             lw = max(len(k) for k, _ in facts)
             for k, v in facts:
                 for n, part in enumerate(textwrap.wrap(str(v), max(10, inner - lw - 4), break_long_words=True, break_on_hyphens=False) or [""]):
-                    lines.append(row(self.sgr((k if n == 0 else "").ljust(lw), BOLD) + "  " + part))
+                    lines.append(row(self.sgr((k if n == 0 else "").ljust(lw), "label") + "  " + part))
             lines.append(row())
         for label, code, text in (("Risk  ", frame, info["risk"]), ("Now   ", DIM, info["now"])):
             wrapped = textwrap.wrap(text, inner - 8) or [""]
             for k, part in enumerate(wrapped):
-                lines.append(row(self.sgr(label if k == 0 else "      ", code) + (part if label.startswith("Risk") else self.sgr(part, DIM))))
+                lines.append(row(self.sgr(label if k == 0 else "      ", code, "label") + (part if label.startswith("Risk") else self.sgr(part, DIM))))
         lines.append(row())
         steps, room, hidden = info["steps"], inner - 6, False
         for s in steps if full else steps[:4]:
