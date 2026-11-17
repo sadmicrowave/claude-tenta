@@ -337,6 +337,17 @@ class Status(CliBase):
         self.assertRegex(out, r"Claude\s+OLDER 2\.1\.112")
         self.assertIn("newer ones need a newer machine", out)
 
+    def test_action_hash_refuses_places_a_program_cannot_be_and_prints_the_pin_for_one_that_can(self):
+        code, out = self.run_cli("action-hash", "/tmp/evil")[:2]
+        self.assertEqual(code, 2)
+        self.assertIn("not a place", out)
+        self.assertEqual(self.run_cli("action-hash", "/usr/local/sbin/../../tmp/x")[0], 2)
+        self.assertEqual(self.run_cli("action-hash", "relative")[0], 2)
+        code, out = self.run_cli("action-hash", "/bin/ls")[:2]
+        self.assertIn("sha256  ", out)
+        self.assertRegex(out, r'sha256: "[0-9a-f]{64}"')
+        self.assertIn("action_pins", out)
+
     def test_hours_are_clamped(self):
         self.assertIn("LAST 168 HOURS", self.run_cli("status", "--hours", "9999")[1])
         self.assertIn("LAST 1 HOURS", self.run_cli("status", "--hours", "0")[1])

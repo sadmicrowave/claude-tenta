@@ -47,9 +47,9 @@ class Docs(unittest.TestCase):
         from cw.client import cli as client
         current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md")]      # the design papers describe commands that were renamed or removed
         text = "\n".join(p.read_text() for p in current)
-        for name in re.findall(r"cw-admin ([a-z]+)", text):
+        for name in re.findall(r"cw-admin ([a-z][a-z-]*)", text):
             self.assertTrue(name in admin.HELP or name in ("help",), f"cw-admin {name}")
-        for name in re.findall(r"cw-run ([a-z]+)", text):
+        for name in re.findall(r"cw-run ([a-z][a-z-]*)", text):
             self.assertTrue(name in client.HELP or name in ("help",), f"cw-run {name}")
 
 

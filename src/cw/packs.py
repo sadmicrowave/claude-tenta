@@ -25,7 +25,7 @@ from pathlib import Path
 from .registry import BASELINE_DENY, PLACEHOLDER  # noqa: F401  (PLACEHOLDER re-exported for pack tests)
 
 PACK_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
-KINDS = ("classes", "policy")
+KINDS = ("classes", "policy", "actions")
 WHEN_KEYS = {"network": bool, "kind": str, "accepts_files": bool}
 MANIFEST_KEYS = {"name", "version", "description", "kinds", "requires"}
 
@@ -68,6 +68,7 @@ class Pack:
     path: Path
     os: tuple = ()
     classes: dict = field(default_factory=dict)
+    actions: dict = field(default_factory=dict)
     policy: Policy = field(default_factory=Policy)
     digest: str = ""
 
@@ -165,7 +166,7 @@ def load_pack(path):
         problems.append("pack.toml: requires.os must be a list of names")
         oses = []
     pack = Pack(name or path.name, str(m.get("version", "")), str(m.get("description", "")), tuple(kinds), path, tuple(oses))
-    for sub, kind in (("classes", "classes"), ("policy", "policy")):
+    for sub, kind in (("classes", "classes"), ("policy", "policy"), ("actions", "actions")):
         has = (path / sub).is_dir() and any((path / sub).iterdir())
         if has and kind not in kinds:
             problems.append(f"pack.toml: it has a {sub}/ folder but kinds does not list {kind!r}")
@@ -187,6 +188,24 @@ def load_pack(path):
                 if cname in pack.classes:
                     problems.append(f"classes/{f.name}: class {cname!r} is defined twice in this pack")
                 pack.classes[cname] = spec
+    if "actions" in kinds and (path / "actions").is_dir():
+        from . import actions as actions_mod
+        for f in sorted(x for x in (path / "actions").glob("*.yaml") if not x.name.startswith(".")):
+            try:
+                import yaml
+                data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except Exception as e:
+                problems.append(f"actions/{f.name}: not valid YAML: {e}")
+                continue
+            if not isinstance(data, dict) or set(data) - {"actions"} or not isinstance(data.get("actions"), dict):
+                problems.append(f"actions/{f.name}: must contain only an `actions:` mapping")
+                continue
+            for aname, spec in data["actions"].items():
+                if aname in pack.actions:
+                    problems.append(f"actions/{f.name}: action {aname!r} is defined twice in this pack")
+                # a pack cannot know the hash of a program on YOUR machine: the pin comes from the administrator's own registry (action_pins), so it is checked later
+                pack.actions[aname] = spec
+                problems += [p for p in actions_mod.validate({aname: {**spec, "sha256": spec.get("sha256", "0" * 64)}}) if "sha256" not in p]
     if "policy" in kinds and (path / "policy").is_dir():
         for f in sorted(x for x in (path / "policy").glob("*.toml") if not x.name.startswith(".")):     # hidden files (editor or macOS leftovers) are never loaded
             try:
@@ -274,6 +293,26 @@ def compose(packs, registry_names, policy_names, user_registry=None):
     for n in policy_names:
         policy.add(packs[n].policy)
     user = dict(user_registry or {})
+    actions, pins = {}, (user.get("action_pins") or {})
+    for n in registry_names:
+        for aname, spec in packs[n].actions.items():
+            if aname in actions:
+                problems.append(f"action {aname!r} is defined by more than one pack")
+            actions[aname] = dict(spec)
+            if "sha256" not in actions[aname]:
+                if aname in pins:
+                    actions[aname]["sha256"] = pins[aname]
+                else:
+                    problems.append(f"action {aname!r} (pack {n!r}) runs a program on your machine, so it needs its SHA-256 pinned: add `action_pins: {{{aname}: <sha256>}}` "
+                                    f"to your registry.yaml (`cw-admin action-hash <path>` prints it)")
+    for aname, spec in (user.get("actions") or {}).items():
+        if aname in actions:
+            problems.append(f"your registry redefines action {aname!r}, which a pack provides; give yours another name")
+        actions[aname] = spec
+    for aname, spec in actions.items():
+        prog = os.path.basename((spec.get("run") or [""])[0])
+        if prog in policy.deny_commands:
+            problems.append(f"action {aname!r} runs {prog}, which policy refuses: {policy.deny_commands[prog]}")
     for cname, spec in (user.get("classes") or {}).items():
         if cname in classes:
             problems.append(f"your registry redefines class {cname!r}, which pack {owner[cname]!r} provides; give yours another name")
@@ -282,8 +321,10 @@ def compose(packs, registry_names, policy_names, user_registry=None):
     problems += more
     if problems:
         raise PackError(problems)
-    reg = {k: v for k, v in user.items() if k not in ("classes", "policy")}
+    reg = {k: v for k, v in user.items() if k not in ("classes", "policy", "actions", "action_pins")}
     reg["classes"] = classes
+    if actions:
+        reg["actions"] = actions
     reg["policy"] = policy.to_registry_section()
     return reg, notes
 

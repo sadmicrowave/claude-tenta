@@ -1,0 +1,21 @@
+[Unit]
+Description={{name}} root helper (one approved root-level action; it checks a signed approval before it does anything)
+
+[Service]
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+Environment=PYTHONPATH={{lib}}
+Environment=CW_CONFIG={{config}}/cw.toml
+TimeoutStartSec=6min
+# The helper itself is as small as it can be: a read-only system, one writable folder (its record of what it ran), no home folders, no network. The action it
+# starts gets its own sandbox (see cw.actions), with only what that action declared.
+ProtectSystem=strict
+ReadWritePaths={{state_root}}-helper
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+NoNewPrivileges=yes
+LockPersonality=yes
+ExecStart=/usr/bin/python3 -m cw.helper

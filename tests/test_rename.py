@@ -64,7 +64,7 @@ class Plan(Installed):
             self.assertIn(f"/etc/systemd/system/{OLD}-{part}", removed)
         self.assertIn(f"/etc/sudoers.d/{OLD}", removed)
         started = [a.argv[-1] for a in steps["Start the services again"]]
-        self.assertTrue(started and all(u.startswith(NEW + "-") and u.endswith(".timer") for u in started))
+        self.assertTrue(started and all(u.startswith(NEW + "-") and u.endswith((".timer", ".socket")) for u in started))
 
     def test_the_release_installer_writes_the_files_named_after_the_install_for_the_new_name(self):
         r, steps = self.plan()

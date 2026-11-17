@@ -146,6 +146,8 @@ def validate(reg, tools_root, allow_empty=False):
     if "profiling" in reg and not isinstance(reg["profiling"], dict):
         errs.append("profiling: must be a mapping")
     errs += limits_problems(reg.get("limits"))
+    from . import actions as actions_mod                      # imported here: actions needs this module's helpers
+    errs += actions_mod.validate(reg.get("actions"), (reg.get("policy") or {}).get("deny_commands") or [])
     tools_root = str(tools_root)
     for name, c in classes.items():
         w = f"class {name!r}"
@@ -155,7 +157,7 @@ def validate(reg, tools_root, allow_empty=False):
             errs.append(f"{w}: must be a mapping")
             continue
         kind = c.get("kind", "command")
-        if kind not in ("command", "claude", "profile"):
+        if kind not in ("command", "claude", "profile", "privileged"):
             errs.append(f"{w}: unknown kind {kind!r}")
         if c.get("cost", "medium") not in COST_W:
             errs.append(f"{w}: cost must be light, medium or heavy")
@@ -215,6 +217,15 @@ def validate(reg, tools_root, allow_empty=False):
                 errs.append(f"{w}: allowed_tools must be a non-empty list of strings")
         elif kind == "profile" and c.get("run"):
             errs.append(f"{w}: a profile class takes its command from each job, so it must not set run")
+        elif kind == "privileged":
+            act = c.get("action")
+            if not isinstance(act, str) or act not in (reg.get("actions") or {}):
+                errs.append(f"{w}: action must name one of the registry's actions ({', '.join(sorted(reg.get('actions') or {})) or 'none are defined'})")
+            if c.get("tier", "approve") != "approve":
+                errs.append(f"{w}: a privileged class always needs approval (tier: approve); it runs as root")
+            for forbidden in ("run", "params", "packages", "network", "env", "accepts_files", "batchable", "kind_extra"):
+                if forbidden in c:
+                    errs.append(f"{w}: a privileged class takes its program, parameters and limits from its action, so it must not set {forbidden}")
     return errs
 
 

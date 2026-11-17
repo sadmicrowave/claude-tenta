@@ -251,3 +251,40 @@ class CheckCommand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FanControlExample(unittest.TestCase):
+    """The shipped example of a root-level action: it needs the administrator's pin before it installs."""
+
+    def setUp(self):
+        from cw import packs
+        self.packs = packs
+        root = Path(__file__).resolve().parents[1] / "packs"
+        self.loaded = {"core": packs.load_pack(root / "core"), "fan-control": packs.load_pack(root / "fan-control")}
+
+    def test_the_pack_loads_and_describes_a_root_level_action_with_typed_parameters(self):
+        a = self.loaded["fan-control"].actions["fan-profile"]
+        self.assertEqual(a["run"][0], "/usr/local/sbin/fan-profile")
+        self.assertEqual(a["params"]["mode"], {"enum": ["idle", "load", "fixed"]})
+        self.assertNotIn("sha256", a)                                          # a pack cannot know the hash of a program on your machine
+
+    def test_without_the_administrators_pin_it_does_not_install(self):
+        with self.assertRaises(self.packs.PackError) as e:
+            self.packs.compose(self.loaded, ["core", "fan-control"], ["core"])
+        self.assertIn("SHA-256 pinned", " ".join(e.exception.problems))
+        self.assertIn("action-hash", " ".join(e.exception.problems))
+
+    def test_with_the_pin_it_composes_into_a_valid_registry_and_the_class_cannot_skip_approval(self):
+        from cw import registry
+        reg, _ = self.packs.compose(self.loaded, ["core", "fan-control"], ["core"], {"action_pins": {"fan-profile": "9" * 64}})
+        self.assertEqual(reg["actions"]["fan-profile"]["sha256"], "9" * 64)
+        self.assertNotIn("action_pins", reg)
+        self.assertEqual(reg["classes"]["fan-profile"]["kind"], "privileged")
+        self.assertEqual(registry.validate(reg, "/nonexistent-tools"), [])
+
+    def test_a_policy_can_still_refuse_the_program_and_a_clash_with_your_own_action_is_an_error(self):
+        pins = {"action_pins": {"fan-profile": "9" * 64}}
+        clash = {**pins, "actions": {"fan-profile": {"run": ["/usr/local/sbin/other"], "sha256": "8" * 64}}}
+        with self.assertRaises(self.packs.PackError) as e:
+            self.packs.compose(self.loaded, ["core", "fan-control"], ["core"], clash)
+        self.assertIn("redefines action", " ".join(e.exception.problems))

@@ -602,6 +602,27 @@ class AuditTests(unittest.TestCase):
         self.assertTrue(next(r for r in rows if r[0] == name)[1])
 
 
+class RootLevelAudit(unittest.TestCase):
+    def rows(self, registry_text, probe_reply):
+        h, cfg = FakeHost(), cfg_of()
+        h.put(cfg.path("registry"), registry_text)
+        h.replies["systemd-run"] = Result(0, probe_reply)
+        rows, _ = audit.run(h, cfg, say=lambda s: None)
+        return {r[0]: r for r in rows}
+
+    ACTIONS = "actions:\n  a-b:\n    run: [/usr/local/sbin/x]\n    sha256: \"%s\"\nclasses: {}\n" % ("a" * 64)
+
+    def test_an_install_with_a_root_level_action_is_checked_for_an_enforced_sandbox(self):
+        name = "the sandbox for root-level actions is enforced"
+        self.assertTrue(self.rows(self.ACTIONS, "ENFORCED\n")[name][1])
+        row = self.rows(self.ACTIONS, "OPEN\n")[name]
+        self.assertFalse(row[1])
+        self.assertIn("ignores the sandbox", row[2])
+
+    def test_an_install_without_one_has_no_such_row(self):
+        self.assertNotIn("the sandbox for root-level actions is enforced", self.rows("classes: {}\n", "OPEN\n"))
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args, host=None, **kw):
         err = io.StringIO()

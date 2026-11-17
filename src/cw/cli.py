@@ -23,7 +23,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import alerts, approvals, claudeupdate, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import workerstate
 from . import ui as _ui
@@ -151,7 +151,8 @@ class Context:
             return ok
         w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY") if cfg.claude.auth == "api-key" else None,
                    oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN") if cfg.claude.auth == "account" else None,       # only the chosen sign-in is ever given to a job
-                   signed_approval=signed_approval, approvers_file=approvers, state_facts=state_facts, hostname=None, jail=jail_mod.from_config(cfg))
+                   signed_approval=signed_approval, approvers_file=approvers, state_facts=state_facts, hostname=None,
+                   privileged_call=lambda raw, approval, timeout: privileged.call(cfg.path("helper_socket"), raw, approval, timeout), jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json",
@@ -266,6 +267,26 @@ def cmd_approve_many(ctx, items):
     print()
     stop(f"{len(items) - bad} approved, {bad} refused", f"{ctx.product} runs the approved ones within a minute, one at a time.",
          tag="DONE" if not bad else "PARTLY", color=GREEN if not bad else YELLOW, code=1 if bad else 0)
+
+
+def cmd_action_hash(ctx, path):
+    """Print the SHA-256 to pin in an action, and say whether the program could be a root-level action at all (read-only: it only reads the file)."""
+    import os
+    from . import actions
+    if not os.path.isabs(path) or os.path.normpath(path) != path or os.path.dirname(path) not in actions.ALLOWED_DIRS:
+        stop("That is not a place an action's program can be", f"It must be a plain absolute path in one of: {', '.join(actions.ALLOWED_DIRS)}.", tag="ERROR", color=RED, code=2)
+    try:
+        digest = actions.sha256_of(path)
+    except OSError as e:
+        stop(f"Cannot read {path}", e.strerror or str(e), tag="ERROR", color=RED)
+    ok, why = actions.check_executable(path, digest)
+    print(f"{path}\n  sha256  {digest}")
+    if ok:
+        print("  owner and mode: fine (a regular file owned by root that nobody else can write, in folders the same)")
+    else:
+        print(f"  PROBLEM: {why.split(' (')[0] if 'approved' in why else why}")
+    print(f'\nIn your registry.yaml, under the action: \n  sha256: "{digest}"\n(or, for a pack\'s action, under  action_pins:  the action\'s name  ->  this value)')
+    return 0 if ok else 1
 
 
 def cmd_cancel(ctx, jid):
@@ -660,6 +681,8 @@ def main(argv=None, ctx=None, cfg=None):
             yes, sha = _flag(args, "--yes"), _value(args, "--sha256", None, str)
             if len(args) == 1:
                 return cmd_approve(ctx, args[0], sha=sha, yes=yes)
+        if cmd == "action-hash" and len(args) == 1:
+            return cmd_action_hash(ctx, args[0])
         if cmd == "cancel" and len(args) == 1:
             return cmd_cancel(ctx, args[0])
         if cmd == "kill":

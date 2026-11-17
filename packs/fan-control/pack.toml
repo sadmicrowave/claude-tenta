@@ -1,0 +1,7 @@
+name = "fan-control"
+version = "0.1.0"
+description = "An example root-level action: run the fan-profile program that measures and sets the fan on a Mac mini running Linux, with your signed approval for each run"
+kinds = ["classes", "actions"]
+
+[requires]
+os = ["ubuntu", "debian"]

@@ -132,7 +132,7 @@ def cmd_review(ctx, a):
             continue
         print(paint(f"\n=== {jid} " + "=" * max(4, 60 - len(jid)), BOLD, CYAN, stream=sys.stdout))
         import json
-        print(jobs.describe(json.loads(raw), pub, ctx.name))
+        print(jobs.describe(json.loads(raw), pub, ctx.name, info=class_info(ctx, json.loads(raw))))
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
         emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on GitHub. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
@@ -152,6 +152,11 @@ def cmd_approve(ctx, a):
 
 
 # ---- approving from this computer: sign here, publish, nothing to log in to ----
+def class_info(ctx, job):
+    """What the worker published about the job's class (None if it did not), so a job that runs as root is shown as such."""
+    return ((ctx.repos.registry_info() or {}).get("classes") or {}).get(job.get("class"))
+
+
 def approval_key(ctx):
     return ctx.home / "approval" / "key"
 
@@ -298,7 +303,7 @@ def approve_one(ctx, a):
     if banner:
         emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
              run=["cw-admin quarantine", "cw-admin unlock"])
-    print(jobs.describe(job, ctx.repos.read_result(jid), ctx.name))
+    print(jobs.describe(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job)))
     ctx.viewed.mark(jid, digest)
     print("\n" + paint(f"Job file digest {digest[:12]}...  (approval is pinned to this exact file)", DIM, stream=sys.stdout))
     if not ctx.confirm("Approve this exact job?", a.yes):
@@ -455,6 +460,10 @@ def cmd_workers(ctx, a):
     for p in problems:
         print(paint("  NOTE  " + p, YELLOW, stream=out))
     return 0
+
+
+def cmd_action_hash(ctx, a):
+    return ctx.remote("action-hash", a.path)
 
 
 def cmd_cancel(ctx, a):
@@ -758,7 +767,7 @@ def selftest(ctx, wait_s=240):
 
 # ---- parser and help ----
 GROUPS = [("Worker", ["status", "check", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
-          ("Registry", ["adopt", "retire", "proposals"]), ("Release", ["diff", "apply", "update", "clean"])]
+          ("Registry", ["adopt", "retire", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "cw-admin status"), ("Look further back", "cw-admin status --hours 48")]),
@@ -773,6 +782,7 @@ HELP = {
     "output": ("the full output of a failed command (GitHub only gets its error lines)", [("List the kept outputs", "cw-admin output"), ("Read one", "cw-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "cw-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "cw-admin retire ssh-version")]),
+    "action-hash": ("print the SHA-256 to pin for a root-level action's program, and check it could be one", [("Hash a program on the worker", "cw-admin action-hash /usr/local/sbin/fan-profile")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "cw-admin proposals"), ("Merge one", "cw-admin proposals merge registry/ssh-version"), ("Merge them all", "cw-admin proposals merge --all"), ("Delete merged branches", "cw-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "cw-admin proposals publish")]),
     "clean": ("remove signed approvals and orders that are finished or stale from GitHub", [("Show what can go and ask", "cw-admin clean")]),
     "update": ("is there a newer release? show what changed, then update this computer and the worker if you agree", [("Look and ask", "cw-admin update"), ("Only say whether there is one", "cw-admin update --check")]),
@@ -797,6 +807,8 @@ def build_parser():
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
     yes(s)
+    s = sp.add_parser("action-hash", add_help=False)
+    s.add_argument("path", help="the program on the worker, for example /usr/local/sbin/fan-profile")
     s = sp.add_parser("clean", add_help=False)
     yes(s)
     s = sp.add_parser("update", add_help=False)
@@ -850,7 +862,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

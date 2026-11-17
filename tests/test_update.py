@@ -558,7 +558,7 @@ class RegistrySync(RegistryInstall):
         self.signers = self.at(self.cfg.path("approvers"))
         self.signers.parent.mkdir(parents=True, exist_ok=True)
         self.signers.write_text(approvals.with_approver("", (self.keys / "key.pub").read_text()))
-        self.signed_text, self.shows, self.packages = None, 0, []
+        self.signed_text, self.shows, self.packages, self.systemctl_calls = None, 0, [], []
 
     def sign(self, registry_text, key="key", now=None, namespace=None):
         record = self.approvals.make_registry_record(__import__("hashlib").sha256(registry_text.encode()).hexdigest(), now=now)
@@ -576,7 +576,7 @@ class RegistrySync(RegistryInstall):
         return 0, ""
 
     def sync(self, **kw):
-        return update.registry_sync(self.cfg, run=self.fake_run, prefix=self.prefix, out=self.said.append,
+        return update.registry_sync(self.cfg, run=self.fake_run, prefix=self.prefix, out=self.said.append, systemctl=lambda *a: self.systemctl_calls.append(a),
                                     install_packages=lambda text: self.packages.append(text) or (True, ""), **kw)
 
     def marker(self):
@@ -649,3 +649,48 @@ class RegistrySync(RegistryInstall):
         status, ok = self.sync()
         self.assertEqual((ok, self.registry_file().exists()), (True, False))
         self.assertIn("off", status)
+
+
+class RootLevelActions(RegistryInstall):
+    """A registry with a root-level action is installed only if the program on disk is the pinned one, and the helper's socket runs only while one exists."""
+    ACTIONS = ("actions:\n  fan-profile:\n    run: [/usr/local/sbin/fan-profile, \"{profile}\"]\n    params: {profile: {enum: [quiet, balanced]}}\n    sha256: \"%s\"\n"
+               "classes:\n  fan:\n    kind: privileged\n    action: fan-profile\n    cost: light\n" % ("e" * 64))
+
+    def setUp(self):
+        super().setUp()
+        self.queue_text = self.ACTIONS
+        self.checked = []
+
+    def test_the_action_is_installed_when_its_program_passes_the_check(self):
+        self.assertEqual(self.go(check_exe=lambda p, s: (self.checked.append((p, s)), (True, ""))[1]), "bootstrapped")
+        self.assertEqual(self.checked, [("/usr/local/sbin/fan-profile", "e" * 64)])
+        reg = self.installed()
+        self.assertIn("fan-profile", reg["actions"])
+        self.assertEqual(reg["classes"]["fan"]["kind"], "privileged")
+
+    def test_a_program_that_is_not_the_pinned_one_stops_the_whole_registry_and_nothing_is_written(self):
+        with self.assertRaises(update.InstallError) as e:
+            self.go(check_exe=lambda p, s: (False, "the program is not the one that was approved"))
+        self.assertIn("NOT installed", str(e.exception))
+        self.assertIn("not the one that was approved", str(e.exception))
+        self.assertFalse(self.registry_file().exists())
+
+    def test_a_policy_that_refuses_a_program_refuses_the_action_too(self):
+        self.queue_text = self.ACTIONS.replace("/usr/local/sbin/fan-profile", "/usr/sbin/nsenter")
+        with self.assertRaises(update.InstallError):
+            self.go(check_exe=lambda p, s: (True, ""))
+
+    def test_the_socket_runs_only_while_there_is_an_action(self):
+        calls = []
+        self.go(check_exe=lambda p, s: (True, ""))
+        update.sync_helper_socket(self.cfg, systemctl=lambda *a: calls.append(a), prefix=self.prefix)
+        self.assertEqual(calls, [("enable", "--now", "homecw-helper.socket")])
+        self.queue_text = self.MINE
+        self.go()
+        calls.clear()
+        update.sync_helper_socket(self.cfg, systemctl=lambda *a: calls.append(a), prefix=self.prefix)
+        self.assertEqual(calls, [("disable", "--now", "homecw-helper.socket")])
+
+
+for _name in [n for n in dir(RegistryInstall) if n.startswith("test_") and n not in RootLevelActions.__dict__]:
+    setattr(RootLevelActions, _name, None)          # only this class's own tests: the inherited ones assume the plain registry

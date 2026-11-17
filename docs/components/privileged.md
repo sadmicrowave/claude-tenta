@@ -1,0 +1,96 @@
+# Root-level actions
+
+## In plain words
+
+Some jobs need to do something only root can: change a fan's speed, restart a service, write a system setting. A job on this worker must never get `sudo`, because a job is
+exactly the thing that might be taken over. So there is a different, narrow way: **a root-level action**. You write down one program and the shapes of its arguments
+("run `/usr/local/sbin/fan-profile`, with a mode that is one of idle, load or fixed"), pin that program by its fingerprint, and sign it into your registry. A job of a
+*privileged class* can then ask for that action, and only that. Each run still needs **your signature on that exact job**, made on your own computer, and nothing the
+worker itself says can stand in for it. The action runs in its own locked-down sandbox: the system is read-only to it, it can write only the places you named, and it has
+no network unless you said it needs one.
+
+What this is not: it is not a way to run any command as root. A shell, an interpreter or a generic launcher cannot be an action, and the program must be one that only
+root can change.
+
+## Technical specification
+
+### The pieces
+
+```
+job (class kind: privileged)  ->  worker  ->  unix socket  ->  cw.helper (root)  ->  systemd-run (sandboxed unit)  ->  your program
+                                    |                              ^
+                          the exact job file + your signed approval, and nothing else is believed
+```
+
+- **Action** (registry `actions:` or a pack's `actions/*.yaml`): `run` (a program in a system folder and arguments; only whole-argument placeholders like `"{mode}"`),
+  `params` (typed: `enum`, `int [lo, hi]` or `regex`, optionally `optional: true`), `sha256` (the program's pin, required), `writable` (the only paths it may write),
+  `network` (default false), `timeout_s` (1 to 600), `description`. Programs that run whatever they are given (shells, interpreters, `env`, `find`, `curl`, `systemd-run` and
+  the like) and the privilege tools are refused.
+- **Class** `kind: privileged`, `action: <name>`: it takes its program, parameters and limits from the action and cannot set its own `run`, `params`, `network`,
+  `packages` or `tier`. It always needs approval.
+- **A pack's action** cannot know the hash of a program on your machine, so you pin it in your own `registry.yaml`: `action_pins: {fan-profile: "<sha256>"}`.
+  `cw-admin action-hash <path>` prints it (and says whether the program could be an action at all). Without the pin the pack does not install.
+- **Registry install** (`cw-update`, `registry-sync`): the root-owned registry is only written if every action's program passes `actions.check_executable` (a regular file
+  owned by root and writable by nobody else, in folders that are the same, with the pinned SHA-256), and the policy's refused programs apply to actions too. The helper's socket
+  (`<name>-helper.socket`) runs only while the installed registry has an action.
+
+### What the helper checks, every time
+
+`cw.helper` runs as root, one process per connection, and the worker is a stranger to it:
+
+1. The caller must be the worker account (`SO_PEERCRED`), and the socket (`/run/<name>-helper.sock`) is mode 0660 root:worker.
+2. The request is the exact job file and the signed approval. The approval must verify against the root-owned `approvers` file (the same key that approves jobs from your
+   computer), name this job id and this file's SHA-256, and not be expired. **The worker's own approval markers are never looked at.**
+3. The class and action come from the root-owned installed registry, never from the request; the class must be privileged; the parameters must satisfy the action's own spec;
+   the argument list is built from the template (no shell).
+4. The program on disk is checked again against the pin and its ownership and mode.
+5. This machine's systemd must really enforce the sandbox: the helper probes it, and refuses when it does not (a container's systemd often accepts the settings and ignores
+   them). `cw-setup audit` shows the same check.
+6. A job runs **at most once**: its id is recorded before it runs.
+7. It runs in a transient unit: `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, `NoNewPrivileges=yes`, `PrivateNetwork=yes` unless `network: true`, a memory cap, a
+   runtime limit, and `ReadWritePaths` only for `writable`.
+
+Its output goes back to the worker and through the same output guard as any job (a private address in it quarantines the result and locks the worker down). Every decision is
+in the journal.
+
+### Approving
+
+`cw-admin review` and `cw-admin approve` show a banner for such a job: **RUNS AS ROOT**, the exact program and arguments with the job's values substituted, what it may write,
+its network and its time limit. Approval must be signed (`cw-admin approve` from your computer); `cw-worker approve` on the worker refuses it, and a job waiting for approval says so.
+
+### Example: the fan controller
+
+`packs/fan-control` wraps a program of your own, `/usr/local/sbin/fan-profile idle | load | fixed <rpm>` (a bounded thermal profiling script for a Mac mini that samples the
+temperatures, runs a CPU load, or holds the fan at a fixed speed, and puts the fan daemon back afterwards). Its action writes only `/sys/devices/platform/applesmc.768`, has no
+network, and may run for six minutes.
+
+To use it without touching the server's configuration, put this in your own `registry.yaml` (a branch such as `registry/fan`, then `cw-admin proposals merge registry/fan`,
+which validates, merges, signs and publishes it):
+
+```yaml
+actions:
+  fan-profile:
+    run: [/usr/local/sbin/fan-profile, "{mode}", "{rpm}"]
+    params:
+      mode: {enum: [idle, load, fixed]}
+      rpm: {int: [1800, 5500], optional: true}
+    sha256: "<cw-admin action-hash /usr/local/sbin/fan-profile>"
+    writable: [/sys/devices/platform/applesmc.768]
+    timeout_s: 360
+classes:
+  fan-profile:
+    kind: privileged
+    action: fan-profile
+    cost: heavy
+```
+
+Then `cw-run submit fan-profile -p mode=fixed -p rpm=3000` waits for approval; `cw-admin approve <job>` shows the banner and signs it. If the program is ever changed, the helper
+refuses it until you pin the new hash.
+
+### Limits and honest notes
+
+- The helper is only as safe as the root-owned program you point it at; read it before you pin it. The pin makes sure it is the program you read.
+- An action needing more than the sandbox gives (the network, other paths) has to say so, in the definition you signed.
+- Only the worker account can open the socket, so this protects against a taken-over *job*; an attacker who is already root on the worker has no need of it.
+- A machine whose systemd cannot enforce the sandbox (some containers) will refuse every action; on a real machine this is not an issue. Test machines can set
+  `CW_HELPER_ALLOW_UNENFORCED_SANDBOX=1` for the helper, never a real worker.

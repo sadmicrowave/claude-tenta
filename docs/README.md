@@ -11,6 +11,7 @@
 - [Security model](components/security.md): what stops what, the guard, lockdown, alerts, known limits.
 - [Configuration](components/config.md) and the generated [configuration reference](reference/config.md).
 - [Packs](components/packs.md): job classes and off-limits rules, and how they combine.
+- [Root-level actions](components/privileged.md): how a job may cause something to happen as root, narrowly, and only with your signature.
 - [Hardening](components/hardening.md): the protections the wizard applies, and how to add one.
 - [The setup wizard](components/setup.md): `cw-setup client`, `server`, `audit`.
 - [Sending work: cw-run](components/client.md) · [Running it: cw-admin](components/admin.md) · the generated [command reference](reference/commands.md).

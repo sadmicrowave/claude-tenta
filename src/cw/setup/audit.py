@@ -15,6 +15,20 @@ def run(host, cfg, say=print):
     leaked = re.search(r'(?m)^url\s*=\s*"https?://', text) is not None
     rows.append(("the private alert address is kept out of the configuration file", not leaked,
                  "ok" if not leaked else f"{cfg.path('config_file')} holds it and is readable by every account; run cw-setup install again, which moves it to the secrets file"))
+    try:
+        import yaml
+        has_actions = bool((yaml.safe_load(host.read(cfg.path("registry")) or "") or {}).get("actions"))
+    except Exception:
+        has_actions = False
+    if has_actions:                                      # root-level actions are only as safe as the sandbox they run in
+        from .. import helper
+
+        def probe(cmd, **kw):
+            r = host.run(cmd)
+            return type("R", (), {"stdout": r.out, "returncode": 0 if r.ok else 1})()
+        enforced = helper.sandbox_enforced(probe)
+        rows.append(("the sandbox for root-level actions is enforced", enforced,
+                     "ok" if enforced else "this machine's systemd ignores the sandbox settings (a container does), so the helper refuses every root-level action here"))
     for mid, title, check in hardening.audit(host, cfg):
         rows.append((f"{mid}: {title}", check.ok, check.detail))
     unknown = [m for m in cfg.hardening.modules if m not in hardening.MODULES]

@@ -57,8 +57,24 @@ def waiting(repos):
     return out
 
 
-def describe(job, pub=None, product="the worker"):
+def root_banner(job, info, product):
+    """What a person must read before approving something that runs as ROOT: the exact program and arguments, where it may write, whether it has a network."""
+    from .. import actions
+    try:
+        argv = " ".join(actions.build_argv(info, job.get("params") or {}))
+    except ValueError as e:
+        argv = f"{' '.join(info.get('run') or [])}   (these parameters are not allowed: {e})"
+    writable = ", ".join(info.get("writable") or []) or "nothing"
+    return (f"RUNS AS ROOT on {product}\n  program    {argv}\n  may write  {writable}, and nothing else on the system\n"
+            f"  network    {'yes' if info.get('network') else 'none'}\n  limit      {info.get('timeout_s', 30)} s\n"
+            "  Your signature is the only thing that lets it run, and it covers exactly this file. Approve only a program and arguments you recognise.\n\n")
+
+
+def describe(job, pub=None, product="the worker", info=None):
     """The text a person reads before approving. Profile runs get the full review; any other job shows its fields (file bodies by size)."""
+    if info and info.get("privileged"):
+        shown = {k: v for k, v in job.items() if k != "files"}
+        return root_banner(job, info, product) + json.dumps(shown, indent=2)
     if job.get("class") == "profile-run":
         pub = pub or {}
         return review_mod.review_text(job, pub.get("facts"), pub.get("package_text"), pub.get("glance"), product=product)

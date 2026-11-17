@@ -71,10 +71,10 @@ class Rename:
     def steps(self):
         c, c2, old, new, h = self.cfg, self.cfg2, self.old, self.new, self.host
         A = hardening.Action
-        timers = [p for p in render.UNITS if p.endswith(".timer") and h.exists(f"/etc/systemd/system/{c.unit(p)}")]
+        timers = [p for p in render.UNITS if p.endswith((".timer", ".socket")) and h.exists(f"/etc/systemd/system/{c.unit(p)}")]
         enabled = [p for p in timers if h.run(["systemctl", "is-enabled", c.unit(p)]).out.strip() == "enabled"]
         out = [("Stop the services", [A("run", argv=["systemctl", "disable", "--now", c.unit(p)]) for p in timers]
-                + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
+                + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and "@" not in p and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
         out.append(("Move the folders", [A("run", argv=["mv", a, b]) for _, a, b in self.moves()]))
         new_conf = f"{c2.paths.config}/cw.toml"
         out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new), mode=0o644)]))

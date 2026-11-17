@@ -1,0 +1,5 @@
+classes:
+  fan-profile:
+    kind: privileged
+    action: fan-profile
+    cost: heavy

@@ -1,0 +1,13 @@
+# The program is YOURS: /usr/local/sbin/fan-profile (root, mode 755). This pack cannot know its hash, so you pin it in your own registry.yaml:
+#     action_pins:
+#       fan-profile: "<output of: cw-admin action-hash /usr/local/sbin/fan-profile>"
+# Without that pin the pack does not install. If the program changes, the worker refuses to run it until you pin the new hash.
+actions:
+  fan-profile:
+    description: Sample the fan and temperatures (idle, load) or hold the fan at a fixed speed for three minutes
+    run: [/usr/local/sbin/fan-profile, "{mode}", "{rpm}"]
+    params:
+      mode: {enum: [idle, load, fixed]}
+      rpm: {int: [1800, 5500], optional: true}
+    writable: [/sys/devices/platform/applesmc.768]     # it writes the fan's speed here, and nothing else on the system
+    timeout_s: 360                                       # the load run takes five minutes

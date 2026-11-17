@@ -34,10 +34,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native"""
 
 # Read-only subcommands the admin may run as the worker without a password (access.sudo = "readonly-nopasswd"). Each is matched exactly.
-READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "quarantine *", "output", "output *")
+READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "quarantine *", "output", "output *", "action-hash *")
 
 UNITS = ("fetch.service", "fetch.timer", "step.service", "step.timer", "canary.service", "canary.timer", "update.service", "update.timer",
-         "claude-update.service", "claude-update.timer", "registry-sync.service", "registry-sync.timer")
+         "claude-update.service", "claude-update.timer", "registry-sync.service", "registry-sync.timer", "helper.socket", "helper@.service")
 BIN_DIR = "/usr/local/bin"
 SBIN_DIR = "/usr/local/sbin"
 WORKER_CMD = "cw-worker"        # the command names never contain the install name, so they stay the same when the install is renamed

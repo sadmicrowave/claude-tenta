@@ -1,0 +1,13 @@
+[Unit]
+Description={{name}} root helper socket (runs approved root-level actions for the worker, and nothing else)
+
+[Socket]
+ListenStream=/run/{{name}}-helper.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup={{worker_user}}
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

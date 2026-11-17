@@ -17,7 +17,7 @@ Two promises keep packs safe to mix:
 ### Layout
 
 ```
-packs/<name>/pack.toml          name, version, description, kinds = ["classes", "policy"], [requires] os = ["ubuntu", "debian"]
+packs/<name>/pack.toml          name, version, description, kinds = ["classes", "policy", "actions"], [requires] os = ["ubuntu", "debian"]
 packs/<name>/classes/*.yaml     a `classes:` mapping, nothing else
 packs/<name>/policy/*.toml      off-limits rules
 ```
@@ -80,3 +80,8 @@ prints each pack's version, counts and SHA-256 digest, or every problem found. T
 ### Not loadable from packs (yet)
 
 Hardening modules and anything that installs a root-owned unit or script. They run as root, so they need a reviewed, digest-pinned installation step first.
+
+### Actions in a pack
+
+A pack may also carry `actions/*.yaml` (root-level actions, see [Root-level actions](privileged.md)). A pack cannot know the hash of a program on your machine, so the
+install refuses its actions until your own registry pins each one (`action_pins`, from `cw-admin action-hash <path>`). `packs/fan-control` is the worked example.

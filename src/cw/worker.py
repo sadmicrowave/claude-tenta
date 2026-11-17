@@ -54,7 +54,7 @@ class Settings:
 
 class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
-                 home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
+                 home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, privileged_call=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
         self.sensors = sensors
         self.runner, self.clock = runner, clock
@@ -63,6 +63,7 @@ class Worker:
         self.oauth_token = oauth_token
         self.approvers_file = approvers_file
         self.idle_now = False
+        self.privileged_call = privileged_call            # (exact job file, signed approval text, timeout) -> the root helper's answer; the worker never runs a root-level action itself
         self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
@@ -131,6 +132,12 @@ class Worker:
         digest = hashlib.sha256(raw).hexdigest()
         if sha and digest != sha.lower():
             return False, f"the job changed since you viewed it ({digest[:12]} is not {sha[:12]})"
+        try:
+            kind = ((self.load_registry().get("classes") or {}).get(json.loads(raw).get("class")) or {}).get("kind")
+        except Exception:
+            kind = None
+        if kind == "privileged":
+            return False, "this class runs as root, so it can only be approved with a signature from your computer (cw-admin approve), not on the worker"
         self._p("approved", jid).write_text(digest)
         return True, ""
 
@@ -177,8 +184,12 @@ class Worker:
                 self.publish_security()
                 self.log("signed order: unlocked")
 
-    def _approved(self, jid, digest):
+    def _approved(self, jid, digest, signed_only=False):
+        """Is there an approval for exactly this file? `signed_only` (root-level jobs): only a signature made on the administrator's own computer counts, never the
+        worker's own approval marker, which anything running as the worker could write."""
         m = self._p("approved", jid)
+        if signed_only:
+            return bool(self.signed_approval is not None and self.signed_approval(jid, digest))
         if m.exists() and m.read_text().strip() == digest:
             return True
         if self.signed_approval is not None and self.signed_approval(jid, digest):
@@ -232,6 +243,14 @@ class Worker:
                 if params:
                     raise ValueError("profile-run takes argv, not params")
                 argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy)
+            elif kind == "privileged":
+                action = (reg.get("actions") or {}).get(cls.get("action"))
+                if not isinstance(action, dict):
+                    raise ValueError("the class's action is not in the installed registry")
+                if job.get("files") or job.get("prompt"):
+                    raise ValueError("a root-level job takes parameters only")
+                from . import actions as actions_mod
+                argv = actions_mod.build_argv(action, params)               # only to validate the parameters now; the helper builds it again from the root-owned registry
             elif kind == "claude":
                 prompt = job.get("prompt")
                 if not isinstance(prompt, str) or not 1 <= len(prompt) <= 8000:
@@ -259,7 +278,7 @@ class Worker:
         try:
             job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
-            if (kind == "profile" or cls.get("tier", "approve") != "auto") and not self._approved(jid, digest):
+            if (kind in ("profile", "privileged") or cls.get("tier", "approve") != "auto") and not self._approved(jid, digest, signed_only=(kind == "privileged")):
                 if not self._p("notified", jid).exists():
                     if kind == "profile":
                         res["facts"] = profiling.command_facts(argv, find_program=self.find_program)
@@ -272,6 +291,9 @@ class Worker:
                                 raise Reject("; ".join(plan["problems"]))
                             res["package_text"] = self.pkgs.plan_text(plan)
                     res.update(status="awaiting_approval", note=self.s.approve_note.format(jid=jid))
+                    if kind == "privileged":
+                        res["note"] = (f"this runs as root ({' '.join(argv)}), so it needs your signed approval: cw-admin approve {jid} (from your computer, "
+                                       "with your approval key); an approval typed on the worker is not accepted")
                     self.io.publish(res)
                     self._p("notified", jid).touch()
                 return
@@ -328,6 +350,19 @@ class Worker:
             run_argv = [found or argv[0]] + argv[1:]
         return run_argv, extra, limits, prep_fail
 
+    def _run_privileged(self, jid, cls, reg):
+        """Ask the root helper to run the class's action. The helper decides: it is given the exact job file and the signed approval and believes nothing else.
+        Returns the same tuple a runner does."""
+        if self.privileged_call is None:
+            return "error", None, "", {}, "this worker has no root helper configured, so a root-level job cannot run"
+        raw = self._p("inbox", f"{jid}.json").read_bytes()
+        approval = (self.io.approval_bytes(jid) or b"").decode("utf-8", "replace")
+        timeout = int(((reg.get("actions") or {}).get(cls.get("action")) or {}).get("timeout_s", 30)) + 30
+        ans = self.privileged_call(raw, approval, timeout)
+        status = {"ok": "ok", "timeout": "timeout"}.get(ans.get("status"), "error")
+        self.log(f"root helper answered {jid}: {ans.get('status')}" + (f" ({ans.get('note')})" if ans.get("note") else ""))
+        return status, ans.get("exit_code"), ans.get("output") or "", {}, ans.get("note") or ""
+
     def _execute(self, jid, job, cls, kind, argv, prompt, files, meta, reg, res):
         wd = self._p("work", jid)
         wd.mkdir(parents=True, exist_ok=True)
@@ -339,13 +374,16 @@ class Worker:
         self.io.publish({**res, "status": "running", "note": f"approved; running on {self.s.product} now"})   # so the client can tell it was picked up
         if kind == "claude" and files:                    # Claude is not told by the files themselves that they exist: "this file" would have nothing to point at
             prompt = f"{prompt}\n\n[Attached files, in the current directory: {', '.join(sorted(files))}. Use the Read tool to look at them.]"
-        run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, prompt, meta, reg, res)
-        if prep_fail:
-            st, rc, out, metrics, note = "error", None, "", {}, prep_fail
+        if kind == "privileged":
+            st, rc, out, metrics, note = self._run_privileged(jid, cls, reg)
         else:
-            st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
-                                                     marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
-                                                     api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
+            run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, prompt, meta, reg, res)
+            if prep_fail:
+                st, rc, out, metrics, note = "error", None, "", {}, prep_fail
+            else:
+                st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
+                                                         marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
+                                                         api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
         shaped, shape_note = results.shape_output(cls, out, self.limits["output_max_chars"])
         summarised = st == "error" and kind != "claude" and not cls.get("output_keys") and bool(out)
         if summarised:
@@ -548,8 +586,13 @@ class Worker:
         classes = {}
         for name, c in (reg.get("classes") or {}).items():
             kind = c.get("kind", "command")
+            act = (reg.get("actions") or {}).get(c.get("action")) if kind == "privileged" else None
+            if act:                                                # what a person must be able to read before approving something that runs as root
+                c = {**c, "run": act.get("run"), "params": act.get("params"), "privileged": True, "writable": act.get("writable"), "network": bool(act.get("network")),
+                     "timeout_s": act.get("timeout_s", 30)}
             classes[name] = {k: v for k, v in {
-                "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind == "profile" else c.get("tier", "approve"),
+                "privileged": c.get("privileged"), "writable": c.get("writable"),
+                "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind in ("profile", "privileged") else c.get("tier", "approve"),
                 "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"),
                 "packages": c.get("packages"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}

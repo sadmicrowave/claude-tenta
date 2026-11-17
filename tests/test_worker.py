@@ -315,6 +315,97 @@ class SignedApproval(Base):
         self.assertEqual(self.spawned, [])
 
 
+class PrivilegedJobs(SignedApproval):
+    """A class of kind `privileged` runs as root through the helper, and only ever on the administrator's signed approval."""
+    ACTIONS = ("\nactions:\n  fan-profile:\n    run: [/usr/local/sbin/fan-profile, \"{profile}\"]\n    params: {profile: {enum: [quiet, balanced]}}\n    sha256: \"%s\"\n"
+               "classes_extra: {}\n" % ("d" * 64))
+
+    def setUp(self):
+        super().setUp()
+        text = REGISTRY.rstrip("\n") + "\n  fan:\n    kind: privileged\n    action: fan-profile\n    cost: light\n" + self.ACTIONS.replace("classes_extra: {}\n", "")
+        self.registry_path.write_text(text)
+        self.calls, self.answer = [], {"status": "ok", "exit_code": 0, "output": "profile set\n", "note": ""}
+        self.make_worker(signed_approval=self.verifier, approvers_file=self.signers, privileged_call=lambda raw, approval, timeout: (self.calls.append((raw, approval, timeout)), self.answer)[1])
+
+    def submit(self, jid="fan-0001", **params):
+        self.job(jid, "fan", **{"params": params or {"profile": "quiet"}})
+        self.w.fetch()
+        return jid
+
+    def test_it_waits_and_says_it_runs_as_root_and_needs_the_signature(self):
+        jid = self.submit()
+        res = self.result(jid)
+        self.assertEqual(res["status"], "awaiting_approval")
+        self.assertIn("runs as root", res["note"])
+        self.assertIn("/usr/local/sbin/fan-profile quiet", res["note"])
+        self.assertEqual(self.spawned, [])
+
+    def test_the_registry_the_worker_publishes_tells_a_reviewer_what_the_class_does_as_root(self):
+        self.w.fetch()
+        info = json.loads(subprocess.run(["git", "-C", str(self.tmp / "results.git"), "show", "main:registry.json"], capture_output=True, text=True).stdout)["classes"]["fan"]
+        self.assertTrue(info["privileged"])
+        self.assertEqual((info["run"], info["tier"]), (["/usr/local/sbin/fan-profile", "{profile}"], "approve"))
+
+    def test_the_workers_own_approval_marker_and_an_approval_typed_on_the_worker_are_not_enough(self):
+        jid = self.submit()
+        ok, why = self.w.approve(jid)
+        self.assertFalse(ok)
+        self.assertIn("signature from your computer", why)
+        (self.state / "approved").mkdir(exist_ok=True)
+        (self.state / "approved" / jid).write_text(self.digest(jid))            # what a compromised job running as the worker could write
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])
+        self.assertEqual(self.calls, [])
+
+    def test_a_signed_approval_runs_it_through_the_helper_with_the_exact_file_and_the_signature(self):
+        jid = self.submit()
+        self.publish_approval(jid, self.digest(jid))
+        self.w.fetch()
+        self.assertEqual(self.spawned, [jid])
+        self.w.execute(jid)
+        (raw, approval, timeout), = self.calls
+        self.assertEqual(raw, (self.state / "inbox" / f"{jid}.json").read_bytes())
+        self.assertTrue(approvals.check(approval, jid, self.digest(jid), self.signers)[0])
+        self.assertEqual(self.result(jid)["status"], "ok")
+        self.assertIn("profile set", self.result(jid)["output"])
+
+    def test_a_helper_that_refuses_is_an_error_result_with_its_reason(self):
+        jid = self.submit()
+        self.publish_approval(jid, self.digest(jid))
+        self.w.fetch()
+        self.answer = {"status": "refused", "note": "the program is not the one that was approved", "output": ""}
+        self.w.execute(jid)
+        res = self.result(jid)
+        self.assertEqual(res["status"], "error")
+        self.assertIn("not the one that was approved", res["note"])
+
+    def test_without_a_helper_configured_it_fails_cleanly(self):
+        self.make_worker(signed_approval=self.verifier, approvers_file=self.signers)
+        jid = self.submit("fan-0002")
+        self.publish_approval(jid, self.digest(jid))
+        self.w.fetch()
+        self.w.execute(jid)
+        self.assertIn("no root helper", self.result(jid)["note"])
+
+    def test_parameters_outside_the_action_are_rejected_before_anything_is_asked_of_root(self):
+        self.job("fan-0003", "fan", params={"profile": "turbo"})
+        self.w.fetch()
+        self.assertEqual(self.result("fan-0003")["status"], "rejected")
+        self.job("fan-0004", "fan", params={"profile": "quiet"}, prompt="and also do this")
+        self.w.fetch()
+        self.assertEqual(self.result("fan-0004")["status"], "rejected")
+        self.assertEqual(self.calls, [])
+
+    def test_what_root_prints_still_goes_through_the_output_guard(self):
+        jid = self.submit("fan-0005")
+        self.publish_approval(jid, self.digest(jid))
+        self.w.fetch()
+        self.answer = {"status": "ok", "exit_code": 0, "output": f"connected to {IP}\n", "note": ""}
+        self.w.execute(jid)
+        self.assertEqual(self.result(jid)["status"], "quarantined")
+        self.assertTrue(self.lockdown.locked())
+
+
 class SignedOrders(SignedApproval):
     """Unlock, cancel and kill ordered from the administrator's own computer."""
 

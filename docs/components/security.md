@@ -81,5 +81,5 @@ Folders: code and config are root-owned; state is `0750` worker-owned; `secrets.
 - **The jail shares the kernel.** bubblewrap is a namespace sandbox, not a virtual machine; a kernel bug in namespaces is still reachable. Capabilities are dropped, no new privileges are allowed and Ubuntu's AppArmor profile stops a jailed job from creating further namespaces with powers, but it is the same class of protection as before, only tighter.
 - **bubblewrap has had vulnerabilities**, mostly in its setuid mode, which this tool refuses to use. Keep the package updated (the `unattended-upgrades` module does it).
 - **No cgroup limits.** Memory, time and temperature are watched by the worker's loop, not enforced by the kernel.
-- A thermal or privileged helper that needs `sudo` cannot run inside the no-network namespace; see the review for the planned helper-unit design.
+- Work that needs root is never given `sudo` inside a job. It goes through a signed, pinned root-level action run by a separate helper in its own sandbox; see [Root-level actions](privileged.md). That helper refuses to run where systemd cannot enforce its sandbox.
 - The tripwire needs kernel audit; container-style machines do not have it.

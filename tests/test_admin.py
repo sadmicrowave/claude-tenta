@@ -553,6 +553,35 @@ class CleanCommand(SignedApprovals):
         self.assertEqual(self.names(), ["approvals/job-b.json"])
 
 
+class RootLevelReview(AdminBase):
+    INFO = {"kind": "privileged", "privileged": True, "tier": "approve", "run": ["/usr/local/sbin/fan-profile", "{profile}"], "params": {"profile": {"enum": ["quiet", "balanced"]}},
+            "writable": ["/etc/mbpfan.conf"], "network": False, "timeout_s": 20}
+
+    def test_a_job_that_runs_as_root_is_labelled_with_the_exact_program_and_what_it_may_touch(self):
+        text = jobs.describe({"id": "fan-1", "class": "fan", "params": {"profile": "quiet"}}, info=self.INFO, product="the Mini")
+        self.assertTrue(text.startswith("RUNS AS ROOT on the Mini"))
+        for needle in ("/usr/local/sbin/fan-profile quiet", "may write  /etc/mbpfan.conf, and nothing else", "network    none", "limit      20 s", "covers exactly this file"):
+            self.assertIn(needle, text)
+        self.assertIn('"profile": "quiet"', text)                                        # and the job file itself follows
+
+    def test_parameters_the_action_would_refuse_are_shown_as_such(self):
+        text = jobs.describe({"id": "fan-1", "class": "fan", "params": {"profile": "turbo"}}, info=self.INFO)
+        self.assertIn("not allowed", text)
+
+    def test_an_ordinary_job_is_not_labelled_and_approving_over_the_review_command_shows_the_banner(self):
+        self.assertNotIn("RUNS AS ROOT", jobs.describe({"id": "j", "class": "careful"}, info={"kind": "command"}))
+        self.repos.results.mkdir(parents=True, exist_ok=True)
+        (self.repos.results / "registry.json").write_text(json.dumps({"classes": {"fan": self.INFO}}))
+        self.repos.push_files("jobs", {"jobs/fan-1.json": json.dumps({"id": "fan-1", "class": "fan", "params": {"profile": "quiet"}})}, "job")
+        self.put_result("fan-1", status="awaiting_approval")
+        code, out, _ = self.admin("review")
+        self.assertIn("RUNS AS ROOT", out)
+
+    def test_pinning_a_program_asks_the_worker_read_only(self):
+        self.admin("action-hash", "/usr/local/sbin/fan-profile")
+        self.assertEqual(self.ssh.calls, ["cw-worker action-hash /usr/local/sbin/fan-profile"])
+
+
 class FollowAfterApproving(unittest.TestCase):
     def test_the_command_cw_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
         """cw-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""

@@ -33,8 +33,8 @@ class Uninstall:
         units = [(part, f"/etc/systemd/system/{c.unit(part)}") for part in UNIT_PARTS]
         present = [(part, path) for part, path in units if self.exists(path)]
         out = []
-        stop = [hardening.Action("run", argv=["systemctl", "disable", "--now", c.unit(part)]) for part, path in present if part.endswith(".timer")]
-        stop += [hardening.Action("run", argv=["systemctl", "stop", c.unit(part)]) for part, path in present if part.endswith(".service")]
+        stop = [hardening.Action("run", argv=["systemctl", "disable", "--now", c.unit(part)]) for part, path in present if part.endswith((".timer", ".socket"))]
+        stop += [hardening.Action("run", argv=["systemctl", "stop", c.unit(part)]) for part, path in present if part.endswith(".service") and "@" not in part]
         if (present or self.exists(c.paths.code)) and self.host.run(["id", c.server.worker_user]).ok:
             stop.append(hardening.Action("run", argv=["pkill", "-u", c.server.worker_user], why="end any job still running (nothing here is an error if there is none)"))
         if stop:

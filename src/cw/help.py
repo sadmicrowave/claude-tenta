@@ -19,7 +19,7 @@ SECTIONS = [
                                               ("cw-admin review | approve", "look at waiting jobs, then approve exactly what you saw"),
                                               ("cw-admin cancel | kill", "stop a job that has not started, or one that is running"),
                                               ("cw-admin quarantine | unlock | output", "look at a security hold, clear it, read a failed command's output"),
-                                              ("cw-admin adopt | retire | proposals", "add or remove job classes"),
+                                              ("cw-admin adopt | retire | proposals | action-hash", "add or remove job classes; pin a root-level action's program"),
                                               ("cw-admin diff | apply | update | clean", "see and install a release, with a health check and a way back; update looks for a newer one; clean clears old signed approvals")]),
     ("On the worker", "after SSH, or through cw-admin", [("cw-worker status | show | review | approve ...", "the worker's own commands (always cw-worker, whatever the install is called)"),
                                                           ("sudo cw-update --rev <commit>", "install a release (cw-admin apply runs this for you)")]),
