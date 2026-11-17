@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import approvals, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
@@ -59,6 +59,7 @@ class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
                  home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, privileged_call=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
+        self.claude_flags = claudeflags.flags
         self.sensors = sensors
         self.runner, self.clock = runner, clock
         self.log = log or (lambda msg: None)
@@ -330,8 +331,16 @@ class Worker:
         """(argv to run, extra environment, limits, refusal or None)."""
         limits = {k: cls[k] for k in ("max_rss_mb", "max_temp_c", "max_disk_mb") if cls.get(k)}
         if kind == "claude":
-            return ([self.s.claude_command, "-p", prompt, "--output-format", "json", "--max-turns", str(cls.get("max_turns", 10)),
-                     "--allowedTools", ",".join(cls["allowed_tools"])], None, limits, None)
+            have = self.claude_flags(self.s.claude_command)
+            names = [registry.tool_name(t) for t in cls["allowed_tools"]]
+            if "--tools" not in have and "--disallowedTools" not in have and "--disallowed-tools" not in have:
+                return ([], None, limits, "the installed Claude cannot restrict its tools (no --tools or --disallowedTools), so a Claude job is not run: it could start helper agents or use tools its class did not name")
+            argv = [self.s.claude_command, "-p", prompt, "--output-format", "json", "--max-turns", str(cls.get("max_turns", 10)), "--allowedTools", ",".join(cls["allowed_tools"])]
+            if "--tools" in have:
+                argv += ["--tools", ",".join(dict.fromkeys(names))]                  # exactly the named tools exist for this job: no helper agent, nothing else
+            if "--disallowedTools" in have or "--disallowed-tools" in have:
+                argv += ["--disallowedTools", ",".join(registry.HELPER_TOOLS)]       # and the helper-starting tools are named as forbidden, whatever the release does with --tools
+            return (argv, None, limits, None)
         run_argv, extra, prep_fail = argv, cls.get("env"), None
         if kind == "profile":
             rules = registry.profiling_rules(reg)
@@ -523,7 +532,8 @@ class Worker:
             if not queued:
                 return started
             reg = self.load_registry()
-            running = {m.name: self._marker(m).get("weight", 2) for m in self._p("running").glob("*")}
+            markers = {m.name: self._marker(m) for m in self._p("running").glob("*")}
+            running = {n: mk.get("weight", 2) for n, mk in markers.items()}
             used = sum(running.values())
             for p in queued:
                 jid = p.stem
@@ -538,13 +548,18 @@ class Worker:
                 if used + w > self.s.capacity:
                     self.log(f"waiting: {jid} needs {w}, {self.s.capacity - used} of {self.s.capacity} free")
                     break                                    # strict FIFO so a big job cannot be starved by a stream of small ones
+                cap = cls.get("max_running") or (1 if cls.get("kind") == "claude" else None)     # a Claude class runs one job at a time unless it says otherwise: usage is spent one job at a time
+                if cap and sum(1 for mk in markers.values() if mk.get("class") == job.get("class")) >= cap:
+                    self.log(f"waiting: {jid}: {cap} {job.get('class')} job(s) already running")
+                    continue
                 why = self.busy_reason()
                 if why:
                     self.log(f"waiting: {jid}: {why}")
                     break
                 pid = self._spawn(jid)
                 limit = min(jobs.job_timeout(cls, job), MAX_TIMEOUT) + (self.s.pkg_timeout if job.get("packages") else 0)
-                self._p("running", jid).write_text(json.dumps({"pid": pid, "weight": w, "started": iso(self.clock()), "deadline": time.time() + limit + self.s.grace_s}))
+                markers[jid] = {"pid": pid, "weight": w, "class": job.get("class"), "started": iso(self.clock()), "deadline": time.time() + limit + self.s.grace_s}
+                self._p("running", jid).write_text(json.dumps(markers[jid]))
                 used += w
                 started.append(jid)
                 self.log(f"started {jid} (weight {w}, {used}/{self.s.capacity} in use)")

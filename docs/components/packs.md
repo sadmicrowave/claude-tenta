@@ -30,7 +30,7 @@ install, not to a pack.
 
 Same as the registry: `tier` (`auto`/`approve`), `cost` (`light`/`medium`/`heavy`), `run` (argument list with `{param}` placeholders), `params` (`enum`, `int`,
 `regex`, optional), `timeout_s`, `max_rss_mb`, `max_temp_c`, `max_disk_mb`, `network`, `accepts_files`, `batchable`, `output_keys`, `output_allow`, `packages`
-(pinned), `env` (only `PYTHONPATH` or `NODE_PATH`, only under the tools folder), `kind` (`command`, `claude` with `allowed_tools`, `profile`).
+(pinned), `env` (only `PYTHONPATH` or `NODE_PATH`, only under the tools folder), `kind` (`command`, `claude` with `allowed_tools`, `profile`). A `claude` class runs one `claude -p` call and exactly the tools it names (`--tools`); tools that start helper agents (`Task`, `Agent`) are never allowed, and tools that write, run commands or fetch (`Bash`, `Edit`, `Write`, `WebFetch`, `WebSearch`, `mcp__*`) need `reviewed: true` in the class. A Claude class runs one job at a time unless it sets `max_running`. If the installed Claude cannot restrict its tools, the job is refused with a plain message. See `docs/design/SINGLE-JOB-DEVICES.md`.
 
 ### Policy file
 

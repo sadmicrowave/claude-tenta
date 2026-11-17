@@ -96,6 +96,30 @@ class ClaudeJobs(Base):
         self.assertIn("Attached files, in the current directory: README.md, notes.txt", prompt)
         self.assertEqual(call["files"], ["README.md", "notes.txt"])
 
+    def test_a_claude_job_gets_exactly_its_tools_and_helper_agents_are_forbidden(self):
+        self.job("job-0003", "askme", prompt="hi")
+        self.w.fetch()
+        self.w.execute("job-0003")
+        argv = self.runner.calls[-1]["argv"]
+        self.assertEqual(argv[argv.index("--tools") + 1], "Read")                          # only the named tool exists for this job
+        self.assertEqual(argv[argv.index("--disallowedTools") + 1], "Task,Agent")           # and the tools that start helper agents are named as forbidden
+
+    def test_a_claude_that_cannot_restrict_its_tools_is_not_run(self):
+        self.w.claude_flags = lambda command: {"--allowedTools"}
+        self.job("job-0004", "askme", prompt="hi")
+        self.w.fetch()
+        self.w.execute("job-0004")
+        self.assertEqual(self.runner.calls, [])
+        self.assertIn("cannot restrict its tools", str(self.result("job-0004")))
+
+    def test_only_one_job_of_a_claude_class_runs_at_a_time(self):
+        for jid in ("job-0005", "job-0006"):
+            self.job(jid, "askme", prompt="hi")
+            time.sleep(0.05)
+        self.w.fetch()
+        self.assertEqual(self.spawned, ["job-0005"])                                        # the second waits for the first: usage is spent one job at a time
+        self.assertTrue(any("already running" in m for m in self.logged))
+
     def test_a_prompt_with_no_files_is_left_exactly_as_written(self):
         self.job("job-0002", "askme", prompt="Say hi")
         self.w.fetch()

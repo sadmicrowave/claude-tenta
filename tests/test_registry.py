@@ -15,6 +15,28 @@ def errs(cls, **top):
     return registry.validate({"classes": {"x1": cls}, **top}, TOOLS)
 
 
+class ClaudeClassTools(unittest.TestCase):
+    def check(self, tools, **extra):
+        reg = {"classes": {"askme": {"kind": "claude", "tier": "approve", "cost": "light", "allowed_tools": tools, **extra}}}
+        return registry.validate(reg, "/nonexistent-tools-root", allow_empty=True)
+
+    def test_read_tools_are_fine(self):
+        self.assertEqual(self.check(["Read", "Grep", "Glob"]), [])
+
+    def test_helper_agents_are_never_allowed_even_for_a_reviewed_class(self):
+        for tool in ("Task", "Agent", "Task(general)"):
+            errs = self.check([tool], reviewed=True)
+            self.assertTrue(any("starts helper agents" in e for e in errs), (tool, errs))
+
+    def test_tools_that_write_run_or_fetch_need_the_class_to_say_it_was_reviewed(self):
+        for tool in ("Bash", "Bash(git log:*)", "Edit", "WebFetch", "mcp__x__y"):
+            self.assertTrue(any("reviewed: true" in e for e in self.check(["Read", tool])), tool)
+            self.assertEqual(self.check(["Read", tool], reviewed=True), [], tool)
+
+    def test_max_running_is_accepted_as_a_positive_number(self):
+        self.assertEqual(self.check(["Read"], max_running=2), [])
+
+
 class Packages(unittest.TestCase):
     def test_names_are_validated_sorted_and_deduplicated(self):
         self.assertEqual(pkgspec.check_packages(["pip:pyflakes==3.2.0", "apt:jq", "npm:@scope/pkg@1.2.3", "apt:jq"]),

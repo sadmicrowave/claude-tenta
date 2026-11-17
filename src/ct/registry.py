@@ -13,7 +13,14 @@ from .pkgspec import check_packages, is_pinned
 COST_W = {"light": 1, "medium": 2, "heavy": 4}      # capacity points; a heavy job runs alone on a capacity-4 machine
 CLASS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 PLACEHOLDER = re.compile(r"^\{(\w+)\}$")
-POS_INT_KEYS = ("timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars")
+POS_INT_KEYS = ("timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars", "max_running")
+HELPER_TOOLS = ("Task", "Agent")                    # tools that start helper agents with turns of their own: never on a device, whatever the class says (see docs/design/SINGLE-JOB-DEVICES.md)
+RISKY_TOOLS = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch")        # write, run or fetch: only for a class marked `reviewed: true`
+
+
+def tool_name(entry):
+    """'Bash(git log:*)' -> 'Bash': the tool a permission entry is about."""
+    return str(entry).split("(", 1)[0].strip()
 ENV_KEYS = ("PYTHONPATH", "NODE_PATH")              # the only variables a class may set, and only to folders under the tools folder
 MAX_OUT = 100_000
 BASELINE_DENY = ("sudo", "su", "doas", "pkexec")      # always refused, whatever any pack says: privilege tools have no place in a job
@@ -215,6 +222,13 @@ def validate(reg, tools_root, allow_empty=False):
             tools = c.get("allowed_tools")
             if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools):
                 errs.append(f"{w}: allowed_tools must be a non-empty list of strings")
+            else:
+                names = [tool_name(t) for t in tools]
+                for bad in [n for n in names if n in HELPER_TOOLS]:
+                    errs.append(f"{w}: allowed_tools names {bad}, which starts helper agents. A device runs one job and does not start helpers; remove it")
+                risky = [n for n in names if n in RISKY_TOOLS or n.startswith("mcp__")]
+                if risky and c.get("reviewed") is not True:
+                    errs.append(f"{w}: allowed_tools names {', '.join(sorted(set(risky)))}, which can write, run commands or fetch. Say you have read what the class can do by adding `reviewed: true`, or remove them")
         elif kind == "profile" and c.get("run"):
             errs.append(f"{w}: a profile class takes its command from each job, so it must not set run")
         elif kind == "privileged":
