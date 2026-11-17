@@ -133,7 +133,8 @@ class Publishing(Repos):
         sh("git", "commit", "-q", "-m", "other writer", cwd=other)
         sh("git", "push", "-q", "origin", "main", cwd=other)                              # the remote moves under the worker
         self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
-        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok")
+        graph = sh("git", "log", "--all", "--graph", "--format=%h %an|%s (%ci)", cwd=self.tmp / "results.git") + "\nworker: " + sh("git", "log", "--all", "--graph", "--format=%h %an|%s", cwd=self.tmp / "w-results") + "\nlog: " + " | ".join(self.logged)
+        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok", graph)
         self.assertIn("other writer", " ".join(self.results_log()))
 
     def test_a_failing_remote_reports_false_and_logs(self):

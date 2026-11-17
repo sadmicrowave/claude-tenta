@@ -272,6 +272,9 @@ class Passes(unittest.TestCase):
         self.assertTrue(data["step"]["ok"])
 
 
+PROGRAM = "/usr/bin/ls" if Path("/usr/bin/ls").exists() else "/bin/ls"          # a program in a real (not linked) folder: /bin is a link to /usr/bin on current Linux, a real folder on macOS
+
+
 class Status(CliBase):
     def test_an_idle_healthy_worker(self):
         code, out = self.run_cli("status")
@@ -386,10 +389,10 @@ class Status(CliBase):
         self.assertIn("not a place", out)
         self.assertEqual(self.run_cli("action-hash", "/usr/local/sbin/../../tmp/x")[0], 2)
         self.assertEqual(self.run_cli("action-hash", "relative")[0], 2)
-        code, out = self.run_cli("action-hash", "/bin/ls")[:2]
+        code, out = self.run_cli("action-hash", PROGRAM)[:2]
         self.assertRegex(out, r"sha256\s+[0-9a-f]{64}")
         self.assertIn("ct-admin action add", out)
-        info = json.loads(self.run_cli("action-hash", "--json", "/bin/ls")[1])
+        info = json.loads(self.run_cli("action-hash", "--json", PROGRAM)[1])
         self.assertEqual(sorted(info), ["ok", "path", "problem", "sha256"])
 
     def test_hours_are_clamped(self):
