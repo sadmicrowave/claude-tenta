@@ -209,6 +209,7 @@ class LegacyInstall(Installed):
         import os
         os.remove(self.h.path(self.cfg.path("config_file")))
         self.h.put(f"{self.cfg.paths.config}/cw.toml", text)
+        self.cfg.source = f"{self.cfg.paths.config}/cw.toml"                      # what CT_CONFIG points at when the command starts on the server
         for p in ("/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update", f"{self.cfg.paths.code}/lib/cw/cli.py", self.cfg.path("secrets")):
             self.h.put(p, "x\n")
 
@@ -366,3 +367,55 @@ class RepositoryNamesFollow(unittest.TestCase):
         cfg = cfg_of(alerts={"kind": "none"}, github={"owner": "someone", "queue_repo": f"{OLD}-queue", "results_repo": f"{OLD}-results"})
         cfg2 = rename.load_new_config(rename.with_name('[github]\nowner = "someone"\nqueue_repo = "%s-queue"\nresults_repo = "%s-results"\n' % (OLD, OLD), NEW, OLD), NEW, OLD)
         self.assertEqual((cfg2.github.queue_repo, cfg2.github.results_repo), (f"{NEW}-queue", f"{NEW}-results"))
+
+
+class ResumeAndLegacyAccount(Installed):
+    """A rename that stopped partway (the folders moved, the settings file under the new folder name) is finished by running the same command again, and an old install
+    keeps the worker account it actually has."""
+
+    def test_an_old_settings_file_that_never_named_the_worker_account_keeps_the_old_default(self):
+        out = rename.tomllib.loads(rename.with_name('[server]\nhost = "h"\nadmin_user = "me"\n', NEW, OLD, legacy=True))
+        self.assertEqual(out["server"]["worker_user"], "cwworker")
+        out = rename.tomllib.loads(rename.with_name('[server]\nhost = "h"\nadmin_user = "me"\nworker_user = "mine"\n', NEW, OLD, legacy=True))
+        self.assertEqual(out["server"]["worker_user"], "mine")                                   # an explicit account is never replaced
+        out = rename.tomllib.loads(rename.with_name('[server]\nhost = "h"\n', NEW, OLD))
+        self.assertNotIn("worker_user", out["server"])                                          # a current file is left alone
+
+    def test_the_plan_chowns_the_account_that_exists_not_todays_default(self):
+        text = '[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n'
+        self.h.put(f"{self.cfg.paths.config}/cw.toml", text)
+        import os
+        os.remove(self.h.path(self.cfg.path("config_file")))
+        cfg = config.load(self.h.path(f"{self.cfg.paths.config}/cw.toml"), env={})          # what the command line does with CT_CONFIG
+        cfg.source = f"{self.cfg.paths.config}/cw.toml"
+        r = rename.Rename(self.h, cfg, NEW, source="/opt/src", rev="a" * 40, say=self.said.append)
+        r.check()
+        chown = [a for _, acts in r.steps() for a in acts if a.kind == "run" and a.argv[:1] == ["chown"]]
+        self.assertEqual(chown[0].argv[1], "cwworker:cwworker")
+
+    def test_run_again_after_the_folders_moved_it_reads_the_old_file_from_under_the_new_folder_and_finishes(self):
+        text = '[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n'
+        import os
+        import shutil
+        for old, new in ((self.cfg.paths.code, f"/opt/{NEW}"), (self.cfg.paths.config, f"/etc/{NEW}"), (self.cfg.paths.state_root, f"/var/lib/{NEW}")):
+            shutil.move(self.h.path(old), self.h.path(new))                                        # the folders are where the failed run left them
+        os.remove(self.h.path(f"/etc/{NEW}/ct.toml")) if os.path.exists(self.h.path(f"/etc/{NEW}/ct.toml")) else None
+        self.h.put(f"/etc/{NEW}/cw.toml", text)
+        cfg = config.load(self.h.path(f"/etc/{NEW}/cw.toml"), env={})
+        cfg.source = f"/etc/{NEW}/cw.toml"
+        r = rename.Rename(self.h, cfg, NEW, source="/opt/src", rev="a" * 40, say=self.said.append)
+        r.check()                                                                                    # nothing is "already there": the old folders are simply gone
+        steps = dict(r.steps())
+        self.assertEqual(steps["Move the folders"], [])
+        (act,) = steps["Write the new name into the configuration"]
+        self.assertIn('worker_user = "cwworker"', act.text)
+        self.assertIn(f'name = "{NEW}"', act.text)
+
+
+class WorkerAccountMustExist(Installed):
+    def test_a_missing_worker_account_stops_the_rename_before_anything_is_touched(self):
+        self.h.replies["id "] = Result(1, "id: no such user")
+        with self.assertRaises(SetupError) as e:
+            self.rn().check()
+        self.assertIn("does not exist", e.exception.title)
+        self.assertFalse([c for c in self.h.calls if c[0] in ("mv", "systemctl")])

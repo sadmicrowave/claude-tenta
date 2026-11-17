@@ -36,13 +36,15 @@ def render_plan(steps, old, new, *, where):
            tag="PREVIEW", color=ui.PRIMARY, stream=sys.stderr)
 
 
-def with_name(text, new, old=None):
+def with_name(text, new, old=None, legacy=False):
     """The configuration text with identity.name set to `new` (everything else as it was). The installer writes the repositories' names into the file too, as
     `<name>-queue` and `<name>-results`; those that carry the old name follow it (a custom repository name is left alone), or the file would keep pointing at repositories
     that no longer have that name. `old` is the name the file meant, when it does not say (an old settings file that never wrote its name)."""
     raw = tomllib.loads(text or "")
     old = old or (raw.get("identity") or {}).get("name")
     raw.setdefault("identity", {})["name"] = new
+    if legacy:                                              # an old file never wrote the worker account's name; the account on the machine keeps its old one
+        raw.setdefault("server", {}).setdefault("worker_user", config.LEGACY_WORKER)
     gh = raw.get("github")
     if old and isinstance(gh, dict):
         for key, which in (("queue_repo", "queue"), ("results_repo", "results")):
@@ -51,8 +53,8 @@ def with_name(text, new, old=None):
     return toml_out.dump(raw)
 
 
-def load_new_config(text, new, old=None):
-    clean, problems = config.validate(tomllib.loads(with_name(text, new, old)), require_alert_url=False)
+def load_new_config(text, new, old=None, legacy=False):
+    clean, problems = config.validate(tomllib.loads(with_name(text, new, old, legacy)), require_alert_url=False)
     if problems:
         raise SetupError("The new name does not make a valid configuration", "\n".join(problems[:5]))
     return config.Config(clean)
@@ -65,9 +67,11 @@ class Rename:
         self.say, self.dry_run, self.confirm = say, dry_run, confirm
         self.old = cfg.identity.name
         self.report = []
-        legacy = f"{cfg.paths.config}/{config.LEGACY_CONFIG}"               # an install made before the project was renamed keeps its settings in cw.toml
-        self.legacy = not host.exists(cfg.path("config_file")) and host.exists(legacy)
-        self.text = host.read(legacy if self.legacy else cfg.path("config_file")) or ""
+        # The settings come from the file this was started with, wherever it is now: an old install keeps them in cw.toml, and a rename that stopped partway has already moved
+        # the folder, so the same command run again finds the file under the new folder name and carries on from there.
+        source = getattr(cfg, "source", None) or cfg.path("config_file")
+        self.legacy = Path(source).name == config.LEGACY_CONFIG
+        self.text = host.read(source) or host.read(cfg.path("config_file")) or ""
         self.cfg2 = None
         self.skip_sandbox_test = skip_sandbox_test
 
@@ -77,7 +81,10 @@ class Rename:
             raise SetupError("That is not a valid install name", "3 to 24 lowercase letters, digits or -, starting with a letter.")
         if self.new == self.old:
             raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
-        self.cfg2 = load_new_config(self.text, self.new, self.old)
+        if not self.host.run(["id", self.cfg.server.worker_user]).ok:                  # before anything is touched: a plan written for an account that does not exist stops halfway
+            raise SetupError(f"The worker account {self.cfg.server.worker_user} does not exist on this machine", "Nothing was changed.",
+                             ["Check which account the worker runs as: ls /home", "Then set it in the configuration: [server] worker_user = \"...\""])
+        self.cfg2 = load_new_config(self.text, self.new, self.old, self.legacy)
         for label, before, after in self.moves():
             if self.host.exists(after):
                 raise SetupError(f"{after} already exists", "Something else is using the new name's folder, so nothing was changed.")
@@ -108,7 +115,7 @@ class Rename:
                 + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and "@" not in p and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
         out.append(("Move the folders", [A("run", argv=["mv", a, b]) for _, a, b in self.moves()]))
         new_conf = f"{c2.paths.config}/ct.toml"
-        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new, old), mode=0o644)]))
+        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new, old, self.legacy), mode=0o644)]))
         w, home = c.server.worker_user, c.paths.worker_home
         ssh = [A("write", path=f"{home}/.ssh/config", text=ssh_config_text(c2), mode=0o600), A("run", argv=["chown", f"{w}:{w}", f"{home}/.ssh/config"])]
         for which in ("queue", "results"):
@@ -247,7 +254,7 @@ def rewrite_local(host, cfg, cfg2, new):
     old name, taking it from there), and the two clones' remote URLs. Returns the files changed."""
     from pathlib import Path
     changed = []
-    text = with_name(host.read(cfg.source) or "", new, cfg.identity.name)
+    text = with_name(host.read(cfg.source) or "", new, cfg.identity.name, Path(cfg.source).name == config.LEGACY_CONFIG)
     old_home, new_home = Path(cfg.paths.client_home).expanduser(), Path(cfg2.paths.client_home).expanduser()
     if old_home != new_home and host.exists(str(old_home)) and not host.exists(str(new_home)):
         host.run(["mv", str(old_home), str(new_home)])                       # a computer set up before the project was renamed keeps its clones, keys and notes in the old folder
@@ -262,7 +269,7 @@ def rewrite_local(host, cfg, cfg2, new):
     host.run(["sh", "-c", "for c in cw-run cw-admin cw-setup cw-help; do l=\"$HOME/.local/bin/$c\"; [ -L \"$l\" ] && rm -f \"$l\"; done; true"])      # the old command links; `ct-setup client` makes the new ones
     answers = str(Path(cfg2.paths.client_home).expanduser() / "install-answers.toml")
     if host.exists(answers):
-        host.write(answers, with_name(host.read(answers) or "", new, cfg.identity.name), 0o600)
+        host.write(answers, with_name(host.read(answers) or "", new, cfg.identity.name, Path(cfg.source).name == config.LEGACY_CONFIG), 0o600)
         changed.append(answers)
     for clone, url in ((cfg2.path("client_queue"), cfg2.queue_url), (cfg2.path("client_results"), cfg2.results_url)):
         if host.exists(clone + "/.git") or host.exists(clone + "/HEAD"):
@@ -291,12 +298,15 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
              "There is nothing to rename. If you meant to rename an install made under the old name (claude-ballast), its configuration file should be the old cw.toml; check that it is the one shown above.",
              tag="NOTE", color=YELLOW)
         return 0
-    cfg2 = load_new_config(host.read(cfg.source) or "", new, old)
+    cfg2 = load_new_config(host.read(cfg.source) or "", new, old, Path(cfg.source).name == config.LEGACY_CONFIG)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
-        conf_name = Path(cfg.source).name if cfg.source else "ct.toml"            # an install made before the rename keeps its settings in cw.toml on the server too
-        base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={cfg.paths.config}/{conf_name} python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
+        # Which settings file the server starts from: an old install's cw.toml, or a current ct.toml, in the old folder or (when an earlier run stopped partway and has
+        # already moved it) the new one. The server picks the first that exists, so the same command can simply be run again.
+        files = " ".join(f"{d_}/{n_}" for d_ in (cfg.paths.config, cfg2.paths.config) for n_ in (config.LEGACY_CONFIG, "ct.toml"))
+        pick = f'$(for f in {files}; do [ -f "$f" ] && echo "$f" && break; done)'
+        base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={pick} python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
         r = ssh.capture(base + " --json")
         try:
             plan = json.loads((r.stdout or "").strip().splitlines()[-1])

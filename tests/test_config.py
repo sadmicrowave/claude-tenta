@@ -235,6 +235,15 @@ class LegacyInstall(unittest.TestCase):
             q.write_text('[github]\nowner = "someone"\n')
             self.assertEqual(config.load(q, env={}).identity.name, "claude-tenta")          # a current file keeps the new default
 
+    def test_an_old_file_that_never_named_the_worker_account_means_the_account_it_had(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cw.toml"
+            p.write_text('[github]\nowner = "someone"\n')
+            self.assertEqual(config.load(p, env={}).server.worker_user, "cwworker")
+            q = Path(d) / "ct.toml"
+            q.write_text('[github]\nowner = "someone"\n')
+            self.assertEqual(config.load(q, env={}).server.worker_user, "ctworker")
+
     def test_an_explicit_client_folder_in_an_old_file_is_kept(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "cw.toml"

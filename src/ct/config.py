@@ -436,6 +436,7 @@ class Config:
 
 LEGACY_CONFIG = "cw.toml"                                  # what the configuration file was called before the project was renamed (claude-tenta, ct-*)
 LEGACY_CLIENT_HOME = "~/.cw"
+LEGACY_WORKER = "cwworker"                                # the worker account those installs ran jobs as when the file did not say
 LEGACY_NAME = "claude-ballast"                              # the install name those files meant when they did not say (its folders, services and repositories)
 
 
@@ -469,7 +470,9 @@ def load(path=None, env=None):
     if path is not None and path.name == LEGACY_CONFIG and isinstance(raw.get("paths", {}), dict):
         raw.setdefault("paths", {}).setdefault("client_home", LEGACY_CLIENT_HOME)         # its clones, keys and notes are still where the old version put them
         if isinstance(raw.get("identity", {}), dict):
-            raw.setdefault("identity", {}).setdefault("name", LEGACY_NAME)               # the old default name was never written to the file: without it the install would already "have" the new name
+            raw.setdefault("identity", {}).setdefault("name", LEGACY_NAME)
+        if isinstance(raw.get("server", {}), dict):
+            raw.setdefault("server", {}).setdefault("worker_user", LEGACY_WORKER)         # the account that exists on the machine, not today's default               # the old default name was never written to the file: without it the install would already "have" the new name
     clean, problems = validate(_env_overrides(raw, env), require_alert_url=False)         # the address is in secrets.env (read where the notifier is built)
     if problems:
         raise ConfigError(problems)
