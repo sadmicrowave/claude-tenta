@@ -154,7 +154,8 @@ class Rename:
             secrets = c2.path("secrets")
             if h.exists(c.path("secrets")):
                 gone.append(A("run", argv=["sed", "-i", "s/^CW_/CT_/", secrets], why="the secrets file's keys use the new prefix (the values are not shown or changed)"))
-        out.append(("Remove what is named after the old name", gone + [A("run", argv=["systemctl", "daemon-reload"])]))
+        out.append(("Remove what is named after the old name", gone + [A("run", argv=["systemctl", "daemon-reload"]),
+                                                                 A("run", argv=["sh", "-c", f"systemctl reset-failed '{c.identity.name}*' 2>/dev/null; true"], why="services under the old name no longer exist; clear their failed marks so no health check trips on them")]))
         out.append(("Start the services again", [A("run", argv=["systemctl", "enable", "--now", c2.unit(p)]) for p in enabled]))
         return out
 

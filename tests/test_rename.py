@@ -158,6 +158,9 @@ class Apply(Installed):
         self.assertLess(first("runuser"), first("env"))                              # the release installer after the worker's access follows the new name
         self.assertLess(first("env"), first("systemctl daemon-reload"))
         self.assertLess(first("systemctl daemon-reload"), first("systemctl enable"))
+        reset = [c for c in self.h.calls if c[:2] == ["sh", "-c"] and "reset-failed" in c[2]]
+        self.assertEqual(len(reset), 1)                                              # the old name's failed marks are cleared, and only that name's
+        self.assertIn(f"'{OLD}*'", reset[0][2])
         self.assertTrue(self.h.exists(f"/etc/{NEW}/ct.toml"))
 
     def test_saying_no_changes_nothing(self):

@@ -510,6 +510,12 @@ def cmd_status(ctx, hours=12):
         ok, why = False, "canary-watch has not reported"
     line(ok, "Canary", "ON" if ok else "OFF", why)
     try:
+        rs = json.loads((Path(w.s.registry_path).parent / "registry-sync.json").read_text())
+        line(bool(rs["ok"]), "Registry sync", "OK" if rs["ok"] else "REFUSED", f"{time.strftime('%H:%M', time.localtime(rs['ts']))}: {rs['status']}" if not rs["ok"]
+             else f"last ran {human_dur(time.time() - rs['ts'])} ago: {rs['status']}")
+    except (OSError, ValueError, KeyError, TypeError):
+        pass                                                              # an install that never ran a registry sync has nothing to show
+    try:
         passes = json.loads((Path(w.state) / PASS_FILE).read_text())
     except (OSError, ValueError):
         passes = {}

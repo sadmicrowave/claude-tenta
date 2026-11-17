@@ -644,6 +644,22 @@ class DeployKeyUnits(unittest.TestCase):
         self.assertFalse([c for c in calls if c[3] == "add"])
         self.assertNotIn("results", dk.done)
 
+    def test_a_key_left_by_a_replaced_account_is_reported_with_its_removal_command_and_never_removed(self):
+        notes, calls = [], []
+        listing = json.dumps([{"id": 1, "key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "claude-tenta-server", "read_only": True},
+                              {"id": 2, "key": "ssh-ed25519 AAAAOLDACCOUNT", "title": "claude-tenta-server", "read_only": True},
+                              {"id": 3, "key": "ssh-ed25519 AAAAELSE", "title": "someone-elses-key", "read_only": True}])
+
+        def run(argv):
+            calls.append(argv)
+            return Result(0, listing)
+        dk = keys.DeployKeys(self.cfg(), run, lambda n: "/usr/bin/gh", note=lambda *a: notes.append(a))
+        dk.sync({"queue": QUEUE_PUB})
+        stale = [n for n in notes if "stale" in n[0]]
+        self.assertEqual(len(stale), 1)
+        self.assertIn("gh repo deploy-key delete 2 -R someone/claude-tenta-queue", stale[0][2])
+        self.assertFalse([c for c in calls if c[3] == "delete"])
+
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
         ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"

@@ -257,6 +257,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=No
     return "updated" if existed else "bootstrapped"
 
 
+REGISTRY_SYNC_STATUS = "registry-sync.json"      # <config>/registry-sync.json: what the last registry sync did (root writes it; `status` reads it)
 REGISTRY_MARK = "registry.source"           # <config>/registry.source: the digest and time of the signed registry.yaml that is installed
 
 
@@ -435,6 +436,10 @@ def main(argv=None):
             return 1 if bad else 0
         if argv == ["--registry-sync"]:
             status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
+            try:
+                _write_atomic(Path(cfg.paths.config) / REGISTRY_SYNC_STATUS, json.dumps({"ts": int(time.time()), "ok": ok, "status": status}), 0o644)
+            except OSError:
+                pass                                                      # reporting must never be the reason a sync fails
             _ui.say("Registry sync", status, tag="OK" if ok else "FAIL", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):

@@ -346,6 +346,15 @@ class Status(CliBase):
             self.assertEqual(cli.run_pass(self.ctx, "step"), 0)
         self.assertIn("pass took 30 s", err.getvalue())
 
+    def test_status_shows_a_refused_registry_sync_with_its_fix(self):
+        (Path(self.w.s.registry_path).parent / "registry-sync.json").write_text(json.dumps({"ts": int(__import__("time").time()), "ok": False,
+                                                                                         "status": "refused: signature does not match. On your computer, sign the registry again: ct-admin proposals publish"}))
+        out = self.run_cli("status")[1]
+        self.assertRegex(out, r"Registry sync\s+REFUSED")
+        self.assertIn("ct-admin proposals publish", out)
+        (Path(self.w.s.registry_path).parent / "registry-sync.json").write_text(json.dumps({"ts": int(__import__("time").time()), "ok": True, "status": "up to date"}))
+        self.assertRegex(self.run_cli("status")[1], r"Registry sync\s+OK")
+
     def test_wake_ends_the_slow_pace_and_looks_for_jobs_now(self):
         (self.state / "last-sync.stamp").touch()
         code, out = self.run_cli("wake")

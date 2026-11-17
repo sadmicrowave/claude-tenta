@@ -87,6 +87,13 @@ class DeployKeys:
             r = self.run(argv)
         return ("fixed" if repaired else "added") if r.ok else (r.out.strip().splitlines() or ["gh failed"])[-1][:200]
 
+    def stale(self, which, pub):
+        """[(id, title)] of keys on this repository with this install's title that are not the server's current key: left by an account or machine that was replaced. They are
+        reported, never removed here: another worker of the same install may legitimately hold one."""
+        have = self.present(which) or {}
+        mine = f"{self.cfg.identity.name}-server"
+        return [(item.get("id"), item.get("title")) for b, item in have.items() if b != blob(pub) and item.get("title") == mine and item.get("id")]
+
     def sync(self, keys):
         """Add every published key not yet handled. Returns [(which, status)] for the ones handled in this call."""
         out = []
@@ -102,6 +109,9 @@ class DeployKeys:
                 else:
                     self.say(f"  {status.upper():<9} deploy key for {self.slug(which)}  ({access})")        # output: plain fallback (the caller's printer styles it)
             out.append((which, status))
+            if status in ("added", "present", "fixed") and self.note:
+                for kid, _ in self.stale(which, keys[which]):
+                    self.note(f"stale deploy key on {self.slug(which)}", "found", f"not this server's key; if no other worker uses it: gh repo deploy-key delete {kid} -R {self.slug(which)}")
         return out
 
     def manual_steps(self, keys):
