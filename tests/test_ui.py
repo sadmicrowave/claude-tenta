@@ -1,4 +1,5 @@
 import argparse
+import base64
 import io
 import os
 import sys
@@ -75,6 +76,32 @@ class Say(unittest.TestCase):
             ui.die("git failed\nfatal: not a repo")
         self.assertIn("ERROR  git failed", err.getvalue())
         self.assertIn("fatal: not a repo", err.getvalue())
+
+
+class CopyTheCommand(unittest.TestCase):
+    """A person at a terminal gets the recommended command on the clipboard (OSC 52) and is told; nobody else is touched."""
+
+    def test_the_first_command_is_copied_and_announced(self):
+        with clean_env():
+            out = Tty()
+            ui.say("Stuck", tag="NOTE", run=["ct-admin wake", "ct-admin status"], stream=out)
+        text = out.getvalue()
+        self.assertIn("\x1b]52;c;" + base64.b64encode(b"ct-admin wake").decode() + "\x07", text)
+        self.assertNotIn(base64.b64encode(b"ct-admin status").decode(), text)
+        self.assertIn("copied to your clipboard", text)
+
+    def test_nothing_is_copied_when_piped_or_turned_off_or_when_there_is_no_command(self):
+        with clean_env():
+            piped = io.StringIO()
+            ui.say("Stuck", tag="NOTE", run="ct-admin wake", stream=piped)
+            tty = Tty()
+            ui.say("Stuck", tag="NOTE", stream=tty)
+        with clean_env(CT_COPY="never"):
+            off = Tty()
+            ui.say("Stuck", tag="NOTE", run="ct-admin wake", stream=off)
+        for got in (piped, tty, off):
+            self.assertNotIn("\x1b]52", got.getvalue())
+            self.assertNotIn("copied to your clipboard", got.getvalue())
 
 
 class Help(unittest.TestCase):

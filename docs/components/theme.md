@@ -39,3 +39,7 @@ accent = "38;5;99"       # any role, as terminal colour numbers
 - **Nothing prints on its own.** Every line a person sees goes through `ct.ui` (`say` for a message, `table` for a list, `document` for the text of something), `ct.setup.report.sink` (the setup's
   streamed progress, every line on the card rail) or a renderer in `ct.cards`. A line that must be something else is marked on its line `# output: data` (what a script reads), `log` (a journal line)
   or `passthrough` (another program's own output). `tests/test_output_style.py` fails on any other print, and on any printer that defaults to the builtin `print`.
+
+## Copying the recommended command
+
+When a card at a terminal ends with a "Run this" command, the first command (the recommended one) is also put on the clipboard with the OSC 52 escape sequence, and the card says so: paste it at the prompt. Nothing is typed or run for the person. Terminals that do not support OSC 52 ignore it. It is skipped when output is piped, captured or plain, and `CT_COPY=never` turns it off. See `ui.offer_copy`.

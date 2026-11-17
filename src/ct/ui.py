@@ -3,6 +3,7 @@
 A coloured TAG and a bold title, indented detail lines, optional bullet steps, then commands to copy, each alone on its own line.
 Colour is only used when a person is watching a terminal: plain text when piped or captured, when NO_COLOR is set, or CT_COLOR=never.
 """
+import base64
 import os
 import sys
 
@@ -27,6 +28,20 @@ def paint(text, *codes, stream=None):
     return theme.sgr(text, *codes)
 
 
+def offer_copy(run, stream):
+    """Put the first (recommended) command on the clipboard of a person watching a terminal (OSC 52, which terminals that do not support it ignore) and return the line that says so.
+    Nothing is typed or run for them: they paste it. Off with CT_COPY=never; never when output is piped, captured or plain."""
+    first = (run if isinstance(run, str) else (list(run) or [""])[0]).strip()
+    if not first or os.environ.get("CT_COPY", "").lower() == "never" or not _color_on(stream):
+        return []
+    try:
+        stream.write("\x1b]52;c;" + base64.b64encode(first.encode()).decode() + "\x07")
+        stream.flush()
+    except (OSError, ValueError):
+        return []
+    return ["", paint("copied to your clipboard: paste it at the prompt (CT_COPY=never turns this off)", DIM, stream=stream)]
+
+
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
     """One shape for every message a person reads: a coloured TAG and a bold title, indented detail lines, optional bullet steps,
     then commands to copy, each alone on its own line (nothing before or after it)."""
@@ -34,7 +49,7 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
     if _color_on(stream):                                      # a person at a terminal: the wizard's card (see ct.cards)
         out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label, framed=framed)
         if run:
-            out += cards.commands(run, run_label)
+            out += cards.commands(run, run_label) + offer_copy(run, stream)
         print("\n".join(out) + "\n", file=stream)
         return
     out = ["", f"{paint(tag, BOLD, color, stream=stream)}  {paint(title, BOLD, stream=stream)}"]
@@ -100,7 +115,7 @@ def table(title, header, rows, *, tag="LIST", color=None, stream=None, notes=(),
         w = cards.width()
         out = [""] + cards.card(title, [*notes, "\n", cards.Block(cards.table_lines(header, rows, w - 4))], tag=tag, color=color)
         if run:
-            out += cards.commands(run, run_label)
+            out += cards.commands(run, run_label) + offer_copy(run, stream)
         print("\n".join(out) + "\n", file=stream)                                                       # output: a card
         return
     lines = cards.table_lines(header, [[c[0] if isinstance(c, tuple) else c for c in r] for r in rows], 10 ** 6, color=False)
