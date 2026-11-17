@@ -437,7 +437,7 @@ def main(argv=None):
         if argv == ["--tripwire-test"]:                              # what ct-admin tripwire-test runs on the worker: reads a decoy credential and proves the lockdown, then unlocks
             from .setup import tripwire
             from .setup.host import Host
-            ok, why = tripwire.run(Host(), cfg, confirm=lambda p: input(f"{p} [y/N] ").strip().lower() == "y")
+            ok, why = tripwire.run(Host(), cfg, confirm=lambda p: input(_ui.confirm_prompt(p)).strip().lower() == "y")
             _ui.say("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if argv == ["--registry-sync"]:

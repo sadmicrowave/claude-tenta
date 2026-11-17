@@ -15,6 +15,7 @@ SECTIONS = [
                                        ("ct-run classes", "what the worker can run today"),
                                        ("ct-run offload ...", "find out which of your commands are worth running on the worker")]),
     ("Run it", "from your computer; approvals and orders are signed here, no login", [("ct-admin status | check | workers", "the worker's health, the connection to it, and a comparison of your workers"),
+                                              ("ct-admin wake | audit | tripwire-test", "wake a worker now, check it against its configuration, or prove its tripwire (every worker, or --worker NAME)"),
                                               ("ct-admin review | approve", "look at waiting jobs, then approve exactly what you saw"),
                                               ("ct-admin cancel | kill", "stop a job that has not started, or one that is running"),
                                               ("ct-admin quarantine | unlock | output", "look at a security hold, clear it, read a failed command's output"),

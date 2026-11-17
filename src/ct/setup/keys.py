@@ -56,8 +56,8 @@ class DeployKeys:
     def present(self, which):
         """The key texts already on the repository (empty if it cannot be listed)."""
         r = self.run(["gh", "repo", "deploy-key", "list", "-R", self.slug(which), "--json", "id,key,title,readOnly"])
-        if not r.ok:
-            self.list_error = (r.out.strip().splitlines() or ["no answer"])[-1][:160]
+        if not getattr(r, "ok", False):
+            self.list_error = (getattr(r, "out", "").strip().splitlines() or ["no answer"])[-1][:160]
             return None
         try:
             return {blob(item.get("key", "")): item for item in json.loads(r.out or "[]")}
