@@ -24,6 +24,14 @@ def published(ssh, config_dir):
     return out
 
 
+def read_only(item, default=True):
+    """Whether a key listed by `gh repo deploy-key list` is read-only. This gh prints the API's name (read_only) while its --json option is asked for readOnly; accept either."""
+    for name in ("read_only", "readOnly"):
+        if name in item:
+            return bool(item[name])
+    return default
+
+
 def blob(pub):
     parts = pub.split()
     return parts[1] if len(parts) > 1 else pub
@@ -60,7 +68,7 @@ class DeployKeys:
         have, repaired = self.present(which), False
         if have is not None and blob(pub) in have:
             item = have[blob(pub)]
-            if which != "results" or not item.get("readOnly", False):
+            if which != "results" or not read_only(item, default=False):
                 return "present"
             fixed = self.run(["gh", "repo", "deploy-key", "delete", str(item.get("id", "")), "-R", self.slug(which)]) if item.get("id") else None      # the key is there but cannot write: the worker could never publish a result
             if not fixed or not fixed.ok:

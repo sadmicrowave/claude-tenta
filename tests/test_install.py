@@ -617,7 +617,7 @@ class DeployKeyUnits(unittest.TestCase):
 
     def test_a_results_key_that_is_read_only_on_github_is_replaced_with_one_that_can_write(self):
         calls = []
-        listing = json.dumps([{"id": 9, "key": RESULTS_PUB.rsplit(" ", 1)[0], "title": "x", "readOnly": True}])
+        listing = json.dumps([{"id": 9, "key": RESULTS_PUB.rsplit(" ", 1)[0], "title": "x", "read_only": True}])        # the name this gh really prints
 
         def run(argv):
             calls.append(argv)

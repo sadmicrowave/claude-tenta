@@ -17,7 +17,7 @@ import tomllib
 from pathlib import Path
 
 from .. import config, render
-from . import hardening, report as report_mod, toml_out
+from . import hardening, keys as keys_mod, report as report_mod, toml_out
 from .server import SetupError, alias_for, remote_url, ssh_config_text
 from .report import sink as _sink
 
@@ -249,7 +249,7 @@ def retitle_keys(host, cfg, new):
                 f.write(k["key"] + "\n")
             try:
                 host.run(["gh", "repo", "deploy-key", "delete", str(k["id"]), "-R", slug])
-                r = host.run(["gh", "repo", "deploy-key", "add", f.name, "-R", slug, "-t", title] + (["--allow-write"] if new_repo.endswith("-results") or not k.get("readOnly", True) else []))      # by role: the results key must write whatever the listing said
+                r = host.run(["gh", "repo", "deploy-key", "add", f.name, "-R", slug, "-t", title] + (["--allow-write"] if new_repo.endswith("-results") or not keys_mod.read_only(k) else []))      # by role: the results key must write whatever the listing said
                 notes.append((f"deploy key on {new_repo}", "retitled" if r.ok else "failed", title))
             finally:
                 os.unlink(f.name)
