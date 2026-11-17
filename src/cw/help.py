@@ -15,13 +15,13 @@ SECTIONS = [
                                        ("cw-run jobs", "your recent jobs, and the ones waiting for your approval"),
                                        ("cw-run classes", "what the worker can run today"),
                                        ("cw-run offload ...", "find out which of your commands are worth running on the worker")]),
-    ("Run it", "on your computer, over SSH", [("cw-admin status | check", "the worker's health and the connection to it"),
+    ("Run it", "from your computer; approvals and orders are signed here, no login", [("cw-admin status | check | workers", "the worker's health, the connection to it, and a comparison of your workers"),
                                               ("cw-admin review | approve", "look at waiting jobs, then approve exactly what you saw"),
                                               ("cw-admin cancel | kill", "stop a job that has not started, or one that is running"),
                                               ("cw-admin quarantine | unlock | output", "look at a security hold, clear it, read a failed command's output"),
                                               ("cw-admin adopt | retire | proposals", "add or remove job classes"),
                                               ("cw-admin diff | apply", "see and install a release, with a health check and a way back")]),
-    ("On the worker", "after SSH, or through cw-admin", [("<name> status | show | review | approve ...", "the worker's own commands (the name is your install's name)"),
+    ("On the worker", "after SSH, or through cw-admin", [("cw-worker status | show | review | approve ...", "the worker's own commands (always cw-worker, whatever the install is called)"),
                                                           ("sudo cw-update --rev <commit>", "install a release (cw-admin apply runs this for you)")]),
 ]
 

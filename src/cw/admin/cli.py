@@ -21,7 +21,7 @@ from ..client import offload as off
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import jobs, regedit, release
+from . import jobs, regedit, release, workers
 from .proposals import Proposals
 from .ssh import Ssh
 
@@ -43,7 +43,7 @@ def stop(title, *details, code=1, tag="STOPPED", color=YELLOW, **kw):
 
 class Context:
     def __init__(self, repos, ssh, source, *, name="claude-ballast", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
-                 run_result=None, main_branch="main", sleep=time.sleep):
+                 run_result=None, main_branch="main", sleep=time.sleep, workers_file=None, cfg=None):
         self.repos, self.ssh, self.source, self.name = repos, ssh, source, name
         self.config_dir, self.code_dir = config_dir or f"/etc/{name}", code_dir or f"/opt/{name}"
         self.home = Path(home) if home else Path("~/.cw").expanduser()
@@ -51,13 +51,26 @@ class Context:
         self.ask, self.sleep = ask, sleep
         self.is_tty = is_tty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
         self.run_result = run_result or (lambda jid: client_cli.main(["result", jid, "--wait", "--approved"]))
+        self.workers_file, self.cfg = Path(workers_file or (self.home / "workers.toml")), cfg
 
     @classmethod
     def from_config(cls, cfg):
         repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
         home = Path(cfg.paths.client_home).expanduser()
         return cls(repos, Ssh(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port), release.Source(home / "source.git", cfg.updates.source, cfg.updates.branch),
-                   name=cfg.identity.name, config_dir=cfg.paths.config, code_dir=cfg.paths.code, home=home, main_branch=cfg.github.main_branch)
+                   name=cfg.identity.name, config_dir=cfg.paths.config, code_dir=cfg.paths.code, home=home, main_branch=cfg.github.main_branch,
+                   workers_file=Path(cfg.source).parent / "workers.toml" if cfg.source else None, cfg=cfg)
+
+    def fleet(self):
+        """[(name, ClientRepos)] for every worker this computer administers: the main one first, then those in workers.toml."""
+        out = [(self.name, self.repos)]
+        for name, path in workers.load_list(self.workers_file).items():
+            try:
+                c = config.load(path, env={"CW_CONFIG": ""})
+                out.append((name, ClientRepos(c.path("client_queue"), c.path("client_results"), c.queue_url, c.results_url, jobs_branch=c.github.jobs_branch)))
+            except Exception:
+                out.append((name, ClientRepos(self.home / name / "queue", self.home / name / "results", "", "")))       # listed but its configuration is unreadable: a row with no state
+        return out
 
     # the commands on the server, run as the worker through its own sudo entry point (read-only ones need no password)
     def remote(self, *args):
@@ -314,6 +327,56 @@ def follow(ctx, a, rc, jid):
         emit("Approved: waiting for the result", "Ctrl-C stops waiting, not the job.", tag="WAITING", color=CYAN)
         return ctx.run_result(jid)
     return rc
+
+
+def cmd_workers(ctx, a):
+    """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
+    action = a.action or "list"
+    wfile = ctx.workers_file
+    if action == "add":
+        if not a.name or not a.config:
+            raise ClientError("Say the worker's name and its configuration file", "Each worker is a complete install with its own configuration.", example="cw-admin workers add studio --config ~/.config/claude-ballast/studio.toml")
+        try:
+            workers.add(wfile, a.name, a.config)
+        except ValueError as e:
+            raise ClientError("Could not add that worker", str(e))
+        emit(f"Added {a.name}", f"Listed in {wfile}.", tag="DONE", color=GREEN, run_label="Compare them", run="cw-admin workers")
+        return 0
+    if action == "remove":
+        if not a.name or not workers.remove(wfile, a.name):
+            raise ClientError(f"There is no worker called {a.name!r} in the list", "The worker in your main configuration is always listed and is not removed here.", example="cw-admin workers")
+        emit(f"Removed {a.name}", "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
+        return 0
+    rows, problems = [], []
+    for name, repos in ctx.fleet():
+        try:
+            if not a.no_refresh:
+                repos.pull_results()
+        except Exception as e:                                         # a worker that cannot be reached is a row, not a failure
+            problems.append(f"{name}: could not refresh ({str(e).strip()[:80]})")
+        rows.append((name, workers.read_state(repos.results)))
+    cells = [workers.row_for(n, d) for n, d in rows]
+    if a.claude:
+        cells = [c for c in cells if c["has_claude"] and not c["locked"]]
+    if a.json:
+        print(json.dumps(cells, indent=2))
+        return 0
+    out = sys.stdout
+    if not cells:
+        emit("No worker matches", "None of the listed workers has Claude access that works and is not locked." if a.claude else "No workers are listed.", tag="NOTE", color=YELLOW,
+             run_label="See all of them", run="cw-admin workers")
+        return 1 if a.claude else 0
+    lines = workers.table(cells)
+    print("\n" + paint(lines[0], BOLD, CYAN, stream=out))
+    for line, c in zip(lines[1:], cells):
+        print(paint(line, RED, stream=out) if c["locked"] else paint(line, DIM, stream=out) if c["stale"] else line)
+    for c in cells:
+        if c.get("packages") is not None and not c["stale"]:
+            print(paint(f"\n  {c['name']}: {c['classes']} classes, {c['packages']} packages", DIM, stream=out), end="")
+    print("\n")
+    for p in problems:
+        print(paint("  NOTE  " + p, YELLOW, stream=out))
+    return 0
 
 
 def cmd_cancel(ctx, a):
@@ -616,11 +679,12 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "workers"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
           ("Registry", ["adopt", "retire", "proposals"]), ("Release", ["diff", "apply"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "cw-admin status"), ("Look further back", "cw-admin status --hours 48")]),
+    "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "cw-admin workers"), ("Only those with working Claude access", "cw-admin workers --claude"), ("Add another worker", "cw-admin workers add studio --config ~/.config/claude-ballast/studio.toml")]),
     "check": ("check the connection to the worker", [("Is key login working, and do read-only commands need no password?", "cw-admin check")]),
     "review": ("show waiting jobs and note you viewed them (asks nothing)", [("Show every waiting job", "cw-admin review"), ("Show one", "cw-admin review profile-k7m2xq")]),
     "approve": ("approve a job exactly as you saw it, then watch it", [("Review, approve and wait for the result", "cw-admin approve profile-k7m2xq"), ("Approve every waiting job you viewed", "cw-admin approve --all")]),
@@ -653,6 +717,13 @@ def build_parser():
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
     yes(s)
+    s = sp.add_parser("workers", add_help=False)
+    s.add_argument("action", nargs="?", choices=["list", "add", "remove"], help="list (default): compare the workers; add or remove one")
+    s.add_argument("name", nargs="?", help="with add or remove: the worker's name")
+    s.add_argument("--config", help="with add: the worker's configuration file")
+    s.add_argument("--claude", action="store_true", help="only workers whose Claude access works and that are not locked")
+    s.add_argument("--json", action="store_true", help="print the comparison as JSON")
+    s.add_argument("--no-refresh", action="store_true", help="use what was last downloaded; do not pull from GitHub first")
     s = sp.add_parser("cancel", add_help=False)
     s.add_argument("id", help="the job id")
     s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
@@ -694,7 +765,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

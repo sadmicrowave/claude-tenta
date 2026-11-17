@@ -14,6 +14,7 @@ Every name, path and limit comes from the configuration (cw.toml) through `Conte
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -24,6 +25,7 @@ from pathlib import Path
 
 from . import alerts, approvals, claudeupdate, config, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
+from . import workerstate
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from .pkgspec import check_packages
@@ -113,6 +115,25 @@ class Context:
         sensors = runner.LinuxSensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
         approvers = cfg.path("approvers")
+        claude_memo = {}
+
+        def state_facts():
+            """What only the install knows, for worker-state.json. The Claude tool is asked about at most every half hour (it is a program that has to be run)."""
+            def read(path):
+                try:
+                    return Path(path).read_text()
+                except OSError:
+                    return ""
+            cpuinfo = read("/proc/cpuinfo")
+            flags = re.search(r"^flags\s*:\s*(.*)$", cpuinfo, re.M)
+            claude = {"auth": cfg.claude.auth}
+            if cfg.claude.auth != "none":
+                if time.time() - claude_memo.get("at", 0) > 1800:
+                    claude_memo.update(at=time.time(), tool=claudeupdate.tool_info(cfg.paths.worker_home))
+                claude["tool"] = claude_memo["tool"]
+            return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
+                    "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
+                    "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers))}
 
         def signed_approval(jid, digest):
             raw = io.approval_bytes(jid)
@@ -124,7 +145,7 @@ class Context:
             return ok
         w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY") if cfg.claude.auth == "api-key" else None,
                    oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN") if cfg.claude.auth == "account" else None,       # only the chosen sign-in is ever given to a job
-                   signed_approval=signed_approval, approvers_file=approvers, hostname=None, jail=jail_mod.from_config(cfg))
+                   signed_approval=signed_approval, approvers_file=approvers, state_facts=state_facts, hostname=None, jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json")

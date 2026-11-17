@@ -12,6 +12,7 @@ from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME 
 
 from cw import approvals, clihelp
 from cw.admin import cli, jobs, regedit, release
+from cw.admin import workers as workers_mod
 from cw.admin.ssh import Ssh
 from cw.client.repo import ClientError
 
@@ -243,6 +244,110 @@ class SignedOrders(SignedApprovals):
         self.worker_publishes(capacity=4)
         self.admin("unlock")
         self.assertEqual(self.ssh.calls[-1], "cw-worker unlock")
+
+
+def state_doc(**over):
+    base = {"v": 1, "updated": "2026-11-16T12:00:00Z", "name": "w", "release": "9032dfbd1aaaa", "os": {"id": "ubuntu", "version": "26.04"},
+            "hardware": {"cores": 2, "mem_total_mb": 15219, "cpu": "X", "native_claude": True, "capacity": 4},
+            "claude": {"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}}, "isolation": {"ready": True, "method": "bwrap"},
+            "classes": ["a", "b"], "packages": ["apt:jq==1.7"], "approvers": [], "locked": False,
+            "observed": {"load_1m": 0.3, "temp_c": 52, "mem_available_mb": 14000, "running": 0, "waiting": 0}}
+    base.update(over)
+    return base
+
+
+class Fleet:
+    """Stands in for a second worker's repositories: just its results folder."""
+
+    def __init__(self, results, fail=False):
+        self.results, self.fail = results, fail
+
+    def pull_results(self):
+        if self.fail:
+            raise RuntimeError("network down")
+
+
+class WorkersCommand(AdminBase):
+    NOW = datetime_now = None
+
+    def setUp(self):
+        super().setUp()
+        self.other = self.tmp / "other-results"
+        self.other.mkdir()
+        self.fail = False
+        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, self.fail))]
+        self.ctx.workers_file = self.tmp / "workers.toml"
+        self.put_state(self.repos.results, state_doc(updated=self.fresh()))
+        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "none"}, hardware={"cores": 8, "mem_total_mb": 32000, "native_claude": True}))
+
+    def fresh(self):
+        import time as _t
+        return _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+
+    def put_state(self, folder, doc):
+        (Path(folder) / "worker-state.json").write_text(json.dumps(doc))
+
+    def test_every_worker_is_a_row_with_hardware_and_claude_state_side_by_side(self):
+        code, out, err = self.admin("workers")
+        self.assertEqual(code, 0, err)
+        for needle in ("WORKER", "testcw", "studio", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON"):
+            self.assertIn(needle, out)
+
+    def test_claude_filter_keeps_only_workers_with_working_claude_access(self):
+        code, out, _ = self.admin("workers", "--claude")
+        self.assertEqual(code, 0)
+        self.assertIn("testcw", out)
+        self.assertNotIn("studio", out)
+
+    def test_a_locked_worker_or_one_whose_claude_tool_is_missing_is_not_a_claude_candidate(self):
+        self.put_state(self.repos.results, state_doc(updated=self.fresh(), locked=True))
+        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "missing", "version": ""}}))
+        code, out, err = self.admin("workers", "--claude")
+        self.assertEqual(code, 1)
+        self.assertIn("No worker matches", out + err)
+
+    def test_the_older_pinned_release_is_labelled_so_it_can_be_compared(self):
+        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "legacy", "version": "2.1.112"}},
+                                             hardware={"cores": 2, "mem_total_mb": 15000, "native_claude": False}))
+        _, out, _ = self.admin("workers")
+        self.assertIn("2.1.112 (older release, pinned)", out)
+        self.assertIn("old CPU", out)
+
+    def test_json_is_machine_readable_for_a_future_scheduler(self):
+        code, out, _ = self.admin("workers", "--json")
+        rows = json.loads(out)
+        self.assertEqual([r["name"] for r in rows], ["testcw", "studio"])
+        self.assertEqual((rows[0]["has_claude"], rows[1]["has_claude"]), (True, False))
+
+    def test_a_worker_that_published_nothing_is_a_row_not_a_crash(self):
+        (self.other / "worker-state.json").unlink()
+        code, out, _ = self.admin("workers")
+        self.assertEqual(code, 0)
+        self.assertIn("no state published", out)
+
+    def test_an_old_reading_is_marked_stale(self):
+        self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
+        _, out, _ = self.admin("workers")
+        self.assertIn("STALE", out)
+
+    def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
+        self.fail = True
+        self.ctx.fleet = lambda: [("testcw", self.repos), ("studio", Fleet(self.other, True))]
+        code, out, _ = self.admin("workers")
+        self.assertEqual(code, 0)
+        self.assertIn("studio: could not refresh", out)
+        self.assertIn("studio", out)
+
+    def test_adding_and_removing_a_worker_edits_the_list_and_validates_it(self):
+        cfg = self.tmp / "studio.toml"
+        cfg.write_text("[identity]\nname = \"studio\"\n")
+        self.assertEqual(self.admin("workers", "add", "studio", "--config", str(cfg))[0], 0)
+        self.assertEqual(workers_mod.load_list(self.ctx.workers_file), {"studio": str(cfg)})
+        self.assertEqual(self.admin("workers", "remove", "studio")[0], 0)
+        self.assertEqual(workers_mod.load_list(self.ctx.workers_file), {})
+        self.assertEqual(self.admin("workers", "add", "Bad Name", "--config", str(cfg))[0], 2)
+        self.assertEqual(self.admin("workers", "add", "x", "--config", str(self.tmp / "nope.toml"))[0], 2)
+        self.assertEqual(self.admin("workers", "remove", "ghost")[0], 2)
 
 
 class FollowAfterApproving(unittest.TestCase):

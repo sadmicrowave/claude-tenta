@@ -1,6 +1,8 @@
 # Several workers: design notes
 
-Status: **planned, not built.** These are requirements written down as they came up, so the multi-worker work starts from them. Today there is one
+Status: **started.** Built so far: each worker publishes `worker-state.json` and `cw-admin workers` compares workers from it (requirement 3, and the data requirement 2 needs). Not built: choosing a worker automatically, dedicated workers and candidate locks, keeping a batch on one worker.
+
+Original status: **planned, not built.** These are requirements written down as they came up, so the multi-worker work starts from them. Today there is one
 worker per install. The signed approvals, orders and registry (see `docs/components/setup.md`) already work from the administrator's own computer
 for that reason: nothing about running several workers should need a login on each.
 

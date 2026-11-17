@@ -104,6 +104,73 @@ class ClaudeJobs(Base):
         self.assertEqual(call["argv"][call["argv"].index("-p") + 1], "Say hi")
 
 
+class WorkerState(Base):
+    """worker-state.json: published when the environment changes, refreshed at most every half hour."""
+    FACTS = {"name": "testcw", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "native_claude": True, "capacity": 4,
+             "claude": {"auth": "none"}, "approvers": []}
+
+    def setUp(self):
+        super().setUp()
+        self.facts = dict(self.FACTS)
+        self.make_worker(state_facts=lambda: self.facts)
+
+    def state_commits(self):
+        log = sh("git", "log", "--format=%s", "main", cwd=self.tmp / "results.git")
+        return sum(1 for l in log.splitlines() if l == "worker state")
+
+    def published(self):
+        r = subprocess.run(["git", "-C", str(self.tmp / "results.git"), "show", "main:worker-state.json"], capture_output=True, text=True)
+        return json.loads(r.stdout)
+
+    def test_it_is_published_and_says_what_the_worker_is(self):
+        self.w.fetch()
+        doc = self.published()
+        self.assertEqual((doc["name"], doc["os"]["version"], doc["claude"]["auth"], doc["locked"]), ("testcw", "26.04", "none", False))
+        self.assertIn("careful", doc["classes"])
+        self.assertIn("load_1m", doc["observed"])
+
+    def test_nothing_is_published_again_while_nothing_changed(self):
+        self.w.fetch()
+        self.w.fetch()
+        self.w.fetch()
+        self.assertEqual(self.state_commits(), 1)
+
+    def test_a_changed_environment_is_published_at_once(self):
+        self.w.fetch()
+        self.facts["claude"] = {"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}}
+        self.w.fetch()
+        self.assertEqual(self.state_commits(), 2)
+        self.assertEqual(self.published()["claude"]["tool"]["version"], "2.1.325")
+
+    def test_a_lockdown_is_published_even_though_a_locked_worker_does_no_other_work(self):
+        self.w.fetch()
+        self.lockdown.engage("quarantine", "job-0009", {"private_ip"}, cls="echo")
+        self.w.fetch()
+        self.assertTrue(self.published()["locked"])
+
+    def test_the_readings_are_refreshed_after_half_an_hour(self):
+        self.w.fetch()
+        stamp = self.state / "worker-state.stamp"
+        old = json.loads(stamp.read_text())
+        old["at"] -= 3600
+        stamp.write_text(json.dumps(old))
+        self.w.fetch()
+        self.assertEqual(self.state_commits(), 2)
+
+    def test_a_worker_with_no_facts_provider_publishes_nothing(self):
+        self.make_worker()
+        self.w.fetch()
+        r = subprocess.run(["git", "-C", str(self.tmp / "results.git"), "show", "main:worker-state.json"], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_a_provider_that_fails_does_not_break_the_pass(self):
+        def boom():
+            raise RuntimeError("no cpuinfo")
+        self.make_worker(state_facts=boom)
+        self.w.fetch()
+        self.assertTrue(any("worker state" in m for m in self.logged))
+
+
 class SignedApproval(Base):
     """Approving from the administrator's own computer: a signed approval is published next to the job, and the worker checks it against its approver key."""
 

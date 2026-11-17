@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import approvals, guard, jobs, profiling, registry, results
+from . import approvals, guard, jobs, profiling, registry, results, workerstate
 from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
@@ -52,7 +52,7 @@ class Settings:
 
 class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
-                 home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
+                 home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
         self.sensors = sensors
         self.runner, self.clock = runner, clock
@@ -60,6 +60,7 @@ class Worker:
         self.home, self.api_key, self.hostname = str(home or Path.home()), api_key, hostname
         self.oauth_token = oauth_token
         self.approvers_file = approvers_file
+        self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
         self.loadavg = loadavg or (lambda: os.getloadavg()[0])
@@ -557,6 +558,27 @@ class Worker:
             return True
         return False
 
+    def publish_worker_state(self, reg):
+        """Publish worker-state.json (see workerstate): when the environment changed, and otherwise at most every half hour so the observed readings stay recent.
+        Never breaks a pass."""
+        if self.state_facts is None:
+            return False
+        try:
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra=self.state_facts(), jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
+            try:
+                last = json.loads(stamp.read_text())
+            except (OSError, ValueError):
+                last = {}
+            if last.get("hash") == key and time.time() - last.get("at", 0) < workerstate.HEARTBEAT_S:
+                return False
+            if self.io.publish_file("worker-state.json", json.dumps(doc, indent=2) + "\n", "worker state"):
+                stamp.write_text(json.dumps({"hash": key, "at": time.time()}))
+                return True
+        except Exception as e:                                # a snapshot that cannot be taken is not worth a failed pass
+            self.log(f"worker state: {e}")
+        return False
+
     def maybe_prune_results(self):
         """At most once a day, squash the results history if it has grown past the threshold."""
         stamp = self._p("prune.stamp")
@@ -581,6 +603,7 @@ class Worker:
         self.publish_pending()
         reg = self.load_registry()
         self.publish_registry_info(reg)
+        self.publish_worker_state(reg)
         self.clean_work()
         guard.plant_canaries(self.state, self.home, identity=self.s.identity)
         seen = []

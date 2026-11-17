@@ -48,6 +48,13 @@ def version_of(home, run):
     return found.group(1) if found else ""
 
 
+def tool_info(home, run=None):
+    """{kind, version} of the claude tool installed for the worker (kind: native, legacy, missing, unknown); version '' when it will not run."""
+    run = run or _run(home)
+    kind = kind_of(home)
+    return {"kind": kind, "version": version_of(home, run) if kind != "missing" else ""}
+
+
 def update(home, run=None, clock=time.time):
     """Returns {ts, kind, before, after, ok, note}. Never raises: a failed update is a result to report, not a crash."""
     run = run or _run(home)
