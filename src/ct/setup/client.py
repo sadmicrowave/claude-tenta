@@ -12,6 +12,7 @@ from pathlib import Path
 from .. import config
 from . import ptyrun, questions, report, toml_out
 from .server import SetupError
+from .report import sink as _sink
 
 COMMANDS = ("ct-run", "ct-admin", "ct-setup", "ct-help")
 
@@ -23,8 +24,9 @@ SEED_REGISTRY = ("# YOUR job classes, added with `ct-admin adopt` after you test
 
 
 class ClientSetup:
-    def __init__(self, host, home, *, ask=None, say=print, dry_run=True, given=None, use_defaults=False, repos_factory=None,
+    def __init__(self, host, home, *, ask=None, say=None, dry_run=True, given=None, use_defaults=False, repos_factory=None,
                  queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None, styled=False, verbose=False):
+        say = say or _sink()
         self.host, self.home = host, Path(home)
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
@@ -81,7 +83,8 @@ class ClientSetup:
         if self.ui is not None and not self.dry_run:
             self.say(self.r.info(f"Your configuration is written to {path}. Settings you did not change keep their defaults; the file lists only your answers."))
         else:
-            self.say(f"\n  Your configuration, written to {path}:\n\n    " + toml_out.dump(nested).replace("\n", "\n    "))
+            self.say(self.r.kv("Configuration", path))
+            self.say(self.r.block(toml_out.dump(nested).splitlines()))
         if not self.dry_run:
             self.host.write(path, toml_out.dump(nested), 0o600)
         self.note("configuration", "planned" if self.dry_run else "written", path)
@@ -98,7 +101,7 @@ class ClientSetup:
     def ssh_login(self):
         cfg, target = self.cfg, f"{self.cfg.server.admin_user}@{self.cfg.server.host}"
         if self.dry_run:
-            self.say("    $ ssh -o BatchMode=yes " + target + " true")                  # a preview shows its commands
+            self.say(self.r.info("$ ssh -o BatchMode=yes " + target + " true"))                  # a preview shows its commands
             self.note("SSH key login", "planned", target)
             return
         r = self.host.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", str(cfg.server.ssh_port), target, "true"])
@@ -106,8 +109,10 @@ class ClientSetup:
             self.note("SSH key login", "ok", target)
             return
         self.note("SSH key login", "waiting", "not working yet")
-        self.say("\n  Key login to the server does not work yet. If you have no key: ssh-keygen -t ed25519")
-        self.say(f"  Then install it (this asks for the server password once):\n\n    ssh-copy-id -p {cfg.server.ssh_port} {target}\n")
+        self.say(self.r.warn("Key login to the server does not work yet. If you have no key, make one:"))
+        self.say(self.r.command("ssh-keygen -t ed25519"))
+        self.say(self.r.info("Then install it (this asks for the server password once):"))
+        self.say(self.r.command(f"ssh-copy-id -p {cfg.server.ssh_port} {target}"))
 
     def repo_slug(self, which):
         c = self.cfg.github
@@ -123,7 +128,7 @@ class ClientSetup:
                 self.note(f"{which} repository", "planned" if self.dry_run else "created", f"{slug} (private)")
             else:
                 self.note(f"{which} repository", "manual", slug)
-                self.say(f"    Create a PRIVATE repository named {slug} at https://github.com/new  (empty: no README, no licence)")
+                self.say(self.r.info(f"Create a PRIVATE repository named {slug} at https://github.com/new  (empty: no README, no licence)"))
 
     def deploy_keys(self):
         """Add the server's two public keys when they were handed over (--queue-key / --results-key); otherwise say how."""
@@ -169,7 +174,7 @@ class ClientSetup:
         os.makedirs(self.host.path(d), mode=0o700, exist_ok=True)
         argv = ["ssh-keygen", "-q", "-t", "ed25519", "-C", "ct-approval", "-f", str(self.host.path(key))]
         if self.ask is not None or self.ui is not None:
-            self.say("    This key signs the approvals you give from this computer. A passphrase protects it (you type it when you approve); press Enter for none.")
+            self.say(self.r.info("This key signs the approvals you give from this computer. A passphrase protects it (you type it when you approve); press Enter for none."))
             rc, _ = self.interactive(argv)
             ok = rc == 0
         else:
@@ -213,7 +218,7 @@ class ClientSetup:
             self.note("commands on your PATH", "planned" if self.dry_run else "linked", f"{link_dir}")
         if str(link_dir) in env.get("PATH", "").split(":"):
             if not self.dry_run:
-                self.say("    Already on your PATH: open a new terminal tab and ct-run, ct-admin, ct-setup and ct-help work.")
+                self.say(self.r.info("Already on your PATH: open a new terminal tab and ct-run, ct-admin, ct-setup and ct-help work."))
             return
         self.path_line(link_dir, home)
 
@@ -229,23 +234,25 @@ class ClientSetup:
         rc = home / {"zsh": ".zshrc", "bash": ".bashrc", "fish": ".config/fish/config.fish"}.get(shell, "")
         line = f'export PATH="{link_dir}:$PATH"' if shell != "fish" else f"fish_add_path {link_dir}"
         if shell not in ("zsh", "bash", "fish"):
-            self.say(f"    {link_dir} is not on your PATH. Add it in your shell's startup file:\n      {line}")
+            self.say(self.r.info(f"{link_dir} is not on your PATH. Add it in your shell's startup file:"))
+            self.say(self.r.command(line))
             return
         marker = "# added by ct-setup: the ct-* commands"
         current = self.host.read(rc) or ""
         if marker in current or str(link_dir) in current:
-            self.say(f"    {rc} already mentions {link_dir}: open a new terminal tab.")
+            self.say(self.r.info(f"{rc} already mentions {link_dir}: open a new terminal tab."))
             return
         info = {"id": "path-line", "label": "Change", "tag": "edits your shell startup file", "title": f"Put {link_dir} on your PATH",
                 "why": "The ct commands are linked into that folder, but it is not on your PATH, so a terminal would say \"command not found\".",
                 "risk": f"Adds two lines to the end of {rc} (a comment saying where they came from, and the export). Nothing else in the file is changed. Skip it to add the line yourself.",
                 "now": "not on the PATH", "steps": [f"echo '{line}' >> {rc}"], "lockout": False}
         if self.dry_run:
-            self.say(f"    (would add to {rc}: {line})")
+            self.say(self.r.info(f"(would add to {rc}: {line})"))
             return
         yes = self.confirm_card(info) if self.confirm_card else False
         if not yes:
-            self.say(f"    Add this line to {rc} yourself, then open a new terminal tab:\n      {line}")
+            self.say(self.r.info(f"Add this line to {rc} yourself, then open a new terminal tab:"))
+            self.say(self.r.command(line))
             return
         mode = (self.host.path(rc).stat().st_mode & 0o777) if self.host.exists(rc) else 0o644
         self.host.write(rc, current + ("" if current.endswith("\n") or not current else "\n") + f"{marker}\n{line}\n", mode)

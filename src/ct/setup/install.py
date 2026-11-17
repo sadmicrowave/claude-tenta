@@ -29,6 +29,7 @@ from . import detect, keys as keys_mod, ptyrun, questions, report, toml_out
 from .client import ClientSetup
 from .remote import RemoteHost
 from .server import CLAUDE_QUESTIONS, EXIT_WAITING, SetupError, read_secret
+from .report import sink as _sink
 
 CONNECTION = {"server.host", "server.admin_user", "server.ssh_port"}
 REMOTE_DIR = re.compile(r"^/tmp/ct-install\.[A-Za-z0-9]{6,12}$")
@@ -75,8 +76,9 @@ def remote_dir(ssh):
     return d
 
 
-def deliver_source(ssh, source, archive=archive_source, say=print):
+def deliver_source(ssh, source, archive=archive_source, say=None):
     """Send the committed files of the checkout to a fresh working folder on the server. Returns (folder, revision)."""
+    say = say or _sink()
     data, rev, dirty = archive(source)
     if dirty:
         ui_mod.say("You have uncommitted changes", ("The server gets", f"the last commit, {rev[:9]}"), "The changes you have not committed are not included.",
@@ -100,8 +102,9 @@ CLAUDE_ON_THIS_COMPUTER = "curl -fsSL https://claude.ai/install.sh | bash"
 
 
 class Installer:
-    def __init__(self, source, *, ssh_factory, local, say=print, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
+    def __init__(self, source, *, ssh_factory, local, say=None, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
                  wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False):
+        say = say or _sink()
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
@@ -496,8 +499,9 @@ class Installer:
         return self.report
 
 
-def default_verify(cfg, say=print, sleep=time.sleep, attempts=8, wait_s=15):
+def default_verify(cfg, say=None, sleep=time.sleep, attempts=8, wait_s=15):
     """Send `sys-status` and wait for its result; the worker needs a minute after its first start to publish what it can run, so try a few times."""
+    say = say or _sink()
     from ..admin import cli as admin_cli
     from ..client import cli as client_cli
     ok = False

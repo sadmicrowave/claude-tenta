@@ -8,6 +8,7 @@ lock the worker for a minute and really sends the security alert.
 import json
 import shlex
 import time
+from .report import sink as _sink
 
 
 def decoys(host, cfg):
@@ -23,8 +24,9 @@ def worker_cli(cfg, *args):
             "/usr/bin/python3", "-m", "ct.cli", *args]
 
 
-def run(host, cfg, *, say=print, confirm=None, wait_s=150, step_s=5, sleep=time.sleep, clock=time.monotonic):
+def run(host, cfg, *, say=None, confirm=None, wait_s=150, step_s=5, sleep=time.sleep, clock=time.monotonic):
     """Returns (ok, reason). Always unlocks at the end if the test caused the lock."""
+    say = say or _sink()
     state = f"{cfg.path('state')}/lockdown"
     status = f"{cfg.path('run_dir')}/canary-watch.json"
     if host.run(["systemctl", "is-active", "auditd"]).out.strip() != "active":

@@ -138,7 +138,7 @@ def main():
     if len(data) > MAX_REQUEST:
         resp = reply("refused", "the request is too large")
     else:
-        resp = handle(data.decode("utf-8", "replace"), cfg, uid, log=lambda m: print(f"ct-helper: {m}", file=sys.stderr))
+        resp = handle(data.decode("utf-8", "replace"), cfg, uid, log=lambda m: print(f"ct-helper: {m}", file=sys.stderr))   # output: log (the journal)
     conn.sendall(json.dumps(resp).encode())
     conn.shutdown(socket.SHUT_WR)
     return 0

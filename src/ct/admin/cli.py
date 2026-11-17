@@ -273,11 +273,8 @@ def approve_all(ctx, a):
     if not ready and not skipped:
         emit("Nothing is waiting for approval", tag="OK", color=GREEN)
         return 0
-    out = sys.stdout
-    for jid, why in skipped:
-        print(f"{paint('SKIPPED  ', BOLD, YELLOW, stream=out)}{jid}  {why}")
-    for jid, _ in ready:
-        print(f"{paint('READY    ', BOLD, GREEN, stream=out)}{jid}  viewed")
+    _ui.table("Waiting jobs", ["state", "job", "why"], [[("SKIPPED", "warn"), jid, why] for jid, why in skipped] + [[("READY", "ok"), jid, "viewed"] for jid, _ in ready],
+              tag="APPROVE", stream=sys.stdout)
     if not ready:
         raise ClientError("None of the waiting jobs have been viewed", "Review them first; that is what lets them be approved together.", example="ct-admin review")
     if not ctx.confirm(f"Approve these {len(ready)} job(s)?", a.yes):
@@ -396,7 +393,7 @@ def cmd_update(ctx, a):
         ctx.source.update()
         notes = ctx.source.git("tag", "-l", "--format=%(contents)", tag, check=False).stdout.strip()
         if notes:
-            print(paint("What changed\n", BOLD, stream=sys.stdout) + "\n".join("  " + l for l in notes.splitlines()[:15]) + "\n")
+            _ui.document("What changed", "\n".join(notes.splitlines()[:15]), tag="NOTES", stream=sys.stdout)
     except ClientError:
         pass                                                          # the notes are a courtesy; the update does not depend on them
     if a.check:
@@ -449,7 +446,7 @@ def cmd_workers(ctx, a):
     if a.claude:
         cells = [c for c in cells if c["has_claude"] and not c["locked"]]
     if a.json:
-        print(json.dumps(cells, indent=2))
+        print(json.dumps(cells, indent=2))                                          # output: data (--json)
         return 0
     out = sys.stdout
     if not cells:
@@ -458,10 +455,9 @@ def cmd_workers(ctx, a):
         return 1 if a.claude else 0
     import shutil
     from .. import ui as ui_mod
-    print()
-    print("\n".join(workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out))))
-    for p in problems:
-        print(paint("  NOTE  " + p, YELLOW, stream=out))
+    _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
+    if problems:
+        emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     _ui.related(("Only workers whose Claude access works", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add <name> --config <file>"),
                 ("Stop listing a worker", "ct-admin workers remove <name>"), ("Look at one worker's health", "ct-admin status"))
     return 0
@@ -698,12 +694,8 @@ def cmd_proposals(ctx, a):
         if not rows:
             emit("No open proposals", "main is all there is.", tag="OK", color=GREEN)
             return 0
-        w = max(len(r[0]) for r in rows)
-        out = sys.stdout
-        print(paint(f"{'BRANCH':<{w}}  {'STATE':<12}  LAST COMMIT", BOLD, stream=out))
-        for b, ahead, subj, merged in rows:
-            state = "merged" if merged else f"{ahead} to review"
-            print(f"{paint(f'{b:<{w}}', BOLD, stream=out)}  {paint(f'{state:<12}', *((DIM,) if merged else (YELLOW,)), stream=out)}  {subj}")
+        _ui.table("Changes waiting on branches", ["branch", "state", "last commit"],
+                  [[b, ("merged", "muted") if merged else (f"{ahead} to review", "warn"), subj] for b, ahead, subj, merged in rows], tag="PROPOSALS", stream=sys.stdout)
         emit("What you can do with these", tag="NEXT", color=CYAN, run_label="Merge one, merge them all, or clean up", run=["ct-admin proposals merge <branch>", "ct-admin proposals merge --all", "ct-admin proposals tidy"])
         return 0
     if act == "merge":
@@ -827,13 +819,11 @@ def show_diff(ctx, sha, full=False):
         emit("Cannot compare the two versions", f"{release.short(now)} is not in the release source.", tag="NOTE", color=YELLOW)
         return True
     root = [f for f in files if release.is_root_run(f[1])]
-    print(paint(f"{release.short(now)} -> {release.short(sha)}: {len(files)} file(s) change, {len(root)} of them run as root or set the sandbox", BOLD, stream=out) + "\n")
-    for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1])):
-        print(f"  {paint('ROOT' if release.is_root_run(path) else '    ', BOLD, RED, stream=out)} {status}  {path}")
-    print()
-    print(ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN))
-    if not full and not root:
-        print(paint("(no root-run files change; --full shows all the code)", DIM, stream=out))
+    _ui.table(f"{release.short(now)} to {release.short(sha)}", ["", "change", "file"],
+              [[("ROOT", "bad") if release.is_root_run(path) else "", status, path] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
+              tag="CHANGES", color=_ui.YELLOW if root else _ui.PRIMARY, stream=out,
+              notes=(f"{len(files)} file(s) change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
+    _ui.document("The change itself", ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN), tag="DIFF", stream=out)
     return True
 
 
@@ -864,17 +854,16 @@ def apply(ctx, a):
 def verify(ctx, sha, prev, yes):
     """True if the worker is healthy after the install. If not, offers to put the previous version back (never automatically)."""
     out = sys.stdout
-    print("\n" + paint("Checking that the worker still works", BOLD, CYAN, stream=out))
-    checks = release.health_checks(ctx.ssh, release.health_command(ctx.name, ctx.config_dir, ctx.code_dir), sha)
-    for what, ok, detail in checks:
-        print(f"  {paint('OK  ' if ok else 'FAIL', BOLD, GREEN if ok else RED, stream=out)}  {what}  {paint('(' + detail + ')', DIM, stream=out)}")
+    checks = list(release.health_checks(ctx.ssh, release.health_command(ctx.name, ctx.config_dir, ctx.code_dir), sha))
     problems = [w for w, ok, _ in checks if not ok]
     if not problems and release.code_changed(ctx.source, prev, sha):
         ok, detail = selftest(ctx)
         if ok is not None:
-            print(f"  {paint('OK  ' if ok else 'FAIL', BOLD, GREEN if ok else RED, stream=out)}  a test job ran and came back  {paint('(' + detail + ')', DIM, stream=out)}")
+            checks.append(("a test job ran and came back", ok, detail))
             if not ok:
                 problems.append("a test job did not come back")
+    _ui.table("Checking that the worker still works", ["", "check", "detail"], [[("OK", "ok") if ok else ("FAIL", "bad"), what, detail] for what, ok, detail in checks],
+              tag="CHECKED" if not problems else "FAILED", color=_ui.GREEN if not problems else _ui.RED, stream=out)
     if not problems:
         return True
     emit("The new version did not pass its checks", "; ".join(problems), tag="FAILED", color=RED)

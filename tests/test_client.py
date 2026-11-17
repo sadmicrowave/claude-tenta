@@ -132,7 +132,7 @@ class Human(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
             view.render_status(rows, results, lambda jid, cls: cls or "-", [("on your computer", "tct-admin approve {}"), ("on tct", "tct approve {}")], "tct-admin", out=out, now=NOW)
         text = out.getvalue()
-        for needle in ("Your most recent jobs, newest first.", "WAITING FOR YOU", "tct-admin approve w", "approve it:", "on your computer > tct-admin approve w", "on tct", "tct approve w", "echo"):
+        for needle in ("Your most recent jobs, newest first", "Waiting for you", "tct-admin approve w", "echo"):
             self.assertIn(needle, text)
         self.assertNotIn("macbook", text)
         out = io.StringIO()
@@ -142,7 +142,7 @@ class Human(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
             view.render_classes(info, pending=["newclass"], excluded=2, out=out, product="tct")
         text = out.getvalue()
-        for needle in ("What tct can run for you today.", "echo", "/bin/echo {word}", "params: word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
+        for needle in ("What tct can run for you today", "echo", "/bin/echo {word}", "params: word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
             self.assertIn(needle, text)
 
     def test_result_formatting_for_a_profile_run_shows_verdict_and_estimate_comparison(self):
@@ -324,7 +324,7 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         code, out, err = self.run_cli("classes")
         self.assertEqual(code, 0)
-        self.assertIn("What testct can run for you today.", out)
+        self.assertIn("What testct can run for you today", out)
         self.assertIn("careful", out)
         code, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         jid = out.strip()
@@ -340,7 +340,7 @@ class EndToEnd(RepoFixture):
         jid = out.strip()
         self.w.fetch()
         code, out, err = self.run_cli("jobs")
-        self.assertIn("WAITING FOR YOU", out)
+        self.assertIn("Waiting for you", out)
         self.assertIn(f"tct-admin approve {jid}", out)
         code, out, err = self.run_cli("result", jid)
         self.assertEqual(code, 0)

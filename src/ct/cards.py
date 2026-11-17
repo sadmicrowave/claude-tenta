@@ -21,6 +21,25 @@ class Heading(str):
     """A heading inside a card ("Output", "Measured"): a coloured capital line with a blank line above it."""
 
 
+class Styled(list):
+    """A fact's value made of differently coloured pieces: [(text, role or None), ...]. Kept on one line (cut with a mark at the card's edge)."""
+
+    def plain(self):
+        return "".join(t for t, _ in self)
+
+    def draw(self, room):
+        out, used = [], 0
+        for text, role in self:
+            text = text[: max(0, room - used)]
+            used += len(text)
+            out.append(theme.sgr(text, role) if role and text else text)
+        return "".join(out)
+
+
+class Cmd(str):
+    """A fact's label that is a command (or any name written exactly as typed): shown as it is, in the command colour, not turned into capitals."""
+
+
 class Block(list):
     """Lines that are shown as they are (a job's output): not re-flowed, only cut at the card's edge."""
 
@@ -67,6 +86,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     inner = w - 4 if framed else w - 2
 
     def label(text):
+        if isinstance(text, Cmd):
+            return p(str(text), "ok", "strong") + " " * max(0, lw - len(text))
         return p(text.upper().ljust(lw if lw else 0), role if framed else "label")
 
     out = []
@@ -94,9 +115,11 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         elif kind == "head":
             out.append(row(p(item.upper(), role if framed else "label")))
         elif kind == "raw":
-            out += [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
+            out += [row(item)] if vlen(item) <= inner else [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
             out.append(row(p(item[0].upper(), role if framed else "label")))
+        elif kind == "fact" and isinstance(item[1], Styled):
+            out.append(row(label(item[0]) + "  " + item[1].draw(fact_room)))
         elif kind == "fact":
             first, *rest = wrap(item[1], fact_room)
             out.append(row(label(item[0]) + "  " + first))
@@ -106,6 +129,28 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
         out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]
+    return out
+
+
+def table_lines(header, rows, room, color=True):
+    """A table as lines for a card's body: coloured capital column labels, then the rows, columns lined up. A cell is text or (text, role). The widest column gives way
+    when the table is wider than `room`; a cut cell ends with a mark."""
+    plain = lambda c: c[0] if isinstance(c, tuple) else str(c)           # noqa: E731
+    n = len(header)
+    widths = [max([len(header[i])] + [len(plain(r[i])) for r in rows if i < len(r)]) for i in range(n)]
+    over = sum(widths) + 2 * (n - 1) - room
+    if over > 0:
+        widest = max(range(n), key=lambda i: widths[i])
+        widths[widest] = max(8, widths[widest] - over)
+    def cell(c, i):
+        text, role = (c if isinstance(c, tuple) else (c, None))
+        text = str(text)
+        text = text if len(text) <= widths[i] else text[:max(1, widths[i] - 1)] + "…"
+        pad = " " * (widths[i] - len(text))
+        return (theme.sgr(text, role) if role and color else text) + pad
+    head = "  ".join(h.upper().ljust(widths[i]) for i, h in enumerate(header)).rstrip()
+    out = [theme.sgr(head, "label") if color else head]
+    out += ["  ".join(cell(r[i] if i < len(r) else "", i) for i in range(n)).rstrip() for r in rows]
     return out
 
 

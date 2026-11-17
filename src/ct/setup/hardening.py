@@ -10,6 +10,7 @@ Modules are plain classes registered with @module, so a pack can add its own the
 import shlex
 
 from .. import firewall, jail
+from .report import sink as _sink
 
 ROOT_EQUIVALENT = ("lxd", "docker", "disk", "libvirt", "kvm")      # a member can become root without a password
 WORKER_FORBIDDEN = ROOT_EQUIVALENT + ("sudo", "admin", "wheel", "adm")
@@ -285,9 +286,10 @@ class JobIsolation(Module):
         return [Action("remove", path=self.sysctl_path(cfg)), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=0"])]
 
 
-def run_module(mod, host, cfg, *, dry_run=True, out=print, confirm=None, present=None):
+def run_module(mod, host, cfg, *, dry_run=True, out=None, confirm=None, present=None):
     """Offer one module. Returns ('satisfied'|'applied'|'declined'|'blocked'|'failed'|'planned', detail). Never changes anything when dry_run.
     `present(info) -> bool`, when given, shows the module on a terminal screen and returns whether to apply it (and replaces the printed text and `confirm`)."""
+    out = out or _sink()
     before = mod.check(host, cfg)
     if before.ok:
         return "satisfied", before.detail

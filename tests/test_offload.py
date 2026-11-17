@@ -241,7 +241,7 @@ class EndToEnd(RepoFixture):
         self.run_cli("offload", "fit", "--", "nosuchtool")
         code, out, err = self.run_cli("offload", "history")
         self.assertEqual(code, 0)
-        for needle in ("every check of whether a command suits testct", "Checks", "3  (1 registered, 2 unknown)", "Worth a look", "2x  nosuchtool", "echo", "nosuchtool"):
+        for needle in ("every check of whether a command suits testct", "3 checks", "(1 registered, 2 unknown)", "Worth a look", "2x nosuchtool", "echo", "nosuchtool"):
             self.assertIn(needle, out)
         rows = json.loads(self.run_cli("offload", "history", "--json", "--verdict", "unknown")[1])
         self.assertEqual([r["command"] for r in rows], ["nosuchtool", "nosuchtool"])
@@ -312,7 +312,7 @@ class EndToEnd(RepoFixture):
         self.assertIn("EXCLUDED", out)
         code, out, err = self.run_cli("offload", "exclusions")
         self.assertIn("ls -l", out)
-        self.assertIn("limited by  memory", out)
+        self.assertRegex(out, r"Limited by\s+memory")
         self.assertIn(f"(job {jid})", out)
         code, out, err = self.run_cli("offload", "profile", "--what", "w", "--expect", "e", "--est-time-s", "1", "--est-mem-mb", "1", "--", "ls", "-l")   # asking again is refused...
         self.assertEqual(code, 1)
@@ -361,7 +361,7 @@ class EndToEnd(RepoFixture):
         code, out, err = self.profile("--name", "my-ls", "--why", "to see")
         self.assertEqual(code, 0)
         jid = out.strip()
-        for needle in ("This profiling run needs YOUR approval.", "command: ls -l", f"job: {jid}", "name: my-ls", f"tct-admin approve {jid}", f"ct-run result {jid}"):
+        for needle in ("This profiling run needs YOUR approval", "ls -l", jid, "my-ls", f"tct-admin approve {jid}", f"ct-run result {jid}"):
             self.assertIn(needle, err)
         self.assertEqual(self.ctx.names.get(jid), "my-ls")                                          # remembered for the job list and the proposal
         self.assertIn("my-ls", self.run_cli("jobs")[1])

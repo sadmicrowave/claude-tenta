@@ -339,9 +339,9 @@ class WorkersCommand(AdminBase):
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
         self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, True))]
-        code, out, _ = self.admin("workers")
+        code, out, err = self.admin("workers")
         self.assertEqual(code, 0)
-        self.assertIn("studio: could not refresh", out)
+        self.assertIn("studio: could not refresh", out + err)
         self.assertIn("STUDIO", out)
 
     def test_adding_and_removing_a_worker_edits_the_list_and_validates_it(self):

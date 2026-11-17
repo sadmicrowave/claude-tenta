@@ -15,6 +15,8 @@ import sys
 import time
 
 from . import config as _config
+from . import ui as _ui
+from .setup.report import sink as _sink
 
 # Only these settings are copied from the unit: the sandbox and the worker's environment, never ExecStart, Type or the timeouts.
 COPY = re.compile(r"^(User|Environment|EnvironmentFile|Protect\w+|Private\w+|Restrict\w+|ReadWritePaths|ReadOnlyPaths|InaccessiblePaths|"
@@ -98,8 +100,9 @@ def run_all(props, runner=run_in_sandbox, plan=None):
     return results
 
 
-def test_unit(unit_text, cfg, runner=run_in_sandbox, have=os.path.exists, helper=None, out=print):
+def test_unit(unit_text, cfg, runner=run_in_sandbox, have=os.path.exists, helper=None, out=None):
     """Run the checks against a unit's sandbox settings. Returns 0 (all good), 1 (something is blocked), 2 (not testable here)."""
+    out = out or _sink()
     props = unit_properties(unit_text)
     if not any(p.startswith(("Protect", "Private")) for p in props):
         out("that unit has no sandbox settings; nothing to test")
@@ -129,10 +132,10 @@ def main(argv=None):
     try:
         text = open(unit).read()
     except OSError as e:
-        print(f"sandboxtest: cannot read {unit}: {e}", file=sys.stderr)
+        _ui.say("Cannot read the unit file", ("Unit", unit), ("Said", str(e)), tag="ERROR", color=_ui.RED)
         return 2
     if not shutil.which("systemd-run"):
-        print("sandboxtest: systemd-run is not available, so the sandbox cannot be tested", file=sys.stderr)
+        _ui.say("The sandbox cannot be tested", "systemd-run is not available on this machine.", tag="ERROR", color=_ui.RED)
         return 2
     return test_unit(text, cfg)
 

@@ -19,6 +19,7 @@ from pathlib import Path
 from .. import config, render
 from . import hardening, report as report_mod, toml_out
 from .server import SetupError, alias_for, remote_url, ssh_config_text
+from .report import sink as _sink
 
 
 STYLER = report_mod.Styler(styled=sys.stderr.isatty(), stream=sys.stderr)          # the status rows every other setup step prints (plain when nobody is watching)
@@ -50,7 +51,8 @@ def load_new_config(text, new):
 
 
 class Rename:
-    def __init__(self, host, cfg, new, *, source, rev, say=print, dry_run=True, confirm=None, skip_sandbox_test=False):
+    def __init__(self, host, cfg, new, *, source, rev, say=None, dry_run=True, confirm=None, skip_sandbox_test=False):
+        say = say or _sink()
         self.host, self.cfg, self.new, self.source, self.rev = host, cfg, new, source, rev
         self.say, self.dry_run, self.confirm = say, dry_run, confirm
         self.old = cfg.identity.name

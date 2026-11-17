@@ -13,6 +13,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
+from .setup.report import sink as _sink
 
 PRIVATE_V4 = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
 PRIVATE_V6 = ("fc00::/7",)
@@ -96,9 +97,10 @@ def ufw_defaults_text(text, ipv6):
     return "\n".join(lines) + "\n"
 
 
-def apply(cfg, run=None, gateway=None, ipv6=None, client_address=None, dry_run=True, out=print, defaults_path="/etc/default/ufw"):
+def apply(cfg, run=None, gateway=None, ipv6=None, client_address=None, dry_run=True, out=None, defaults_path="/etc/default/ufw"):
     """Print (dry_run) or apply the rules. Returns the number of rules. Stops at the first failing rule, leaving ufw as far as it got:
     nothing is enabled until every rule succeeded."""
+    out = out or _sink()
     gateway = gateway or detect_gateway()
     ipv6 = ipv6_enabled(cfg) if ipv6 is None else ipv6
     rule_list = rules(cfg, gateway, ipv6)

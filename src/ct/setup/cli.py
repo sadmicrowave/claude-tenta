@@ -25,6 +25,7 @@ from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
 from . import audit as audit_mod
 from . import hardening, questions, tui
+from . import report as report_mod
 from .client import ClientSetup
 from .host import Host
 from .install import Installer, default_verify, deliver_source, remove_remote_dir
@@ -169,7 +170,7 @@ def finish(a, report, dry):
 def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, screen=None, **overrides):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("help", "-h", "--help"):
-        print(__doc__)
+        _ui.document("ct-setup", __doc__ or "", tag="HELP", stream=sys.stdout)
         return 0
     try:
         a = build_parser().parse_args(argv)
@@ -180,7 +181,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         emit("No command given", "Run ct-setup help.", tag="ERROR", color=RED)
         return 2
     host = host or Host()
-    say = lambda text="": print(text, file=sys.stderr)       # noqa: E731
+    say = report_mod.sink(sys.stderr)
     live = []                                                  # the terminal screen in use, if any, so an error can clear it before it is printed
     try:
         if a.cmd == "audit":
@@ -198,7 +199,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 if a.json:
                     run.check()
                     import json as _json
-                    print(_json.dumps({"old": run.old, "new": run.new, "legacy": run.legacy, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))
+                    print(_json.dumps({"old": run.old, "new": run.new, "legacy": run.legacy, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))      # output: data (the client half draws it)
                     return 0
                 status = run.run_all()[-1][1]
                 if status == "declined":

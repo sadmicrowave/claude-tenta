@@ -16,6 +16,7 @@ from pathlib import Path
 from .pkgspec import npm_split, pip_norm, split_pkgs
 from .runner import run_group, tree_mb
 from .util import SAFE_PATH
+from .setup.report import sink as _sink
 
 PKG_KEEP_DAYS = 7
 APT_ENV = {"PATH": SAFE_PATH, "LANG": "C", "HOME": "/tmp"}
@@ -294,8 +295,9 @@ class Packages:
         return n
 
     # ---- installing for real (root; run by the update tool before it installs a registry) ----
-    def install_registry_packages(self, registry, out=print, run_root=None):
+    def install_registry_packages(self, registry, out=None, run_root=None):
         """Make every `packages:` entry of the registry exist. Returns 0 on success, 1 on failure (and says which command failed)."""
+        out = out or _sink()
         import subprocess
         run_root = run_root or (lambda cmd: subprocess.run(cmd, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"}, timeout=self.total_timeout))
         want = sorted({p for c in (registry.get("classes") or {}).values() for p in c.get("packages") or []})

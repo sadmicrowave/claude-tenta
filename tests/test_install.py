@@ -436,7 +436,7 @@ class WithTheScreen(InstallBase):
             self.assertRegex(screen, rf"✓ {label}\s+{value}")
         self.assertEqual(len([ln for ln in screen.splitlines() if "✓" in ln]), total)
         said = "\n".join(self.said)
-        self.assertIn("Operating system", said)
+        self.assertIn("operating system", said.lower())
         self.assertIn("connected to the server", said)
         self.assertEqual(len(self.ssh.popen_calls), 1)
 
@@ -473,7 +473,7 @@ class WithTheScreen(InstallBase):
     def test_without_a_terminal_nothing_changes_in_what_is_printed(self):
         self.installer().run_all()
         said = self.said
-        self.assertLess([i for i, line in enumerate(said) if "Connecting to the server" in line][0], [i for i, line in enumerate(said) if "Operating system" in line][0])
+        self.assertLess([i for i, line in enumerate(said) if "Connecting to the server" in line][0], [i for i, line in enumerate(said) if "operating system" in line.lower()][0])
 
 
 class Failures(InstallBase):

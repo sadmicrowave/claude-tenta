@@ -4,14 +4,16 @@ import re
 
 from .. import config
 from . import hardening
+from .report import sink as _sink
 
 
 PING = ("import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(15); s.connect(sys.argv[1]); s.sendall(b'{}'); s.shutdown(socket.SHUT_WR); "
         "print(s.recv(65536).decode())")           # a request the helper must refuse: any answer at all proves its service starts
 
 
-def run(host, cfg, say=print):
+def run(host, cfg, say=None):
     """Returns (rows, failures) where rows = [(what, ok, detail)]."""
+    say = say or _sink()
     rows = []
     problem = config.secrets_file_problem(cfg.path("secrets"))
     rows.append(("secrets file is private", problem is None, problem or "ok"))

@@ -1,8 +1,7 @@
 """ct-help: every command in one screen, grouped by who runs it and where."""
 import sys
 
-from . import ui
-from .ui import BOLD, CYAN, GREEN, paint
+from . import cards, ui
 
 SECTIONS = [
     ("Set up", "run once", [("ct-setup install", "everything, from your computer: both sides, the deploy keys, a first job"),
@@ -29,15 +28,11 @@ SECTIONS = [
 
 
 def main(argv=None):
-    out = sys.stdout
-    print(f"\n{paint('claude-tenta', BOLD, GREEN, stream=out)}  {paint('offload slow jobs to a spare machine on your network', BOLD, stream=out)}")
-    for title, where, rows in SECTIONS:
-        print(f"\n{paint(title.upper(), BOLD, CYAN, stream=out)}  ({where})")
-        width = max(len(r[0]) for r in rows)
-        for cmd, what in rows:
-            print(f"  {paint(cmd.ljust(width), BOLD, stream=out)}  {what}")
-    print(f"\nEvery command has its own help:  {paint('ct-run help', BOLD, GREEN, stream=out)}   {paint('ct-admin help', BOLD, GREEN, stream=out)}   "
-          f"{paint('ct-setup help', BOLD, GREEN, stream=out)}\n")
+    rows = []
+    for title, where, items in SECTIONS:
+        rows += [cards.Heading(f"{title} ({where})")] + [(cards.Cmd(cmd), what) for cmd, what in items]
+    rows += [cards.Heading("More")] + [(cards.Cmd(c), "every command with its options and examples") for c in ("ct-run help", "ct-admin help", "ct-setup help")]
+    ui.say("claude-tenta", "Offload slow jobs to a spare machine on your network.", "\n", *rows, tag="HELP", color=ui.PRIMARY, stream=sys.stdout)
     return 0
 
 

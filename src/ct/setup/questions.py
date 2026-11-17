@@ -7,6 +7,7 @@ that nobody answered is reported by name, never guessed.
 import re
 
 from .. import config
+from .report import sink as _sink
 
 _Q = lambda key, title, why, **kw: dict(key=key, title=title, why=why, **kw)      # noqa: E731
 
@@ -211,13 +212,14 @@ def _extras(given, only, flat):
             flat[key] = value
 
 
-def collect(half, *, ask=None, say=print, given=None, suggestions=None, use_defaults=False, only=None, ui=None, blanks=None, allow_back=False, pre_items=None, confirm=None, advanced=False):
+def collect(half, *, ask=None, say=None, given=None, suggestions=None, use_defaults=False, only=None, ui=None, blanks=None, allow_back=False, pre_items=None, confirm=None, advanced=False):
     """Run the questions that belong to `half` (a name, or several: 'client', 'server'). Returns the answers as a nested dict and the list of unanswered
     required settings. `given` ({'section.key': value}) is used instead of asking; with use_defaults nothing is asked at all.
     With `ui` (the terminal screens) the questions are a flow the person can step back through; if `allow_back` is set and they step back before the first
     question, (BACK, None) is returned so the caller can take them to an earlier step. `pre_items` are answered lines from an earlier step, shown above.
     `confirm` is the text of a last screen (every answer, then Enter to go on or the up arrow to change one) shown before the flow ends.
     Advanced questions are only asked with `advanced` (or, on the terminal screens, when the person presses A on the last screen); otherwise their default applies."""
+    say = say or _sink()
     halves = (half,) if isinstance(half, str) else tuple(half)
     if ui is not None and not use_defaults:
         return _flow(halves, dict(given or {}), suggestions or {}, only, ui, blanks, allow_back, list(pre_items or []), confirm, advanced)

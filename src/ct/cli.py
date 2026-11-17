@@ -26,6 +26,7 @@ from pathlib import Path
 from . import alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import workerstate
+from . import cards
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from .pkgspec import check_packages
@@ -161,7 +162,7 @@ class Context:
 
 
 def _log(msg):
-    print(f"{iso(now())} {msg}", flush=True)
+    print(f"{iso(now())} {msg}", flush=True)                                                         # output: log (the journal)
 
 
 # ---- the passes ----------------------------------------------------------------------------------------------------------------
@@ -215,7 +216,7 @@ def cmd_show(ctx, jid):
     raw = ctx.w.io.job_bytes(jid) if jobs.ID_RE.match(jid or "") else None
     if raw is None:
         stop(f"No job called {jid}", "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
-    print(raw.decode("utf-8", "replace"))
+    _ui.document(jid, raw.decode("utf-8", "replace"), tag="JOB FILE", stream=sys.stdout)
     return 0
 
 
@@ -259,15 +260,13 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
 def cmd_approve_many(ctx, items):
     """ID[:SHA256] ...: approve every job the client says was viewed, each pinned to what was viewed."""
     ctx.w.io.sync()
-    bad = 0
+    bad, rows = 0, []
     for item in items:
         jid, _, sha = item.partition(":")
         ok, why = ctx.w.approve(jid, sha=sha or None)
         bad += not ok
-        word, color = ("APPROVED", GREEN) if ok else ("REFUSED", RED)
-        print(f"{paint(f'{word:<9}', BOLD, color, stream=sys.stdout)}{jid}" + ("" if ok else f"  {why}"))
-    print()
-    stop(f"{len(items) - bad} approved, {bad} refused", f"{ctx.product} runs the approved ones within seconds, one at a time.",
+        rows.append(("Approved" if ok else "Refused", jid + ("" if ok else f"  {why}")))
+    stop(f"{len(items) - bad} approved, {bad} refused", *rows, f"{ctx.product} runs the approved ones within seconds, one at a time.",
          tag="DONE" if not bad else "PARTLY", color=GREEN if not bad else YELLOW, code=1 if bad else 0)
 
 
@@ -277,7 +276,7 @@ def cmd_action_hash(ctx, path, as_json=False):
     from . import actions
     info = actions.inspect(path)
     if as_json:
-        print(json.dumps(info))
+        print(json.dumps(info))                                                     # output: data (read by ct-admin action add)
         return 0 if info["ok"] else 1
     if info["ok"]:
         emit("Program fingerprint", ("Program", path), ("sha256", info["sha256"]), ("Owner and mode", "fine: a regular file owned by root that nobody else can write, in folders the same"),
@@ -313,7 +312,7 @@ def cmd_quarantine(ctx, jid=None):
     if jid:
         f = qd / f"{jid}.json"
         if f.exists() and jobs.ID_RE.match(jid):
-            print(f.read_text())
+            _ui.document(f"Quarantined result {jid}", f.read_text(), tag="WITHHELD", color=_ui.RED, stream=sys.stdout)
         else:
             emit(f"No quarantined result {jid}", tag="NOTE", color=YELLOW)
         return 0
@@ -324,10 +323,8 @@ def cmd_quarantine(ctx, jid=None):
     else:
         emit("Not locked", tag="OK", color=GREEN)
     if files:
-        print(paint("Withheld results", BOLD, stream=sys.stdout) + paint("  (they never left this machine)", DIM, stream=sys.stdout) + "\n")
-        for f in files:
-            print(f"  {f.stem}")
-        emit("Read one in full", tag="NEXT", color=CYAN, run=["ct-worker quarantine <job>", "ct-worker unlock"], run_label="Read one, then unlock when you are satisfied")
+        _ui.table("Withheld results", ["job"], [[f.stem] for f in files], tag="WITHHELD", color=_ui.RED, stream=sys.stdout, notes=("They never left this machine.",),
+                  run=["ct-worker quarantine <job>", "ct-worker unlock"], run_label="Read one, then unlock when you are satisfied")
     else:
         emit("Nothing in quarantine", tag="OK", color=GREEN)
     return 0
@@ -359,16 +356,14 @@ def cmd_output(ctx, jid=None):
         if text is None:
             emit(f"No kept output for {jid}", f"Only failed commands keep their full output, for {keeper.keep_days} days.", tag="NOTE", color=YELLOW)
         else:
-            print(text)
+            _ui.document(f"Output of {jid}", text, tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
         return 0
     rows = keeper.listing()
     if not rows:
         emit("No kept output", f"Failed commands keep their full output here, for {keeper.keep_days} days.", tag="OK", color=GREEN)
         return 0
-    print(paint("Full output of failed commands", BOLD, stream=sys.stdout) + paint("  (newest first; only the error lines were published)", DIM, stream=sys.stdout) + "\n")
-    for name, kb, age in rows:
-        print(f"  {name:<22}{kb:>6} KB  {human_dur(age)} ago")
-    emit("Read one", tag="NEXT", color=CYAN, run="ct-output <job>")
+    _ui.table("Full output of failed commands", ["job", "size", "age"], [[name, f"{kb} KB", f"{human_dur(age)} ago"] for name, kb, age in rows], tag="KEPT", stream=sys.stdout,
+              notes=("Newest first; only the error lines were published.",), run="ct-output <job>", run_label="Read one")
     return 0
 
 
@@ -426,17 +421,18 @@ def job_seconds(r):
 
 def cmd_status(ctx, hours=12):
     w, out, at = ctx.w, sys.stdout, now()
-    cols = shutil.get_terminal_size((100, 24)).columns
+    D, problems, approve_cmd = [], [], None                      # the whole screen is one card: its facts, then its sections
 
-    def put(cells, text, indent):
-        lines = textwrap.wrap(str(text), max(30, cols - indent - 1)) or [""]
-        print(cells + lines[0])
-        for extra in lines[1:]:
-            print(" " * indent + extra)
-    kv = lambda k, v, wd=14: put(f"  {paint(k.ljust(wd), BOLD, stream=out)}", v, 2 + wd)             # noqa: E731
-    head = lambda t, note="": print("\n" + paint(t, BOLD, CYAN, stream=out) + (f"  {paint(note, DIM, stream=out)}" if note else ""))  # noqa: E731
-    mark = lambda ok: paint(f"{'OK' if ok else 'WARN':<5}", BOLD, GREEN if ok else YELLOW, stream=out)       # noqa: E731
-    print(f"\n{paint('status', BOLD, GREEN, stream=out)}  {paint(ctx.product + ', ' + time.strftime('%a %Y-%m-%d %H:%M %Z'), BOLD, stream=out)}")
+    def kv(k, v, wd=14):
+        D.append((k, v))
+
+    def head(t, note=""):
+        D.append(cards.Heading(t + (f": {note}" if note else "")))
+
+    def line(ok, name, stat, why):
+        if not ok:
+            problems.append(name)
+        D.append((name, cards.Styled([(stat, "ok" if ok else "bad"), ("  " + why, "muted")])))
     head("WORKER")
     up = ctx.uptime()
     kv("Up for", human_dur(up) if up else "unknown")
@@ -464,40 +460,31 @@ def cmd_status(ctx, hours=12):
     rows.sort(key=lambda r: (r[0] != "running", r[1]))
     head("JOBS RIGHT NOW")
     if rows:
-        wd = max(len(r[1]) for r in rows)
-        color = {"queued": YELLOW, "fetching": CYAN, "running": CYAN, "finished": GREEN}
-        print(paint(f"  {'STATE':<10}{'JOB':<{wd}}  DETAILS", BOLD, stream=out))
-        for dname, jid, extra in rows:
-            put(f"  {paint(f'{dname:<10}', BOLD, color[dname], stream=out)}{jid:<{wd}}  ", extra, 2 + 10 + wd + 2)
+        color = {"queued": "warn", "fetching": "primary", "running": "primary", "finished": "ok"}
+        D.append(cards.Block(cards.table_lines(["state", "job", "details"], [[(d, color[d]), j, e] for d, j, e in rows], 70, color=_ui._color_on(out))))
     else:
-        print(paint(f"  Nothing queued or running; {ctx.product} is idle.", DIM, stream=out))
+        D.append(f"Nothing queued or running; {ctx.product} is idle.")
     waiting = waiting_for_approval(ctx)
     if waiting:
         head("WAITING FOR YOU", "these will not run until you approve them")
-        for r in waiting[:6]:
-            print(f"  {paint(r.get('id', '?'), BOLD, YELLOW, stream=out)}  {r.get('class') or ''}")
-        print("\n" + paint("Approve one", BOLD, stream=out) + "\n")
-        print(paint(f"{ctx.admin} approve {waiting[0].get('id')}", BOLD, GREEN, stream=out))
+        D.append(cards.Block(cards.table_lines(["job", "class"], [[(r.get("id", "?"), "warn"), r.get("class") or ""] for r in waiting[:6]], 70, color=_ui._color_on(out))))
+        approve_cmd = f"{ctx.admin} approve {waiting[0].get('id')}"
     recent = finished_jobs(ctx, at.replace(microsecond=0) - timedelta(hours=hours))
     head(f"LAST {hours} HOURS")
     if not recent:
-        print(paint("  No jobs finished in this time.", DIM, stream=out))
+        D.append("No jobs finished in this time.")
     else:
         by = {}
         for _, r in recent:
             by[r.get("status")] = by.get(r.get("status"), 0) + 1
         colr = {"ok": GREEN, "error": RED, "limit": YELLOW, "rejected": RED, "killed": YELLOW, "cancelled": DIM, "quarantined": RED}
-        parts = [f"{by[k]} {paint(k, colr.get(k, BOLD), stream=out)}" for k in ("ok", "error", "limit", "rejected", "killed", "cancelled", "quarantined") if by.get(k)]
+        parts = [f"{by[k]} {k}" for k in ("ok", "error", "limit", "rejected", "killed", "cancelled", "quarantined") if by.get(k)]
         busy = sum(job_seconds(r) for _, r in recent)
         kv("Jobs", f"{len(recent)} finished  ({', '.join(parts)})")
         kv("Busy time", f"{human_dur(busy)} of work in {hours} h  ({busy / (hours * 3600) * 100:.1f}% of one slot)")
         longest = max(recent, key=lambda x: job_seconds(x[1]))
         kv("Longest job", f"{human_dur(job_seconds(longest[1]))}  ({longest[1].get('id')})")
     head("CHECKS")
-    sw = 24
-
-    def line(ok, name, stat, why):
-        put(f"  {mark(ok)} {paint(name.ljust(11), BOLD, stream=out)}{paint(stat.ljust(sw), BOLD, GREEN if ok else RED, stream=out)}", why, 2 + 6 + 11 + sw)
     iso_on = w.jail.ready()
     line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
     canary_file = ctx.canary_status
@@ -556,11 +543,13 @@ def cmd_status(ctx, hours=12):
     state = w.lock.locked()
     if state:
         line(False, "Security", "LOCKED", f"{ctx.product} runs nothing until you review and unlock it")
-        emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,
-             run_label="Look at it, then unlock", run=["ct-worker quarantine", "ct-worker unlock"])
     else:
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
-        print()
+    _ui.say(f"{ctx.product}, " + time.strftime("%a %Y-%m-%d %H:%M %Z"), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
+            run=approve_cmd, run_label="Approve the first waiting job")
+    if state:
+        emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,
+             run_label="Look at it, then unlock", run=["ct-worker quarantine", "ct-worker unlock"])
     return 0
 
 
@@ -591,7 +580,7 @@ def run_pass(ctx, which):
     took = time.monotonic() - t0
     record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"), took=took)
     if took > 8:                                                        # a slow pass is the usual reason a job is noticed late: say so in the journal
-        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the next one starts {ctx.w.s.fetch_s if which == 'fetch' else 5} s after this ended", file=sys.stderr)
+        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the next one starts {ctx.w.s.fetch_s if which == 'fetch' else 5} s after this ended", file=sys.stderr)       # output: log (the journal)
     return 0
 
 
@@ -614,8 +603,8 @@ def cmd_check_registry(path, tools_root):
         errs = registry.validate(registry.parse(Path(path).read_text()), tools_root)
     except Exception as e:
         errs = [f"not valid YAML: {e}"]
-    for e in errs:
-        print(f"registry problem: {e}", file=sys.stderr)
+    if errs:
+        emit("The registry has problems", *[("Problem", e) for e in errs], tag="ERROR", color=RED, stream=sys.stderr)
     return 1 if errs else 0
 
 

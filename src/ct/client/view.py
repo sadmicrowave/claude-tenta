@@ -167,7 +167,7 @@ def result_card(res, admin="ct-admin", suggest_name=None, received=None):
 def print_result(res, as_json=False, out=None, err=None, **kw):
     out, err = out or sys.stdout, err or sys.stderr
     if as_json:
-        print(json.dumps(res, indent=2), file=out)
+        print(json.dumps(res, indent=2), file=out)                                  # output: data (--json)
     elif getattr(out, "isatty", lambda: False)() and ui._color_on(out):              # a person watching: the job, its output in a box in the status colour, the numbers quietly beneath
         r = result_card(res, **kw)
         lines = [""] + cards.card(r["head"]["title"], r["head"]["details"], tag=r["head"]["tag"], color=r["head"]["color"])
@@ -175,12 +175,12 @@ def print_result(res, as_json=False, out=None, err=None, **kw):
         lines += cards.meta(r["meta"])
         if r["run"]:
             lines += cards.commands(r["run"], r["run_label"])
-        print("\n".join(lines) + "\n", file=out)
+        ui.show(lines + [""], stream=out)
     else:
         head, output, tail = format_result(res, **kw)
-        print("\n".join(head), file=err)
-        print(output, file=out)
-        print("\n".join(tail), file=err)
+        print("\n".join(head), file=err)                                                 # output: plain text for a pipe
+        print(output, file=out)                                                           # output: data (the job's own output, alone on stdout)
+        print("\n".join(tail), file=err)                                                 # output: plain text for a pipe
     return 0 if res["status"] == "ok" else 1
 
 
@@ -229,76 +229,38 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
-def approve_hint(jid, pad, hints, out):
-    """Where a job's approval can be given, one command per line (the commands in green), under its row in the job list."""
-    print(pad + paint("approve it:", DIM, stream=out), file=out)
-    width = max(len(h) for h, _ in hints)
-    for where, cmd in hints:
-        print(f"{pad}    {paint(where.ljust(width), DIM, stream=out)} {paint('>', DIM, stream=out)} {paint(cmd.format(jid), BOLD, GREEN, stream=out)}", file=out)
-
-
 def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None):
-    """The job list: the legend, the jobs waiting for you, then the table. Returns nothing; prints to `out`."""
+    """The job list as cards: the jobs waiting for you (with the commands that approve them), then the table of recent jobs, then what the status words mean."""
     out = out or sys.stdout
-    P = lambda *a, **k: print(*a, file=out, **k)   # noqa: E731
     waiting = [r for r in rows if r[1] == "awaiting_approval"]
     shown = rows if n is None else rows[:n]
-    P(paint("Your most recent jobs, newest first.", BOLD, stream=out))
-    P(f"\n{paint('WHEN', BOLD, stream=out)}{'':<6}your local time, when the job finished (or was submitted, if it has not run)")
-    P(f"{paint('DURATION', BOLD, stream=out)}{'':<2}how long the run took (so far, if it is still running)")
-    P(f"{paint('NAME', BOLD, stream=out)}{'':<6}the name chosen when it was profiled, or the class it ran")
-    P(paint("STATUS", BOLD, stream=out))
-    for word, meaning in STATUS_MEANING:
-        P(f"  {paint(f'{word:<20}', BOLD, STATUS_COLOR.get(word, '0'), stream=out)}{meaning}")
-    P(paint("\nSee one job in full:  ct-run result <job>", DIM, stream=out))
-    P()
     if waiting:
-        P(paint("WAITING FOR YOU", BOLD, CYAN, stream=out) + "  " + paint("these will not run until you approve them", DIM, stream=out))
-        w = max(len(r[2]) for r in waiting)
-        P(paint(f"  {'JOB':<{w}}  {'NAME':<28}WAITING", BOLD, stream=out))
-        for when, _, jid, _, cls in waiting[:8]:
-            P(f"  {paint(f'{jid:<{w}}', BOLD, YELLOW, stream=out)}  {label_of(jid, cls)[:27]:<28}{human_age(when, now)}")
-        P("\n" + paint("Approve one (it then waits and prints the result)", BOLD, stream=out) + "\n")
-        for r in waiting[:8]:
-            P(paint(f"{admin} approve {r[2]}", BOLD, GREEN, stream=out))
-        P()
+        ui.table("Waiting for you", ["job", "name", "waiting"], [[(r[2], "warn"), label_of(r[2], r[4])[:27], human_age(r[0], now)] for r in waiting[:8]], tag="APPROVE", color=ui.YELLOW, stream=out,
+                 notes=("These will not run until you approve them. Approving waits for the result and prints it.",), run=[f"{admin} approve {r[2]}" for r in waiting[:8]], run_label="Approve one")
     if not shown:
-        P("No results yet.")
+        ui.say("Your jobs", "No results yet.", tag="NONE", color=ui.PRIMARY, stream=out)
         return
-    width = max(len(r[2]) for r in shown)
     took = run_durations(results)
-    P(paint(f"{'WHEN':<17}  {'STATUS':<17}  {'DURATION':<10}  {'JOB':<{width}}  NAME", BOLD, stream=out))
-    room = max(shutil.get_terminal_size((100, 24)).columns - 8 - 1, 40)      # a tab is 8 columns
+    table = []
     for when, status, jid, note, cls in shown:
-        stamp = when.astimezone().strftime("%Y-%m-%d %H:%M") if when else "-"
-        P(f"{stamp:<17}  {paint(f'{status:<17}', BOLD, STATUS_COLOR.get(status, '0'), stream=out)}  {took.get(jid, '-'):<10}  {jid:<{width}}  {label_of(jid, cls)}")
-        if status == "awaiting_approval":
-            approve_hint(jid, MARGIN, hints, out)                        # the stored note is a run-on sentence; show the commands instead
-        elif note:
-            style = NOTE_STYLE.get(status)
-            for line in textwrap.wrap(note, room):
-                P(MARGIN + (paint(line, ITALIC, *style, stream=out) if style else paint(line, DIM, stream=out)))
+        table.append([when.astimezone().strftime("%Y-%m-%d %H:%M") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
+                      "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)])
+    notes = [f"{jid}: {note}" for _, status, jid, note, _ in shown if note and status != "awaiting_approval"]
+    ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"], table, tag="JOBS", stream=out,
+             notes=("WHEN is your local time, when the job finished (or was submitted, if it has not run). DURATION is how long the run took (so far, if it is still running).", *notes[:8]))
+    ui.say("What the status words mean", *[(word, meaning) for word, meaning in STATUS_MEANING], "See one job in full:  ct-run result <job>", tag="LEGEND", color=ui.PRIMARY, stream=out)
 
 
 def render_classes(info, pending=(), excluded=0, out=None, product="the worker"):
     out = out or sys.stdout
-    P = lambda *a, **k: print(*a, file=out, **k)   # noqa: E731
-    P(paint(f"What {product} can run for you today.", BOLD, stream=out))
-    P(paint(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {info['capacity']} capacity point(s).", DIM, stream=out))
-    P(f"\n{paint('COST', BOLD, stream=out)}   how heavy it is on {product}")
-    P(f"{paint('TIER', BOLD, stream=out)}   auto = runs as soon as you submit it,  approve = waits for your OK first\n")
     rows = []
     for name, c in sorted(info["classes"].items()):
         what = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
-        rows.append((name, c["cost"], c["tier"], what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")))
-    w = max([len(r[0]) for r in rows] + [5])
-    P(paint(f"{'CLASS':<{w}}  {'COST':<7}  {'TIER':<8}  RUNS", BOLD, stream=out))
-    for name, cost, tier, what in rows:
-        P(f"{paint(f'{name:<{w}}', BOLD, GREEN, stream=out)}  {cost:<7}  {tier:<8}  {what}")
-    if pending:
-        P(f"\nProposed, NOT installed yet (apply them): {', '.join(sorted(pending))}")
-    if excluded:
-        P(f"\nExcluded after profiling: {excluded}")
+        rows.append([(name, "ok"), c["cost"], c["tier"], what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")])
+    ui.table(f"What {product} can run for you today", ["class", "cost", "tier", "runs"], rows, tag="CLASSES", stream=out,
+             notes=(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {info['capacity']} capacity point(s).",
+                    f"COST is how heavy it is on {product}. TIER: auto runs as soon as you submit it; approve waits for your OK first.",
+                    *([f"Proposed, NOT installed yet (apply them): {', '.join(sorted(pending))}"] if pending else []), *([f"Excluded after profiling: {excluded}"] if excluded else [])))
 
 
 # ---- waiting for a result ----
@@ -364,17 +326,17 @@ class Progress:
         self.i += 1
         if self.stream.isatty():
             body = paint(spin + " ", BOLD, color, stream=self.stream) + paint(chip, chip_role, stream=self.stream) + " " + paint(rest + clock_text, BOLD, color, stream=self.stream)
-            self.stream.write("\r" + body + "\x1b[K")
+            self.stream.write("\r" + body + "\x1b[K")                                         # output: the live status line
             self.stream.flush()
             self.shown = True
             return
         plain = (f"{spin} {chip.strip() + ' ' if chip else ''}{rest}") + clock_text
-        self.stream.write("\r" + paint(plain, BOLD, color, stream=self.stream) + "\x1b[K")
+        self.stream.write("\r" + paint(plain, BOLD, color, stream=self.stream) + "\x1b[K")      # output: the live status line
         self.stream.flush()
         self.shown = True
 
     def clear(self):
         if self.on and self.shown:
-            self.stream.write("\r\x1b[K")
+            self.stream.write("\r\x1b[K")                                                     # output: the live status line
             self.stream.flush()
             self.shown = False

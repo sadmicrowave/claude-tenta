@@ -8,6 +8,7 @@ import os
 import tempfile
 
 from ..admin.ssh import Ssh
+from .report import sink as _sink
 
 TITLE = "{name}-server"
 
@@ -31,7 +32,8 @@ def blob(pub):
 class DeployKeys:
     """`run(argv) -> Result` runs a local command (gh); `which(name)` finds a program."""
 
-    def __init__(self, cfg, run, which, say=print, note=None):
+    def __init__(self, cfg, run, which, say=None, note=None):
+        say = say or _sink()
         self.cfg, self.run, self.which, self.say, self.note = cfg, run, which, say, note
         self.done = {}
 
@@ -81,7 +83,7 @@ class DeployKeys:
                 if self.note:                                                      # the same status column as every other line of the install
                     self.note(f"deploy key for {self.slug(which)}", status, access)
                 else:
-                    self.say(f"  {'ADDED' if status == 'added' else 'PRESENT':<9} deploy key for {self.slug(which)}  ({access})")
+                    self.say(f"  {'ADDED' if status == 'added' else 'PRESENT':<9} deploy key for {self.slug(which)}  ({access})")        # output: plain fallback (the caller's printer styles it)
             out.append((which, status))
         return out
 

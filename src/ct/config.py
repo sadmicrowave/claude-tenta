@@ -515,20 +515,22 @@ def main(argv=None):
     try:
         cfg = load(path)
     except ConfigError as e:
-        print("Problems with the configuration:", file=sys.stderr)
-        for p in e.problems:
-            print(f"  - {p}", file=sys.stderr)
+        from . import ui
+        ui.say("The configuration has problems", *[("Problem", p) for p in e.problems], tag="ERROR", color=ui.RED)
         return 1
+    from . import ui
     if cmd == "check":
-        print(f"OK  {cfg.source or 'no ct.toml found; built-in defaults are valid'}")
+        ui.say("The configuration is valid", ("File", cfg.source or "no ct.toml found; the built-in defaults are valid"), tag="OK", color=ui.GREEN, stream=sys.stdout)
         return 0
     if cmd == "show":
+        lines = []
         for section, values in cfg.to_dict().items():
-            print(f"[{section}]")
-            for k, v in values.items():
-                print(f"  {k} = {v!r}")
+            lines.append(f"[{section}]")
+            lines += [f"  {k} = {v!r}" for k, v in values.items()]
+        ui.document("The configuration", "\n".join(lines), tag="SHOW", stream=sys.stdout)
         return 0
-    print("usage: python3 -m ct config check|show [path]", file=sys.stderr)
+    from . import ui as _u
+    _u.say("Unknown command", "Use: python3 -m ct config check | show [path]", tag="ERROR", color=_u.RED)
     return 2
 
 

@@ -81,7 +81,7 @@ def run_capture(argv, env=None, out=None):
                 if not data:
                     break
                 captured += data
-                out.write(data)
+                out.write(data)                                                       # output: passthrough (the child program's own terminal output)
                 out.flush()
             if stdin_fd is not None and stdin_fd in ready:
                 data = os.read(stdin_fd, 4096)

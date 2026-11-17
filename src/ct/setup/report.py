@@ -31,6 +31,8 @@ def status_color(status):
 
 
 class Styler:
+    """The lines of the setup's output. On a terminal every line sits on the main-colour rail of a card that opens with its section's chip and is never closed (the output
+    is a stream), so the whole setup reads as cards like every other screen; anywhere else the same lines are the plain text they always were."""
     WIDTH = 11
 
     def __init__(self, styled=False, verbose=False, stream=None):
@@ -39,8 +41,8 @@ class Styler:
     def p(self, text, *codes):
         return _ui.paint(text, *codes, stream=self.stream) if self.styled else text
 
-    def head(self, text):
-        return "\n" + (self.p(f"▸ {text}", BOLD, BLUE) if self.styled else text)
+    def rail(self, text=""):
+        return (self.p("┃ ", BLUE) + text) if self.styled else text
 
     def columns(self):
         """How wide a line may be. Only a real terminal is measured; a log or a pipe is never wrapped."""
@@ -49,36 +51,110 @@ class Styler:
         except (AttributeError, ValueError, OSError):
             return 0
 
-    def wrapped(self, lead, text, hang, dim=True):
-        """`lead` (already coloured, `hang` visible columns wide) then `text`; a long text continues on following lines under the first word, never past the right edge,
-        and no line ever starts with a space that came from the wrapping. Lengths are counted on the visible text, never on colour codes."""
+    def wrapped(self, lead, text, hang, dim=True, code=None):
+        """`lead` (already coloured, `hang` visible columns wide) then `text`; a long text continues on following lines under the first word, never past the right edge, and
+        every line carries the rail. Lengths are counted on the visible text, never on colour codes."""
         cols = self.columns()
-        pieces = textwrap.wrap(text, max(20, cols - hang), break_long_words=True, break_on_hyphens=False) if cols and text else [text]
+        room = max(20, cols - hang - 2)
+        pieces = textwrap.wrap(text, room, break_long_words=True, break_on_hyphens=False) if cols and text else [text]
         pieces = pieces or [""]
-        paint = (lambda t: self.p(t, DIM)) if dim else (lambda t: t)
-        return [lead + paint(pieces[0])] + [" " * hang + paint(x) for x in pieces[1:]]
+        paint = (lambda t: self.p(t, *(code or (DIM,)))) if (dim or code) else (lambda t: t)
+        return [self.rail(lead + paint(pieces[0]))] + [self.rail(" " * hang + paint(x)) for x in pieces[1:]]
+
+    def head(self, text):
+        if not self.styled:
+            return "\n" + text
+        return "\n" + self.rail(self.p(f" {text.upper()} ", "primary_chip")) + "\n" + self.rail()
 
     def note(self, status, step, detail=""):
         if not self.styled:
             return f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else "")
-        lead = "  " + self.p(status.upper().ljust(self.WIDTH), BOLD, status_color(status))
+        lead = self.p(status.upper().ljust(self.WIDTH), BOLD, status_color(status))
         if not detail:
-            return "\n".join(self.wrapped(lead, step, 2 + self.WIDTH, dim=False))
-        first = self.wrapped(lead + step + "  ", detail, 2 + self.WIDTH + len(step) + 2)       # the detail starts right after the step, and wraps under itself
-        return "\n".join(first)
+            return "\n".join(self.wrapped(lead, step, self.WIDTH, dim=False))
+        return "\n".join(self.wrapped(lead + step + "  ", detail, self.WIDTH + len(step) + 2))       # the detail starts right after the step, and wraps under itself
 
     def cmd(self, text):
         """A raw command the setup runs: shown in a plain log, hidden on a terminal unless --verbose (the cards and --dry-run already show what will happen)."""
         if not self.styled:
             return "    $ " + text
-        return self.p("      $ " + text, DIM) if self.verbose else None
+        return self.rail(self.p("$ " + text, DIM)) if self.verbose else None
 
     def info(self, text):
         if not self.styled:
             return "    " + text
-        return "\n".join(self.wrapped("      ", text, 6))
+        return "\n".join(self.wrapped("", text, 0))
 
     def kv(self, label, value):
         if not self.styled:
             return f"  {label:<22} {value}"
-        return "\n".join(self.wrapped("  " + self.p(label.ljust(22), DIM), str(value), 24, dim=False))
+        return "\n".join(self.wrapped(self.p(label.upper().ljust(22), "label"), str(value), 22, dim=False))
+
+    def warn(self, text):
+        """Something to read before going on, in the caution colour."""
+        if not self.styled:
+            return "\n  " + text
+        return "\n".join(self.wrapped(self.p("NOTE  ", BOLD, YELLOW), text, 6, code=(YELLOW,)))
+
+    def error(self, text):
+        if not self.styled:
+            return "  " + text
+        return "\n".join(self.wrapped(self.p("ERROR  ", BOLD, RED), text, 7, code=(RED,)))
+
+    def block(self, lines):
+        """Lines shown as they are (a configuration file, a plan), muted, each on the rail."""
+        if not self.styled:
+            return "\n".join("    " + line for line in lines)
+        return "\n".join(self.rail(self.p(line, DIM)) for line in lines)
+
+    def command(self, text):
+        """A command to copy: alone on its line, no rail beside it, so selecting it picks up nothing else."""
+        if not self.styled:
+            return "    " + text
+        return self.p(text, GREEN, BOLD)
+
+    def line(self, text):
+        """Any other line a part of the setup hands over as plain text, put on the rail in the style its first word asks for (NOTE, ERROR, OK, SKIP, a `$ command`, an
+        indented continuation, a plain statement). A line that is already styled passes through untouched. Plain mode: the text, unchanged."""
+        if not self.styled or "┃" in _ui_strip(text) or text.lstrip("\n").startswith("\x1b["):
+            return text
+        out = []
+        while text.startswith("\n"):
+            out.append(self.rail())
+            text = text[1:]
+        for raw in text.split("\n"):
+            body = raw.strip()
+            if not body:
+                out.append(self.rail())
+                continue
+            first, _, rest = body.partition(" ")
+            word = first.rstrip(":").upper()
+            if word in ("NOTE", "WARNING", "WARN"):
+                out.append(self.warn(rest.strip() or body).lstrip("\n"))
+            elif word in ("ERROR", "FAIL", "FAILED"):
+                out.append(self.error(rest.strip() or body))
+            elif word in ("OK", "SKIP", "UPDATED", "REMOVED", "INSTALLED", "WAITING", "WRITTEN", "PRESENT", "ADDED"):
+                out.append(self.note(word, rest.strip()))
+            elif body.startswith("$ "):
+                out.append(self.rail(self.p(body, DIM)))
+            elif raw.startswith(" ") or raw.startswith("-"):
+                out.append("\n".join(self.wrapped("", body, 0)))                                  # an indented continuation: quiet
+            else:
+                out.append("\n".join(self.wrapped("", body, 0, dim=False, code=(BOLD,))))        # a plain statement
+        return "\n".join(out)
+
+
+def _ui_strip(text):
+    import re
+    return re.sub(r"\x1b\[[0-9;?]*[A-Za-z~]", "", text)
+
+
+def sink(stream=None, verbose=False):
+    """The function every part of the setup prints through: `say(text)`. On a terminal each line is styled onto the rail (see Styler.line); anywhere else the text is
+    printed as it is. Nothing in the setup prints on its own."""
+    stream = stream or sys.stderr
+    styler = Styler(styled=_ui._color_on(stream), verbose=verbose, stream=stream)
+
+    def say(text=""):
+        print(styler.line(str(text)), file=stream)                                                 # output: the setup's one printer
+    return say

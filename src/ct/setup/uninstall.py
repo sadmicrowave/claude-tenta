@@ -14,12 +14,14 @@ from .. import config, render
 from . import hardening
 from .host import Result
 from .server import SetupError
+from .report import sink as _sink
 
 UNIT_PARTS = tuple(sorted(render.UNITS, key=lambda u: not u.endswith(".timer")))          # every unit the installer can write, timers first (the shared list, so a new unit can never be left behind)
 
 
 class Uninstall:
-    def __init__(self, host, cfg, *, say=print, dry_run=True, confirm=None, keep_data=False, remove_account=False):
+    def __init__(self, host, cfg, *, say=None, dry_run=True, confirm=None, keep_data=False, remove_account=False):
+        say = say or _sink()
         self.host, self.cfg, self.say, self.dry_run, self.confirm = host, cfg, say, dry_run, confirm
         self.keep_data, self.remove_account = keep_data, remove_account
         self.report = []

@@ -22,6 +22,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import ui as _ui
 from .registry import BASELINE_DENY, PLACEHOLDER  # noqa: F401  (PLACEHOLDER re-exported for pack tests)
 
 PACK_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
@@ -333,19 +334,18 @@ def main(argv=None):
     """python3 -m ct.packs check <pack folder>...     validate packs (run it on a pack you wrote or downloaded; changes nothing)"""
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) < 2 or argv[0] != "check":
-        print("usage: python3 -m ct.packs check <pack folder>...", file=sys.stderr)
+        _ui.say("Say which packs to check", "Use: python3 -m ct.packs check <pack folder>...", tag="ERROR", color=_ui.RED)
         return 2
     bad = 0
     for d in argv[1:]:
         try:
             p = load_pack(d)
-            print(f"OK    {p.name} {p.version}  classes: {len(p.classes)}  deny: {len(p.policy.deny_commands)} programs, {len(p.policy.deny_params)} patterns, "
-                  f"{len(p.policy.require_approval)} approval rules  sha256 {p.digest[:12]}")
+            _ui.say(f"{p.name} {p.version}", ("Classes", str(len(p.classes))),
+                    ("Rules", f"{len(p.policy.deny_commands)} programs and {len(p.policy.deny_params)} patterns refused, {len(p.policy.require_approval)} approval rules"),
+                    ("sha256", p.digest[:12]), tag="OK", color=_ui.GREEN, stream=sys.stdout)
         except PackError as e:
             bad += 1
-            print(f"FAIL  {d}", file=sys.stderr)
-            for x in e.problems:
-                print(f"        - {x}", file=sys.stderr)
+            _ui.say(f"{d} is not a valid pack", *[("Problem", x) for x in e.problems], tag="FAIL", color=_ui.RED)
     return 1 if bad else 0
 
 

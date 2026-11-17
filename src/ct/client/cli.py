@@ -99,7 +99,7 @@ def cmd_submit(ctx, a):
     except ClientError:
         pass
     if not should_wait(ctx, a):
-        print("\n".join(ids))
+        print("\n".join(ids))                                               # output: data (job ids for a script)
         return 0
     return max(wait(ctx, jid, a.timeout, a.json) for jid in ids)
 
@@ -280,7 +280,7 @@ def print_fit(ctx, res, argv):
     """The one-line answer with its first word coloured. Goes to stdout: it is what a script or Claude reads."""
     word, rest = off.fit_message(res, argv, ctx.product).split(" ", 1)
     color = {"registered": GREEN, "excluded": RED, "retry": YELLOW, "unknown": YELLOW}[res["verdict"]]
-    print(f"{paint(word, BOLD, color, stream=sys.stdout)} {rest}")
+    _ui.say(rest, tag=word.upper(), color=color, stream=sys.stdout) if _ui._color_on(sys.stdout) else print(f"{word} {rest}")          # output: a card for a person; the plain words for a script
 
 
 VERDICT_STYLE = {"registered": GREEN, "excluded": RED, "retry": YELLOW, "unknown": YELLOW}
@@ -293,7 +293,7 @@ def cmd_history(ctx, a):
         return 0
     rows = log.filtered(a.verdict, a.command)
     if a.json:
-        print(json.dumps(rows if a.all else rows[-a.n:], indent=2))
+        print(json.dumps(rows if a.all else rows[-a.n:], indent=2))                  # output: data (--json)
         return 0
     if not rows:
         emit("No fit checks recorded" + (" for that filter" if a.verdict or a.command else " yet"), "Every `ct-run offload fit` is recorded here, whether you or Claude ran it.",
@@ -302,35 +302,27 @@ def cmd_history(ctx, a):
     counts = {}
     for r in rows:
         counts[r.get("verdict")] = counts.get(r.get("verdict"), 0) + 1
-    print(f"\n{paint('offload history', BOLD, GREEN, stream=out)}  {paint('every check of whether a command suits ' + ctx.product, BOLD, stream=out)}")
     first = off.parse_ts(rows[0].get("ts"))
     span = f"since {time.strftime('%Y-%m-%d', time.localtime(first))}" if first else ""
-    print(paint(f"Kept on this computer only; trimmed to the last {off.FIT_KEEP_DAYS} days or {off.FIT_KEEP_MAX} checks.", DIM, stream=out))
-    print("\n" + paint("SUMMARY", BOLD, CYAN, stream=out) + (f"  {paint(span, DIM, stream=out)}" if span else ""))
-    parts = [f"{counts[k]} {paint(k, BOLD, VERDICT_STYLE[k], stream=out)}" for k in ("registered", "excluded", "retry", "unknown") if counts.get(k)]
-    print(f"  {paint('Checks'.ljust(14), BOLD, stream=out)}{len(rows)}  ({', '.join(parts)})")
+    parts = [f"{counts[k]} {k}" for k in ("registered", "excluded", "retry", "unknown") if counts.get(k)]
     unknown = {}
     for r in rows:
         if r.get("verdict") == "unknown":
             unknown[r["command"]] = unknown.get(r["command"], 0) + 1
     repeated = sorted(((n, c) for c, n in unknown.items() if n >= 2), reverse=True)[:3]
-    if repeated:
-        print(f"  {paint('Worth a look'.ljust(14), BOLD, stream=out)}checked more than once, still unknown:")
-        for n, c in repeated:
-            print(f"  {' ' * 14}{n}x  {c[:70]}")
     shown = list(reversed(rows if a.all else rows[-a.n:]))                       # newest first
-    print("\n" + paint("CHECKS", BOLD, CYAN, stream=out) + "  " + paint(f"{len(shown)} of {len(rows)}, newest first", DIM, stream=out))
-    print(paint(f"  {'WHEN':<17}{'VERDICT':<12}{'BY':<9}CLASS / COMMAND", BOLD, stream=out))
+    table = []
     for r in shown:
         ts = off.parse_ts(r.get("ts"))
-        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
         v = r.get("verdict", "?")
-        print(f"  {when:<17}{paint(f'{v:<12}', BOLD, VERDICT_STYLE.get(v, DIM), stream=out)}{r.get('by', '?'):<9}{r.get('class') or r.get('command', '')}")
-        if r.get("class"):
-            print(f"  {' ' * 38}{paint(r['command'][:80], DIM, stream=out)}")
-        elif r.get("reasons"):
-            print(f"  {' ' * 29}{paint(r['reasons'][:100], RED, _ui.ITALIC, stream=out)}")
-    print()
+        what = r.get("class") or r.get("command", "")
+        extra = r["command"][:80] if r.get("class") else (r["reasons"][:100] if r.get("reasons") else "")
+        table.append([time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?", (v, {"registered": "ok", "excluded": "bad", "retry": "warn", "unknown": "warn"}.get(v, "muted")),
+                      r.get("by", "?"), what + (f"   {extra}" if extra else "")])
+    _ui.table(f"Offload history: every check of whether a command suits {ctx.product}", ["when", "verdict", "by", "class / command"], table, tag="HISTORY", stream=out,
+              notes=(f"Kept on this computer only; trimmed to the last {off.FIT_KEEP_DAYS} days or {off.FIT_KEEP_MAX} checks.", f"{len(rows)} checks {span}  ({', '.join(parts)})",
+                     *([f"Worth a look, checked more than once and still unknown: " + "; ".join(f"{n}x {c[:50]}" for n, c in repeated)] if repeated else []),
+                     f"Showing {len(shown)} of {len(rows)}, newest first."))
     return 0
 
 
@@ -339,15 +331,12 @@ def cmd_exclusions(ctx):
     r.need_setup()
     r.fetch_queue()
     ex, out = off.read_exclusions(r).get("excluded", []), sys.stdout
-    print(paint(f"Commands that were test-run on {ctx.product} and do not fit it. Claude runs these itself instead.", BOLD, stream=out))
     if not ex:
-        print("\nNone yet.")
+        _ui.say(f"Commands that do not fit {ctx.product}", "None yet. Commands that were test-run on it and do not fit are listed here; Claude runs those itself instead.", tag="NONE", color=_ui.GREEN, stream=out)
     for e in ex:
         pr = e.get("profiled", {})
-        print(f"\n{paint(' '.join(e['argv']), BOLD, RED, stream=out)}")
-        print(f"  {paint('why', DIM, stream=out)}         {'; '.join(e.get('reasons', []))}")
-        print(f"  {paint('limited by', DIM, stream=out)}  {', '.join(e.get('limiting', [])) or '?'}")
-        print(f"  {paint('tested', DIM, stream=out)}      {pr.get('date', '?')} on {pr.get('mem_total_mb', '?')} MB RAM (job {pr.get('job', '?')})")
+        _ui.say(" ".join(e["argv"]), ("Why", "; ".join(e.get("reasons", []))), ("Limited by", ", ".join(e.get("limiting", [])) or "?"),
+                ("Tested", f"{pr.get('date', '?')} on {pr.get('mem_total_mb', '?')} MB RAM (job {pr.get('job', '?')})"), tag="DOES NOT FIT", color=_ui.RED, stream=out)
     _ui.related(("Check whether another command fits", "ct-run offload fit -- <command>"), ("See every check you have made", "ct-run offload history"))
     return 0
 
@@ -400,13 +389,11 @@ def cmd_profile(ctx, a):
         ctx.names.remember(jid, name)
     shown = [("command", " ".join(argv)), ("job", jid)] + ([("name", name)] if name else []) + (
         [("needs", ", ".join(job["packages"]) + "  (fetched into a throwaway folder, deleted unless it fits)")] if job.get("packages") else [])
-    out = ["", paint("This profiling run needs YOUR approval.", BOLD, YELLOW)] + [f"  {paint(k + ':', DIM)} {v}" for k, v in shown]
-    out += ["", f"1. Review and approve it by running this on your computer:", "", paint(f"{ctx.admin} approve {jid}", BOLD, GREEN), "",
-            "2. Then watch for the result with:", "", paint(f"ct-run result {jid}", BOLD, GREEN), ""]
-    print("\n".join(out), file=sys.stderr)
+    emit("This profiling run needs YOUR approval", *[(k.capitalize(), v) for k, v in shown], tag="APPROVAL", color=YELLOW, steps=[f"Review and approve it on your computer: {ctx.admin} approve {jid}", f"Then watch for the result: ct-run result {jid}"],
+         steps_label="What to do", run=[f"{ctx.admin} approve {jid}", f"ct-run result {jid}"], run_label="Run these")
     if not a.wait:                                           # a profiling run always needs approval, usually from another terminal: never block on it
         if not ctx.is_tty():
-            print(jid)                                       # the bare id is for scripts and Claude
+            print(jid)                                       # output: data (the bare id is for scripts and Claude)
         return 0
     return wait(ctx, jid, a.timeout, False, told=True)
 
@@ -496,21 +483,15 @@ def cmd_offload(ctx, a, cfg):
         return 0
     rows = log.rank(a.min_seconds, a.all, recs)[:a.top]
     out = sys.stdout
-    print(paint(("All command shapes" if a.all else f"Candidates for {ctx.product} (median time at least {a.min_seconds:.0f} s)") + ".", BOLD, stream=out))
-    print(paint(f"From {len(recs)} commands recorded on this computer.", DIM, stream=out))
-    print(f"\n{paint('RUNS', BOLD, stream=out)}     how many times you ran it\n{paint('MEDIAN', BOLD, stream=out)}   the usual time one run takes\n"
-          f"{paint('TOTAL', BOLD, stream=out)}    all the time you spent on it\n")
     if not rows:
         emit("No candidates yet", "A candidate is repeated, slow, runs locally, and is not a git, network or package-manager command.", tag="NOTE", color=YELLOW)
         return 0
-    print(paint(f"{'#':>2}  {'RUNS':>5}  {'MEDIAN':>7}  {'TOTAL':>7}  COMMAND SHAPE", BOLD, stream=out))
-    for i, r in enumerate(rows, 1):
-        med = "?" if r["median"] is None else f"{r['median']:.0f}s"
-        print(f"{i:>2}  {r['count']:>5}  {med:>7}  {r['total']:>6.0f}s  {r['shape']}" + (paint(f"   [{r['reason']}]", _ui.ITALIC, YELLOW, stream=out) if r["reason"] else ""))
+    _ui.table("All command shapes" if a.all else f"Candidates for {ctx.product} (median time at least {a.min_seconds:.0f} s)", ["#", "runs", "median", "total", "command shape"],
+              [[str(i), str(r["count"]), "?" if r["median"] is None else f"{r['median']:.0f}s", f"{r['total']:.0f}s", (r["shape"] + (f"   [{r['reason']}]" if r["reason"] else ""), "warn" if r["reason"] else None)]
+               for i, r in enumerate(rows, 1)], tag="CANDIDATES", stream=out,
+              notes=(f"From {len(recs)} commands recorded on this computer.", "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))
     if not a.all:
-        print("\n" + paint("Most recent example of each", BOLD, stream=out) + "\n")
-        for i, r in enumerate(rows, 1):
-            print(f"{i:>2}  {r['example'][:150]}")
+        _ui.table("Most recent example of each", ["#", "example"], [[str(i), r["example"][:150]] for i, r in enumerate(rows, 1)], tag="EXAMPLES", stream=out)
         emit("Pick the one you like", tag="NEXT", color=CYAN, run_label=f"Check whether {ctx.product} can take it", run="ct-run offload fit -- <the example command>")
     return 0
 

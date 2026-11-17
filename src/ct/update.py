@@ -23,6 +23,8 @@ from pathlib import Path
 
 from . import render
 from .config import ConfigError
+from . import ui as _ui
+from .setup.report import sink as _sink
 
 REV_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
@@ -97,9 +99,10 @@ def check_sudoers(text):
         os.unlink(name)
 
 
-def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, visudo=check_sudoers, chown=None, sysctl=None, out=print):
+def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, visudo=check_sudoers, chown=None, sysctl=None, out=None):
     """Install the release in `src`. `sandbox(unit_text) -> int` (0 = fine) gates changed unit files; `systemctl(*args)` reloads systemd.
     Returns a Report; raises InstallError / render.RenderError before writing anything if the release cannot be rendered."""
+    out = out or _sink()
     if not REV_RE.match(str(rev)):
         raise InstallError("the revision must be 7 to 40 hex characters")
     files = desired_files(src, cfg)
@@ -184,7 +187,7 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
     return report
 
 
-def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=print, user_text=None, check_exe=None):
+def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=None, user_text=None, check_exe=None):
     """Compose and install the job registry the worker will trust: the packs the configuration names (installed by root under
     <config>/packs) plus YOUR classes, limits and profiling rules from registry.yaml on the main branch of the queue repository.
 
@@ -193,6 +196,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
     manifests, your layer, name collisions, the policy, and the composed result. Packages are installed first; the previous registry is kept as
     registry.yaml.previous. Returns 'unchanged', 'updated' or 'bootstrapped' (nothing was installed before); raises InstallError and writes
     nothing when anything is wrong. `run(argv) -> (returncode, output)`."""
+    out = out or _sink()
     from . import packs, registry
     worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
     dest, text = _dest(prefix, cfg.path("registry")), user_text
@@ -252,12 +256,13 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=pr
 REGISTRY_MARK = "registry.source"           # <config>/registry.source: the digest and time of the signed registry.yaml that is installed
 
 
-def registry_sync(cfg, *, run=None, install_packages=None, now=time.time, out=print, prefix="/", systemctl=None):
+def registry_sync(cfg, *, run=None, install_packages=None, now=time.time, out=None, prefix="/", systemctl=None):
     """Install the registry the administrator approved from their own computer, with no login to this worker. Run as root by a timer.
 
     Nothing from the queue repository is trusted by itself: the registry.yaml on its main branch is installed only when a signature over exactly that text, made
     with the approver key this worker was set up with, sits on the approvals branch, and is no older than the registry already installed. The text that was
     checked is the text that is installed (it is not fetched twice). Returns (status text, ok); ok is False only for something worth a failed unit."""
+    out = out or _sink()
     from . import approvals
     run = run or real_run
     worker, clone, main_branch = cfg.server.worker_user, cfg.path("queue_clone"), cfg.github.main_branch
@@ -341,13 +346,14 @@ def run_git(*args, cwd=None):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def fetch_release(cfg, *, verified=False, rev=None, git=run_git, workdir=None, out=print):
+def fetch_release(cfg, *, verified=False, rev=None, git=run_git, workdir=None, out=None):
     """Get a clean copy of a release from the project repository (cfg.updates.source) and return (source folder, full commit id, label).
 
       verified   the NEWEST tag named release-* whose signature checks against <config>/allowed_signers (tags with no or an untrusted
                  signature are skipped, and said so). Pushing to the repository alone can never change what runs here.
       rev        one exact commit, which must be on cfg.updates.branch (so an unmerged or abandoned commit cannot be installed).
     The source is exported with `git archive`, so no .git folder, hook or config comes with it."""
+    out = out or _sink()
     import tempfile
     cfg.require("updates.source")
     src = Path(cfg.paths.state_root + "-src")
@@ -419,15 +425,15 @@ def main(argv=None):
         argv = [x for x in argv if x != "--no-sandbox-test"]
         if argv == ["--registry-sync"]:
             status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
-            print(f"registry-sync: {status}", file=sys.stdout if ok else sys.stderr)
+            _ui.say("Registry sync", status, tag="OK" if ok else "FAIL", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):
             src, rev, label = fetch_release(cfg, verified=argv[0] == "--verified", rev=argv[1] if len(argv) == 2 else None)
-            print(f"installing {label} ({rev[:9]})")
+            _ui.say(f"Installing {label}", ("Release", rev[:9]), tag="INSTALL", color=_ui.PRIMARY, stream=sys.stdout)
         elif len(argv) == 3 and argv[0] == "--local":
             src, rev = argv[1], argv[2]
         else:
-            print(usage, file=sys.stderr)
+            _ui.say("Say what to install", usage, tag="ERROR", color=_ui.RED)
             return 2
         report = install_release(src, cfg, rev, sandbox=None if skip_sandbox else (lambda text: sandboxtest.test_unit(text, cfg)), systemctl=real_systemctl, sysctl=real_sysctl)
         if report.ok:
@@ -438,14 +444,10 @@ def main(argv=None):
             if helper != "off":
                 report.updated.append(f"{cfg.unit('helper.socket')} ({helper})")
     except (InstallError, render.RenderError, ConfigError) as e:
-        print(f"install refused: {e}", file=sys.stderr)
+        _ui.say("The install was refused", str(e), tag="REFUSED", color=_ui.RED)
         return 1
-    for p in report.updated:
-        print(f"UPDATED  {p}")
-    for p in report.removed:
-        print(f"REMOVED  {p}")
-    for e in report.errors:
-        print(f"ERROR    {e}", file=sys.stderr)
+    _ui.say("Installed" if report.ok else "Installed with errors", *[("Updated", p) for p in report.updated], *[("Removed", p) for p in report.removed], *[("Error", e) for e in report.errors],
+            tag="DONE" if report.ok else "ERROR", color=_ui.GREEN if report.ok else _ui.RED, stream=sys.stdout if report.ok else sys.stderr)
     return 0 if report.ok else 1
 
 

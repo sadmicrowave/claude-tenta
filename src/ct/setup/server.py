@@ -14,6 +14,7 @@ from pathlib import Path
 from .. import approvals, claudeupdate, config, render, update
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
+from .report import sink as _sink
 
 
 class SetupError(Exception):
@@ -79,9 +80,10 @@ def deploy_key_commands(cfg, pubkeys):
 
 
 class ServerSetup:
-    def __init__(self, host, source, *, ask=None, say=print, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
+    def __init__(self, host, source, *, ask=None, say=None, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
                  install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, verbose=False):
+        say = say or _sink()
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install

@@ -137,9 +137,9 @@ class Approving(CliBase):
         self.waiting("job-0002")
         code, out = self.run_cli("approve", "--many", f"job-0001:{self.digest('job-0001')}", f"job-0002:{'0' * 64}", "job-0003")
         self.assertEqual(code, 1)
-        self.assertRegex(out, r"APPROVED\s+job-0001")
-        self.assertRegex(out, r"REFUSED\s+job-0002\s+the job changed")
-        self.assertRegex(out, r"REFUSED\s+job-0003\s+no copy")
+        self.assertRegex(out, r"(?i)approved\s+job-0001")
+        self.assertRegex(out, r"(?i)refused\s+job-0002\s+the job changed")
+        self.assertRegex(out, r"(?i)refused\s+job-0003\s+no copy")
         self.assertIn("1 approved, 2 refused", out)
         self.assertTrue((self.state / "approved" / "job-0001").exists())
         self.assertFalse((self.state / "approved" / "job-0002").exists())
@@ -286,7 +286,7 @@ class Status(CliBase):
         self.w.fetch()
         code, out = self.run_cli("status")
         self.assertRegex(out, r"running\s+job-0001\s+pid 4242 PROCESS GONE")
-        self.assertIn("WAITING FOR YOU", out)
+        self.assertIn("WAITING FOR YOU", out.upper())
         self.assertIn("ct-admin approve job-0002", out)                                    # the client's command name is configurable
         self.assertIn("job-0002", out)
 
@@ -456,7 +456,7 @@ class RootRunCommands(unittest.TestCase):
         with redirect_stderr(err):
             self.assertEqual(cli.cmd_check_registry(bad, cfg.path("tools")), 1)
             self.assertEqual(cli.cmd_check_registry(d / "missing.yaml", cfg.path("tools")), 1)
-        self.assertIn("registry problem: class 'ok-one': env may only set", err.getvalue())
+        self.assertIn("class 'ok-one': env may only set", err.getvalue())
         self.assertIn("not valid YAML", err.getvalue())
 
 

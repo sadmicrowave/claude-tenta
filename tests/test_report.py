@@ -39,7 +39,7 @@ class Styled(unittest.TestCase):
         plain = [ANSI.sub("", x) for x in rows]
         cols = {line.index(step) for line, step in zip(plain, ["tools", "worker account", "Claude sign-in", "installer"])}
         self.assertEqual(len(cols), 1, plain)                               # every action starts in the same column
-        self.assertTrue(all(re.match(r"  [A-Z]+ +\S", line) for line in plain))
+        self.assertTrue(all(re.match(r"┃ [A-Z]+ +\S", line) for line in plain))          # on the rail, status in capitals
         self.assertTrue(all("\x1b[" in x for x in rows))                    # and the status is coloured
 
     def test_the_colour_says_what_kind_of_news_it_is(self):
@@ -52,7 +52,7 @@ class Styled(unittest.TestCase):
     def test_headings_are_bold_and_coloured(self):
         head = report.Styler(styled=True).head("Hardening")
         self.assertIn("\x1b[", head)
-        self.assertEqual(ANSI.sub("", head), "\n▸ Hardening")
+        self.assertEqual(ANSI.sub("", head), "\n┃  HARDENING \n┃ ")                # a chip on the rail, then a blank rail line
 
     def test_raw_commands_are_hidden_on_a_terminal_unless_asked_for(self):
         self.assertIsNone(report.Styler(styled=True).cmd("apt-get install -y git"))
@@ -86,7 +86,7 @@ class Alignment(unittest.TestCase):
         lines = out.splitlines()
         self.assertGreater(len(lines), 1)
         self.assertTrue(all(len(x) <= 79 for x in lines))
-        self.assertEqual({len(x) - len(x.lstrip()) for x in lines[1:]}, {13 + len("approver key") + 2})
+        self.assertEqual({len(x[2:]) - len(x[2:].lstrip()) for x in lines[1:]}, {11 + len("approver key") + 2})       # after the rail, under the detail
 
     def test_a_plain_log_is_never_wrapped(self):
         r = report.Styler(styled=False)

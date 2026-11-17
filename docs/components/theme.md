@@ -36,3 +36,6 @@ accent = "38;5;99"       # any role, as terminal colour numbers
   a terminal that cannot show them can set any role to a 256-colour code in `theme.toml`.
 - **The header.** The wizard opens with a picture and a caption naming this tool, its job and its version (`ct/setup/brand.py`). The picture is artwork: its colours belong to it and do not follow
   the theme. A terminal under 52 columns gets a one-line header, and with colour off the picture is the same shapes in plain characters.
+- **Nothing prints on its own.** Every line a person sees goes through `ct.ui` (`say` for a message, `table` for a list, `document` for the text of something), `ct.setup.report.sink` (the setup's
+  streamed progress, every line on the card rail) or a renderer in `ct.cards`. A line that must be something else is marked on its line `# output: data` (what a script reads), `log` (a journal line)
+  or `passthrough` (another program's own output). `tests/test_output_style.py` fails on any other print, and on any printer that defaults to the builtin `print`.

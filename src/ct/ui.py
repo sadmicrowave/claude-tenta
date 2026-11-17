@@ -44,7 +44,7 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
         out.append("")
         for d in lines:
             if isinstance(d, tuple):
-                out.append(f"  {paint(d[0].ljust(width), BOLD, stream=stream)}  {d[1]}")
+                out.append(f"  {paint(d[0].ljust(width), BOLD, stream=stream)}  {d[1].plain() if isinstance(d[1], cards.Styled) else d[1]}")
             elif isinstance(d, cards.Block):
                 out += [f"  {x}" for x in d]
             elif isinstance(d, cards.Heading):
@@ -69,6 +69,43 @@ def die(msg, code=2):
     """Anything unexpected (git output and the like): the first line is the title, the rest is the detail."""
     head, _, rest = str(msg).partition("\n")
     fail(head, rest.strip() or None, code=code)
+
+
+def show(lines, stream=None):
+    """Print lines that are already drawn (a card from `cw.cards`, a table of worker cards): the one place such text reaches the terminal."""
+    print("\n".join(lines), file=stream or sys.stdout)                                                   # output: pre-drawn lines
+
+
+def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), framed=True):
+    """The text of something (a job file, a kept output) as a card with the text inside it, for a person at a terminal. Piped, only the text is printed, exactly as it
+    is, so a script can read it."""
+    stream = stream or sys.stdout
+    if _color_on(stream):
+        lines = str(text).rstrip("\n").split("\n") or [""]
+        out = [""] + cards.card(title, [*notes, cards.Block(lines)], tag=tag, color=color or PRIMARY, framed=framed)
+        print("\n".join(out) + "\n", file=stream)                                                       # output: a card
+    else:
+        print(text, file=stream)                                                                          # output: data, exactly as it is
+
+
+def table(title, header, rows, *, tag="LIST", color=None, stream=None, notes=(), run=None, run_label="Next", empty=None):
+    """A list of things as a card: the title, a short note or two, then a table with coloured capital column labels. Plain text (aligned columns) when nobody is watching
+    a terminal. `rows` is [[cell, ...]] where a cell is text or (text, role); `empty` is said instead when there are no rows."""
+    stream = stream or sys.stdout
+    color = color or PRIMARY
+    if not rows and empty:
+        say(title, empty, tag="NOTE", color=YELLOW, stream=stream)
+        return
+    if _color_on(stream):
+        w = cards.width()
+        out = [""] + cards.card(title, [*notes, "\n", cards.Block(cards.table_lines(header, rows, w - 4))], tag=tag, color=color)
+        if run:
+            out += cards.commands(run, run_label)
+        print("\n".join(out) + "\n", file=stream)                                                       # output: a card
+        return
+    lines = cards.table_lines(header, [[c[0] if isinstance(c, tuple) else c for c in r] for r in rows], 10 ** 6, color=False)
+    tail = ["", run_label, *([run] if isinstance(run, str) else run)] if run else []
+    print("\n".join([title, *[str(n) for n in notes], "", *lines, *tail]) + "\n", file=stream)       # output: plain text for a pipe
 
 
 def related(*pairs, title="From here", stream=None, force=False):

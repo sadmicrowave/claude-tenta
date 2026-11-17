@@ -36,3 +36,14 @@ Before tagging: all tests pass, `scripts/gen-docs --check` is clean, `scripts/pr
 ## Commits
 
 Small and focused, with a message that says why. Commits are authored with a GitHub `noreply` address (the privacy guard refuses anything else).
+
+## Output rule: everything a person sees is a card
+
+Nothing in `src/ct` prints on its own. A person at a terminal sees cards, rail rows, tables and chips; a pipe or a log sees the plain text of the same thing. Use:
+
+- `ct.ui.say(...)` for a message (a coloured tag, a subject, labelled facts, commands to copy beneath it);
+- `ct.ui.table(...)` for a list of things, `ct.ui.document(...)` for the text of something (a file, an output);
+- `ct.setup.report.sink()` (or the `say` it gives you) for the setup's streamed progress, so every line sits on the card rail;
+- theme roles from `ct.theme` for colour, never an escape code.
+
+A line that must be something else (JSON a script reads, a job id, a journal line) is marked `# output: data` or `# output: log`. `tests/test_output_style.py` fails on any other print.

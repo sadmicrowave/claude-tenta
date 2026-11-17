@@ -104,7 +104,7 @@ class CanaryWatch:
         ok, reason = self.ensure_rules(files)
         if not ok:
             self.write_status(False, reason)
-            print(reason, file=sys.stderr)
+            print(reason, file=sys.stderr)                                              # output: log (the journal)
             return 0
         self.book_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         last = self.book_dir / "last"
@@ -121,13 +121,13 @@ class CanaryWatch:
         # exit 1 means "no matching events", but also what it returns for a bad argument, so look at what it said
         if r.returncode not in (0, 1) or (r.returncode == 1 and msg and "no matches" not in msg.lower()):
             self.write_status(False, f"ausearch failed: {msg[:150]}")
-            print(f"ausearch failed: {msg[:300]}", file=sys.stderr)
+            print(f"ausearch failed: {msg[:300]}", file=sys.stderr)                      # output: log (the journal)
             return 0
         events = [e for e in parse_events(r.stdout) if e["serial"] not in book["seen"]]
         self.write_status(True)
         if events:
             out = self.alarm(summarize(events))
-            print(out.stdout + out.stderr)
+            print(out.stdout + out.stderr)                                                   # output: log (the journal)
             book["seen"] = (book["seen"] + [e["serial"] for e in events])[-200:]
         book["since"] = int(self.clock()) - 2                      # a small overlap; the seen list de-duplicates
         last.write_text(json.dumps(book))
@@ -148,12 +148,12 @@ def main(argv=None):
     cfg = config.load()
     if argv == ["status"]:
         f = Path(cfg.path("run_dir")) / "canary-watch.json"
-        print(f.read_text() if f.exists() else "no status yet")
+        print(f.read_text() if f.exists() else "no status yet")                      # output: data (the watcher's status file)
         return 0
     try:
         pwd.getpwnam(cfg.server.worker_user)
     except KeyError:
-        print(f"canary-watch: the worker account {cfg.server.worker_user!r} does not exist", file=sys.stderr)
+        print(f"canary-watch: the worker account {cfg.server.worker_user!r} does not exist", file=sys.stderr)       # output: log (the journal)
         return 1
     return from_config(cfg).check()
 

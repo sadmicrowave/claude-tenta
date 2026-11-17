@@ -4,7 +4,8 @@ import difflib
 import re
 import sys
 
-from .ui import BOLD, CYAN, DIM, GREEN, RED, paint, say
+from . import cards
+from .ui import PRIMARY, RED, say
 
 
 def _placeholder(act):
@@ -40,29 +41,6 @@ def _usage_of(prog, cmd, parser):
     return " ".join(parts)
 
 
-def _table(rows, stream, bold_first=True):
-    """Two aligned columns; the right column wraps to the terminal and keeps its indent."""
-    if not rows:
-        return
-    import shutil
-    import textwrap
-    w = max(len(r[0]) for r in rows)
-    room = max(shutil.get_terminal_size((100, 24)).columns - w - 5, 30)
-    for left, right in rows:
-        lines = textwrap.wrap(right, room) or [""]
-        print(f"  {paint(f'{left:<{w}}', *((BOLD,) if bold_first else ()), stream=stream)}  {lines[0]}")
-        for extra in lines[1:]:
-            print(" " * (w + 4) + extra)
-
-
-def _examples(examples, stream):
-    if not examples:
-        return
-    print("\n" + paint("EXAMPLES", BOLD, CYAN, stream=stream))
-    for desc, cmd in examples:
-        print(f"\n  {paint(desc, DIM, stream=stream)}\n  {paint(cmd, BOLD, GREEN, stream=stream)}")
-
-
 def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=None):
     """Styled help for `prog`: `prog`, `prog help`, `prog -h`, `prog help CMD`, `prog CMD -h`.
     `details` maps each command to (one line, [(what it shows, example command), ...]). Returns True when it printed help."""
@@ -77,32 +55,30 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=
     if want and want not in details:
         say(f"No command called {want}", tag="ERROR", color=RED, stream=out, run_label="See the commands", run=f"{prog} help")
         return True
+    cmds = lambda rows: [(cards.Cmd(c), d) for c, d in rows]          # noqa: E731  (a command is shown as typed, in the command colour)
     if want:
         one, exs = details[want]
-        print(f"\n{paint(prog + ' ' + want, BOLD, GREEN, stream=out)}  {paint(one, BOLD, stream=out)}")
+        rows = [one]
         parser = sub.choices.get(want) if sub is not None else None
         if parser is not None:
-            print("\n" + paint("USAGE", BOLD, CYAN, stream=out) + "\n  " + _usage_of(prog, want, parser))
+            rows += [cards.Heading("Usage"), cards.Block([_usage_of(prog, want, parser)])]
             opts = _options_of(parser)
             if opts:
-                print("\n" + paint("OPTIONS", BOLD, CYAN, stream=out))
-                _table(opts, out)
-        _examples(exs, out)
-        print()
+                rows += [cards.Heading("Options")] + cmds(opts)
+        if exs:
+            rows += [cards.Heading("Examples")] + [(cards.Cmd(cmd), desc) for desc, cmd in exs]
+        say(f"{prog} {want}", *rows, tag="HELP", color=PRIMARY, stream=out)
         return True
-    print(f"\n{paint(prog, BOLD, GREEN, stream=out)}  {paint(summary, BOLD, stream=out)}")
-    print("\n" + paint("USAGE", BOLD, CYAN, stream=out) + f"\n  {prog} <command> [options]")
+    rows = [cards.Heading("Usage"), cards.Block([f"{prog} <command> [options]"])]
     if groups:                                  # [(title, [command, ...])]: the commands under headings, in the order given
         for title, names in groups:
-            print("\n" + paint(title.upper(), BOLD, CYAN, stream=out))
-            _table([(c, details[c][0]) for c in names], out)
+            rows += [cards.Heading(title)] + cmds([(c, details[c][0]) for c in names])
     else:
-        print("\n" + paint("COMMANDS", BOLD, CYAN, stream=out))
-        _table([(c, d[0]) for c, d in details.items()], out)
-    _examples(examples, out)
-    print("\n" + paint("MORE", BOLD, CYAN, stream=out))
-    _table([(f"{prog} help <command>", "every option of one command, with examples")] + list(see or []), out, bold_first=False)
-    print()
+        rows += [cards.Heading("Commands")] + cmds([(c, d[0]) for c, d in details.items()])
+    if examples:
+        rows += [cards.Heading("Examples")] + [(cards.Cmd(cmd), desc) for desc, cmd in examples]
+    rows += [cards.Heading("More")] + cmds([(f"{prog} help <command>", "every option of one command, with examples")] + list(see or []))
+    say(prog, summary, "\n", *rows, tag="HELP", color=PRIMARY, stream=out)
     return True
 
 
