@@ -224,6 +224,17 @@ class LegacyInstall(unittest.TestCase):
             for p in (legacy, Path.home() / ".config" / "claude-tenta" / "ct.toml"):
                 p.unlink(missing_ok=True)
 
+    def test_an_old_file_that_never_named_the_install_means_the_old_default_name_and_its_repositories(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cw.toml"
+            p.write_text('[github]\nowner = "someone"\n')
+            c = config.load(p, env={})
+            self.assertEqual((c.identity.name, c.github.queue_repo, c.github.results_repo, c.paths.code),
+                             ("claude-ballast", "claude-ballast-queue", "claude-ballast-results", "/opt/claude-ballast"))
+            q = Path(d) / "ct.toml"
+            q.write_text('[github]\nowner = "someone"\n')
+            self.assertEqual(config.load(q, env={}).identity.name, "claude-tenta")          # a current file keeps the new default
+
     def test_an_explicit_client_folder_in_an_old_file_is_kept(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "cw.toml"
