@@ -624,6 +624,7 @@ class RegistrySync(RegistryInstall):
         status, ok = self.sync()
         self.assertEqual(ok, False)
         self.assertIn("different registry.yaml", status)
+        self.assertIn("ct-admin proposals publish", status)                    # the refusal says how to sign it again
         self.assertFalse(self.registry_file().exists())
 
     def test_an_older_signed_registry_cannot_replace_a_newer_one(self):

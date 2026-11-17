@@ -292,7 +292,8 @@ def registry_sync(cfg, *, run=None, install_packages=None, now=time.time, out=No
         mark = {}
     ok, why, rec = approvals.check_registry(signed, text, signers, now=now(), not_before=int(mark.get("issued", 0)))
     if not ok:
-        return f"refused: {why}", False
+        again = " On your computer, sign the registry again: ct-admin proposals publish" if why.startswith(("signature does not match", "the signed approval is for a different")) else ""
+        return f"refused: {why}.{again}", False
     if mark.get("sha256") == rec["sha256"] and _dest(prefix, cfg.path("registry")).exists():
         sync_helper_socket(cfg, systemctl=systemctl, prefix=prefix)           # idempotent: an install that predates the helper's folder gets it on the next pass
         return "up to date", True

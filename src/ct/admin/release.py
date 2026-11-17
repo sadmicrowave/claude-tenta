@@ -83,8 +83,16 @@ def health_command(name, config_dir, code_dir):
     """One read-only shell line that prints key=value facts about the worker (timers, failed units, installed rev, registry validity)."""
     return (f"for t in fetch step canary; do printf 'timer-%s=%s\\n' $t \"$(systemctl is-active {name}-$t.timer)\"; done; "
             f"printf 'failed=%s\\n' \"$(systemctl list-units --failed --no-legend '{name}*' | wc -l)\"; "
+            f"printf 'failed-units=%s\\n' \"$(systemctl list-units --failed --no-legend --plain '{name}*' | cut -d' ' -f1 | tr '\\n' ' ')\"; "
             f"printf 'rev=%s\\n' \"$(cat {config_dir}/installed-rev 2>/dev/null)\"; "
             f"PYTHONPATH={code_dir}/lib python3 -m ct.cli check-registry {config_dir}/registry.yaml >/dev/null 2>&1; printf 'registry=%s\\n' $?")
+
+
+def failed_detail(kv):
+    """'1 failed: <units> (see why: ssh host journalctl -u <unit> -n 20)': the check names what failed, so nobody has to hunt for it."""
+    units = (kv.get("failed-units") or "").split()
+    base = f"{kv.get('failed', '?')} failed"
+    return f"{base}: {', '.join(units)}. Read why with: journalctl -u {units[0]} -n 20 --no-pager" if units else base
 
 
 def health_checks(ssh, command, expect_rev):
@@ -96,7 +104,7 @@ def health_checks(ssh, command, expect_rev):
     kv = dict(line.split("=", 1) for line in (r.stdout or "").splitlines() if "=" in line)
     timers = ("fetch", "step", "canary")
     return [("the three timers are running", all(kv.get(f"timer-{t}") == "active" for t in timers), ", ".join(f"{t} {kv.get(f'timer-{t}', '?')}" for t in timers)),
-            ("no service has failed", kv.get("failed") == "0", f"{kv.get('failed', '?')} failed"),
+            ("no service has failed", kv.get("failed") == "0", failed_detail(kv)),
             ("the installed registry is valid", kv.get("registry") == "0", "check-registry exit " + kv.get("registry", "?")),
             ("the installed version is the one just installed", (kv.get("rev") or "").startswith(expect_rev[:9]), (kv.get("rev") or "unknown")[:9])]
 

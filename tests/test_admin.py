@@ -1113,6 +1113,13 @@ class ReleaseTests(AdminBase):
         self.assertIn("install failed", err)
         self.assertEqual(self.ssh.captured.count("x"), 0)
 
+    def test_a_failed_service_is_named_and_the_check_says_where_to_read_why(self):
+        self.assertEqual(release.failed_detail({"failed": "0"}), "0 failed")
+        got = release.failed_detail({"failed": "1", "failed-units": "testct-registry-sync.service "})
+        self.assertIn("testct-registry-sync.service", got)
+        self.assertIn("journalctl -u testct-registry-sync.service", got)
+        self.assertIn("failed-units", release.health_command("testct", "/etc/testct", "/opt/testct"))
+
     def test_the_health_command_checks_the_things_that_matter(self):
         c = release.health_command("testct", "/etc/testct", "/opt/testct")
         for needle in ("testct-$t.timer", "list-units --failed", "installed-rev", "check-registry /etc/testct/registry.yaml"):

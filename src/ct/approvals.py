@@ -125,7 +125,7 @@ def check_registry(text, registry_text, signers_file, now=None, not_before=0, ru
     if not os.path.isfile(signers_file):
         return False, "no approver key is installed on this worker", None
     if not verify(record, signature, signers_file, run=run, namespace=REGISTRY_NAMESPACE):
-        return False, "signature does not match the approver key", None
+        return False, "signature does not match the approver key (it was made with another key, or before this worker was set up for it)", None
     return True, "", rec
 
 
