@@ -1,7 +1,8 @@
-"""ct-setup install | uninstall | rename | demo | client | server | audit | tripwire-test
+"""ct-setup install | uninstall | rename | transport | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  transport move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
   rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   audit     read-only: check a server against its configuration and report anything that drifted
   tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
@@ -60,7 +61,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="ct-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -209,6 +210,26 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                     emit("Renamed on this machine", f"{run.old} is now {run.new}.", tag="DONE", color=GREEN)
                 return 0
             return rename.rename_command(a, host, ask, ssh_factory, say)
+        if a.cmd == "transport":
+            from . import migrate
+            if a.here:                                           # on the server, as root: the half the client half runs over ssh
+                cfg = load_config()
+                interactive = not a.yes and sys.stdin.isatty()
+                run = migrate.Migrate(host, cfg, a.to, source=a.source, rev=a.rev, say=say, dry_run=not a.apply, skip_sandbox_test=a.no_sandbox_test,
+                                      mailbox_pubkey=(Path(a.mailbox_key_file).read_text() if a.mailbox_key_file else None),
+                                      confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
+                if a.json:
+                    run.check()
+                    import json as _json
+                    print(_json.dumps({"old": run.old, "new": run.to, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))      # output: data (the client half draws it)
+                    return 0
+                status = run.run_all()[-1][1]
+                if status == "declined":
+                    return 1
+                if status == "done":
+                    emit("Moved on this machine", f"The worker now uses {run.to}.", tag="DONE", color=GREEN)
+                return 0
+            return migrate.transport_command(a, host, ask, ssh_factory, say)
         if a.cmd == "tripwire-test":
             from . import tripwire
             cfg = config.load()

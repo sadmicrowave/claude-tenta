@@ -115,6 +115,8 @@ kind = "direct"        # direct | lan | github
 
 `ct-setup transport <kind>` moves an existing install: it shows a preview, copies the repositories with their history (`git push --mirror`), rewrites the remotes on the worker and your computer, and starts the timers again. Approvals stay valid because they are signed and bound to job files, not to where the repositories live. A fleet may mix transports per worker.
 
+**As built (0.2.4):** GitHub to Direct only. The GitHub repositories and the worker's deploy keys are left untouched as the way back; going back is `ct-setup install` answering GitHub, because the worker's GitHub SSH aliases are not written for a Direct install. The key for the mailbox is made on your computer and delivered by the command, and the real-machine run in OrbStack is 0.2.5.
+
 ## What has to change in the code
 
 - `gitio.GitIO` (worker) and `ClientRepos` (client) take their remotes from the transport instead of assuming `git@<alias>:<owner>/<repo>.git`. In Direct the worker side is a local path.
