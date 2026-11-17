@@ -29,12 +29,21 @@ class Art(unittest.TestCase):
 
 
 class Banner(unittest.TestCase):
-    def test_a_wide_enough_terminal_gets_the_picture_and_a_caption_naming_this_tool(self):
-        lines = plain(brand.banner(100, brand.spaced("install")))
-        text = "\n".join(lines)
-        self.assertIn("█", text)
-        self.assertIn(f"CLAUDE-TENTA  I N S T A L L   v{__version__}", text)
-        self.assertLessEqual(max(len(ln) for ln in lines), 100)
+    def test_a_wide_enough_terminal_gets_the_picture_in_a_frame_across_its_whole_width(self):
+        for cols in (60, 100, 173):
+            lines = [ln for ln in plain(brand.banner(cols, brand.spaced("install"), light=False)) if ln]
+            self.assertEqual({len(ln) for ln in lines}, {cols})                         # every row, frame included, is exactly as wide as the terminal
+            self.assertTrue(lines[0].startswith("╭─ ") and lines[0].endswith(" ─╮"))
+            self.assertTrue(lines[-1].startswith("╰") and lines[-1].endswith("╯"))
+            self.assertIn("CLAUDE-TENTA  I N S T A L L", lines[0])
+            self.assertTrue(lines[0].rstrip(" ─╮").endswith(f"v{__version__}"))
+            self.assertIn("█", "\n".join(lines))
+
+    def test_the_water_reaches_both_edges_and_is_one_row_shallower_at_the_same_height(self):
+        rows = plain(brand.art_rows(True, 120))
+        self.assertEqual(len(rows), len(brand.ART))                                     # same height as before
+        self.assertTrue(all(ch != " " for ch in rows[-1] + rows[-2]))                  # the last two rows are water from edge to edge
+        self.assertEqual(rows[0].strip(), "")                                           # the row that took the dropped water's place is sky
 
     def test_a_narrow_terminal_gets_a_short_header_instead(self):
         lines = [ln for ln in plain(brand.banner(40, "S E T U P")) if ln.strip()]
@@ -48,6 +57,24 @@ class Banner(unittest.TestCase):
 
     def test_the_picture_with_colour_off_has_the_same_shapes(self):
         self.assertEqual(plain(brand.art_rows(True)), brand.art_rows(False))
+
+
+class LightAndDark(unittest.TestCase):
+    def test_the_near_white_parts_become_dark_on_a_light_terminal_and_nothing_else_moves(self):
+        dark, light = brand.art_rows(True, 80, False), brand.art_rows(True, 80, True)
+        self.assertEqual(plain(dark), plain(light))                                     # same shapes
+        self.assertNotEqual(dark, light)
+        self.assertIn("38;2;245;245;250", "".join(dark))
+        self.assertNotIn("38;2;245;245;250", "".join(light))                             # the letters would vanish on white
+        self.assertIn("38;2;38;42;76", "".join(light))
+
+    def test_the_terminals_own_answer_decides(self):
+        from ct import theme
+        self.assertGreater(theme.parse_background_reply("\x1b]11;rgb:ffff/ffff/ffff\x07"), 0.9)
+        self.assertLess(theme.parse_background_reply("\x1b]11;rgb:1e1e/1e1e/1e1e\x07"), 0.2)
+        self.assertGreater(theme.parse_background_reply("rgb:ff/ff/ff"), 0.9)
+        self.assertIsNone(theme.parse_background_reply("nothing"))
+        self.assertEqual(theme.background({"CT_BACKGROUND": "light"}), "light")
 
 
 class Version(unittest.TestCase):

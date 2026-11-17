@@ -159,6 +159,63 @@ def rgb(text, colour):
     return f"\x1b[38;2;{colour[0]};{colour[1]};{colour[2]}m{text}\x1b[0m"
 
 
+_background = None
+
+
+def _luminance(r, g, b):
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def parse_background_reply(text):
+    """'rgb:RRRR/GGGG/BBBB' (any hex width) from a terminal's answer to the background-colour query -> 0..1 brightness, or None."""
+    m = re.search(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", text or "")
+    if not m:
+        return None
+    r, g, b = (int(x, 16) / (16 ** len(x) - 1) * 255 for x in m.groups())
+    return _luminance(r, g, b)
+
+
+def _ask_terminal(timeout=0.25):
+    """Ask the terminal for its background colour (OSC 11); None when it does not answer or this is not a terminal."""
+    import select
+    import sys
+    import termios
+    import tty
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("TERM", "dumb") == "dumb":
+        return None
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        sys.stdout.write("\x1b]11;?\x07")
+        sys.stdout.flush()
+        got = ""
+        while select.select([fd], [], [], timeout)[0]:
+            got += os.read(fd, 64).decode("latin-1")
+            if "\x07" in got or "\x1b\\" in got:
+                break
+        return parse_background_reply(got)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def background(env=None):
+    """'light' or 'dark': CT_BACKGROUND wins, then the terminal's own answer, then COLORFGBG, else dark. Asked once per run."""
+    global _background
+    env = os.environ if env is None else env
+    if env.get("CT_BACKGROUND") in ("light", "dark"):
+        return env["CT_BACKGROUND"]
+    if _background is None:
+        try:
+            lum = _ask_terminal()
+        except Exception:                                                # a terminal that misbehaves must never stop a command
+            lum = None
+        if lum is None and env.get("COLORFGBG", "").split(";")[-1].isdigit():
+            lum = 1.0 if int(env["COLORFGBG"].split(";")[-1]) in (7, 15) else 0.0
+        _background = "dark" if lum is None else ("light" if lum > 0.5 else "dark")
+    return _background
+
+
 def preview():
     """(role, code, what it is for) for every role, for `ct-admin theme`."""
     return [(r, code(r), ROLES[r]) for r in ROLES]

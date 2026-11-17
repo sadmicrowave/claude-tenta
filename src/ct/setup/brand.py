@@ -45,18 +45,62 @@ def spaced(text):
     return "   ".join(" ".join(w.upper()) for w in text.split())
 
 
+LIGHT = {0: (150, 160, 192), 6: (38, 42, 76)}      # on a light terminal the near-white parts (cloud, letters) become dark ink; the rest of the artwork reads on both
+SKY = [[]]                                       # a row of sky above the picture, so the picture keeps its height with one row less water
+WATER_ROWS = 2                                   # the last rows of ART are water; the picture is drawn with these
+
+
 def paint(text, colour, on=True):
     return theme.rgb(text, colour) if on and colour else text
 
 
-def art_rows(color=True):
-    """The picture as lines of text."""
-    return ["".join(paint(text, PALETTE[i] if i is not None else None, color) for i, text in row).rstrip() for row in ART]
+def _cells(row):
+    return [(i, ch) for i, text in row for ch in text]
 
 
-def banner(cols, subtitle="S E T U P", color=True):
-    """The header as a list of lines for a terminal `cols` wide."""
-    caption = f"  {paint(NAME.upper(), (240, 242, 248), color)}  {paint(subtitle, (150, 154, 170), color)}   {paint('v' + __version__, (214, 218, 234), color)}"
+def scene(width, light=False):
+    """[[(colour index or None, character)]] rows exactly `width` wide: the picture centred, its water carried on to both edges (the wave pattern repeats)."""
+    rows = SKY + ART[:len(ART) - 1]                       # the solid bottom row of water is dropped
+    pad = max(0, (width - WIDTH) // 2)
+    out = []
+    for n, row in enumerate(rows):
+        cells = _cells(row)
+        cells += [(None, " ")] * (WIDTH - len(cells))
+        if n >= len(rows) - WATER_ROWS:                  # water: repeat the pattern across the whole width
+            line = [cells[(x - pad) % WIDTH] for x in range(width)]
+        else:
+            line = [(None, " ")] * pad + cells + [(None, " ")] * (width - pad - WIDTH)
+        out.append(line)
+    return out
+
+
+def colour_of(index, light=False):
+    return (LIGHT.get(index) if light else None) or PALETTE[index]
+
+
+def art_rows(color=True, width=WIDTH, light=False):
+    """The picture as lines of text, `width` wide."""
+    lines = []
+    for line in scene(width, light):
+        text, run, cur = "", "", "start"
+        for i, ch in line:
+            if i != cur:
+                text += paint(run, colour_of(cur, light) if cur is not None and cur != "start" else None, color) if run else ""
+                run, cur = "", i
+            run += ch
+        text += paint(run, colour_of(cur, light) if cur is not None and cur != "start" else None, color)
+        lines.append(text)
+    return lines
+
+
+def banner(cols, subtitle="S E T U P", color=True, light=None):
+    """The header as a list of lines for a terminal `cols` wide: the picture in a frame across the whole width, in the same outline as every card."""
     if cols < WIDTH + 2:
         return ["", " " + theme.sgr(HANDLE, "primary") if color else " " + HANDLE, "   " + (theme.sgr(subtitle + f"   v{__version__}", "quiet") if color else f"{subtitle}   v{__version__}"), ""]
-    return [""] + art_rows(color) + [caption, ""]
+    light = (theme.background() == "light") if light is None else light
+    edge = (lambda t: theme.sgr(t, "primary")) if color else (lambda t: t)
+    inner = cols - 2
+    title, tag = f"{NAME.upper()}  {subtitle}", f"v{__version__}"
+    head = (edge("╭─ ") + (theme.sgr(title, "strong") if color else title) + edge(" " + "─" * max(1, inner - len(title) - len(tag) - 6) + " ") + (theme.sgr(tag, "primary") if color else tag) + edge(" ─╮"))
+    body = [edge("│") + row + edge("│") for row in art_rows(color, inner, light)]
+    return [""] + [head] + body + [edge("╰" + "─" * inner + "╯"), ""]
