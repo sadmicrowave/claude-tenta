@@ -291,3 +291,25 @@ class GitHub(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SameName(unittest.TestCase):
+    def test_asking_for_the_name_it_already_has_says_what_that_name_is_and_where_it_came_from(self):
+        import argparse
+        import io
+        from contextlib import redirect_stderr
+        h = FakeHost()
+        cfg_file = h.path("/me/.config/claude-tenta/ct.toml").as_posix()
+        h.write(cfg_file, '[identity]\nname = "%s"\n[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n' % OLD)
+        err = io.StringIO()
+        real = rename.config.load
+        rename.config.load = lambda *a, **k: (lambda c: (setattr(c, "source", cfg_file), c)[1])(rename.load_new_config(h.read(cfg_file), OLD))
+        try:
+            with redirect_stderr(err):
+                rc = rename.rename_command(argparse.Namespace(name=OLD, source=None, apply=False, yes=False), h, lambda p: "n", None, lambda *a: None)
+        finally:
+            rename.config.load = real
+        out = err.getvalue()
+        self.assertEqual(rc, 0)
+        for needle in ("already has that name", OLD, cfg_file, "worker.example", f"{OLD}-queue"):
+            self.assertIn(needle, out)

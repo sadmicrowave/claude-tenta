@@ -49,7 +49,7 @@ class Rename:
         if not config.NAME_RE.match(self.new or ""):
             raise SetupError("That is not a valid install name", "3 to 24 lowercase letters, digits or -, starting with a letter.")
         if self.new == self.old:
-            raise SetupError("The install already has that name")
+            raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
         self.cfg2 = load_new_config(self.text, self.new)
         for label, before, after in self.moves():
             if self.host.exists(after):
@@ -246,7 +246,10 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
         emit("Say the new name", "3 to 24 lowercase letters, digits or -, starting with a letter.", tag="ERROR", color=RED, run="ct-setup rename <new-name>")
         return 2
     if new == old:
-        emit("The install already has that name", tag="NOTE", color=YELLOW)
+        emit("The install already has that name", ("Name", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host),
+             ("GitHub repositories", f"{cfg.github.queue_repo}, {cfg.github.results_repo}"),
+             "There is nothing to rename. If you meant to rename an install made under the old name (claude-ballast), its configuration file should be the old cw.toml; check that it is the one shown above.",
+             tag="NOTE", color=YELLOW)
         return 0
     cfg2 = load_new_config(host.read(cfg.source) or "", new)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
