@@ -117,11 +117,14 @@ def parse(text):
     return out, bad
 
 
+_follow = False             # True while no theme was chosen: the first colour asked for then follows the terminal's background
+
+
 def load(env=None):
     """(Re)read the theme. Called once on import; call again after changing the environment or a file."""
-    global _colors, source, problems
+    global _colors, source, problems, _follow
     env = os.environ if env is None else env
-    _colors, problems, source = dict(THEMES["default"]), [], "built in"
+    _colors, problems, source, _follow = dict(THEMES["default"]), [], "built in", False
     if env.get("CT_THEME"):
         if env["CT_THEME"] in THEMES:
             _colors, source = dict(THEMES[env["CT_THEME"]]), f"CT_THEME={env['CT_THEME']}"
@@ -136,10 +139,20 @@ def load(env=None):
         _colors, problems = parse(text)
         source = str(path)
         return
+    _follow = True                                           # nothing chose a theme: a light terminal gets the light one (decided on first use, so a piped command never asks)
+
+
+def _follow_terminal():
+    global _colors, source, _follow
+    _follow = False
+    if background() == "light":
+        _colors, source = dict(THEMES["light"]), "built in, for a light terminal"
 
 
 def code(role):
     """The terminal colour codes for a role ('' when the theme gives it none). Older names (GREEN, BOLD ...) are accepted too."""
+    if _follow:
+        _follow_terminal()
     return _colors.get(LEGACY.get(role, role), "")
 
 

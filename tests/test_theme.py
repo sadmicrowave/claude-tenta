@@ -76,6 +76,35 @@ class Themes(unittest.TestCase):
             self.assertEqual(theme.code("accent"), "")
 
 
+class FollowsTheTerminal(unittest.TestCase):
+    """With no theme chosen, a light terminal gets the light theme and a dark one the default; a chosen theme is never overridden."""
+
+    def tearDown(self):
+        theme.load()
+
+    def test_a_light_terminal_gets_the_light_theme_when_nothing_was_chosen(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("CT_THEME", "CT_THEME_FILE")}
+        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "light", "HOME": tempfile.mkdtemp()}, clear=True):
+            theme.load()
+            self.assertEqual(theme.code("primary"), theme.THEMES["light"]["primary"])
+            self.assertIn("light terminal", theme.source)
+        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "dark", "HOME": tempfile.mkdtemp()}, clear=True):
+            theme.load()
+            self.assertEqual(theme.code("primary"), theme.THEMES["default"]["primary"])
+
+    def test_a_chosen_theme_is_never_overridden_by_the_background(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("CT_THEME", "CT_THEME_FILE")}
+        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "light", "CT_THEME": "default", "HOME": tempfile.mkdtemp()}, clear=True):
+            theme.load()
+            self.assertEqual(theme.code("primary"), theme.THEMES["default"]["primary"])
+            self.assertEqual(theme.source, "CT_THEME=default")
+
+    def test_a_piped_command_never_asks_the_terminal(self):
+        import io
+        with mock.patch.object(sys, "stdout", io.StringIO()), mock.patch.dict(os.environ, {"TERM": "xterm"}):                 # output is not a terminal
+            self.assertIsNone(theme._ask_terminal())                       # returns at once: nothing was written to it, nothing read
+
+
 class NoColourOutsideTheTheme(unittest.TestCase):
     """The point of the theme: changing a colour never means editing a command. These stop a colour being written anywhere else."""
 

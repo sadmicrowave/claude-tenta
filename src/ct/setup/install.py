@@ -229,7 +229,19 @@ class Installer:
         if problem:
             raise SetupError("The server is not supported", problem)
         self.note("connected to the server", "ok", f"{self.ssh.target}, {self.facts.os_id} {self.facts.os_version}")
+        self.existing_worker = self.server_worker_account()
         return conn
+
+    def server_worker_account(self):
+        """The worker account an install already on this server runs as (from its own configuration), or None. Installing again, from a new computer, after a rename or with the
+        saved answers lost, must keep that account: a second one would leave the first's repositories and state unreadable."""
+        name = self.given.get("identity.name") or self.previous_answers().get("identity.name") or "claude-tenta"
+        try:
+            r = self.ssh.capture(f"cat /etc/{shlex.quote(str(name))}/ct.toml 2>/dev/null")
+            account = (tomllib.loads(r.stdout or "").get("server") or {}).get("worker_user")
+        except (ClientError, ValueError, OSError, AttributeError):
+            return None
+        return account if isinstance(account, str) and account else None
 
     # ---- 2. questions ----
     def ask_everything(self, conn):
@@ -237,7 +249,7 @@ class Installer:
         the connection questions."""
         if self.ui is None:
             self.say("\nQuestions")
-        given = {**self.given, **flat(conn)}
+        given = {**({"server.worker_user": self.existing_worker} if getattr(self, "existing_worker", None) else {}), **self.given, **flat(conn)}       # an explicit answer still wins
         pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
         rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions={**self.facts.suggestions(), **self.previous_answers()}, use_defaults=self.use_defaults,
                                           ui=self.ui, allow_back=self.ui is not None, pre_items=pre, advanced=self.advanced,

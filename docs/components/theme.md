@@ -51,3 +51,7 @@ The install header is the picture in a frame (the same outline as a card) across
 ## Diffs
 
 Everything that shows git changes to a person is drawn the way GitHub draws it (`ct/diffview.py`): added lines on a soft green band, removed on soft red, hunk headers and neutral file changes on blue-grey, each with stronger text of the same colour, full width, wrapped lines keeping their colour, shades following the terminal background. That covers `ct-admin diff` and `apply` (the changes table by file status, and the diff) and the file counts (`+N -M`) in a proposal merge. Piped output stays plain text. A test fails if a diff or line count is shown without these colours.
+
+## Following the terminal
+
+When no theme was chosen (no `CT_THEME`, no `theme.toml`), the first colour a command asks for follows the terminal's background: a light terminal gets the `light` theme, a dark one the default. The terminal is asked once per run (see `theme.background`; `CT_BACKGROUND=light|dark` answers for it), and only when both input and output are a terminal, so a piped command never asks. Choosing a theme, by `CT_THEME` or a file, always wins.

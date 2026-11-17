@@ -133,6 +133,19 @@ class HappyPath(InstallBase):
         self.assertTrue(any("deploy key for someone/claude-tenta-queue" in line and "read-only" in line for line in self.said))
         self.assertTrue(any("deploy key for someone/claude-tenta-results" in line and "read and write" in line for line in self.said))
 
+    def test_an_install_already_on_the_server_keeps_its_worker_account_even_when_the_saved_answers_do_not_say(self):
+        self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
+        inst = self.installer()
+        inst.run_all()
+        self.assertEqual(inst.cfg.server.worker_user, "cwworker")
+        self.assertIn(b"cwworker", b"".join(d for _, d in self.ssh.sent))                          # and the answers sent to the server say so
+
+    def test_an_explicit_worker_account_answer_beats_the_one_on_the_server(self):
+        self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nworker_user = "cwworker"\n'
+        inst = self.installer(given={"server.worker_user": "other"})
+        inst.run_all()
+        self.assertEqual(inst.cfg.server.worker_user, "other")
+
     def test_a_key_that_is_already_on_github_is_not_added_twice(self):
         self.machine.replies["gh repo deploy-key list -R someone/claude-tenta-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
         self.installer().run_all()
