@@ -18,7 +18,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from .. import __version__, approvals, clihelp, config, registry, render, review, theme, updatecheck
+from .. import __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -708,7 +708,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
             raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."])
     subject_line, _, rest = msg.partition("\n")
     emit(f"Merge {branch} into main", ("Adds", f"{len(p.commits(branch))} commit(s), squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
-         *[("File", f"{path}  +{add} -{gone}") for path, add, gone in p.files(branch)], ("Becomes", subject_line),
+         *[("File", diffview.counts(path, add, gone)) for path, add, gone in p.files(branch)], ("Becomes", subject_line),
          *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=_ui.PRIMARY)
     if not ctx.confirm(f"Squash-merge {branch} into main and delete the branch?", yes):
         stop("Not merged", "You answered no.")
@@ -855,10 +855,10 @@ def show_diff(ctx, sha, full=False):
         return True
     root = [f for f in files if release.is_root_run(f[1])]
     _ui.table(f"{release.short(now)} to {release.short(sha)}", ["", "change", "file"],
-              [[("ROOT", "bad") if release.is_root_run(path) else "", status, path] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
+              [[("ROOT", "bad") if release.is_root_run(path) else "", diffview.status_cell(status, status), diffview.status_cell(path, status)] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
               tag="CHANGES", color=_ui.YELLOW if root else _ui.PRIMARY, stream=out,
               notes=(f"{len(files)} file(s) change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
-    _ui.document("The change itself", ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN), tag="DIFF", stream=out)
+    _ui.document("The change itself", ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN), tag="DIFF", stream=out, as_diff=True)
     return True
 
 

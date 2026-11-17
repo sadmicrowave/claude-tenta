@@ -7,7 +7,7 @@ import base64
 import os
 import sys
 
-from . import cards, theme
+from . import cards, diffview, theme
 
 # Roles, not colours: what each looks like is decided in ct.theme (and the user's theme.toml). The older names stay so every caller keeps working.
 BOLD, DIM, ITALIC, RED, GREEN, YELLOW, CYAN = "strong", "muted", "italic", "bad", "ok", "warn", "info"
@@ -91,12 +91,12 @@ def show(lines, stream=None):
     print("\n".join(lines), file=stream or sys.stdout)                                                   # output: pre-drawn lines
 
 
-def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), framed=True):
+def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), framed=True, as_diff=False):
     """The text of something (a job file, a kept output) as a card with the text inside it, for a person at a terminal. Piped, only the text is printed, exactly as it
     is, so a script can read it."""
     stream = stream or sys.stdout
     if _color_on(stream):
-        lines = str(text).rstrip("\n").split("\n") or [""]
+        lines = diffview.lines(text, diffview.room(framed)) if as_diff else (str(text).rstrip("\n").split("\n") or [""])
         out = [""] + cards.card(title, [*notes, cards.Block(lines)], tag=tag, color=color or PRIMARY, framed=framed)
         print("\n".join(out) + "\n", file=stream)                                                       # output: a card
     else:

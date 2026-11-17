@@ -47,3 +47,7 @@ When a card at a terminal ends with a "Run this" command, the first command (the
 ## The header and light or dark terminals
 
 The install header is the picture in a frame (the same outline as a card) across the whole terminal width, its water carried to both edges. It follows the terminal's background: the terminal is asked for its colour (OSC 11), then `COLORFGBG` is read, else dark is assumed; `CT_BACKGROUND=light` or `dark` overrides. On a light terminal the near-white parts (cloud, letters) are drawn dark. See `theme.background` and `brand.banner`.
+
+## Diffs
+
+Everything that shows git changes to a person is drawn the way GitHub draws it (`ct/diffview.py`): added lines on a soft green band, removed on soft red, hunk headers and neutral file changes on blue-grey, each with stronger text of the same colour, full width, wrapped lines keeping their colour, shades following the terminal background. That covers `ct-admin diff` and `apply` (the changes table by file status, and the diff) and the file counts (`+N -M`) in a proposal merge. Piped output stays plain text. A test fails if a diff or line count is shown without these colours.
