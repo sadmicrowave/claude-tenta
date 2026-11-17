@@ -293,6 +293,19 @@ def render_classes(info, pending=(), excluded=0, out=None, product="the worker")
 
 
 # ---- waiting for a result ----
+PACE = {"idle": 90, "sleep": 300}          # how often a worker checks while idle / asleep; set from the configuration (see set_pace)
+
+
+def set_pace(schedule):
+    """Take the worker's polling pace from the configuration, so what a person is told to expect is what the worker does."""
+    PACE.update(idle=int(schedule.idle_fetch_s) or 5, sleep=int(schedule.sleep_fetch_s) or int(schedule.idle_fetch_s) or 5)
+
+
+def pace_text():
+    """What to expect before a job is noticed: a busy worker looks every few seconds, an idle one less often, a sleeping one least."""
+    return f"a busy worker looks every few seconds, an idle one every {PACE['idle']} s, a sleeping one every {max(1, PACE['sleep'] // 60)} min"
+
+
 def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", waited=0):
     """(what to show, colour) for the one-line progress, from the latest published result (None = not picked up yet). `waited` is how many seconds the job has
     been waiting, so a job nobody picks up is described honestly instead of promising "within a minute" forever."""
@@ -303,7 +316,7 @@ def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", w
     if not res and late:
         return f"sent {waited // 60} min ago and {product} has not picked it up: run `{admin} status` to see whether it is running", RED
     if not res:
-        return f"sent: waiting for {product} to notice it (it checks every few seconds)", YELLOW
+        return f"sent: waiting for {product} to notice it ({pace_text()})", YELLOW
     if status == "queued":
         return f"queued on {product}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
     if status == "awaiting_approval":

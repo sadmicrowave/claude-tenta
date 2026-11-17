@@ -96,7 +96,7 @@ class Human(unittest.TestCase):
 
     def test_phases(self):
         p = lambda res, **kw: view.phase_of(res, "job-1", "tcw-admin", product="tcw", **kw)[0]    # noqa: E731
-        self.assertEqual(p(None), "sent: waiting for tcw to notice it (it checks every few seconds)")
+        self.assertEqual(p(None), "sent: waiting for tcw to notice it (a busy worker looks every few seconds, an idle one every 90 s, a sleeping one every 5 min)")
         self.assertEqual(p({"status": "queued"}), "queued on tcw: waiting for a free slot")
         self.assertIn("2 min so far", p({"status": "queued"}, waited=130))
         self.assertIn("has not picked it up", p(None, waited=130))               # a job nobody picks up is no longer described as "within a minute"

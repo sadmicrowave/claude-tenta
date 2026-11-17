@@ -51,6 +51,7 @@ class Context:
 
     @classmethod
     def from_config(cls, cfg):
+        view.set_pace(cfg.schedule)
         repos = ClientRepos(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch)
         name = cfg.identity.name
         return cls(repos, product=name, admin="cw-admin", hints=[("on your computer", "cw-admin approve {}"), ("on the worker", "cw-worker approve {}")],
@@ -92,7 +93,7 @@ def cmd_submit(ctx, a):
         emit(f"{len(files)} files split into {len(batches)} independent jobs", *ids, tag="NOTE", color=YELLOW)
     for jid, chunk in zip(ids, batches):
         sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
-        emit(f"Queued {jid}", f"{ctx.product} picks it up within a few seconds (up to 20 s if it was idle).", tag="QUEUED", color=CYAN)
+        emit(f"Queued {jid}", f"{ctx.product} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     try:
         r.prune_jobs()
     except ClientError:
