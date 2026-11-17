@@ -36,15 +36,23 @@ def render_plan(steps, old, new, *, where):
            tag="PREVIEW", color=ui.PRIMARY, stream=sys.stderr)
 
 
-def with_name(text, new):
-    """The configuration text with identity.name set to `new` (everything else as it was)."""
+def with_name(text, new, old=None):
+    """The configuration text with identity.name set to `new` (everything else as it was). The installer writes the repositories' names into the file too, as
+    `<name>-queue` and `<name>-results`; those that carry the old name follow it (a custom repository name is left alone), or the file would keep pointing at repositories
+    that no longer have that name. `old` is the name the file meant, when it does not say (an old settings file that never wrote its name)."""
     raw = tomllib.loads(text or "")
+    old = old or (raw.get("identity") or {}).get("name")
     raw.setdefault("identity", {})["name"] = new
+    gh = raw.get("github")
+    if old and isinstance(gh, dict):
+        for key, which in (("queue_repo", "queue"), ("results_repo", "results")):
+            if gh.get(key) == f"{old}-{which}":
+                gh[key] = f"{new}-{which}"
     return toml_out.dump(raw)
 
 
-def load_new_config(text, new):
-    clean, problems = config.validate(tomllib.loads(with_name(text, new)), require_alert_url=False)
+def load_new_config(text, new, old=None):
+    clean, problems = config.validate(tomllib.loads(with_name(text, new, old)), require_alert_url=False)
     if problems:
         raise SetupError("The new name does not make a valid configuration", "\n".join(problems[:5]))
     return config.Config(clean)
@@ -69,7 +77,7 @@ class Rename:
             raise SetupError("That is not a valid install name", "3 to 24 lowercase letters, digits or -, starting with a letter.")
         if self.new == self.old:
             raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
-        self.cfg2 = load_new_config(self.text, self.new)
+        self.cfg2 = load_new_config(self.text, self.new, self.old)
         for label, before, after in self.moves():
             if self.host.exists(after):
                 raise SetupError(f"{after} already exists", "Something else is using the new name's folder, so nothing was changed.")
@@ -99,7 +107,7 @@ class Rename:
                 + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and "@" not in p and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
         out.append(("Move the folders", [A("run", argv=["mv", a, b]) for _, a, b in self.moves()]))
         new_conf = f"{c2.paths.config}/ct.toml"
-        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new), mode=0o644)]))
+        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new, old), mode=0o644)]))
         w, home = c.server.worker_user, c.paths.worker_home
         ssh = [A("write", path=f"{home}/.ssh/config", text=ssh_config_text(c2), mode=0o600), A("run", argv=["chown", f"{w}:{w}", f"{home}/.ssh/config"])]
         for which in ("queue", "results"):
@@ -238,7 +246,7 @@ def rewrite_local(host, cfg, cfg2, new):
     old name, taking it from there), and the two clones' remote URLs. Returns the files changed."""
     from pathlib import Path
     changed = []
-    text = with_name(host.read(cfg.source) or "", new)
+    text = with_name(host.read(cfg.source) or "", new, cfg.identity.name)
     old_home, new_home = Path(cfg.paths.client_home).expanduser(), Path(cfg2.paths.client_home).expanduser()
     if old_home != new_home and host.exists(str(old_home)) and not host.exists(str(new_home)):
         host.run(["mv", str(old_home), str(new_home)])                       # a computer set up before the project was renamed keeps its clones, keys and notes in the old folder
@@ -253,7 +261,7 @@ def rewrite_local(host, cfg, cfg2, new):
     host.run(["sh", "-c", "for c in cw-run cw-admin cw-setup cw-help; do l=\"$HOME/.local/bin/$c\"; [ -L \"$l\" ] && rm -f \"$l\"; done; true"])      # the old command links; `ct-setup client` makes the new ones
     answers = str(Path(cfg2.paths.client_home).expanduser() / "install-answers.toml")
     if host.exists(answers):
-        host.write(answers, with_name(host.read(answers) or "", new), 0o600)
+        host.write(answers, with_name(host.read(answers) or "", new, cfg.identity.name), 0o600)
         changed.append(answers)
     for clone, url in ((cfg2.path("client_queue"), cfg2.queue_url), (cfg2.path("client_results"), cfg2.results_url)):
         if host.exists(clone + "/.git") or host.exists(clone + "/HEAD"):
@@ -282,7 +290,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
              "There is nothing to rename. If you meant to rename an install made under the old name (claude-ballast), its configuration file should be the old cw.toml; check that it is the one shown above.",
              tag="NOTE", color=YELLOW)
         return 0
-    cfg2 = load_new_config(host.read(cfg.source) or "", new)
+    cfg2 = load_new_config(host.read(cfg.source) or "", new, old)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:

@@ -342,3 +342,21 @@ class PlanCard(Installed):
         text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
         for needle in (f"Rename {OLD} to {NEW} on worker.example", "PREVIEW", "MOVE THE FOLDERS", f"mv /opt/{OLD} /opt/{NEW}", "KEPT", "job history"):
             self.assertIn(needle, text.upper() if needle.isupper() else text)
+
+
+class RepositoryNamesFollow(unittest.TestCase):
+    def test_repository_names_that_carry_the_old_name_follow_it_and_custom_ones_stay(self):
+        text = '[identity]\nname = "%s"\n[github]\nowner = "someone"\nqueue_repo = "%s-queue"\nresults_repo = "my-own-results"\n' % (OLD, OLD)
+        out = rename.tomllib.loads(rename.with_name(text, NEW))
+        self.assertEqual((out["identity"]["name"], out["github"].get("queue_repo", f"{NEW}-queue"), out["github"]["results_repo"]), (NEW, f"{NEW}-queue", "my-own-results"))          # a value equal to the default is not written
+
+    def test_an_old_file_that_never_wrote_its_name_is_told_what_it_meant(self):
+        text = '[github]\nowner = "someone"\nqueue_repo = "claude-ballast-queue"\n'
+        out = rename.tomllib.loads(rename.with_name(text, NEW, "claude-ballast"))
+        self.assertEqual((out["identity"]["name"], out["github"].get("queue_repo", f"{NEW}-queue")), (NEW, f"{NEW}-queue"))
+
+    def test_the_plan_and_the_new_configuration_carry_the_new_repository_names(self):
+        h = FakeHost()
+        cfg = cfg_of(alerts={"kind": "none"}, github={"owner": "someone", "queue_repo": f"{OLD}-queue", "results_repo": f"{OLD}-results"})
+        cfg2 = rename.load_new_config(rename.with_name('[github]\nowner = "someone"\nqueue_repo = "%s-queue"\nresults_repo = "%s-results"\n' % (OLD, OLD), NEW, OLD), NEW, OLD)
+        self.assertEqual((cfg2.github.queue_repo, cfg2.github.results_repo), (f"{NEW}-queue", f"{NEW}-results"))
