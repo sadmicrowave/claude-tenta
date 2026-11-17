@@ -335,7 +335,7 @@ def phase_of(res, jid, admin="cw-admin", approved=False, product="the worker", w
     return status or "waiting", CYAN
 
 
-CHIP_FOR = {YELLOW: "wait_chip", CYAN: "accent_chip", RED: "bad_chip", GREEN: "ok_chip"}      # the chip colour for each live-line colour (yellow has its own gold)
+CHIP_FOR = {YELLOW: "wait_chip", CYAN: "primary_chip", RED: "bad_chip", GREEN: "ok_chip"}      # the chip colour for each live-line colour (yellow has its own gold)
 
 
 class Progress:
@@ -358,7 +358,7 @@ class Progress:
         spin = SPIN[self.i % len(SPIN)]
         word, _, rest = text.partition(" ")                  # every live line starts with its status as a CAPITALS chip, so the eye lands on it first
         chip = f" {word.rstrip(':,;.').upper()} "
-        chip_role = CHIP_FOR.get(color, "accent_chip")
+        chip_role = CHIP_FOR.get(color, "primary_chip")
         room = width - len(clock_text) - len(spin) - 1 - (len(chip) + 1 if chip else 0)
         rest = rest if len(rest) <= room else rest[:max(1, room - 1)] + "…"                 # one line, always: a long phase is cut with a mark, never wrapped
         self.i += 1

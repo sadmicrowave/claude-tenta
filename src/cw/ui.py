@@ -10,7 +10,7 @@ from . import cards, theme
 
 # Roles, not colours: what each looks like is decided in cw.theme (and the user's theme.toml). The older names stay so every caller keeps working.
 BOLD, DIM, ITALIC, RED, GREEN, YELLOW, CYAN = "strong", "muted", "italic", "bad", "ok", "warn", "info"
-ACCENT, ROOT = "accent", "root"
+ACCENT, PRIMARY, ROOT = "accent", "primary", "root"
 
 
 def _color_on(stream):
@@ -80,7 +80,7 @@ def related(*pairs, title="From here", stream=None, force=False):
     watching = force or (sys.stdout.isatty() and stream.isatty() and os.environ.get("CW_HINTS") != "never")
     if not pairs or not watching:
         return False
-    out = ["", paint(title, BOLD, ACCENT, stream=stream)]
+    out = ["", paint(title, BOLD, PRIMARY, stream=stream)]
     for what, command in pairs:
         out += ["", paint(what, BOLD, stream=stream), paint(command, BOLD, GREEN, stream=stream)]
     print("\n".join(out) + "\n", file=stream)

@@ -131,4 +131,4 @@ def text_card(jid, text, product="the worker", digest=None, kind="REVIEW"):
     rows = [cards.Block(text.split("\n"))] if text else []
     if digest:
         rows += [("Digest", f"{digest[:12]}...  approval is pinned to this exact file")]
-    return dict(title=jid, details=rows, tag="PROFILE RUN" if caution else kind, color=ui.YELLOW if caution else ui.ACCENT)
+    return dict(title=jid, details=rows, tag="PROFILE RUN" if caution else kind, color=ui.YELLOW if caution else ui.PRIMARY)

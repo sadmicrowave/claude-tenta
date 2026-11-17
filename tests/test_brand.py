@@ -16,17 +16,12 @@ def plain(lines):
     return [re.sub(r"\x1b\[[0-9;]*m", "", ln) for ln in lines]
 
 
-class Letters(unittest.TestCase):
-    def test_every_glyph_is_six_rows_of_one_width(self):
-        for ch, rows in brand.GLYPHS.items():
-            self.assertEqual(len(rows), 6, ch)
-            self.assertEqual(len({len(r) for r in rows}), 1, f"{ch}: rows are different widths")
-
-    def test_the_name_is_spelled_with_glyphs_that_exist(self):
-        self.assertEqual(brand.NAME, "cw-ballast")
-        rows = brand.word(brand.NAME)
-        self.assertEqual(len(rows), 6)
-        self.assertTrue(all(r for r in rows))
+class Art(unittest.TestCase):
+    def test_the_picture_is_a_table_of_runs_that_fit_the_declared_width(self):
+        self.assertEqual(len(brand.ART), 14)
+        for row in brand.ART:
+            self.assertLessEqual(sum(len(t) for _, t in row), brand.WIDTH)
+            self.assertTrue(all(i is None or 0 <= i < len(brand.PALETTE) for i, _ in row))
 
     def test_spaced_subtitle(self):
         self.assertEqual(brand.spaced("install"), "I N S T A L L")
@@ -34,31 +29,25 @@ class Letters(unittest.TestCase):
 
 
 class Banner(unittest.TestCase):
-    def test_wide_terminals_get_the_mark_and_the_name(self):
-        lines = plain(brand.banner(130, brand.spaced("install")))
+    def test_a_wide_enough_terminal_gets_the_picture_and_a_caption_naming_this_tool(self):
+        lines = plain(brand.banner(100, brand.spaced("install")))
         text = "\n".join(lines)
-        self.assertIn("@@", text)
-        self.assertIn("██╗", text)
-        self.assertIn(f"@cw-ballast   I N S T A L L   v{__version__}", text)
-        self.assertLessEqual(max(len(ln) for ln in lines), 130)
-
-    def test_a_medium_terminal_gets_the_name_alone(self):
-        lines = plain(brand.banner(100, "S E T U P"))
-        self.assertNotIn("@@", "\n".join(lines[:-2]))
+        self.assertIn("█", text)
+        self.assertIn(f"CW-BALLAST  I N S T A L L   v{__version__}", text)
         self.assertLessEqual(max(len(ln) for ln in lines), 100)
 
-    def test_a_narrow_terminal_gets_one_line(self):
-        lines = [ln for ln in plain(brand.banner(60, "S E T U P")) if ln.strip()]
-        self.assertEqual(len(lines), 1)
+    def test_a_narrow_terminal_gets_a_short_header_instead(self):
+        lines = [ln for ln in plain(brand.banner(40, "S E T U P")) if ln.strip()]
+        self.assertLessEqual(len(lines), 2)
         self.assertIn("@cw-ballast", lines[0])
+        self.assertIn(f"v{__version__}", "\n".join(lines))
 
     def test_no_colour_codes_when_colour_is_off(self):
-        self.assertNotIn("\x1b", "\n".join(brand.banner(130, "S E T U P", color=False)))
+        for cols in (100, 40):
+            self.assertNotIn("\x1b", "\n".join(brand.banner(cols, "S E T U P", color=False)))
 
-    def test_the_mark_is_a_two_tone_shape_that_fits_beside_the_letters(self):
-        art = brand.mark()
-        self.assertTrue({"@", "#"} <= set("".join(art)))
-        self.assertLessEqual(max(len(r) for r in art), 24)
+    def test_the_picture_with_colour_off_has_the_same_shapes(self):
+        self.assertEqual(plain(brand.art_rows(True)), brand.art_rows(False))
 
 
 class Version(unittest.TestCase):

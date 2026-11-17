@@ -10,7 +10,7 @@ from unittest import mock
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from cw import approvals, clihelp, registry
+from cw import approvals, clihelp, registry, theme
 from cw.admin import cli, jobs, regedit, release
 from cw.admin import workers as workers_mod
 from cw.admin.ssh import Ssh
@@ -383,7 +383,7 @@ class WorkerCards(unittest.TestCase):
 
     def test_colour_gives_the_rail_a_blue_or_red_or_dim_code(self):
         blue = "\n".join(workers_mod.cards([self.ROW], width=80, color=True))
-        self.assertIn("38;5;75", blue)
+        self.assertIn(theme.code("primary"), blue)
         self.assertIn("38;5;203", "\n".join(workers_mod.cards([dict(self.ROW, locked=True)], width=80, color=True)))
         self.assertIn("\x1b[2m┃ ", "\n".join(workers_mod.cards([dict(self.ROW, stale=True)], width=80, color=True)))
 

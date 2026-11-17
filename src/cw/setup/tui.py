@@ -20,7 +20,7 @@ from .. import theme
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 # Roles, not colours: cw.theme decides what they look like (and the user's theme.toml can change them).
-BLUE, BLUE_CHIP, AMBER, AMBER_CHIP = "accent", "accent_chip", "warn", "warn_chip"
+BLUE, BLUE_CHIP, AMBER, AMBER_CHIP = "primary", "primary_chip", "warn", "warn_chip"        # BLUE is the main colour now (names kept so nothing else changes); labels use "label" (blue)
 GREEN, GREEN_BTN, RED, DIM, BOLD = "ok", "ok_chip", "bad", "muted", "strong"
 WINDOW = 4                           # answered questions kept on screen above the active one; the rest are summarised
 BAR = 24
@@ -381,9 +381,9 @@ class TuiPrompter:
         if q.get("risk"):
             head += [self.rail()] + self.labelled("RISK", AMBER, q["risk"])
         if q.get("choices"):
-            head += [self.rail()] + self.labelled("CHOICES", BLUE, "type a name or its number, or press Tab") + self.choice_lines(q, (prefill or shown or "").strip())
+            head += [self.rail()] + self.labelled("CHOICES", "label", "type a name or its number, or press Tab") + self.choice_lines(q, (prefill or shown or "").strip())
         elif q.get("examples"):
-            head += [self.rail()] + self.labelled("EXAMPLES", BLUE, "  ·  ".join(q["examples"]))
+            head += [self.rail()] + self.labelled("EXAMPLES", "label", "  ·  ".join(q["examples"]))
         if problem:
             head += [self.rail(), self.rail(self.sgr("That did not work: " + problem, RED))]
         head.append(self.rail())

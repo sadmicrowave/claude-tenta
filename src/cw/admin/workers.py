@@ -119,7 +119,7 @@ def row_for(name, doc, now=None):
 
 
 # ---- the cards: the wizard's question-card look (a coloured rail down the left, a chip, labelled rows) ----------------------------------------------
-BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "accent", "accent_chip", "warn_chip", "bad_chip"          # roles: cw.theme decides the colours
+BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "primary", "primary_chip", "warn_chip", "bad_chip"          # roles: cw.theme decides the colours
 RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
 ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
 HANG = 10
@@ -146,6 +146,6 @@ def cards(rows, width=80, color=True):
             code = AMBER if (key == "claude" and not r["has_claude"] and r["claude"] not in ("none", "-")) else BLUE
             out.append(rail(sgr(label.ljust(HANG), code, BOLD) + value))
         if r.get("packages") is not None and not r["stale"]:
-            out.append(rail(sgr("INSTALLED".ljust(HANG), BLUE, BOLD) + f"{r['classes']} class{'' if r['classes'] == 1 else 'es'}, {r['packages']} package{'' if r['packages'] == 1 else 's'}"))
+            out.append(rail(sgr("INSTALLED".ljust(HANG), "label", BOLD) + f"{r['classes']} class{'' if r['classes'] == 1 else 'es'}, {r['packages']} package{'' if r['packages'] == 1 else 's'}"))
         out.append("")
     return out

@@ -24,6 +24,18 @@ class Themes(unittest.TestCase):
             for role, code in colors.items():
                 self.assertTrue(code == "" or theme.CODE_RE.match(code), (name, role))
 
+    def test_the_main_colour_is_purple_and_blue_is_the_accent(self):
+        d = theme.THEMES["default"]
+        self.assertTrue(d["primary"].startswith("38;2;") and d["primary_chip"].startswith("48;2;146;46;118"))
+        self.assertTrue(d["accent"].startswith("38;5;"))
+        self.assertNotEqual(d["primary"], d["accent"])
+        self.assertEqual(d["info"], d["primary"])                                 # neutral headings follow the main colour
+
+    def test_truecolour_codes_are_accepted_for_any_role(self):
+        colors, bad = theme.parse('[colors]\nprimary_chip = "48;2;146;46;118;38;2;255;255;255;1"\n')
+        self.assertEqual(bad, [])
+        self.assertTrue(colors["primary_chip"].startswith("48;2;146;46;118"))
+
     def test_a_file_changes_one_role_and_nothing_else(self):
         colors, bad = theme.parse('[colors]\naccent = "38;5;99"\n')
         self.assertEqual(bad, [])

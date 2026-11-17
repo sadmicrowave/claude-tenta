@@ -114,7 +114,7 @@ class Breakout(unittest.TestCase):
         at = lines.index(" TRY IT ")
         self.assertEqual(lines[at - 2:at], ["", ""])
         self.assertEqual(lines[at + 1:at + 4], ["", "cw-run classes", "cw-admin status"])
-        self.assertIn(theme.sgr(" TRY IT ", "accent_chip"), raw)
+        self.assertIn(theme.sgr(" TRY IT ", "primary_chip"), raw)
 
 
 class YesNoPrompt(unittest.TestCase):

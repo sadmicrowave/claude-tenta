@@ -23,7 +23,7 @@ from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
-from ..ui import ACCENT, BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
+from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from ..setup import tui
 from . import actionadd, jobs, regedit, release, selfupdate, workers
 from .proposals import Proposals
@@ -598,7 +598,7 @@ def action_remove(ctx, a):
 def cmd_theme(ctx, a):
     """Show every colour role, what it looks like now and where the theme came from (so a theme.toml can be checked before you rely on it)."""
     rows = [(r, _ui.paint(f" {r} ", r if not r.endswith("_chip") else r, stream=sys.stdout) + "  " + what) for r, code, what in theme.preview()]
-    emit("Colours", ("Theme", theme.source), *rows, *(("Problem", p) for p in theme.problems), tag="THEME" if not theme.problems else "PROBLEM", color=_ui.ACCENT if not theme.problems else RED,
+    emit("Colours", ("Theme", theme.source), *rows, *(("Problem", p) for p in theme.problems), tag="THEME" if not theme.problems else "PROBLEM", color=_ui.PRIMARY if not theme.problems else RED,
          steps=["Change a role in theme.toml (see docs/components/theme.md); every command picks it up, nothing else to edit."], steps_label="To change it", stream=sys.stdout)
     return 1 if theme.problems else 0
 
@@ -678,7 +678,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     subject_line, _, rest = msg.partition("\n")
     emit(f"Merge {branch} into main", ("Adds", f"{len(p.commits(branch))} commit(s), squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", f"{path}  +{add} -{gone}") for path, add, gone in p.files(branch)], ("Becomes", subject_line),
-         *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=ACCENT)
+         *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=_ui.PRIMARY)
     if not ctx.confirm(f"Squash-merge {branch} into main and delete the branch?", yes):
         stop("Not merged", "You answered no.")
     p.push_main(sha)

@@ -13,8 +13,8 @@ from . import theme
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 FRAMED = {"bad", "warn", "root"}                    # these roles get the outline; everything else gets the rail
-CHIP = {"ok": "ok_chip", "bad": "bad_chip", "warn": "warn_chip", "root": "root_chip"}
-ROLE_OF = {"info": "accent", "accent": "accent", "ok": "ok", "bad": "bad", "warn": "warn", "root": "root"}
+CHIP = {"ok": "ok_chip", "bad": "bad_chip", "warn": "warn_chip", "root": "root_chip", "primary": "primary_chip", "accent": "accent_chip"}
+ROLE_OF = {"info": "primary", "primary": "primary", "accent": "accent", "ok": "ok", "bad": "bad", "warn": "warn", "root": "root"}
 
 
 class Heading(str):
@@ -36,7 +36,7 @@ def width(stream=None, cols=None):
 
 def role_for(color):
     """The role a message's colour stands for; an unknown one reads as plain information."""
-    return ROLE_OF.get(color, "accent")
+    return ROLE_OF.get(color, "primary")
 
 
 def wrap(text, room):
@@ -82,7 +82,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     else:
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731
         row = rail
-        out += [rail(p(f" {tag.upper()} ", CHIP.get(role, "accent_chip"))), rail(), rail(p(title, "strong"))]
+        out += [rail(p(f" {tag.upper()} ", CHIP.get(role, "primary_chip"))), rail(), rail(p(title, "strong"))]
         if body and body[0][0] != "note":                              # context hugs its subject; facts and sections are set apart from it
             out.append(rail())
     fact_room = inner - (lw + 2 if lw else 0)
@@ -130,4 +130,4 @@ def meta(sections, cols=None):
 def commands(run, label="Run this"):
     """The commands to copy: a label, then each command alone on its own line with nothing before or after it."""
     cmds = [run] if isinstance(run, str) else list(run)
-    return ["", "", theme.sgr(f" {label.upper()} ", "accent_chip"), ""] + [theme.sgr(c, "ok", "strong") for c in cmds]       # its own breakout, set apart from the card above
+    return ["", "", theme.sgr(f" {label.upper()} ", "primary_chip"), ""] + [theme.sgr(c, "ok", "strong") for c in cmds]       # its own breakout, set apart from the card above

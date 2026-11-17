@@ -11,7 +11,7 @@ import textwrap
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW
 
-BLUE = "accent"                # a role: the wizard's own blue unless the theme says otherwise
+BLUE = "primary"               # a role: the main colour unless the theme says otherwise
 
 GOOD = {"ok", "installed", "created", "written", "linked", "stored", "updated", "removed", "satisfied", "applied", "running", "done", "seeded", "cloned", "present",
         "added", "sent", "set", "captured"}

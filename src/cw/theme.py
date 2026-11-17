@@ -5,7 +5,7 @@ role looks like. To change the look of the whole tool, change a role here, pick 
 
     theme = "light"            # a built-in theme: default | light | mono  (optional)
     [colors]
-    accent = "38;5;99"         # any role below, written as terminal colour codes (the part between ESC[ and m)
+    primary = "38;5;99"        # any role below, written as terminal colour codes (the part between ESC[ and m)
     ok_chip = "48;5;22;38;5;255;1"
 
 Where it is read from, first found wins: the file named by CW_THEME_FILE, `~/.cw/theme.toml`, `theme.toml` in the folder of the active cw.toml.
@@ -24,8 +24,10 @@ ROLES = {
     "prompt": "the question line of every yes/no prompt ([y/N]); a different colour from everything else so it cannot be missed",
     "muted": "secondary text: reasons, hints, answered questions",
     "italic": "emphasis",
-    "accent": "the rail, section headers, key names",
-    "accent_chip": "a filled label naming a section or a worker",
+    "primary": "the main colour: rails, section headings, the progress bar, key names, the logo's name",
+    "primary_chip": "a filled label in the main colour: a section's name, a worker's name, the word TRY IT",
+    "accent": "a second, cooler colour for highlights and data labels",
+    "accent_chip": "a filled label in the accent colour",
     "ok": "success, safe choices, commands to copy",
     "ok_chip": "a filled confirm button",
     "warn": "caution, things to read before saying yes",
@@ -45,28 +47,30 @@ ROLES = {
 THEMES = {
     "default": {
         "strong": "1", "label": "38;5;75", "prompt": "38;5;178", "muted": "2", "italic": "3",
+        "primary": "38;2;173;98;152", "primary_chip": "48;2;146;46;118;38;5;255;1",
         "accent": "38;5;75", "accent_chip": "48;5;27;38;5;255;1",
         "ok": "38;5;41", "ok_chip": "48;5;28;38;5;255;1",
         "warn": "38;5;178", "warn_chip": "48;5;178;38;5;16;1",
         "bad": "38;5;203", "bad_chip": "48;5;160;38;5;255;1",
         "root": "38;5;207", "root_chip": "48;5;127;38;5;255;1",
-        "info": "38;5;80", "neutral_chip": "48;5;240;38;5;255;1", "wait_chip": "48;5;220;38;5;16;1",
+        "info": "38;2;173;98;152", "neutral_chip": "48;5;240;38;5;255;1", "wait_chip": "48;5;220;38;5;16;1",
         "brand": "38;5;80", "brand_dim": "38;5;37", "quiet": "38;5;245",
     },
     "light": {                                              # for a white terminal: darker, no pale tones
         "strong": "1", "label": "38;5;25", "prompt": "38;5;130", "muted": "38;5;241", "italic": "3",
+        "primary": "38;2;120;30;98", "primary_chip": "48;2;146;46;118;38;5;255;1",
         "accent": "38;5;25", "accent_chip": "48;5;25;38;5;255;1",
         "ok": "38;5;28", "ok_chip": "48;5;28;38;5;255;1",
         "warn": "38;5;130", "warn_chip": "48;5;172;38;5;16;1",
         "bad": "38;5;124", "bad_chip": "48;5;124;38;5;255;1",
         "root": "38;5;90", "root_chip": "48;5;90;38;5;255;1",
-        "info": "38;5;30", "neutral_chip": "48;5;250;38;5;16;1", "wait_chip": "48;5;179;38;5;16;1",
+        "info": "38;2;120;30;98", "neutral_chip": "48;5;250;38;5;16;1", "wait_chip": "48;5;179;38;5;16;1",
         "brand": "38;5;30", "brand_dim": "38;5;37", "quiet": "38;5;244",
     },
-    "mono": {r: ("1" if r in ("strong", "label", "prompt", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")
+    "mono": {r: ("1" if r in ("strong", "label", "prompt", "primary", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")
              for r in ROLES},
 }
-CODE_RE = re.compile(r"^[0-9]{1,3}(;[0-9]{1,3}){0,9}$")
+CODE_RE = re.compile(r"^[0-9]{1,3}(;[0-9]{1,3}){0,15}$")
 LEGACY = {"BOLD": "strong", "DIM": "muted", "ITALIC": "italic", "RED": "bad", "GREEN": "ok", "YELLOW": "warn", "CYAN": "info"}     # the names older code used
 
 problems = []                                               # what was wrong with the user's theme file (shown by `cw-admin theme`)
@@ -148,6 +152,11 @@ def sgr(text, *parts):
     """Wrap text in the escape codes for these roles (the caller decides whether colour is on)."""
     c = resolve(*parts)
     return f"\x1b[{c}m{text}\x1b[0m" if c else text
+
+
+def rgb(text, colour):
+    """Text in an exact RGB colour (artwork, whose colours are its own and do not follow the theme). The caller decides whether colour is on."""
+    return f"\x1b[38;2;{colour[0]};{colour[1]};{colour[2]}m{text}\x1b[0m"
 
 
 def preview():
