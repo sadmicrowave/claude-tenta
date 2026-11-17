@@ -79,7 +79,8 @@ def deliver_source(ssh, source, archive=archive_source, say=print):
     """Send the committed files of the checkout to a fresh working folder on the server. Returns (folder, revision)."""
     data, rev, dirty = archive(source)
     if dirty:
-        say("\n  NOTE  You have uncommitted changes. The server gets the last COMMIT (" + rev[:9] + "); the changes are not included.")
+        ui_mod.say("You have uncommitted changes", ("The server gets", f"the last commit, {rev[:9]}"), "The changes you have not committed are not included.",
+                   tag="NOTE", color=ui_mod.YELLOW, stream=sys.stderr)
     d = remote_dir(ssh)
     r = ssh.send(f"tar -xf - -C {d}", data)
     if r.returncode:

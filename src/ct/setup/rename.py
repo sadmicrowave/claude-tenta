@@ -9,13 +9,30 @@ the protections wrote, points the worker's GitHub access at the new aliases, rem
 The client half (`rename_command`, on your computer) runs that over SSH, renames the GitHub repositories when they carry the install's name first (the worker's clones are pointed at the new names), then, after the server half, replaces the
 deploy keys' titles and rewrites your own configuration and clones. Job history, secrets, keys and the approver key are all kept: nothing is reinstalled.
 """
+import json
 import re
+import shlex
+import sys
 import tomllib
 from pathlib import Path
 
 from .. import config, render
-from . import hardening, toml_out
+from . import hardening, report as report_mod, toml_out
 from .server import SetupError, alias_for, remote_url, ssh_config_text
+
+
+STYLER = report_mod.Styler(styled=sys.stderr.isatty(), stream=sys.stderr)          # the status rows every other setup step prints (plain when nobody is watching)
+
+
+def render_plan(steps, old, new, *, where):
+    """The server's plan as ONE card: a heading per step and its actions beneath, each cut to a line (the full commands are in `--verbose`, never secrets). `steps` is
+    [(title, [line])]."""
+    from .. import cards, ui
+    rows = []
+    for title, lines in steps:
+        rows += [cards.Heading(title), cards.Block([ln if len(ln) <= 78 else ln[:77] + "…" for ln in lines] or ["(nothing to do)"])]
+    ui.say(f"Rename {old} to {new} {where}", *rows, ("Kept", "your job history, secrets, deploy keys, the approver key and every setting. Only the name changes."),
+           tag="PREVIEW", color=ui.PRIMARY, stream=sys.stderr)
 
 
 def with_name(text, new):
@@ -118,14 +135,25 @@ class Rename:
         out.append(("Start the services again", [A("run", argv=["systemctl", "enable", "--now", c2.unit(p)]) for p in enabled]))
         return out
 
+    def plan_lines(self):
+        """[(step title, [one short line per action])]: what the plan does, in lines that fit a card (a write shows its path, never its text)."""
+        out = []
+        for title, actions in self.steps():
+            lines = []
+            for a in actions:
+                if a.kind == "run":
+                    lines.append(shlex.join(a.argv))
+                elif a.kind == "write":
+                    lines.append(f"write {a.path}")
+                else:
+                    lines.append(f"remove {a.path}")
+            out.append((title, lines))
+        return out
+
     def run_all(self):
         self.check()
         steps = self.steps()
-        for title, actions in steps:
-            self.say(f"\n{title}")
-            for a in actions:
-                self.say("    " + a.show().replace("\n", "\n    ")[:600])
-        self.say(f"\nWhat is kept: your job history, secrets, deploy keys, the approver key and every setting. Only the name changes: {self.old} -> {self.new}.")
+        render_plan(self.plan_lines(), self.old, self.new, where="on this machine")
         if self.dry_run:
             self.report.append(("rename", "planned", f"{sum(len(a) for _, a in steps)} steps"))
             return self.report
@@ -138,6 +166,7 @@ class Rename:
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "disable")):
                     raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
                                      [f"The folders may already be under the new name. Read what is on this machine, then either fix the cause and run the rename again, or put the old name back with: ct-setup rename {self.old}"])
+            self.say(STYLER.note("done", title))
         self.report.append(("rename", "done", f"{self.old} -> {self.new}"))
         return self.report
 
@@ -257,28 +286,31 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
     try:
         conf_name = Path(cfg.source).name if cfg.source else "ct.toml"            # an install made before the rename keeps its settings in cw.toml on the server too
         base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={cfg.paths.config}/{conf_name} python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
-        say(f"\nOn {cfg.server.host}:")
-        r = ssh.capture(base)
-        say((r.stdout or "") + (r.stderr or ""))
-        if r.returncode:
+        r = ssh.capture(base + " --json")
+        try:
+            plan = json.loads((r.stdout or "").strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            plan = None
+        if r.returncode or plan is None:
+            emit("The server could not plan the rename", (r.stderr or r.stdout or "no answer").strip()[-600:], "Nothing was changed.", tag="ERROR", color=RED)
             return 1
-        say("\nOn GitHub:")
+        render_plan([(s["title"], s["lines"]) for s in plan["steps"]], old, new, where=f"on {cfg.server.host}")
         gh = github_renames(cfg, new)
-        for slug, new_repo in gh or []:
-            say(f"  rename {slug} -> {new_repo}; the worker's deploy keys are retitled {old}-server -> {new}-server")
-        if not gh:
-            say("  the repositories do not carry the install's name, so they keep theirs")
-        say(f"\nOn this computer:\n  {cfg.source}: identity.name {old} -> {new}\n  the two clones point at the new repository names")
+        emit("On GitHub", *[("Repository", f"{slug} becomes {new_repo}") for slug, new_repo in gh], *([("Deploy keys", f"retitled {old}-server to {new}-server")] if gh else []),
+             *([] if gh else ["The repositories do not carry the install's name, so they keep theirs."]), tag="PREVIEW", color=_ui.PRIMARY)
+        emit("On this computer", ("Configuration", f"{cfg.source}: the name {old} becomes {new}" + ("; it moves to the new default place" if Path(cfg.source) == config.legacy_config_paths()[0] else "")),
+             ("The two clones", "point at the new repository names"), *([("Your folder", f"{cfg.paths.client_home} moves to {cfg2.paths.client_home}")] if cfg.paths.client_home != cfg2.paths.client_home else []),
+             tag="PREVIEW", color=_ui.PRIMARY)
         if not a.apply:
-            emit("To do it", tag="NEXT", color=GREEN, run_label="Run", run=f"ct-setup rename {new} --apply")
+            emit("Nothing has been changed yet", tag="NEXT", color=GREEN, run_label="To do it", run=f"ct-setup rename {new} --apply")
             return 0
         if not a.yes:
-            import sys
             if not sys.stdin.isatty() or ask(_ui.confirm_prompt(f"Rename {old} to {new} on {cfg.server.host}, on GitHub and here? The worker is briefly stopped.")).strip().lower() != "y":
                 emit("Not renamed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
                 return 1
+        st = report_mod.Styler(styled=_ui._color_on(sys.stderr), stream=sys.stderr)
         for step, status, detail in rename_repositories(host, cfg, new):
-            say(f"  {status.upper():<10} {step}" + (f"  ({detail})" if detail else ""))
+            say(st.note(status, step, detail))
             if status in ("failed", "manual"):
                 emit("The repositories were not renamed", "Nothing on the server or on this computer was changed.", tag="STOPPED", color=YELLOW)
                 return 1
@@ -290,7 +322,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
              "your own configuration was not changed.", tag="ERROR", color=RED, run_label="Try again", run=f"ct-setup rename {new} --apply")
         return 1
     for step, status, detail in retitle_keys(host, cfg, new):
-        say(f"  {status.upper():<10} {step}" + (f"  ({detail})" if detail else ""))
+        say(st.note(status, step, detail))
     rewrite_local(host, cfg, cfg2, new)
     emit("Renamed", f"{old} is now {new} on {cfg.server.host}, on GitHub and in {cfg.source}.", tag="DONE", color=GREEN,
          run_label="Check that it works", run="ct-admin status")

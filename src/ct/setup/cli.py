@@ -75,6 +75,7 @@ def build_parser():
         s.add_argument("--approver-file", help="the public key that may approve jobs from the administrator's computer (server only)")
         s.add_argument("name", nargs="?", help="with rename: the new name")
         s.add_argument("--to", help="with rename --here (on the server): the new name")
+        s.add_argument("--json", action="store_true", help="with rename --here: print the plan as JSON (the client half draws it)")
         s.add_argument("--no-sandbox-test", action="store_true", help="rename only: skip the check of the services' sandbox (a test machine whose systemd cannot enforce one; never on a real worker)")
         s.add_argument("--no-test", action="store_true")
         s.add_argument("--advanced", action="store_true")
@@ -194,6 +195,11 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 run = rename.Rename(host, cfg, a.to, source=a.source, rev=a.rev, say=say, dry_run=not a.apply,
                                     skip_sandbox_test=a.no_sandbox_test,
                                     confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
+                if a.json:
+                    run.check()
+                    import json as _json
+                    print(_json.dumps({"old": run.old, "new": run.new, "legacy": run.legacy, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))
+                    return 0
                 status = run.run_all()[-1][1]
                 if status == "declined":
                     return 1

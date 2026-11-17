@@ -313,3 +313,32 @@ class SameName(unittest.TestCase):
         self.assertEqual(rc, 0)
         for needle in ("already has that name", OLD, cfg_file, "worker.example", f"{OLD}-queue"):
             self.assertIn(needle, out)
+
+
+class PlanCard(Installed):
+    def test_the_plan_lines_name_what_each_action_touches_and_never_show_what_is_written(self):
+        r = self.rn()
+        r.check()
+        lines = dict(r.plan_lines())
+        self.assertIn(f"mv /opt/{OLD} /opt/{NEW}", lines["Move the folders"])
+        self.assertEqual(lines["Write the new name into the configuration"], [f"write /etc/{NEW}/ct.toml"])        # the path, not the text
+        self.assertTrue(all(len(ln) < 400 for ls in lines.values() for ln in ls))
+
+    def test_the_preview_is_one_card_with_a_heading_per_step_and_what_is_kept(self):
+        import io
+        import os
+        from contextlib import redirect_stderr
+        from unittest import mock
+
+        class Tty(io.StringIO):
+            def isatty(self):
+                return True
+        r = self.rn()
+        r.check()
+        err = Tty()
+        with mock.patch.dict(os.environ, {"CW_COLOR": "always", "CT_COLOR": "always"}), redirect_stderr(err):
+            rename.render_plan(r.plan_lines(), OLD, NEW, where="on worker.example")
+        import re
+        text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
+        for needle in (f"Rename {OLD} to {NEW} on worker.example", "PREVIEW", "MOVE THE FOLDERS", f"mv /opt/{OLD} /opt/{NEW}", "KEPT", "job history"):
+            self.assertIn(needle, text.upper() if needle.isupper() else text)
