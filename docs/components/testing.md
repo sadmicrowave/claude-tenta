@@ -58,3 +58,31 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 
 
 **Snapshot runs.** `scripts/t --snapshot [modules]` runs against a copy of the working tree made when the run starts, so edits made while a long run is going cannot change what it tests, and it never has to be stopped to "start again with the newest code": start the next run alongside or after it.
+
+
+## Test tiers, and the routes each covers
+
+**The order of proof.** Logic and every route a user takes are proven by unit tests first: through the real command line (`tests/test_addworker.py` `TheRealCommand` is the pattern: the real command and the real installer, with only the machine and the network faked). An end-to-end run (`scripts/e2e-orbstack`, the release matrix) then confirms what only a real machine can show: another account, a kernel, a firewall, the network. It is not used to find logic bugs: a bug it finds first gets the unit test that reproduces it, seen failing, and only then the fix. A fake that stands in for real code is trusted only while one test runs the real thing.
+
+**Route by tier** (unit = real command, fake machine; e2e = OrbStack scenarios; by hand = a real machine). `gap` is the work list.
+
+| Route a user takes | Unit | End to end | By hand |
+| --- | --- | --- | --- |
+| Fresh install, GitHub | yes | yes | the first worker |
+| Fresh install, Direct | yes (installer and server) | yes (`direct.sh`) | a VM |
+| Install again, same answers | yes | yes | |
+| Install again, other connection (wizard) | yes (clones repointed, deploy-key loop skipped) | yes | |
+| `ct-setup transport direct` | yes (history copy checked with real git) | yes | |
+| Cross-account git ownership (mailbox account, worker's repository) | env passing only | yes (real accounts found it) | probe: `scripts/probe ownership` (real accounts, in seconds) |
+| Rename, uninstall and reinstall | yes | yes | |
+| `add-worker`, new machine | yes (real command) | gap: needs two machines | a VM |
+| `add-worker` again for a registered worker | yes (real command) | gap | pending |
+| `add-worker` with an unreadable worker file | yes | | |
+| A failed protection or an unreadable mailbox stops the job loop | yes | gap | a VM |
+| A block taller than the terminal, an error that wraps | yes (scrolling virtual terminal) | | a real window |
+| Worker with IPv6 off and a name that still resolves to it | yes (settings, installer) | gap | timing only on a real network |
+| Real kernel features (AppArmor profile, tripwire, sandbox check) | plan only | gap: OrbStack has none | a VM |
+| Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
+
+
+**Environment probes.** `scripts/probe [name]` runs `tests/probes/<name>.sh` in a throwaway container (`docker run --rm`, the checkout mounted read-only at `/src`): about 20 seconds, nothing to clean up. A probe proves ONE fact about a real operating system that a unit test cannot, using the project's own code. `ownership` creates the two accounts (the worker and the mailbox account) and shows: git refuses a repository owned by another account (the premise); the mailbox shell serves it anyway, for that one repository and no other; and root copying history between repositories owned by others works with the project's helper and not without it. It was written from two bugs the full end-to-end runs found, and it fails on the old code for both. Needs Docker (OrbStack provides it); `CT_PROBE_IMAGE` picks the release (default Ubuntu 24.04).

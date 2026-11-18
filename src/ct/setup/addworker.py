@@ -81,6 +81,19 @@ def paths_for(main_cfg, name):
     return conf, Path(main_cfg.paths.client_home).expanduser() / "workers" / name
 
 
+def broken_worker_configs(wfile):
+    """[(name, file, plain-words problem)] for every registered worker whose configuration file is missing or is not valid TOML."""
+    out = []
+    for name, path in workers_mod.load_list(wfile).items():
+        try:
+            tomllib.loads(Path(path).expanduser().read_text())
+        except OSError as e:
+            out.append((name, path, f"cannot be read ({e.strerror})"))
+        except ValueError as e:
+            out.append((name, path, f"is not valid ({e})"))
+    return out
+
+
 def known_workers(main_cfg, wfile):
     """(names, hosts) of the workers you already have: the main one and those in workers.toml."""
     names, hosts = {main_cfg.identity.name}, {main_cfg.server.host or ""}
@@ -241,6 +254,13 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         notice("Set up your first worker first", "add-worker adds ANOTHER worker, and there is no configuration on this computer yet.", tag="ERROR", color=RED, run="ct-setup install")
         return 2
     wfile = Path(cfg.source).parent / "workers.toml"
+    broken = broken_worker_configs(wfile)
+    if broken:                                                    # a worker whose file cannot be read cannot be compared with, or left alone: say which and why, do not guess (seen: a duplicated section made one invisible and the machine was treated as new)
+        notice("A worker's configuration file cannot be read", *[(n, f"{p}: {e}") for n, p, e in broken],
+               "Adding or setting up a worker must leave the others exactly as they are, and that cannot be checked while a file is unreadable.",
+               steps=[f"Open {broken[0][1]} and fix the line the message names (a section such as [network] may appear only once), or put back a copy you saved.", "Then run the same command again."],
+               steps_label="How to fix it", tag="ERROR", color=RED, stream=sys.stderr)
+        return 2
     names, hosts = known_workers(cfg, wfile)
     if interactive is None:
         interactive = not a.yes and (ui is not None or sys.stdin.isatty())

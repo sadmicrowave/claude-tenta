@@ -1,0 +1,17 @@
+#!/bin/bash
+# Run one environment probe (tests/probes/<name>.sh) in a throwaway container: a few seconds, nothing left behind (--rm), no machine to clean up.
+#   scripts/probe ownership        one probe
+#   scripts/probe                  every probe
+# A probe proves ONE fact about a real operating system that a unit test cannot (another account, a kernel setting, a permission), with the project's own code mounted read-only at /src.
+# Needs Docker (OrbStack provides it). Exit status is the number of probes that failed.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+command -v docker >/dev/null || { echo "Docker was not found (OrbStack provides it)." >&2; exit 2; }
+IMAGE=${CT_PROBE_IMAGE:-ubuntu:24.04}
+names=${*:-$(ls tests/probes/*.sh | xargs -n1 basename | sed 's/\.sh$//')}
+bad=0
+for n in $names; do
+  echo "=== probe: $n ($IMAGE)"
+  docker run --rm -v "$PWD":/src:ro "$IMAGE" bash /src/tests/probes/$n.sh || bad=$((bad+1))
+done
+exit $bad

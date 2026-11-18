@@ -310,6 +310,23 @@ class SettingAWorkerUpAgain(Base):
         self.assertEqual(rc, 1)                                                                        # another worker's file changing is reported
         self.assertIn(str(other), self.text())
 
+    def test_a_registered_worker_whose_file_is_invalid_is_named_and_nothing_is_guessed(self):
+        """Seen on a real install: [network] twice made the file unreadable, the worker became invisible and its own machine was offered as a NEW worker."""
+        self.w_conf.write_text(self.w_conf.read_text() + "\n[network]\nipv6 = \"disabled\"\n\n[network]\nipv6 = \"disabled\"\n")
+        rc = self.run_flow(args(name="worker2.example", yes=True))
+        self.assertEqual((rc, self.calls), (2, []))
+        t = self.text()
+        self.assertIn("cannot be read", t)
+        self.assertIn(str(self.w_conf), t)
+        self.assertIn("twice", t)                                                                      # the parser's own words are kept
+        self.assertIn("may appear only once", t)
+
+    def test_a_missing_worker_file_is_named_too(self):
+        self.w_conf.unlink()
+        rc = self.run_flow(args(name="anywhere.example", yes=True))
+        self.assertEqual((rc, self.calls), (2, []))
+        self.assertIn("cannot be read", self.text())
+
     def test_the_first_worker_is_not_set_up_again_by_this_command(self):
         self.calls.clear()
         rc = self.run_flow(args(name="mini.example", yes=True))
