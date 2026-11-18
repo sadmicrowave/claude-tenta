@@ -145,7 +145,9 @@ class Context:
                 claude["tool"] = claude_memo["tool"]
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
-                    "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers))}
+                    "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
+                    "transport": transport.for_config(cfg).kind,          # what this worker really listens on: the scheduler trusts this over what a computer's configuration believes
+                    "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 
         def signed_approval(jid, digest):
             raw = io.approval_bytes(jid)

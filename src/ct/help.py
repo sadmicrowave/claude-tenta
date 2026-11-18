@@ -14,6 +14,7 @@ SECTIONS = [
     ("Send work", "on your computer", [("ct-run submit <class>", "queue a job and wait for its result"),
                                        ("ct-run jobs", "your recent jobs, and the ones waiting for your approval"),
                                        ("ct-run classes", "what the worker can run today"),
+                                       ("ct-run where <class>", "with several workers: which one a job would go to, and why (ct-run submit chooses the same way; --worker NAME forces one)"),
                                        ("ct-run patch <job>", "show the patch a write-capable job returned, and apply it here after a look"),
                                        ("ct-run offload ...", "find out which of your commands are worth running on the worker")]),
     ("Run it", "from your computer; approvals and orders are signed here, no login", [("ct-admin status | check | workers | locate | watch", "the worker's health, the connection to it, a comparison of your workers, finding a worker whose address changed, and alerts when one locks, goes quiet or cannot be reached"),

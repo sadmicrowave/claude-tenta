@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Load test across every worker you administer: send a burst of jobs AT ONCE through `ct-run submit` (so the scheduler places each one), then read every job back and report where each went and
+how long each stage took. Uses the harmless auto-approved class (default sys-status: `uptime`), so what it measures is placement and latency, not the workers' CPU.
+    scripts/loadtest [--jobs 8] [--waves 1] [--class sys-status] [--timeout 600] [--json FILE]
+The host's own cap (limits.max_in_flight, default 8) applies: more jobs than that in one burst are refused by design. Run it from the checkout you want to test."""
+import argparse
+import json
+import statistics
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+from ct import config  # noqa: E402
+from ct.client import place  # noqa: E402
+from ct.client.repo import ClientRepos  # noqa: E402
+
+
+def ts(s):
+    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() if s else None
+
+
+def submit(cls, i):
+    t = time.time()
+    r = subprocess.run([sys.executable, "-c", "import sys; from ct.client import cli; sys.exit(cli.main(sys.argv[1:]))", "submit", cls, "--no-wait"],
+                       capture_output=True, text=True, env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src"), "CT_COLOR": "never"})
+    ids = [l for l in r.stdout.split() if l.startswith(cls)]
+    return {"i": i, "id": ids[-1] if ids else None, "rc": r.returncode, "took": round(time.time() - t, 1), "err": (r.stderr.strip().splitlines() or [""])[-1][:160] if r.returncode else ""}
+
+
+def wave(cfg, cls, n, timeout):
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        sent = list(pool.map(lambda i: submit(cls, i), range(n)))
+    sent_at = time.time() - t0
+    ents = place.entries(cfg)
+    repos = {name: (ClientRepos.from_config(c)) for name, c, _ in ents}
+    home = Path(cfg.paths.client_home).expanduser()
+    ids = [s["id"] for s in sent if s["id"]]
+    where = {j: (place.worker_of(home, j) or ents[0][0]) for j in ids}
+    done, deadline = {}, time.time() + timeout
+    while len(done) < len(ids) and time.time() < deadline:
+        for name, r in repos.items():
+            try:
+                r.pull_results()
+            except Exception:
+                pass
+        for j in ids:
+            res = repos[where[j]].read_result(j)
+            if res and res.get("status") not in (None, "queued", "running", "awaiting_approval"):
+                done[j] = res
+        if len(done) < len(ids):
+            time.sleep(4)
+    rows = []
+    for s in sent:
+        j = s["id"]
+        res = done.get(j) or {}
+        c, seen, st, fin = (ts(res.get(k)) for k in ("created", "seen", "started", "finished"))
+        rows.append({**s, "worker": where.get(j, "-"), "status": res.get("status", "no result"), "pickup_s": seen - c if seen and c else None, "queue_s": st - seen if st and seen else None,
+                     "run_s": fin - st if fin and st else None, "total_s": fin - c if fin and c else None})
+    return rows, time.time() - t0, sent_at
+
+
+def pct(v, p):
+    v = sorted(x for x in v if x is not None)
+    return v[min(len(v) - 1, int(len(v) * p))] if v else None
+
+
+def report(rows, wall, sent_at):
+    print(f"\nburst of {len(rows)} jobs: all sent in {sent_at:.1f} s, all read back after {wall:.1f} s")
+    refused = [r for r in rows if not r["id"]]
+    if refused:
+        print(f"  {len(refused)} refused or failed to send: " + "; ".join(sorted({r['err'] or 'no id' for r in refused})))
+    by = {}
+    for r in rows:
+        if r["id"]:
+            by.setdefault(r["worker"], []).append(r)
+    print(f"  {'worker':<14}{'jobs':>5}{'ok':>5}  {'pickup s (med/max)':>20}  {'total s (med/max)':>20}")
+    for w, rs in sorted(by.items()):
+        tot, pick = [r["total_s"] for r in rs], [r["pickup_s"] for r in rs]
+        f = lambda v: f"{statistics.median([x for x in v if x is not None]):.0f}/{max(x for x in v if x is not None):.0f}" if any(x is not None for x in v) else "-"
+        print(f"  {w:<14}{len(rs):>5}{sum(r['status'] == 'ok' for r in rs):>5}  {f(pick):>20}  {f(tot):>20}")
+    slow = max((r for r in rows if r["total_s"] is not None), key=lambda r: r["total_s"], default=None)
+    if slow:
+        print(f"  slowest: {slow['id']} on {slow['worker']}: {slow['total_s']:.0f} s")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--waves", type=int, default=1)
+    ap.add_argument("--class", dest="cls", default="sys-status")
+    ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--json")
+    a = ap.parse_args()
+    cfg = config.load()
+    out = []
+    for w in range(a.waves):
+        rows, wall, sent_at = wave(cfg, a.cls, a.jobs, a.timeout)
+        report(rows, wall, sent_at)
+        out.append(rows)
+    if a.json:
+        Path(a.json).write_text(json.dumps(out, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

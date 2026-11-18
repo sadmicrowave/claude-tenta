@@ -6,6 +6,9 @@ squashed; the results repo is mirrored (fetch and reset), never rebased onto, be
 """
 import json
 import os
+import random
+import threading
+import uuid
 import subprocess
 from urllib.parse import urlparse
 import time
@@ -103,13 +106,13 @@ class ClientRepos:
             raise ClientError(f"git {' '.join(a)} failed", r.stderr.strip())
         return r.stdout.strip()
 
-    def push_files(self, branch, files, msg, base=None, retries=3, remove=()):
+    def push_files(self, branch, files, msg, base=None, retries=8, remove=()):
         """Commit {path: text} onto `branch` of the queue repo without touching the working tree, and push it. The new commit's parent is
         origin/<base or branch> (none for a brand-new orphan branch). A plain push, never forced: a rejected one is re-fetched and retried."""
         for _ in range(retries):
             self.fetch_queue()
             parent_ref, has_parent = f"origin/{base or branch}", self.remote_branch_exists(base or branch)
-            idx = self.queue / ".git" / "ct-client.index"
+            idx = self.queue / ".git" / f"ct-client.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.index"        # its own file: other sends at the same moment (a script, a second session, a load test) never share it
             idx.unlink(missing_ok=True)
             env = {**os.environ, **CLIENT_IDENTITY, "GIT_INDEX_FILE": str(idx)}
             try:
@@ -126,8 +129,11 @@ class ClientRepos:
                 idx.unlink(missing_ok=True)
             if self.git(self.queue, "push", "-q", "origin", f"{commit}:refs/heads/{branch}", check=False).returncode == 0:
                 self.fetch_queue()
+                missing = [p for p in files if self.git(self.queue, "cat-file", "-e", f"origin/{branch}:{p}", check=False).returncode]
+                if missing:                                          # a push that succeeded is not proof it is there: say so loudly rather than report a job sent that the worker will never see
+                    raise ClientError(f"{', '.join(missing)} did not arrive on {branch} of {self.where}", "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.")
                 return commit
-            self._sleep(2)
+            self._sleep(random.uniform(0.2, 1.5) if self._sleep is time.sleep else 2)          # a rejected push means someone else pushed first: a short random pause so a burst does not retry in step
         raise ClientError(f"Could not push to branch {branch} on {self.where}", "Check your connection and access, then try again.", self.unreachable_steps)
 
     # ---- the results repo ----
@@ -204,7 +210,7 @@ class ClientRepos:
             else:
                 dropped += 1
         head = self.git(self.queue, "rev-parse", f"origin/{b}").stdout.strip()
-        idx = self.queue / ".git" / "ct-prune.index"
+        idx = self.queue / ".git" / f"ct-prune.{os.getpid()}.{uuid.uuid4().hex[:8]}.index"
         idx.unlink(missing_ok=True)
         env = {**os.environ, **CLIENT_IDENTITY, "GIT_INDEX_FILE": str(idx)}
         try:

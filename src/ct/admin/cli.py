@@ -1166,6 +1166,12 @@ def main(argv=None, ctx=None, cfg=None):
         if ctx is None:
             cfg = cfg or config.load()
             ctx = Context.from_config(cfg)
+        jid = getattr(a, "id", None)
+        if jid:                                                           # a job that was sent to another worker is approved, read and stopped THERE
+            from ..client import place
+            other = place.worker_of(ctx.home, jid)
+            if other and other != ctx.name:
+                ctx = ctx.for_worker(other)
         rc = DISPATCH[a.cmd](ctx, a)
         if rc == 0 and a.cmd in REMEMBER_WHERE_IT_ANSWERED and not getattr(a, "worker", None):       # the worker answered over SSH: note where, so a later failure can try that address first
             from .. import rediscover

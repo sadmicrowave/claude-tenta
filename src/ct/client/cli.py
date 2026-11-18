@@ -30,7 +30,7 @@ from . import cap
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import view
+from . import place, view
 from .repo import PENDING, ClientError, ClientRepos
 
 
@@ -88,6 +88,30 @@ def cmd_setup(ctx, cfg):
     return 0
 
 
+def explain(ch, cls):
+    emit(f"Where a {cls} job would go" if ch.worker else f"No worker can take a {cls} job", *place.rows(ch), tag="WHERE", color=CYAN, **({"run_label": "Send it there", "run": f"ct-run submit {cls} --worker {ch.worker}"} if ch.worker else {}))
+
+
+def route_submit(ctx, cfg, a):
+    """With several workers, choose one and say why (before sending, so the person sees where it goes); with one, nothing changes."""
+    def say(ch):
+        emit(f"Sending to {ch.worker}", *place.rows(ch), *(["Every worker is busy; it queues on this one."] if ch.busy_all else []), tag="PLACED", color=CYAN)
+    ctx2, _ch = place.route(ctx, cfg, a.cls, getattr(a, "worker", None), say=say)
+    return ctx2
+
+
+def cmd_where(ctx, cfg, a):
+    """Say which worker a job of this class would go to, and why each of the others would not, without sending anything."""
+    ents = place.entries(cfg) if cfg is not None else []
+    if len(ents) < 2:
+        emit("There is only one worker", f"Everything goes to {ctx.product}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
+        return 0
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
+    ch = place.decide(a.cls, views)
+    explain(ch, a.cls)
+    return 0 if ch.worker else 1
+
+
 def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
@@ -114,6 +138,8 @@ def cmd_submit(ctx, a):
         with view.Busy(f"sending: the job to {ctx.product}"):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
         emit(f"Queued {jid}", f"{ctx.product} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
+    if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
+        place.record(ctx.home_main, ids, ctx.product)
     try:
         r.prune_jobs()
     except ClientError:
@@ -577,6 +603,9 @@ def build_parser():
     s.add_argument("--no-wait", action="store_true", help="queue it and return the id")
     s.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
+    s.add_argument("--worker", metavar="NAME", help="send it to this worker instead of letting ct-run choose (names: ct-admin workers)")
+    wh = sp.add_parser("where", add_help=False)
+    wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
     r = sp.add_parser("result", add_help=False)
     r.add_argument("id", help="the job id")
     r.add_argument("--wait", action="store_true", help="keep checking until it finishes")
@@ -646,6 +675,7 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "ct-run jobs"), ("Show more", "ct-run jobs -n 40")]),
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
         "classes": ("what the worker can run today", [("List them", "ct-run classes")]),
+        "where": ("which of your workers a job of this class would go to, and why each of the others would not (nothing is sent)", [("Explain the choice for a class", "ct-run where sys-status")]),
         "patch": ("show the patch a write-capable job returned, and apply it here after a look", [("Look at it", "ct-run patch <job>"), ("Apply it to this folder", "ct-run patch <job> --apply"), ("Save it to a file", "ct-run patch <job> --out fix.diff")]),
         "prune": ("squash old job files out of the jobs branch", [("Tidy it", "ct-run prune")])}
 
@@ -681,10 +711,16 @@ def main(argv=None, ctx=None, cfg=None):
         if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
             import atexit
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
+        if a.cmd == "where":
+            return cmd_where(ctx, cfg, a)
         if a.cmd == "submit":
-            return cmd_submit(ctx, a)
+            ctx = route_submit(ctx, cfg, a)
+            try:
+                return cmd_submit(ctx, a)
+            finally:
+                place.release(getattr(ctx, "home_main", None) or ctx.home, getattr(ctx, "reservation", None))          # the real record replaces the reservation (or the send failed and it goes)
         if a.cmd == "result":
-            return cmd_result(ctx, a)
+            return cmd_result(place.for_job(ctx, cfg, a.id), a)
         if a.cmd == "jobs":
             return cmd_jobs(ctx, a.n)
         if a.cmd == "offload":
