@@ -227,7 +227,7 @@ class Repo(RepoFixture):
         with self.assertRaises(ClientError) as cm:
             self.repos.push_files("jobs", {"jobs/a.json": "{}\n"}, "job: a")
         self.assertIn("Could not push", cm.exception.title)
-        self.assertEqual(self.sleeps, [2, 2, 2])
+        self.assertEqual(self.sleeps, [2] * 8)             # eight tries now: a burst of simultaneous sends loses races and must win on a later try
 
     def test_results_are_mirrored_even_after_the_worker_rewrites_history(self):
         self.job("job-0001")

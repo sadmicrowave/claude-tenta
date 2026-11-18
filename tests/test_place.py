@@ -36,6 +36,12 @@ class FakeRepos:
     def registry_info(self):
         return json.loads((self.results / "registry.json").read_text())
 
+    def read_result(self, jid):
+        try:
+            return json.loads((self.results / "results" / f"{jid}.json").read_text())
+        except OSError:
+            return None
+
 
 class Ctx:
     def __init__(self, name, home):
@@ -173,3 +179,69 @@ class TheConnectionReallyUsed(Setup):
         class R:
             queue = self.tmp / "nowhere"
         self.assertEqual(place.actual_connection(R, "direct"), "direct")
+
+
+class PendingJobsAreLoad(Setup):
+    def test_jobs_sent_to_a_worker_without_a_final_result_are_counted_and_old_or_finished_ones_are_not(self):
+        self.add("vmx")
+        (self.repos["vmx"].results / "results").mkdir()
+        (self.repos["vmx"].results / "results" / "j-done.json").write_text(json.dumps({"status": "ok"}))
+        (self.repos["vmx"].results / "results" / "j-running.json").write_text(json.dumps({"status": "running"}))
+        home = self.tmp / "home"
+        place.record(home, ["j-done", "j-running", "j-nothing-yet"], "vmx")
+        place.record(home, ["j-elsewhere"], "mini")
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 2)
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"], now=__import__("time").time() + 3600), 0)           # an hour later: too old to say anything about now
+        self.assertEqual(place.pending_sent(self.tmp / "nowhere", "vmx", self.repos["vmx"]), 0)
+
+    def test_a_burst_through_route_spreads_because_each_placement_is_remembered(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        placed = []
+        for _ in range(9):
+            (ctx, ch), main, _ = self.route()
+            place.record(main.home, [f"j-{len(placed)}"], ch.worker)
+            placed.append(ch.worker)
+        self.assertEqual({w: placed.count(w) for w in ("mini", "vmx", "ghx")}, {"mini": 3, "vmx": 3, "ghx": 3})
+
+
+class ManyPlacementsAtOnce(Setup):
+    """Found by the second load test: eight simultaneous submits each looked at the workers before any had recorded where it went, so all eight chose the same one."""
+
+    def test_simultaneous_placements_spread_because_the_choice_and_its_reservation_are_one_step(self):
+        import threading
+        import time
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        main = Ctx("mini", self.tmp / "home")
+        placed, start = [], threading.Barrier(9)
+
+        def slow_fetch(repos):
+            time.sleep(0.15)                                 # a real look takes a second or two: the window in which every process saw the same picture
+
+        def one():
+            start.wait()
+            ctx, ch = place.route(main, self.cfgs["mini"], "sys-status", None, entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], make_ctx=lambda e: main if e[0] == "mini" else Ctx(e[0], self.tmp / f"h-{e[0]}"), fetch=slow_fetch)
+            placed.append(ch.worker)
+        threads = [threading.Thread(target=one) for _ in range(9)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual({w: placed.count(w) for w in ("mini", "vmx", "ghx")}, {"mini": 3, "vmx": 3, "ghx": 3})
+
+    def test_a_reservation_counts_as_load_until_released_and_expires_on_its_own(self):
+        self.add("vmx")
+        home = self.tmp / "home"
+        tok = place.reserve(home, "vmx")
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 1)
+        place.release(home, tok)
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 0)
+        place.reserve(home, "vmx")
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"], now=__import__("time").time() + 300), 0)        # a send that died leaves nothing behind for long
+
+    def test_records_written_at_the_same_moment_are_all_kept(self):
+        import threading
+        home = self.tmp / "home"
+        ts = [threading.Thread(target=place.record, args=(home, [f"j-{i}"], "vmx")) for i in range(20)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        self.assertEqual(len(json.loads((home / "placements.json").read_text())), 20)

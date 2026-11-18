@@ -16,10 +16,10 @@ def state(*, running=0, waiting=0, capacity=4, cores=4, load=0.2, locked=False, 
 KINDS = {"sys-status": {"kind": "command", "cost": "light"}, "claude-read": {"kind": "claude", "cost": "medium"}}
 
 
-def w(name, connection="direct", age=30, pickup=5, **kw):
+def w(name, connection="direct", age=30, pickup=5, sent=0, **kw):
     s = state(**kw)
     reg = {"classes": {c: KINDS.get(c, {"kind": "command", "cost": "light"}) for c in s["classes"]}}        # the registry a worker publishes names exactly the classes it offers
-    return worker_view(name, connection, s, reg, age, pickup)
+    return worker_view(name, connection, s, reg, age, pickup, sent_pending=sent)
 
 
 def pick(workers, cls="sys-status", kind="command", prefs=None):
@@ -101,9 +101,9 @@ class Preferences(unittest.TestCase):
 
 class Stale(unittest.TestCase):
     def test_an_old_reading_is_used_but_ranked_after_a_fresh_one_and_says_so(self):
-        c = pick([w("old", age=3600), w("fresh", running=2)])
+        c = pick([w("old", age=9000), w("fresh", running=2)])
         self.assertEqual(c.worker, "fresh")
-        c = pick([w("old", age=3600)])
+        c = pick([w("old", age=9000)])
         self.assertEqual(c.worker, "old")
         self.assertIn("min old", dict((n, r) for n, _, r in c.lines)["old"])
 
@@ -175,3 +175,33 @@ class TheConfigurationAndTheCopiesDisagree(unittest.TestCase):
         v = worker_view("mini", "github", state(), {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 90, configured="direct")
         self.assertIn("configuration says direct, but its copies of the queue and results use github", v.mismatch)
         self.assertIn("WARNING", dict((n, r) for n, _, r in pick([v]).lines)["mini"])
+
+
+class LoadIsWhatThisComputerSent(unittest.TestCase):
+    """Found by the load test: the worker's own running/waiting counts are published about every half hour, so a burst saw every worker as idle and sent everything to the same one."""
+
+    def test_an_old_count_from_the_worker_says_nothing_about_now(self):
+        busy_but_old = w("old", age=1000, running=4)
+        self.assertEqual(busy_but_old.busy, 0)
+        self.assertEqual(w("fresh", age=30, running=3).busy, 3)
+
+    def test_jobs_this_computer_sent_and_that_have_not_finished_count_as_load(self):
+        self.assertEqual(w("a", age=1000, sent=5).busy, 5)
+        c = pick([w("a", age=1000, sent=4), w("b", age=1000, sent=0)])
+        self.assertEqual(c.worker, "b")
+
+    def test_a_burst_spreads_across_workers_as_each_placement_is_counted(self):
+        sent, placed = {"a": 0, "b": 0}, []
+        for _ in range(8):
+            c = pick([w("a", age=1000, sent=sent["a"], pickup=5), w("b", age=1000, sent=sent["b"], pickup=5)])
+            sent[c.worker] += 1
+            placed.append(c.worker)
+        self.assertEqual((placed.count("a"), placed.count("b")), (4, 4))
+
+    def test_free_capacity_comes_before_a_shorter_wait_so_a_burst_alternates_between_equals(self):
+        sent, placed = {"fast": 0, "slow": 0}, []
+        for _ in range(6):
+            c = pick([w("fast", age=1000, sent=sent["fast"], pickup=5), w("slow", age=1000, sent=sent["slow"], pickup=300)])
+            sent[c.worker] += 1
+            placed.append(c.worker)
+        self.assertEqual(placed, ["fast", "slow", "fast", "slow", "fast", "slow"])

@@ -106,7 +106,7 @@ def cmd_where(ctx, cfg, a):
     if len(ents) < 2:
         emit("There is only one worker", f"Everything goes to {ctx.product}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
         return 0
-    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]))
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
     ch = place.decide(a.cls, views)
     explain(ch, a.cls)
     return 0 if ch.worker else 1
@@ -715,7 +715,10 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_where(ctx, cfg, a)
         if a.cmd == "submit":
             ctx = route_submit(ctx, cfg, a)
-            return cmd_submit(ctx, a)
+            try:
+                return cmd_submit(ctx, a)
+            finally:
+                place.release(getattr(ctx, "home_main", None) or ctx.home, getattr(ctx, "reservation", None))          # the real record replaces the reservation (or the send failed and it goes)
         if a.cmd == "result":
             return cmd_result(place.for_job(ctx, cfg, a.id), a)
         if a.cmd == "jobs":

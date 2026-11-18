@@ -9,7 +9,8 @@ lightest load per core, then the name (so a tie is never random). Standard libra
 """
 from dataclasses import dataclass, field
 
-STALE_S = 900                      # a reading older than this is still used, but ranked after every fresh one
+STALE_S = 7200                     # a reading older than this is still used, but ranked after every fresh one. A healthy idle worker publishes about every half hour, so a shorter limit would call every idle worker stale
+LIVE_S = 120                       # the worker's own running and waiting counts are believed only this long: they are published rarely, and a count that old says nothing about now
 COST = {"light": 1, "medium": 2, "heavy": 4}
 
 
@@ -24,6 +25,7 @@ class Worker:
     registry: dict = None                      # registry.json (the classes it offers), or None
     age_s: float = None                        # how old the reading is
     pickup_s: int = 5                          # how long, at most, until it notices a job (its idle pace)
+    sent_pending: int = 0                      # jobs THIS computer sent to it that have no final result yet: the only live measure of its load that exists here
     configured: str = None                     # what this computer's configuration SAYS the connection is, when that differs from the one its copies really use
 
     def doc(self, *keys, default=None):
@@ -61,7 +63,11 @@ class Worker:
 
     @property
     def busy(self):
-        return int(self.doc("observed", "running", default=0) or 0) + int(self.doc("observed", "waiting", default=0) or 0)
+        """Jobs on it now, as far as this computer can tell: the jobs it sent that have not finished, plus the worker's own count while that count is fresh (the worker publishes it rarely)."""
+        own = 0
+        if self.age_s is not None and self.age_s <= LIVE_S:
+            own = int(self.doc("observed", "running", default=0) or 0) + int(self.doc("observed", "waiting", default=0) or 0)
+        return max(own, self.sent_pending)
 
     @property
     def headroom(self):
@@ -181,5 +187,5 @@ def _worse_than(w, best, order):
     return f"equal in every way; {best.name} comes first by name"
 
 
-def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not="", configured=None):
-    return Worker(name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not, configured=configured)
+def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not="", configured=None, sent_pending=0):
+    return Worker(name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not, configured=configured, sent_pending=sent_pending)
