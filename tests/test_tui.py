@@ -15,8 +15,9 @@ from test_setup import FakeHost, cfg_of
 class Screen:
     """Enough of a terminal for the wizard: text, newline, carriage return, cursor up and right, erase line, erase to the end of the screen. Colour codes are ignored."""
 
-    def __init__(self, cols=None):
-        self.lines, self.r, self.c, self.cols = [""], 0, 0, cols          # cols: the terminal wraps a line that reaches the right edge onto the next row, as a real one does
+    def __init__(self, cols=None, rows=None):
+        self.lines, self.r, self.c, self.cols, self.rows = [""], 0, 0, cols, rows          # cols: the terminal wraps a line that reaches the right edge onto the next row, as a real one does
+        self.scrollback = []                                                              # rows: the screen holds this many lines; more scroll the top ones out of reach, where an erase cannot touch them
 
     def feed(self, s):
         i = 0
@@ -40,29 +41,32 @@ class Screen:
             if ch == "\r":
                 self.c = 0
             elif ch == "\n":
-                self.r += 1
-                self.c = 0
-                while len(self.lines) <= self.r:
-                    self.lines.append("")
+                self.newline()
             else:
                 if self.cols and self.c >= self.cols:
-                    self.r += 1
-                    self.c = 0
-                    while len(self.lines) <= self.r:
-                        self.lines.append("")
+                    self.newline()
                 line = self.lines[self.r].ljust(self.c)
                 self.lines[self.r] = line[:self.c] + ch + line[self.c + 1:]
                 self.c += 1
             i += 1
 
+    def newline(self):
+        self.r += 1
+        self.c = 0
+        while len(self.lines) <= self.r:
+            self.lines.append("")
+        if self.rows and self.r >= self.rows:                       # at the bottom of the screen: the top line scrolls away for good
+            self.scrollback.append(self.lines.pop(0))
+            self.r -= 1
+
     def text(self):
-        return "\n".join(line.rstrip() for line in self.lines).rstrip("\n")
+        return "\n".join(line.rstrip() for line in self.scrollback + self.lines).rstrip("\n")
 
 
 class Terminal(io.StringIO):
-    def __init__(self, cols=None):
+    def __init__(self, cols=None, rows=None):
         super().__init__()
-        self.screen = Screen(cols)
+        self.screen = Screen(cols, rows)
 
     def write(self, s):
         self.screen.feed(s)
@@ -77,8 +81,8 @@ def typed(*answers):
     return events
 
 
-def prompter(events=(), width=76, rows=40, cols=None):
-    out = Terminal(cols)
+def prompter(events=(), width=76, rows=40, cols=None, screen_rows=None):
+    out = Terminal(cols, screen_rows)
     return tui.TuiPrompter(out=out, width=width, rows=rows, keys=iter(events)), out
 
 
@@ -682,6 +686,42 @@ class WrappedLines(unittest.TestCase):
         p, out = self.ask_again(3)
         p.erase()
         self.assertEqual(out.screen.text().strip(), "")
+
+
+class ShortTerminal(unittest.TestCase):
+    """Seen on a real machine: the protection card was 25 lines on a 24-line terminal, its top two lines scrolled out of reach, and answering it left them on screen. No block may be taller than the screen."""
+    INFO = {"id": "job-isolation", "title": "Jobs run in a jail", "index": 1, "total": 6, "lockout": False,
+            "why": "Every job runs with no network, no capabilities, no new privileges, its own process tree, and no view of the worker's home folder (where its repository keys live) or of this install's configuration. "
+                   "This installs the tool that does it (bubblewrap) and, on Ubuntu 24.04 and newer, puts the kernel's user-namespace restriction back on for everyone else.",
+            "risk": "None for logins. Until it works, jobs are refused rather than run without a jail.", "now": "a test jail could not be created: bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+            "steps": ["apt-get install -y bubblewrap", "write /etc/apparmor.d/ct-bwrap (mode 644):\n    # Written by ct-setup.\n    # more\n    abi <abi/4.0>,\n    include <tunables/global>\n\n    profile ct-bwrap /usr/bin/bwrap flags=(unconfined) {\n      userns,\n    }",
+                      "apparmor_parser -r /etc/apparmor.d/ct-bwrap", "write /etc/sysctl.d/61-x-userns.conf (mode 644):\n    # x", "sysctl -w kernel.apparmor_restrict_unprivileged_userns=1"]}
+
+    def answered(self, screen_rows, keys=("y",), cols=127):
+        p, out = prompter(list(keys), width=cols, rows=screen_rows, cols=cols, screen_rows=screen_rows)
+        out.write("".join(f"earlier line {i}\n" for i in range(screen_rows + 10)))               # the cursor is at the bottom, as it is in the middle of a long install
+        p.protection(self.INFO)
+        return out.screen.text()
+
+    def test_answering_the_card_leaves_nothing_of_it_on_screens_of_any_height(self):
+        for rows in (14, 18, 20, 24, 26, 30, 40, 55):
+            text = self.answered(rows)
+            self.assertNotIn("Protection 1 of 6", text, f"{rows} rows")
+            self.assertNotIn("╭", text, rows)
+            self.assertNotIn("╰", text, rows)
+
+    def test_the_card_never_has_more_lines_than_the_screen_has_rows(self):
+        for rows in (14, 20, 24, 30, 55):
+            p, _ = prompter([], width=100, rows=rows, cols=127)
+            for full in (False, True):
+                self.assertLessEqual(len(p.card(self.INFO, 0, full)), max(12, rows - 3), (rows, full))
+
+    def test_a_tall_screen_still_shows_the_steps_and_a_short_one_says_there_are_more(self):
+        tall = "\n".join(tui.strip(x) for x in prompter([], width=100, rows=55, cols=127)[0].card(self.INFO, 0, False))
+        self.assertIn("apparmor_parser -r", tall)
+        short = "\n".join(tui.strip(x) for x in prompter([], width=100, rows=20, cols=127)[0].card(self.INFO, 0, False))
+        self.assertIn("more steps (press s)", short)
+        self.assertIn("Apply", short)                                                          # the choice is always on screen
 
 
 if __name__ == "__main__":

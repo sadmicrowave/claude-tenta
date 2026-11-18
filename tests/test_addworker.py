@@ -9,6 +9,7 @@ from unittest import mock
 
 import support  # noqa: F401
 from ct import config
+from ct.admin.ssh import family_for
 from ct.setup import addworker, assess, discover, install
 from ct.setup.host import Host
 
@@ -184,6 +185,17 @@ class TheRealCommand(unittest.TestCase):
         self.assertIn('host = "worker2.example"', cfg_text)
         self.assertIn('admin_user = "agent"', cfg_text)
         self.assertIn('kind = "direct"', cfg_text)                                                    # the connection of the first install is the default for the next
+
+    def test_the_workers_ipv6_setting_is_in_this_computers_file_so_ssh_does_not_wait_for_addresses_it_no_longer_has(self):
+        """Seen on a real worker: 30 s per connection. The setting was only in the worker's file, so this computer never knew to connect over IPv4."""
+        rc, _, err = self.run_command("--set", "network.ipv6=disabled")
+        self.assertEqual(rc, 0, err)
+        text = self.base.machine.read(str(self.conf_dir / "tenta2.toml"))
+        self.assertIn('ipv6 = "disabled"', text)
+        import tempfile
+        written = tempfile.mkdtemp() + "/t.toml"
+        Path(written).write_text(text)
+        self.assertEqual(family_for(config.load(written)), "inet")           # so this computer's ssh and git to that worker use IPv4 only
 
 
 class TheScreens(unittest.TestCase):

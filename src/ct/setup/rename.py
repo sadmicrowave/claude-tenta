@@ -288,7 +288,7 @@ def rewrite_local(host, cfg, cfg2, new):
 def rename_command(a, host, ask, ssh_factory, say, verify=None):
     """ct-setup rename NEW: from your computer. Preview, ask once, run the server half over ssh -t, then the GitHub and local halves."""
     from .. import ui as _ui
-    from ..admin.ssh import Ssh
+    from ..admin.ssh import Ssh, family_for
     from .install import deliver_source, remove_remote_dir
     from ..ui import BOLD, GREEN, RED, YELLOW, paint
 
@@ -307,7 +307,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
              tag="NOTE", color=YELLOW)
         return 0
     cfg2 = load_new_config(host.read(cfg.source) or "", new, old, Path(cfg.source).name == config.LEGACY_CONFIG)
-    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
+    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
         # Which settings file the server starts from: an old install's cw.toml, or a current ct.toml, in the old folder or (when an earlier run stopped partway and has

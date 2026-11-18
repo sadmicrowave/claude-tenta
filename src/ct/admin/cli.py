@@ -61,7 +61,7 @@ class Context:
     def from_config(cls, cfg):
         repos = ClientRepos.from_config(cfg)
         home = Path(cfg.paths.client_home).expanduser()
-        return cls(repos, Ssh(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port), release.Source(home / "source.git", cfg.updates.source, cfg.updates.branch),
+        return cls(repos, Ssh.from_config(cfg), release.Source(home / "source.git", cfg.updates.source, cfg.updates.branch),
                    name=cfg.identity.name, config_dir=cfg.paths.config, code_dir=cfg.paths.code, home=home, main_branch=cfg.github.main_branch,
                    workers_file=Path(cfg.source).parent / "workers.toml" if cfg.source else None, cfg=cfg)
 

@@ -133,10 +133,10 @@ def uninstall_command(a, host, ask, ssh_factory, say):
             emit("Not removed", "You answered no.", tag="STOPPED", color=YELLOW)
             return 1
         return 0
-    from ..admin.ssh import Ssh
+    from ..admin.ssh import Ssh, family_for
     cfg = config.load()
     cfg.require("server.host", "server.admin_user")
-    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
+    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     # The code that does the removal comes with this checkout, not from the install being removed, so it works however old or broken that install is.
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
@@ -236,7 +236,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             return migrate.transport_command(a, host, ask, ssh_factory, say)
         if a.cmd == "add-worker":
             from . import addworker
-            from ..admin.ssh import Ssh
+            from ..admin.ssh import Ssh, family_for
             interactive = not a.yes and sys.stdin.isatty()
             screen_ = tui.make(interactive=interactive)
 
@@ -247,7 +247,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
 
             def installer_factory(conf, home, name, server_host, user, suggest):
                 return Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None,
-                                 given={**suggest, **{"transport.kind": main.transport.kind}}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
+                                 given={**load_answers(a.answers, a.set), **suggest, **{"transport.kind": main.transport.kind}}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
                                  repos_factory=repos_factory or default_repos, wait_for_keys=900, home=home, config_path=conf, targeted=True, suggest=flat_main,
                                  verify=verify or (lambda cfg: default_verify(cfg, say=say)))
             return addworker.run(a, host, ask, ssh_factory, say, ui=screen_, installer_factory=installer_factory, interactive=interactive)
@@ -270,7 +270,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             return uninstall_command(a, host, ask, ssh_factory, say)
         given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}
         if a.cmd == "install":
-            from ..admin.ssh import Ssh
+            from ..admin.ssh import Ssh, family_for
             interactive = not a.yes and sys.stdin.isatty()
             screen_ = tui.make(interactive=interactive)
             live.append(screen_)

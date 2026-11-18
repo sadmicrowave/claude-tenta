@@ -538,6 +538,18 @@ class TuiPrompter:
                     full = not full
 
     def card(self, info, choice, full):
+        """The protection card, fitted to the terminal: a block taller than the screen scrolls its top lines out of reach, so the redraw cannot erase them (seen: two lines of the card left behind on a
+        short terminal). Fewer steps, and fewer lines of each, are shown until it fits; `s` still asks for more."""
+        budget = max(12, self.rows - 3)
+        ladder = ((99, 99, False), (4, 3, False), (3, 2, False), (2, 1, False), (1, 1, False), (0, 0, False), (0, 0, True)) if full else \
+            ((4, 3, False), (3, 2, False), (2, 1, False), (1, 1, False), (0, 0, False), (0, 0, True))
+        for max_steps, max_parts, compact in ladder:
+            lines = self._card(info, choice, full, max_steps, max_parts, compact)
+            if len(lines) <= budget:
+                break
+        return lines
+
+    def _card(self, info, choice, full, max_steps, max_parts, compact=False):
         inner = self.width - 4
         frame = info.get("code", AMBER)                                       # a role: warn for a protection, root for something that runs as root
         a = lambda t: self.sgr(t, frame)                                      # noqa: E731
@@ -548,27 +560,30 @@ class TuiPrompter:
 
         def row(text=""):
             return a("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + a("│")
-        lines = [top, row()]
+        gap = (lambda: None) if compact else (lambda: lines.append(row()))          # a very short terminal: no spacer rows, one line of explanation
+        lines = [top]
+        gap()
         lines.append(row(self.sgr(info["title"], BOLD)))
-        for t in textwrap.wrap(info["why"], inner - 2):
-            lines.append(row(self.sgr(t, DIM)))
-        lines.append(row())
+        why = textwrap.wrap(info["why"], inner - 2)
+        for t in (why[:1] if compact else why):
+            lines.append(row(self.sgr(t + ("…" if compact and len(why) > 1 else ""), DIM)))
+        gap()
         facts = info.get("rows") or []                                       # labelled facts: aligned labels, long values wrapped under themselves
         if facts:
             lw = max(len(k) for k, _ in facts)
             for k, v in facts:
                 for n, part in enumerate(textwrap.wrap(str(v), max(10, inner - lw - 4), break_long_words=True, break_on_hyphens=False) or [""]):
                     lines.append(row(self.sgr((k if n == 0 else "").ljust(lw), "label") + "  " + part))
-            lines.append(row())
+            gap()
         for label, code, text in (("Risk  ", frame, info["risk"]), ("Now   ", DIM, info["now"])):
             wrapped = textwrap.wrap(text, inner - 8) or [""]
             for k, part in enumerate(wrapped):
                 lines.append(row(self.sgr(label if k == 0 else "      ", code, "label") + (part if label.startswith("Risk") else self.sgr(part, DIM))))
-        lines.append(row())
+        gap()
         steps, room, hidden = info["steps"], inner - 6, False
-        for s in steps if full else steps[:4]:
+        for s in steps[:max_steps]:
             parts = s.splitlines()
-            for k, part in enumerate(parts if full else parts[:3]):
+            for k, part in enumerate(parts[:max_parts]):
                 part = part.strip("\n")
                 if full:                                                     # everything, long lines wrapped under themselves
                     pieces = textwrap.wrap(part, room, break_long_words=True, break_on_hyphens=False) or [""]
@@ -577,18 +592,18 @@ class TuiPrompter:
                     hidden = hidden or len(part) > room
                 for n, piece in enumerate(pieces):
                     lines.append(row(self.sgr(("  $ " if k == 0 and n == 0 else "      ") + piece, DIM)))
-            if not full and len(parts) > 3:
+            if len(parts) > max_parts:
                 lines.append(row(self.sgr("      …", DIM)))
                 hidden = True
-        if not full and len(steps) > 4:
-            lines.append(row(self.sgr(f"  … and {len(steps) - 4} more steps (press s)", DIM)))
+        if len(steps) > max_steps:
+            lines.append(row(self.sgr(f"  … and {len(steps) - max_steps} more steps (press s)", DIM)))
             hidden = True
-        lines.append(row())
+        gap()
         yes_text, no_text = f"  {info.get('apply', 'Apply')}  ", f"  {info.get('skip', 'Skip')}  "
         apply_b = self.sgr(yes_text, GREEN_BTN) if choice == 0 else self.sgr(yes_text, DIM)
         skip_b = self.sgr(no_text, "neutral_chip") if choice == 1 else self.sgr(no_text, DIM)
         lines.append(row("    " + apply_b + "     " + skip_b))
-        lines.append(row())
+        gap()
         more = hidden or full                                          # the key is only offered when it would change what is on screen
         key_s = "· s " + ("shows every step" if hidden else "shows less") if more else ""
         foot = ""

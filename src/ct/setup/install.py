@@ -12,6 +12,7 @@ Nothing is left behind on the server: the folder it received the release in, whi
 import hashlib
 import io
 import json
+import socket
 import re
 import subprocess
 import sys
@@ -103,8 +104,9 @@ CLAUDE_ON_THIS_COMPUTER = "curl -fsSL https://claude.ai/install.sh | bash"
 
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=None, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False, config_path=None, targeted=False, suggest=None):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False, config_path=None, targeted=False, suggest=None, resolve4=None):
         say = say or _sink()
+        self.resolve4 = resolve4 or (lambda host, port: socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4][0])       # the worker's IPv4 address, asked of the network again
         self.config_override, self.targeted, self.suggest = config_path, targeted, dict(suggest or {})      # targeted: adding one worker, with its own configuration file and folder
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
@@ -270,6 +272,11 @@ class Installer:
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
         self.cfg = config.Config(clean)
+        try:                                                           # from here on the worker's own IPv6 setting decides how this computer connects to it (see admin.ssh.family_for)
+            from ..admin.ssh import family_for
+            self.ssh.family = family_for(self.cfg)
+        except AttributeError:
+            pass
         self.save_answers(nested)
         return nested
 
@@ -459,6 +466,21 @@ class Installer:
         self.note("server setup", "done")
         self.mark("server", rev=rev)
 
+    def reresolve_over_ipv4(self):
+        """The worker's IPv6 was just switched off (the wizard's own question), so this computer must stop using the IPv6 addresses the network still remembers for its name (mDNS keeps them for a while)
+        and ask again for its IPv4 one. ssh and git are told to use IPv4 only (admin.ssh.family_for); this proves a name for it exists and says which address it is. Found on a real worker, where the
+        stale IPv6 addresses cost a connect timeout each, 30 seconds for every connection."""
+        from ..admin.ssh import family_for
+        if family_for(self.cfg) != "inet":
+            return
+        host, port = self.cfg.server.host, int(self.cfg.server.ssh_port)
+        try:
+            ip = self.resolve4(host, port)
+        except OSError as e:
+            self.note("connection", "failed", f"{host} has no IPv4 address on this network ({e}); the worker's IPv6 is off, so it cannot be reached by that name. Use its IPv4 address as server.host")
+            return
+        self.note("connection", "ok", f"this computer reaches the worker over IPv4 only now ({ip}), because its IPv6 is off")
+
     def hold_worker(self):
         """After a failed setup: stop the worker's job loop. Returns a plain sentence saying what is now true, or the one command to run. The setup's own sudo cannot be reused here (sudo remembers a
         password per terminal, and this is another connection), so unless sudo needs no password a person at a terminal is asked first."""
@@ -541,6 +563,8 @@ class Installer:
             self.server_half(d, rev)
         finally:
             self.cleanup(d)
+        if not self.dry_run:
+            self.reresolve_over_ipv4()
         if getattr(getattr(self, "client", None), "direct", False) and not self.dry_run:
             try:
                 self.report += self.client.finish_direct()

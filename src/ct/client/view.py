@@ -309,6 +309,37 @@ def phase_of(res, jid, admin="ct-admin", approved=False, product="the worker", w
 CHIP_FOR = {YELLOW: "wait_chip", CYAN: "primary_chip", RED: "bad_chip", GREEN: "ok_chip"}      # the chip colour for each live-line colour (yellow has its own gold)
 
 
+class Busy:
+    """A live "working" line for a step that has no output of its own (a round trip to the worker): the phase and the elapsed time, redrawn while it lasts, gone when it ends. Silent when stderr is
+    not a terminal. (Without it a slow connection looked like a hung screen: nothing at all for half a minute.)"""
+
+    def __init__(self, text, color=None, stream=None, every=0.25):
+        self.text, self.color, self.every = text, color or YELLOW, every
+        self.prog = Progress(stream=stream)
+        self._stop = None
+        self._thread = None
+
+    def __enter__(self):
+        if self.prog.on:
+            import threading
+            self._stop = threading.Event()
+            self.prog.draw(self.text, self.color)
+
+            def run():
+                while not self._stop.wait(self.every):
+                    self.prog.draw(self.text, self.color)
+            self._thread = threading.Thread(target=run, daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        if self._stop is not None:
+            self._stop.set()
+            self._thread.join(1)
+            self.prog.clear()
+        return False
+
+
 class Progress:
     """One live line on the terminal (spinner, phase, elapsed time). Silent when stderr is not a terminal."""
 

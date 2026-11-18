@@ -69,7 +69,8 @@ class Direct:
 
     def client_ssh_command(self, cfg):
         key = shlex.quote(str(self.client_key(cfg)))
-        return f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+        family = " -o AddressFamily=inet" if cfg.network.ipv6 == "disabled" else ""          # the worker has no IPv6: do not wait for addresses it no longer has (see admin.ssh.family_for)
+        return f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15{family}"
 
     def where(self, cfg):
         return "the worker"

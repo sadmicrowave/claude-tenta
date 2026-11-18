@@ -24,12 +24,23 @@ def default_control_dir():
     return d
 
 
+def family_for(cfg):
+    """"inet" (IPv4 only) when the worker's IPv6 is switched off, else None. A name that the network still resolves to the worker's old IPv6 addresses (mDNS remembers them) would otherwise cost
+    one connect timeout per address before ssh falls back to IPv4: 30 seconds for every connection and every git command, found on a real worker."""
+    return "inet" if getattr(getattr(cfg, "network", None), "ipv6", "enabled") == "disabled" else None
+
+
 class Ssh:
-    def __init__(self, host, user=None, port=22, *, run=subprocess.run, popen=subprocess.Popen, control_dir=None):
+    def __init__(self, host, user=None, port=22, *, run=subprocess.run, popen=subprocess.Popen, control_dir=None, family=None):
         if not host or host.startswith("-"):
             raise ClientError("No server address is configured", "server.host is empty or not an address.", example="ct-setup client")
         self.host, self.user, self.port, self._run, self._popen = host, user, int(port), run, popen
         self.control_dir = control_dir or default_control_dir()
+        self.family = family                              # "inet": IPv4 only (see family_for)
+
+    @classmethod
+    def from_config(cls, cfg, **kw):
+        return cls(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port, family=family_for(cfg), **kw)
 
     @property
     def target(self):
@@ -40,6 +51,8 @@ class Ssh:
         if batch:
             a += ["-o", "BatchMode=yes"]
         a += ["-o", "LogLevel=ERROR"]                       # no "Shared connection to ... closed." line after every command
+        if self.family:
+            a += ["-o", f"AddressFamily={self.family}"]
         os.makedirs(self.control_dir, mode=0o700, exist_ok=True)
         a += ["-o", f"ConnectTimeout={CONNECT_TIMEOUT_S}", "-p", str(self.port), "-o", "ControlMaster=auto", "-o", f"ControlPersist={SHARE_FOR_S}",
               "-o", f"ControlPath={self.control_dir}/%C", self.target]

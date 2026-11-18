@@ -160,6 +160,34 @@ class HappyPath(InstallBase):
         self.assertTrue(any("job loop was stopped" in step for step in e.exception.steps))
         self.assertEqual(self.verified, [])                                                         # and no first job was attempted against it
 
+    def test_once_the_answers_say_the_worker_has_no_ipv6_this_computer_connects_to_it_over_ipv4_only(self):
+        """Seen on a real worker: 30 s per connection while ssh waited out two dead IPv6 addresses."""
+        inst = self.installer(given={"network.ipv6": "disabled"})
+        inst.run_all()
+        self.assertEqual(getattr(self.ssh, "family", None), "inet")
+
+    def test_after_the_workers_ipv6_is_switched_off_its_name_is_asked_for_again_over_ipv4_and_the_address_is_said(self):
+        asked = []
+        inst = self.installer(given={"network.ipv6": "disabled"}, resolve4=lambda host, port: asked.append((host, port)) or "192.0.2.50")
+        inst.run_all()
+        self.assertEqual(asked, [("worker.example", 22)])
+        self.assertTrue(any(r[0] == "connection" and r[1] == "ok" and "192.0.2.50" in r[2] for r in inst.report), inst.report)
+
+    def test_a_name_with_no_ipv4_address_is_said_plainly_when_the_worker_has_no_ipv6(self):
+        def none(host, port):
+            raise OSError("Name or service not known")
+        inst = self.installer(given={"network.ipv6": "disabled"}, resolve4=none)
+        inst.run_all()
+        row = [r for r in inst.report if r[0] == "connection"][0]
+        self.assertEqual(row[1], "failed")
+        self.assertIn("IPv4 address as server.host", row[2])
+
+    def test_a_worker_that_keeps_ipv6_is_not_asked_for_anything_again(self):
+        asked = []
+        inst = self.installer(given={"network.ipv6": "enabled"}, resolve4=lambda host, port: asked.append(host) or "192.0.2.50")
+        inst.run_all()
+        self.assertEqual(asked, [])
+
     def failed_clone(self, sudo_without_password, ask=None, tty=False):
         class Dead(Exception):
             why = "fatal: detected dubious ownership"

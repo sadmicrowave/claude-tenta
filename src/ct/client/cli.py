@@ -104,13 +104,15 @@ def cmd_submit(ctx, a):
     if files:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
-    cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
+    with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
+        cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
     ids = sub.job_ids(base, len(batches))
     if len(batches) > 1:
         emit(f"{len(files)} files split into {len(batches)} independent jobs", *ids, tag="NOTE", color=YELLOW)
     for jid, chunk in zip(ids, batches):
-        sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
+        with view.Busy(f"sending: the job to {ctx.product}"):
+            sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
         emit(f"Queued {jid}", f"{ctx.product} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     try:
         r.prune_jobs()

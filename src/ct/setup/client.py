@@ -25,6 +25,9 @@ SEED_REGISTRY = ("# YOUR job classes, added with `ct-admin adopt` after you test
                  "classes:\n")
 
 
+ALSO_FOR_THE_CLIENT = ("network.ipv6",)       # asked on the server's side, but this computer's own configuration needs it too: with the worker's IPv6 off, ssh must not wait for addresses it no longer has
+
+
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=None, dry_run=True, given=None, use_defaults=False, repos_factory=None,
                  queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None, styled=False, verbose=False, config_path=None, targeted=False):
@@ -80,6 +83,10 @@ class ClientSetup:
             self.ui.finish()
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
+        for key in ALSO_FOR_THE_CLIENT:                                      # a worker's setting that decides how THIS computer must connect to it
+            if key in self.given:
+                section, _, name = key.partition(".")
+                nested.setdefault(section, {})[name] = self.given[key]
         clean, problems = questions.validate_answers(nested)
         if problems:
             raise SetupError("The answers do not make a valid configuration", "\n".join(problems))

@@ -189,7 +189,7 @@ def rewrite_local(host, cfg, cfg2, kind):
 def transport_command(a, host, ask, ssh_factory, say, verify=None):
     """ct-setup transport KIND: from your computer. Preview, ask once, send the key, run the server half over ssh -t, then rewrite this computer's side and prove it."""
     from .. import ui as _ui
-    from ..admin.ssh import Ssh
+    from ..admin.ssh import Ssh, family_for
     from .install import deliver_source, remove_remote_dir
     from ..ui import GREEN, RED, YELLOW
 
@@ -209,7 +209,7 @@ def transport_command(a, host, ask, ssh_factory, say, verify=None):
              "Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again.", tag="STOPPED", color=YELLOW, run="ct-setup install")
         return 1
     cfg2 = load_new_config(host.read(cfg.source) or "", new)
-    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p)))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
+    ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     pub = ensure_key(host, cfg2) if a.apply else None
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
