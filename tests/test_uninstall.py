@@ -239,3 +239,20 @@ class FromYourComputer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class APreviewByANormalAccount(unittest.TestCase):
+    """Found by the routes on Debian 12 and 13 and Ubuntu 24.04 (not on 26.04, which has no auditd): the preview, run as the admin, crashed with a traceback because a folder it looks inside
+    (/etc/audit/rules.d is root-only) cannot be searched by a normal account."""
+
+    def test_a_path_inside_a_folder_the_account_cannot_search_is_not_a_crash(self):
+        import os
+        from ct.setup.host import Host
+        root = tempfile.mkdtemp()
+        os.makedirs(f"{root}/etc/audit/rules.d")
+        open(f"{root}/etc/audit/rules.d/60-claude-tenta.rules", "w").write("x")
+        os.chmod(f"{root}/etc/audit/rules.d", 0o000)
+        self.addCleanup(os.chmod, f"{root}/etc/audit/rules.d", 0o755)
+        if os.geteuid() == 0:
+            self.skipTest("root can search every folder")
+        self.assertTrue(Host(root).exists("/etc/audit/rules.d/60-claude-tenta.rules"))         # cannot tell: it is listed, so the preview shows the step that root would run

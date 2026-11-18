@@ -37,7 +37,15 @@ class Host:
             return None
 
     def exists(self, p):
-        return self.path(p).exists()
+        try:
+            os.stat(self.path(p))                    # not Path.exists(): whether that raises or says False for a folder that cannot be searched differs between Python releases
+            return True
+        except FileNotFoundError:
+            return False
+        except NotADirectoryError:
+            return False
+        except PermissionError:                      # inside a folder this account cannot search (/etc/audit/rules.d is root-only): it cannot tell, so it counts as there and a preview lists it
+            return True
 
     def write(self, p, text, mode=0o644):
         dest = self.path(p)

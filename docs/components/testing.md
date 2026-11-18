@@ -86,6 +86,7 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | `add-worker` when every machine found is already a worker | yes (`TheScreens`: listed to set up again, not the default) | | the real network (confirmed by hand) |
 | A command offered to copy (chip, copy note, real clipboard) | yes (chip on every path; clipboard program faked) | | confirmed by hand on a Mac; Linux desktop and over SSH not tried |
 | The machine-kind question (`hardware.profile`) wording and choices | yes (no jargon, era, processor, memory) | | read in the wizard: not yet |
+| `ct-setup uninstall` preview run as the admin (a normal account) | yes (real `Host` on an unsearchable folder) | yes (`uninstall`, on all four releases) | |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 
