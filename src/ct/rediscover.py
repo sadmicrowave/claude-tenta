@@ -155,8 +155,11 @@ def ladder(host, port, name, home, *, recorded=None, shown=None, mdns=None, arp=
     read = shown or (lambda ip: shown_keys(ip, port))
     seen = []
 
+    tried = set()
+
     def check(candidates, rung):
-        cands = list(dict.fromkeys(c for c in candidates if c))
+        cands = [c for c in dict.fromkeys(c for c in candidates if c) if c not in tried]          # an address that was already waited on is not waited on again
+        tried.update(cands)
         if progress:
             progress(rung)
         if not cands:

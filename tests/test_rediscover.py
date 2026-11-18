@@ -117,6 +117,15 @@ class TheLadder(unittest.TestCase):
         (m, rung, _), calls, scans = self.run_ladder({"198.51.100.7": self.KEY}, home=home)
         self.assertEqual((m.addresses, rung, scans), (["198.51.100.7"], "the last address that worked", []))
 
+    def test_an_address_already_tried_is_not_tried_again(self):
+        """Found on the real VM: the last address that worked was the configured one, which was dead, so it was waited on twice (6 s instead of 4)."""
+        import tempfile
+        home = tempfile.mkdtemp()
+        rediscover.remember(home, "w", "198.51.100.7", resolve=lambda h: h, arp=lambda: {})
+        calls = []
+        rediscover.ladder("198.51.100.7", 22, "w", home, recorded=self.KEY, shown=lambda ip: calls.append(ip) or set(), mdns=lambda h: "198.51.100.7", arp=lambda: {}, full=False)
+        self.assertEqual(calls, ["198.51.100.7"])
+
     def test_the_name_service_answer_is_only_a_hint_a_wrong_machine_there_moves_on(self):
         (m, rung, _), calls, scans = self.run_ladder({"192.0.2.77": {("ssh-ed25519", "IMPOSTOR")}, "192.0.2.50": self.KEY}, mdns=lambda h: "192.0.2.77")
         self.assertEqual((m.addresses, rung), (["192.0.2.50"], "a scan of your real networks"))
