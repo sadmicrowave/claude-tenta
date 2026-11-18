@@ -28,7 +28,7 @@ When more than one transport exists, the wizard asks for the connection method w
 |---|---|---|
 | **Direct** (recommended once built) | Fastest: a job is picked up within seconds, and nothing leaves your network. The worker reaches nothing on your network. | The worker's SSH port is open to your computer's address, and the worker must be reachable when you send a job. |
 | **LAN git server** | Fast, and the right shape for several workers: one place for all the jobs. | A compromised worker can reach that one server's SSH port, and you keep one more service patched. |
-| **GitHub** | Most isolated: nothing on your network listens, and the worker only connects out. Needs no always-on machine of yours. | Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party. |
+| **GitHub** | Most isolated: nothing on your network listens, and the worker only connects out, to two private repositories only you and the worker can read. Needs no always-on machine of yours. | Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party. |
 
 The same words are used in `ct-setup transport` and in `ct-admin workers`, and a test fails if a transport has no description for each of gain and cost.
 

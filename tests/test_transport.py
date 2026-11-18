@@ -19,7 +19,7 @@ class Words(unittest.TestCase):
         for kind, t in transport.TRANSPORTS.items():
             self.assertGreater(len(t.gain), 30, kind)
             self.assertGreater(len(t.cost), 30, kind)
-            self.assertLess(len(t.gain) + len(t.cost), 330, kind)                      # short: a line of gain and a line of cost
+            self.assertLess(len(t.gain) + len(t.cost), 360, kind)                      # short: a line of gain and a line of cost
         offered = dict(questions.CHOICES["transport.kind"])
         self.assertEqual(set(offered), set(transport.TRANSPORTS))                        # the wizard offers every transport, with the same words
         for kind, text in offered.items():

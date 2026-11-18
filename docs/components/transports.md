@@ -6,7 +6,7 @@ Your computer and the worker need a place to leave jobs and pick up results. The
 
 | | **Direct** | **GitHub** |
 | --- | --- | --- |
-| How it works | The worker keeps a mailbox; your computer reaches it over SSH with one key made for that. | Two private repositories on GitHub; both sides connect out to them. |
+| How it works | The worker keeps a mailbox; your computer reaches it over SSH with one key made for that. | Two private repositories on GitHub that only you and the worker can read; both sides connect out to them. |
 | Speed | Fastest: a job is picked up within seconds. | A pass every 5 s when busy, 90 s idle, 5 min asleep. |
 | What it gives up | The worker's SSH port is open to your computer's address, and the worker must be reachable when you send a job (otherwise sending fails with a clear message; nothing is queued behind your back). | Your job names and results pass through a third party; the worker makes outbound connections. |
 | Needs | Your computer can reach the worker (same network, VPN). | A GitHub account; `gh` makes the repositories for you. |

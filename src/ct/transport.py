@@ -19,8 +19,8 @@ class GitHub:
     kind = "github"
     label = "GitHub"
     uses_deploy_keys = True
-    gain = "Most isolated: nothing on your network listens, and the worker only connects out to github.com. Needs no always-on machine of yours."
-    cost = "Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party."
+    gain = "Most isolated: nothing on your network listens, and the worker only connects out to github.com, to two private repositories only you and the worker can read. Needs no always-on machine of yours."
+    cost = "Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle, 5 min asleep), and jobs and results pass through GitHub, a third party."
 
     def client_ssh_command(self, cfg):
         return None                                           # your own GitHub key, as for any git command
