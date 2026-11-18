@@ -46,7 +46,7 @@ When a card at a terminal ends with a "Run this" command, the first command (the
 
 ## The header and light or dark terminals
 
-The install header is the picture in a frame (the same outline as a card) across the whole terminal width, its water carried to both edges. It follows the terminal's background: the terminal is asked for its colour (OSC 11), then `COLORFGBG` is read, else dark is assumed; `CT_BACKGROUND=light` or `dark` overrides. On a light terminal the near-white parts (cloud, letters) are drawn dark. See `theme.background` and `brand.banner`.
+The install header is the picture in a frame (the same outline as a card) across the whole terminal width, its water carried to both edges. The picture uses one palette for light and dark terminals: the cloud and the name are mid-tones (the name has at least 3:1 contrast against white and against dark backgrounds, checked by a test), so a wrong guess of the terminal's background can no longer make the name vanish. (Cards and the diff view still follow the background: the terminal is asked for its colour (OSC 11), then `COLORFGBG` is read, else dark is assumed; `CT_BACKGROUND=light` or `dark` overrides.) See `theme.background` and `brand.banner`.
 
 ## Diffs
 

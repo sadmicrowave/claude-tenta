@@ -9,13 +9,13 @@ NAME = "claude-tenta"
 HANDLE = "@claude-tenta"
 
 PALETTE = [
-    (240, 242, 248),
+    (150, 160, 192),
     (92, 99, 122),
     (146, 46, 118),
     (128, 136, 160),
     (94, 28, 84),
     (236, 152, 180),
-    (245, 245, 250),
+    (20, 152, 168),
     (104, 170, 235),
     (47, 111, 192),
     (214, 234, 255),
@@ -45,7 +45,10 @@ def spaced(text):
     return "   ".join(" ".join(w.upper()) for w in text.split())
 
 
-LIGHT = {0: (150, 160, 192), 6: (38, 42, 76)}      # on a light terminal the near-white parts (cloud, letters) become dark ink; the rest of the artwork reads on both
+# One palette for light and dark terminals. The cloud (index 0) and the letters (index 6) used to be near-white and switched to dark ink on a light terminal, which depended on guessing the
+# terminal's background correctly: a wrong guess made the name dark on dark (seen on a real terminal). They are mid-tones now, readable on both (the letters 3:1 or better against white
+# and against a dark terminal's background, a test checks it), so nothing here depends on the guess.
+LIGHT = {}
 SKY = [[]]                                       # a row of sky above the picture, so the picture keeps its height with one row less water
 WATER_ROWS = 2                                   # the last rows of ART are water; the picture is drawn with these
 

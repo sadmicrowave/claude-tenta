@@ -60,13 +60,26 @@ class Banner(unittest.TestCase):
 
 
 class LightAndDark(unittest.TestCase):
-    def test_the_near_white_parts_become_dark_on_a_light_terminal_and_nothing_else_moves(self):
-        dark, light = brand.art_rows(True, 80, False), brand.art_rows(True, 80, True)
-        self.assertEqual(plain(dark), plain(light))                                     # same shapes
-        self.assertNotEqual(dark, light)
-        self.assertIn("38;2;245;245;250", "".join(dark))
-        self.assertNotIn("38;2;245;245;250", "".join(light))                             # the letters would vanish on white
-        self.assertIn("38;2;38;42;76", "".join(light))
+    @staticmethod
+    def contrast(c1, c2):
+        def lum(c):
+            f = [(v / 255) / 12.92 if v / 255 <= 0.03928 else (((v / 255) + 0.055) / 1.055) ** 2.4 for v in c]
+            return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+        hi, lo = sorted((lum(c1), lum(c2)), reverse=True)
+        return (hi + 0.05) / (lo + 0.05)
+
+    def test_the_name_in_the_picture_reads_on_a_white_terminal_and_on_a_dark_one(self):
+        """Seen on a real dark terminal: the letters came out dark navy on dark because the background was guessed wrong. One mid-tone now serves both."""
+        letters = brand.PALETTE[6]
+        for background in ((255, 255, 255), (30, 30, 30), (38, 38, 38), (0, 0, 0)):
+            self.assertGreaterEqual(self.contrast(letters, background), 3.0, background)
+
+    def test_the_cloud_is_visible_on_both_too(self):
+        for background in ((255, 255, 255), (30, 30, 30), (0, 0, 0)):
+            self.assertGreaterEqual(self.contrast(brand.PALETTE[0], background), 2.0, background)
+
+    def test_the_picture_is_the_same_whatever_the_terminal_is_guessed_to_be(self):
+        self.assertEqual(brand.art_rows(True, 80, False), brand.art_rows(True, 80, True))
 
     def test_the_terminals_own_answer_decides(self):
         from ct import theme
