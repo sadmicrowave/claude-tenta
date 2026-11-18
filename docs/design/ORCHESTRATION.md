@@ -1,6 +1,8 @@
 # Several workers: design notes
 
-Status: **started.** Built so far: each worker publishes `worker-state.json` and `ct-admin workers` compares workers from it (requirement 3, and the data requirement 2 needs). Not built: choosing a worker automatically, dedicated workers and candidate locks, keeping a batch on one worker.
+Status: **started; the scheduler core and its wiring are built (2026-11-18): `ct.sched.choose`, `ct-run where`, placement in `ct-run submit`, `--worker`, `placements.json`.** Not built: signed per-class preferences, batches kept together, the comparison command's reasoning column.
+
+Earlier status: **started.** Built so far: each worker publishes `worker-state.json` and `ct-admin workers` compares workers from it (requirement 3, and the data requirement 2 needs). Not built: choosing a worker automatically, dedicated workers and candidate locks, keeping a batch on one worker.
 
 Original status: **planned, not built.** These are requirements written down as they came up, so the multi-worker work starts from them. Today there is one
 worker per install. The signed approvals, orders and registry (see `docs/components/setup.md`) already work from the administrator's own computer

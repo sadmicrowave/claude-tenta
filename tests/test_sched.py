@@ -127,3 +127,51 @@ class TheRealPublisher(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWorkerKnowsBest(unittest.TestCase):
+    """Found on the real fleet: this computer's configuration said Direct (5 s) for a worker that really listens on GitHub and looks every 300 s when idle."""
+
+    def listening(self, name, transport, wait, believed="direct", **kw):
+        s = state(**kw)
+        s["transport"], s["pickup_max_s"] = transport, wait
+        return worker_view(name, believed, s, {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 5)
+
+    def test_the_wait_the_worker_publishes_beats_what_this_computer_assumes_and_decides_between_equals(self):
+        mini = self.listening("mini", "github", 300)                         # believed to be Direct here: 5 s assumed, 300 s real
+        vmx = self.listening("vmx", "direct", 5)
+        self.assertEqual((mini.wait_s, vmx.wait_s), (300, 5))
+        c = pick([mini, vmx])
+        self.assertEqual(c.worker, "vmx")
+        self.assertIn("notices a job sooner (5 s against 300 s)", dict((n, r) for n, _, r in c.lines)["mini"])
+
+    def test_a_worker_whose_real_connection_differs_from_the_setting_here_is_flagged_in_the_explanation(self):
+        mini = self.listening("mini", "github", 300)
+        c = pick([mini])
+        self.assertIn("listens on github", dict((n, r) for n, _, r in c.lines)["mini"])
+        self.assertEqual(self.listening("ok", "direct", 5).mismatch, "")
+
+    def test_an_older_worker_that_publishes_neither_falls_back_to_what_this_computer_knows(self):
+        w_old = worker_view("old", "github", state(), {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 90)
+        self.assertEqual((w_old.wait_s, w_old.listens_on, w_old.mismatch), (90, "github", ""))
+
+    def test_a_class_limited_to_a_connection_goes_by_what_the_worker_listens_on(self):
+        prefs = Prefs(connections={"sys-status": ["direct"]})
+        c = pick([self.listening("mini", "github", 300)], prefs=prefs)
+        self.assertIsNone(c.worker)
+
+    def test_the_real_state_builder_publishes_them(self):
+        class Jail:
+            name = "bwrap"
+
+            def ready(self):
+                return True
+        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "pickup_max_s": 300, "claude": {"auth": "none"}}, jail=Jail(), locked=False, now_iso="x")
+        self.assertEqual((doc["transport"], doc["pickup_max_s"]), ("github", 300))
+
+
+class TheConfigurationAndTheCopiesDisagree(unittest.TestCase):
+    def test_it_is_said_in_the_explanation(self):
+        v = worker_view("mini", "github", state(), {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 90, configured="direct")
+        self.assertIn("configuration says direct, but its copies of the queue and results use github", v.mismatch)
+        self.assertIn("WARNING", dict((n, r) for n, _, r in pick([v]).lines)["mini"])

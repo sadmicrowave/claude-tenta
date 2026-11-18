@@ -1238,3 +1238,23 @@ class ALostWorkerThatWasReinstalled(Locate):
         self.assertEqual(code, 1)
         self.assertIn("ssh-keygen -R worker.example", out)
         self.assertIn("new SSH key", out)
+
+
+class ACommandOnAJobSentToAnotherWorker(AdminBase):
+    """A job the scheduler placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
+
+    def test_the_context_of_the_worker_it_was_sent_to_is_used(self):
+        from ct.client import place
+        place.record(self.ctx.home, ["j-elsewhere"], "other")
+        seen = []
+        other = mock.Mock(name="other-ctx")
+        other.name = "other"
+        with mock.patch.object(self.ctx, "for_worker", side_effect=lambda n: seen.append(n) or other), mock.patch.dict(cli.DISPATCH, {"output": lambda c, a: seen.append(("ran-on", c.name)) or 0}):
+            self.admin("output", "j-elsewhere")
+        self.assertEqual(seen, ["other", ("ran-on", "other")])
+
+    def test_a_job_with_no_recorded_placement_stays_on_the_main_worker(self):
+        seen = []
+        with mock.patch.dict(cli.DISPATCH, {"output": lambda c, a: seen.append(c.name) or 0}):
+            self.admin("output", "j-here")
+        self.assertEqual(seen, ["testct"])

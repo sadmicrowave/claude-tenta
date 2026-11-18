@@ -89,6 +89,9 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | `ct-setup uninstall` preview run as the admin (a normal account) | yes (real `Host` on an unsearchable folder) | yes (`uninstall`, on all four releases) | |
 | A worker's address changed (`ct-admin locate`, the monitoring pass) | yes (ladder, matcher, real `ssh-keyscan` and `known_hosts` output on every release, saving the address) | gap: needs two addresses on one machine | by hand: change the VM's address |
 | Move ONE registered worker to another connection (GitHub to Direct and back) after several workers exist | gap: the single-install move is covered, not a second worker with its own config, `workers.toml`, the fleet and the scheduler | gap: needs two machines | by hand: the Mac mini and the VM |
+| Several workers: a job is placed by the scheduler (`ct-run submit`, `ct-run where`, `--worker`) | yes (`test_sched` rules, `test_place` wiring with real files; the real state builder) | | confirmed by hand on the Mac mini and the VM (found the GitHub/Direct mismatch) |
+| A job placed on another worker: result, approval, stop (`placements.json`) | yes | gap | by hand: result read back from the VM |
+| Several workers: one unreachable, locked, or lacking the class | yes | gap | VM off: by hand |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 

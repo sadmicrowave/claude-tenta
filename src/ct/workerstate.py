@@ -45,6 +45,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         "approvers": list(extra.get("approvers") or []),
         "locked": bool(locked),
         "claude_paused": bool((extra.get("claude_budget") or {}).get("paused")),
+        "transport": extra.get("transport"), "pickup_max_s": extra.get("pickup_max_s"),
     }
     observed = {k: snapshot.get(k) for k in ("load_1m", "temp_c", "mem_available_mb", "disk_free_gb", "running", "waiting")}
     observed["at"] = snapshot.get("at")

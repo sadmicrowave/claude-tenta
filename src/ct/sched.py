@@ -24,12 +24,32 @@ class Worker:
     registry: dict = None                      # registry.json (the classes it offers), or None
     age_s: float = None                        # how old the reading is
     pickup_s: int = 5                          # how long, at most, until it notices a job (its idle pace)
+    configured: str = None                     # what this computer's configuration SAYS the connection is, when that differs from the one its copies really use
 
     def doc(self, *keys, default=None):
         cur = self.state or {}
         for k in keys:
             cur = cur.get(k) if isinstance(cur, dict) else None
         return default if cur is None else cur
+
+    @property
+    def listens_on(self):
+        """What the worker says it listens on (it knows); the configuration of this computer only says what this computer believes."""
+        return self.doc("transport") or self.connection
+
+    @property
+    def wait_s(self):
+        """The longest a new job waits to be noticed: what the worker publishes, else what this computer assumes."""
+        return int(self.doc("pickup_max_s") or self.pickup_s)
+
+    @property
+    def mismatch(self):
+        said = []
+        if self.configured and self.configured != self.connection:
+            said.append(f"this computer's configuration says {self.configured}, but its copies of the queue and results use {self.connection}")
+        if self.connection != self.listens_on:
+            said.append(f"this computer sends over {self.connection}, but the worker listens on {self.listens_on}")
+        return "; ".join(said)
 
     @property
     def offered(self):
@@ -91,8 +111,8 @@ def _left_out(w, cls, kind, prefs):
     if cls not in w.offered:
         return f"does not offer the class {cls}"
     allowed = prefs.connections.get(cls)
-    if allowed and w.connection not in allowed:
-        return f"is reached over {w.connection}, and {cls} is limited to {' or '.join(allowed)}"
+    if allowed and w.listens_on not in allowed:
+        return f"is reached over {w.listens_on}, and {cls} is limited to {' or '.join(allowed)}"
     if kind == "claude":
         c = w.doc("claude", default={}) or {}
         if c.get("auth", "none") == "none":
@@ -106,7 +126,7 @@ def _left_out(w, cls, kind, prefs):
 
 def _rank(w, cls, prefs):
     order = prefs.preferred.get(cls) or []
-    return (order.index(w.name) if w.name in order else len(order), w.stale, -w.headroom, w.pickup_s, w.per_core, w.name)
+    return (order.index(w.name) if w.name in order else len(order), w.stale, -w.headroom, w.wait_s, w.per_core, w.name)
 
 
 def _why_chosen(w, best_rank, others):
@@ -114,7 +134,9 @@ def _why_chosen(w, best_rank, others):
     if w.name in best_rank["preferred"]:
         bits.append("your preferred worker for this class")
     bits.append(f"{max(w.headroom, 0)} of {w.capacity} capacity free" if w.capacity else "capacity unknown")
-    bits.append(f"notices a job within {w.pickup_s} s")
+    bits.append(f"notices a job within {w.wait_s} s")
+    if w.mismatch:
+        bits.append(f"WARNING: {w.mismatch}")
     if w.stale:
         bits.append(f"(its reading is {int((w.age_s or 0) // 60)} min old)")
     return ", ".join(bits)
@@ -140,7 +162,7 @@ def choose(cls, kind, workers, prefs=None):
         if w is best:
             out[w.name] = ("CHOSEN", _why_chosen(w, {"preferred": order[:1]}, eligible))
         else:
-            out[w.name] = ("not chosen", _worse_than(w, best, order))
+            out[w.name] = ("not chosen", _worse_than(w, best, order) + (f" (WARNING: {w.mismatch})" if w.mismatch else ""))
     return Choice(best.name, [(w.name, *out[w.name]) for w in ordered], busy_all=best.headroom <= 0)
 
 
@@ -152,12 +174,12 @@ def _worse_than(w, best, order):
         return "its reading is old, and a fresh one was available"
     if w.headroom != best.headroom:
         return f"{best.name} has more capacity free ({max(best.headroom, 0)} against {max(w.headroom, 0)})"
-    if w.pickup_s != best.pickup_s:
-        return f"{best.name} notices a job sooner ({best.pickup_s} s against {w.pickup_s} s)"
+    if w.wait_s != best.wait_s:
+        return f"{best.name} notices a job sooner ({best.wait_s} s against {w.wait_s} s)"
     if w.per_core != best.per_core:
         return f"{best.name} is less loaded"
     return f"equal in every way; {best.name} comes first by name"
 
 
-def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not=""):
-    return Worker(name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not)
+def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not="", configured=None):
+    return Worker(name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not, configured=configured)
