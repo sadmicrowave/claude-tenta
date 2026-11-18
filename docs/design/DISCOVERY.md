@@ -21,11 +21,4 @@ that same key is that worker, wherever it now is. mDNS can be forged by anyone o
 ## Decision to make: should the worker also announce itself?
 
 Announcing (a small avahi service file with the install name) would make a worker findable by name before any key check. It needs the worker to run `avahi-daemon` and to accept UDP 5353 from
-the network, which is one more listening service on a machine whose design goal is "nothing but SSH listens", and the scan above finds the worker without it. **Recommendation: do not announce;
-revisit only if scanning proves too slow on big networks.** Left to the owner.
-
-## Tests (each fails first)
-
-- Parsing recorded `known_hosts` lines and `ssh-keyscan` output (fixtures recorded from the real tools on every supported release).
-- The matcher: exactly one match, none, several, a key of another type, a hashed `known_hosts` entry.
-- The routes: the name stops resolving (stale) and the address changes; the worker is unreachable and the key matches elsewhere; a different machine at the old address (key mismatch) is refused.
+the network, which is one more listening service on a machine whose design goal is "nothing but SSH listens", and the scan above finds the worker without it. **Decided 2026-11-18: the worker does not announce.** Revisit only if scanning proves too slow on big networks.

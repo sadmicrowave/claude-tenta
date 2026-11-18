@@ -5,7 +5,7 @@
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1
-apt-get install -y -qq git python3 python3-yaml sudo openssh-client bubblewrap apparmor systemd util-linux >/dev/null 2>&1
+apt-get install -y -qq git python3 python3-yaml sudo openssh-client openssh-server bubblewrap apparmor systemd util-linux >/dev/null 2>&1
 mkdir -p /out
 cp /etc/os-release /out/os-release.txt
 { sudo --version 2>&1 | head -2; } > /out/sudo-version.txt
@@ -29,3 +29,10 @@ useradd -m worker >/dev/null 2>&1; useradd -m other >/dev/null 2>&1
 runuser -u worker -- git init -q --bare /home/worker/r.git 2>/dev/null; chmod -R a+rX /home/worker
 runuser -u other -- git upload-pack --advertise-refs /home/worker/r.git > /out/git-dubious-ownership.txt 2>&1
 echo "recorded on $(. /etc/os-release; echo "$PRETTY_NAME")"
+# the host keys a machine shows and what this computer records of them: ssh-keyscan's output, a hashed known_hosts line (the default on many systems) and what `ssh-keygen -F` prints for it
+mkdir -p /run/sshd && ssh-keygen -A >/dev/null 2>&1 && /usr/sbin/sshd
+sleep 1
+ssh-keyscan -T 3 -t ed25519,ecdsa,rsa 127.0.0.1 > /out/keyscan.txt 2>&1
+ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o HashKnownHosts=yes -o UserKnownHostsFile=/tmp/kh -o ConnectTimeout=3 nobody@127.0.0.1 true >/dev/null 2>&1
+cp /tmp/kh /out/known-hosts-hashed.txt
+ssh-keygen -F 127.0.0.1 -f /tmp/kh > /out/keygen-find.txt 2>&1
