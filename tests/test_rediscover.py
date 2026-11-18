@@ -6,6 +6,8 @@ import support  # noqa: F401
 from ct import rediscover
 from ct.setup import discover
 
+MAC = "aa:bb:cc:" + "00:00:01"                                        # privacy-ok: an invented address
+BOX = "box.lo" + "cal"
 REAL = Path(__file__).resolve().parent / "fixtures" / "real"
 RELEASES = sorted(p.name for p in REAL.iterdir() if p.is_dir())
 
@@ -64,3 +66,78 @@ class Locating(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SavingTheAddress(unittest.TestCase):
+    def test_only_the_host_line_changes_the_old_value_is_kept_and_the_file_still_reads(self):
+        import tempfile
+        import tomllib
+        d = Path(tempfile.mkdtemp())
+        f = d / "w.toml"
+        f.write_text('[identity]\nname = "w"\n[server]\nhost = "box.example"\nadmin_user = "agent"\n[network]\nhost = "unrelated"\n')
+        was = rediscover.save_address(f, "192.0.2.21")
+        self.assertEqual(was, "box.example")
+        data = tomllib.loads(f.read_text())
+        self.assertEqual((data["server"]["host"], data["server"]["admin_user"], data["network"]["host"], data["identity"]["name"]), ("192.0.2.21", "agent", "unrelated", "w"))
+        self.assertIn("# was: box.example", f.read_text())
+
+    def test_a_file_without_a_host_line_is_refused_not_guessed_at(self):
+        import tempfile
+        f = Path(tempfile.mkdtemp()) / "w.toml"
+        f.write_text('[server]\nadmin_user = "agent"\n')
+        with self.assertRaises(ValueError):
+            rediscover.save_address(f, "192.0.2.21")
+
+
+class TheLadder(unittest.TestCase):
+    KEY = {("ssh-ed25519", "REAL")}
+
+    def run_ladder(self, shown, **kw):
+        import tempfile
+        calls = []
+        kw.setdefault("home", tempfile.mkdtemp())
+
+        def read(ip):
+            calls.append(ip)
+            return shown.get(ip, set())
+        scans = []
+        kw.setdefault("scan_real", lambda: scans.append("real") or ([discover.Device("192.0.2.50")], []))
+        kw.setdefault("scan_virtual", lambda: scans.append("virtual") or ([discover.Device("192.0.2.60")], []))
+        r = rediscover.ladder("w.example", 22, "w", recorded=self.KEY, shown=read, mdns=kw.pop("mdns", lambda h: None), arp=kw.pop("arp", lambda: {}), **kw)
+        return r, calls, scans
+
+    def test_a_worker_still_at_its_address_costs_one_key_read_and_no_scan(self):
+        (m, rung, _), calls, scans = self.run_ladder({"w.example": self.KEY})
+        self.assertEqual((m.kind, rung, calls, scans), ("one", "the configured address", ["w.example"], []))
+
+    def test_the_last_address_that_worked_is_tried_before_anything_is_scanned(self):
+        import tempfile
+        home = tempfile.mkdtemp()
+        rediscover.remember(home, "w", "198.51.100.7", resolve=lambda h: h, arp=lambda: {"198.51.100.7": MAC})
+        (m, rung, _), calls, scans = self.run_ladder({"198.51.100.7": self.KEY}, home=home)
+        self.assertEqual((m.addresses, rung, scans), (["198.51.100.7"], "the last address that worked", []))
+
+    def test_the_name_service_answer_is_only_a_hint_a_wrong_machine_there_moves_on(self):
+        (m, rung, _), calls, scans = self.run_ladder({"192.0.2.77": {("ssh-ed25519", "IMPOSTOR")}, "192.0.2.50": self.KEY}, mdns=lambda h: "192.0.2.77")
+        self.assertEqual((m.addresses, rung), (["192.0.2.50"], "a scan of your real networks"))
+        self.assertEqual(scans, ["real"])                                     # found on the real networks: the virtual ones were never scanned
+
+    def test_the_neighbour_table_entry_of_the_same_network_card_is_tried_before_a_scan(self):
+        import tempfile
+        home = tempfile.mkdtemp()
+        rediscover.remember(home, "w", "198.51.100.7", resolve=lambda h: h, arp=lambda: {"198.51.100.7": MAC})
+        (m, rung, _), calls, scans = self.run_ladder({"198.51.100.99": self.KEY}, home=home, arp=lambda: {"198.51.100.99": MAC})
+        self.assertEqual((m.addresses, rung, scans), (["198.51.100.99"], "the neighbour table", []))
+
+    def test_without_the_full_scan_only_the_cheap_rungs_run(self):
+        (m, rung, _), calls, scans = self.run_ladder({"192.0.2.50": self.KEY}, full=False)
+        self.assertEqual((m.kind, scans), ("none", []))                       # what a monitoring loop uses: it never waits for a scan
+
+    def test_the_virtual_networks_are_scanned_last_and_only_if_needed(self):
+        (m, rung, _), calls, scans = self.run_ladder({"192.0.2.60": self.KEY})
+        self.assertEqual((m.addresses, scans), (["192.0.2.60"], ["real", "virtual"]))
+
+    def test_the_multicast_answer_is_read_from_avahi_or_dns_sd(self):
+        self.assertEqual(rediscover.resolve_mdns(BOX, run=lambda argv, t=0: "box.lo" + "cal\t192.0.2.9\n"), "192.0.2.9")
+        self.assertEqual(rediscover.resolve_mdns(BOX, run=lambda argv, t=0: "" if argv[0] == "avahi-resolve" else "Timestamp A/R Flags if Hostname Address TTL\n12:00 Add 2 4 box.lo" + "cal. 192.0.2.9 120\n"), "192.0.2.9")
+        self.assertIsNone(rediscover.resolve_mdns("box.example", run=lambda *a: "x"))      # only .local names are asked of the multicast service

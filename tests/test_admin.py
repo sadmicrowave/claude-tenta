@@ -1166,3 +1166,53 @@ class HelpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Locate(AdminBase):
+    """ct-admin locate: the worker's address changed; it is found by the SSH host key this computer recorded for it, and a name is never proof."""
+    KEY = {("ssh-ed25519", "AAAA-the-worker")}
+
+    def setUp(self):
+        super().setUp()
+        self.conf = self.tmp / "testct.toml"
+        self.conf.write_text('[identity]\nname = "testct"\n[server]\nhost = "worker.example"\nadmin_user = "admin"\n')
+        self.ctx.cfg = mock.Mock(source=str(self.conf))
+        self.ctx.ssh.port = 22
+        from ct.setup import discover
+        self.discover = discover
+        self.devs = [discover.Device("192.0.2.31", name="worker.example"), discover.Device("192.0.2.32", name="another.example")]
+
+    def locate(self, *args, shown=None, recorded=None, answers=("y",)):
+        self.answers = list(answers)
+        self.tty = True
+        keys = shown or {"192.0.2.31": {("ssh-ed25519", "IMPOSTOR")}, "192.0.2.32": self.KEY}            # the machine with the worker's NAME shows another key
+        with mock.patch("ct.rediscover.recorded_keys", return_value=self.KEY if recorded is None else recorded), \
+             mock.patch("ct.rediscover.shown_keys", side_effect=lambda ip, port=22, run=None: keys.get(ip, set())), \
+             mock.patch("ct.rediscover.resolve_mdns", return_value=None), mock.patch("ct.rediscover._arp", return_value={}), \
+             mock.patch.object(self.discover, "local_networks", return_value=[("en0", __import__("ipaddress").IPv4Interface("192.0.2.5/24"))]), mock.patch.object(self.discover, "scan", return_value=(self.devs, [])):
+            return self.admin("locate", *args)
+
+    def test_the_machine_with_the_recorded_key_is_found_and_its_address_saved_after_asking(self):
+        code, out, err = self.locate()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("192.0.2.32", out)
+        self.assertIn('host = "192.0.2.32"  # was: worker.example', self.conf.read_text())
+
+    def test_saying_no_changes_nothing(self):
+        code, out, _ = self.locate(answers=("n",))
+        self.assertEqual(code, 0)
+        self.assertIn('host = "worker.example"', self.conf.read_text())
+        self.assertIn("Nothing was changed", out)
+
+    def test_a_worker_that_never_connected_here_cannot_be_found_and_nothing_is_guessed(self):
+        code, out, _ = self.locate(recorded=set())
+        self.assertEqual(code, 1)
+        self.assertIn("NOT FOUND", out.upper())
+        self.assertIn('host = "worker.example"', self.conf.read_text())
+
+    def test_a_worker_still_at_its_address_is_left_alone_with_no_scan(self):
+        keys = {"worker.example": self.KEY}
+        with mock.patch.object(self.discover, "scan", side_effect=AssertionError("no scan needed")):
+            code, out, _ = self.locate(shown=keys)
+        self.assertEqual(code, 0)
+        self.assertIn("is where its configuration says", out)

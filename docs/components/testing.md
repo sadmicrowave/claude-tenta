@@ -87,6 +87,7 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | A command offered to copy (chip, copy note, real clipboard) | yes (chip on every path; clipboard program faked) | | confirmed by hand on a Mac; Linux desktop and over SSH not tried |
 | The machine-kind question (`hardware.profile`) wording and choices | yes (no jargon, era, processor, memory) | | read in the wizard: not yet |
 | `ct-setup uninstall` preview run as the admin (a normal account) | yes (real `Host` on an unsearchable folder) | yes (`uninstall`, on all four releases) | |
+| A worker's address changed (`ct-admin locate`, the monitoring pass) | yes (ladder, matcher, real `ssh-keyscan` and `known_hosts` output on every release, saving the address) | gap: needs two addresses on one machine | by hand: change the VM's address |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 

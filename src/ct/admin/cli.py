@@ -434,6 +434,51 @@ def cmd_update(ctx, a):
     return 0
 
 
+def cmd_locate(ctx, a):
+    """Find a worker whose address changed: scan this computer's networks, read the SSH host keys of what answers (nothing is logged in to) and report the machine that shows the key this computer
+    recorded for that worker. A name is never proof; the key is. Offers to save the new address (asks first, keeps the old one)."""
+    from .. import rediscover
+    from ..setup import discover
+    name = a.worker or ctx.name
+    c = ctx.for_worker(name)
+    host, port = c.ssh.host, c.ssh.port
+    recorded = rediscover.recorded_keys(host, port)
+    nets = discover.local_networks()
+    real, virtual = [(i, n) for i, n in nets if not discover.is_virtual(i)], [(i, n) for i, n in nets if discover.is_virtual(i)]
+    emit("Looking for the worker", f"Checking where {name} was, then the quicker places, then your networks. Each step stops as soon as a computer shows the key this computer recorded for the worker.", tag="SCAN", color=_ui.PRIMARY, stream=sys.stdout)
+    m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda: discover.scan(real) if real else ([], []), scan_virtual=lambda: discover.scan(virtual) if virtual else ([], []))
+    if m.kind == "one" and rung == "the configured address":
+        rediscover.remember(ctx.home, name, host, port)
+        emit(f"{name} is where its configuration says", ("Address", host), "Its SSH host key is the one this computer recorded.", tag="OK", color=GREEN, stream=sys.stdout)
+        return 0
+    by_ip = {d.ip: d for d in devices}
+    if m.kind != "one":
+        steps = {"unknown": ["Connect to it once from here so its key is recorded:  ssh " + c.ssh.target + " true"], "none": ["Check that it is on and on the same network, then run this again.", "A computer that is on a different network cannot be found from here."],
+                 "several": ["Find which one it is by its name or what it is, then set server.host in its configuration by hand."]}[m.kind]
+        emit("The worker was not found", m.note, *[("Also found", ", ".join(m.addresses))] * bool(m.addresses), tag="NOT FOUND", color=YELLOW, steps=steps, steps_label="What to do", stream=sys.stdout)
+        return 1
+    ip = m.addresses[0]
+    d = by_ip.get(ip)
+    emit(f"{name} is at {ip}", ("Address", ip), ("Name it announces", (d.name if d and d.name else "none")), ("Proof", "it shows the SSH host key this computer recorded for the worker"), ("Found by", rung), tag="FOUND", color=GREEN, stream=sys.stdout)
+    path = getattr(c.cfg, "source", None) if c.cfg is not None else None
+    if not path:
+        emit("Set the new address by hand", "There is no configuration file to change for this worker.", tag="NEXT", color=YELLOW, run=f"ct-setup install --set server.host={ip}", stream=sys.stdout)
+        return 0
+    if not (a.yes or ctx.confirm(f"Save {ip} as the address of {name}? The old one ({host}) is kept in the file as a comment.")):
+        emit("Nothing was changed", f"The address of {name} is still {host}.", tag="STOPPED", color=YELLOW, stream=sys.stdout)
+        return 0
+    was = rediscover.save_address(path, ip)
+    note = []
+    try:
+        from ..client.repo import ClientRepos
+        new = config.load(path, env={"CT_CONFIG": ""})
+        ClientRepos.from_config(new).clone_all(Path(new.paths.client_home).expanduser())
+    except Exception as e:                                              # the address is saved; pointing the local clones at it is what `ct-run setup` does
+        note.append(f"Point this computer's copies at it with `ct-run setup` ({' '.join(str(e).split())[:120]}).")
+    emit(f"{name} is now at {ip}", ("Was", was), ("Configuration", str(path)), *note, tag="DONE", color=GREEN, run="ct-admin check", stream=sys.stdout)
+    return 0
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -665,8 +710,20 @@ def cmd_watch(ctx, a):
     def say(name, kind, text):
         said.append(name)
         emit(f"{name}: {kind}", text, tag="ALERT" if kind in ("locked", "unreachable", "silent") else "NOTE", color=RED if kind in ("locked", "unreachable", "silent") else YELLOW, stream=sys.stdout)
+    from .. import rediscover
+    hosts = {n: (c.ssh.host, c.ssh.port) for n, c in ctx.targets() if c.cfg is not None and transport.for_config(c.cfg).kind == "direct"}      # only a worker reached by address can have moved
+
+    def on_ok(name, repos):
+        if name in hosts:
+            rediscover.remember(ctx.home, name, *hosts[name])
+
+    def on_fail(name, repos):
+        if name not in hosts:
+            return ""
+        m, rung, _ = rediscover.ladder(*hosts[name][:1], hosts[name][1], name, ctx.home, full=False)             # the cheap rungs only: a monitoring pass never waits for a scan
+        return f"It answers at {m.addresses[0]} (found by {rung}): ct-admin locate --worker {name}." if m.kind == "one" else f"If its address changed, ct-admin locate --worker {name} looks for it."
     while True:
-        raised = watch_mod.one_pass(ctx.fleet(), memory, notifier, say=say, force=not a.loop)
+        raised = watch_mod.one_pass(ctx.fleet(), memory, notifier, say=say, force=not a.loop, on_ok=on_ok, on_fail=on_fail)
         if not a.loop:
             break
         time.sleep(watch_mod.BASE_S)
@@ -965,12 +1022,13 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
           ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")]),
+    "locate": ("find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address", [("Look for the main worker", "ct-admin locate"), ("Look for another one", "ct-admin locate --worker studio")]),
     "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
     "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
     "audit": ("check that each worker still matches its configuration (read-only; asks for the worker's sudo password)", [("Audit every worker", "ct-admin audit"), ("Audit one", "ct-admin audit --worker studio")]),
@@ -1019,6 +1077,9 @@ def build_parser():
     for verb in ("wake", "audit", "tripwire-test"):
         s = sp.add_parser(verb, add_help=False)
         s.add_argument("--worker", metavar="NAME", help="only this worker, by the name in ct-admin workers (default: every worker)")
+    s = sp.add_parser("locate", add_help=False)
+    s.add_argument("--worker", metavar="NAME", help="the worker to look for, by the name in ct-admin workers (default: the main one)")
+    yes(s)
     s = sp.add_parser("watch", add_help=False)
     s.add_argument("--loop", action="store_true", help="keep going: look at every worker on its own schedule (a quiet worker every minute, an unreachable one less often each time)")
     sp.add_parser("theme", add_help=False)
@@ -1077,7 +1138,7 @@ def build_parser():
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

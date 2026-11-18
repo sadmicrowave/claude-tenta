@@ -5,6 +5,7 @@ wherever it is now. A name (mDNS or otherwise) is only a hint and is never accep
 (`ssh-keyscan`), and the recorded ones come from this computer's own known_hosts (`ssh-keygen -F`). Standard library only; every outside effect is injectable.
 """
 import re
+from pathlib import Path
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -77,3 +78,109 @@ def locate(host, port, nets, *, scan, shown=None, recorded=None, threads=32, hin
     with ThreadPoolExecutor(max_workers=threads) as pool:
         found = dict(zip([d.ip for d in devices], pool.map(read, [d.ip for d in devices])))
     return match(rec, found), devices
+
+
+def save_address(path, new, old=None):
+    """Write `new` as `server.host` in the worker's configuration file, keeping the previous value on the same line as a comment so it can be put back. Returns the previous value.
+    Only the one line changes; everything else in the file stays as it was."""
+    import tomllib
+    text = Path(path).read_text(encoding="utf-8")
+    was = (tomllib.loads(text).get("server") or {}).get("host", old or "")
+    out, in_server, done = [], False, False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_server = stripped.split("#")[0].strip() == "[server]"
+        if in_server and not done and re.match(r"host\s*=", stripped):
+            line, done = f'host = "{new}"  # was: {was}', True
+        out.append(line)
+    if not done:
+        raise ValueError(f"no server.host line in {path}")
+    Path(path).write_text("\n".join(out) + "\n", encoding="utf-8")
+    return was
+
+
+# ---- the ladder: cheapest proof first, the full scan last (docs/design/DISCOVERY.md) -------------------------------------------------------------------
+
+import json  # noqa: E402
+import socket  # noqa: E402
+
+
+def remember(home, name, host, port=22, arp=None, resolve=None):
+    """Note where worker `name` was last seen answering (its address, and the address of its network card from the neighbour table when this computer has it), so a later failure can try
+    that first. Best effort: nothing here may ever make a working command fail."""
+    try:
+        ip = (resolve or socket.gethostbyname)(host)
+        mac = ((arp or _arp)() or {}).get(ip, "")
+        f = Path(home) / "last-seen.json"
+        data = json.loads(f.read_text()) if f.exists() else {}
+        data[name] = {"ip": ip, "mac": mac}
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(data, indent=1))
+    except Exception:
+        pass
+
+
+def last_seen(home, name):
+    try:
+        return (json.loads((Path(home) / "last-seen.json").read_text()) or {}).get(name) or {}
+    except Exception:
+        return {}
+
+
+def _arp():
+    from .setup import discover
+    return discover.arp_table()
+
+
+def resolve_mdns(name, run=None):
+    """The IPv4 address the network's multicast name service gives for a multicast (.lo\u200bcal) name, or None (`avahi-resolve` on Linux, `dns-sd` on a Mac). A hint only: the key decides."""
+    run = run or _run
+    if not name.endswith(".lo" + "cal"):
+        return None
+    out = run(["avahi-resolve", "-4", "-n", name], 4)
+    m = re.search(r"\s(\d+\.\d+\.\d+\.\d+)\s*$", (out or "").strip())
+    if m:
+        return m.group(1)
+    out = run(["dns-sd", "-G", "v4", name], 3) if not out else ""
+    m = re.search(r"\s(\d+\.\d+\.\d+\.\d+)\s", out or "")
+    return m.group(1) if m else None
+
+
+def ladder(host, port, name, home, *, recorded=None, shown=None, mdns=None, arp=None, scan_real=None, scan_virtual=None, full=True, progress=None):
+    """Find the worker by the cheapest proof first. Rungs: the configured address, the last address that worked, the name's multicast answer, the neighbour table entry for the same network
+    card, then (only when `full`) a scan of the real networks and, last, the virtual ones. Returns (Match, rung, devices-seen). Stops at the first rung whose candidates show the recorded key;
+    a rung that finds only other machines is not a failure, the next one runs."""
+    rec = recorded if recorded is not None else recorded_keys(host, port)
+    read = shown or (lambda ip: shown_keys(ip, port))
+    seen = []
+
+    def check(candidates, rung):
+        cands = list(dict.fromkeys(c for c in candidates if c))
+        if progress:
+            progress(rung)
+        if not cands:
+            return None
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            found = dict(zip(cands, pool.map(read, cands)))
+        m = match(rec, found)
+        return m if m.kind in ("one", "several") else None
+    if not rec:
+        return match(rec, {}), "none", seen
+    mem = last_seen(home, name)
+    table = (arp or _arp)() if mem.get("mac") else {}
+    for rung, cands in (("the configured address", [host]), ("the last address that worked", [mem.get("ip")]),
+                        ("the network's name service", [(mdns or resolve_mdns)(host)]), ("the neighbour table", [ip for ip, mac in table.items() if mac == mem.get("mac")])):
+        m = check(cands, rung)
+        if m:
+            return m, rung, seen
+    if full:
+        for rung, scan in (("a scan of your real networks", scan_real), ("a scan of the virtual networks inside this computer", scan_virtual)):
+            if scan is None:
+                continue
+            devices, _ = scan()
+            seen += devices
+            m = check([d.ip for d in devices], rung)
+            if m:
+                return m, rung, seen
+    return Match("none", note="no computer that answered shows that worker's key"), "all of the above", seen

@@ -89,7 +89,7 @@ class Memory:
         tmp.replace(self.path)
 
 
-def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=False):
+def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=False, on_ok=None, on_fail=None):
     """Ask every worker that is due, alert on changes, and remember. Returns [(worker, kind)] of what was raised. `fetch(repos)` refreshes the results clone (default: pull_results)."""
     now = time.time() if now is None else now
     fetch = fetch or (lambda repos: repos.pull_results())
@@ -103,9 +103,19 @@ def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=Fals
             ok = True
         except Exception:
             ok = False
+        hint = ""
+        try:                                                      # best effort, never able to break a pass: remember where a worker answered; when it does not, say where it is now if that is cheap to know
+            if ok and on_ok:
+                on_ok(name, repos)
+            elif not ok and on_fail:
+                hint = on_fail(name, repos) or ""
+        except Exception:
+            pass
         events, mem = decide(name, repos.security() if ok else None, workers_mod.read_state(repos.results) if ok else None, ok, prev, now)
         data[name] = mem
         for kind, title, text in events:
+            if kind == "unreachable" and hint:
+                text = f"{text} {hint}"
             notifier.send(title, text, fields=[("Worker", name), ("What", text)],
                           tags="rotating_light" if kind in ("locked", "unreachable", "silent") else "white_check_mark" if kind in ("unlocked", "recovered", "back") else "hourglass",
                           priority="urgent" if kind in ("locked",) else "default")

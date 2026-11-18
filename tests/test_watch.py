@@ -142,3 +142,44 @@ class OnePass(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheHeartbeatAndTheLadder(unittest.TestCase):
+    """The monitoring pass remembers where a worker answered and, when it does not, says where it is now (cheap rungs only); nothing in that can break the pass."""
+
+    def pass_with(self, ok, on_ok=None, on_fail=None):
+        import tempfile
+        sent = []
+
+        class N:
+            def send(self, title, text, **k):
+                sent.append(text)
+
+        class Repos:
+            results = Path(tempfile.mkdtemp())
+
+            def security(self):
+                return {}
+
+            def pull_results(self):
+                if not ok:
+                    raise OSError("down")
+        mem = watch.Memory(Path(tempfile.mkdtemp()) / "w.json")
+        for _ in range(watch.FAILURES_BEFORE_ALERT if not ok else 1):
+            watch.one_pass([("w", Repos())], mem, N(), force=True, on_ok=on_ok, on_fail=on_fail)
+        return sent
+
+    def test_a_worker_that_answers_is_remembered(self):
+        seen = []
+        self.pass_with(True, on_ok=lambda n, r: seen.append(n))
+        self.assertEqual(seen, ["w"])
+
+    def test_an_unreachable_alert_says_where_the_worker_is_now(self):
+        sent = self.pass_with(False, on_fail=lambda n, r: "It answers at 192.0.2.9.")
+        self.assertTrue(any("192.0.2.9" in t for t in sent), sent)
+
+    def test_a_helper_that_fails_never_breaks_the_pass(self):
+        def boom(*a):
+            raise RuntimeError("x")
+        self.assertEqual(self.pass_with(True, on_ok=boom), [])
+        self.assertTrue(self.pass_with(False, on_fail=boom))          # the plain alert still goes out
