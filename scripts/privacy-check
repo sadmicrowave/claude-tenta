@@ -77,6 +77,18 @@ def skip(path):
     return path in SKIP_FILES or path.startswith(SKIP_PREFIXES)
 
 
+def added_lines(patch):
+    """The added lines of a `git log -p` text, leaving out those of files that are skipped (recorded tool output under tests/fixtures/ holds the ephemeral host keys of the containers it was recorded
+    in: public by nature). The same rule the staged and whole-tree scans already follow."""
+    path, out = "", []
+    for line in patch.splitlines():
+        if line.startswith("diff --git "):
+            path = line.rsplit(" b/", 1)[-1]
+        elif line.startswith("+") and not line.startswith("+++") and not skip(path):
+            out.append(line)
+    return out
+
+
 def main(argv):
     mode = argv[0] if argv else "--staged"
     personal = denylist()
@@ -116,7 +128,7 @@ def main(argv):
                         hits.append(f"{sha[:8]}:author: [email] not a GitHub noreply address")
                 hits += scan_text(f"{sha[:8]}:message", "\n".join(rest[2:]), GENERIC, personal)
         patch = git("log", "--all", "-p", "--format=", "--no-color")
-        hits += scan_text("history-patch", "\n".join(l for l in patch.splitlines() if l.startswith("+") and not l.startswith("+++")), GENERIC, personal)
+        hits += scan_text("history-patch", "\n".join(added_lines(patch)), GENERIC, personal)
     else:
         print(__doc__)
         return 2
