@@ -405,7 +405,7 @@ def cmd_update(ctx, a):
     if not tag:
         emit("No releases yet", f"{ctx.source.url} has no release-X.Y.Z tag.", tag="NOTE", color=YELLOW)
         return 0
-    info = updatecheck.pending(entry, __version__, state.get("release"))
+    info = updatecheck.pending(entry, __version__, state.get("release"), behind=lambda w, t: updatecheck.is_behind(ctx.home, w, t) is not False)         # asked to update: offer the worker unless it is provably AHEAD of the release
     if not info:
         emit("Up to date", f"This computer is on {__version__} and the latest release is {tag}.", tag="OK", color=GREEN)
         return 0
@@ -966,8 +966,8 @@ def cmd_diff(ctx, a):
 def apply(ctx, a):
     sha = ctx.source.resolve(a.rev)
     changed = show_diff(ctx, sha, a.full)
-    if not changed and not a.force:
-        emit("Nothing to change", f"{ctx.name} is already at this version.", tag="OK", color=GREEN, run_label="Run the install again anyway", run="ct-admin apply --force")
+    if not changed and not a.force:                      # show_diff has already said "Nothing to change"; this adds only how to install anyway, for THIS worker (a bare --force would force every one)
+        emit("Install anyway?", f"Only if you want {ctx.name} reinstalled at the same version.", tag="NEXT", color=CYAN, run_label="Run the install again anyway", run=f"ct-admin apply --force --worker {ctx.name}")
         return 0
     if not ctx.confirm(f"Install {release.short(sha)} on {ctx.ssh.host}?", a.yes):
         stop("Not installed", "You answered no.")

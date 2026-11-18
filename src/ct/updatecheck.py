@@ -77,6 +77,9 @@ def check_now(url, run=subprocess.run, now=time.time, timeout=10):
     return {"checked": int(now()), **({"tag": found[0], "commit": found[1]} if found else {})}
 
 
+_SHOWN = set()                                              # empty until the banner has been printed in this process
+
+
 def due(cache, now=time.time):
     return now() - cache.get("checked", 0) > CHECK_EVERY_S
 
@@ -90,13 +93,27 @@ def background_refresh(home, url):
         pass
 
 
-def pending(cache, local_version, worker_release=None):
-    """What is out of date, from the cache: {'tag': ..., 'this_computer': bool, 'worker': bool}, or None when nothing is."""
+def is_behind(home, worker_rev, tag_commit, run=subprocess.run):
+    """True when the worker's commit is an ancestor of the release tag's commit (it is BEHIND the release), False when it is the same or ahead (a worker running main is ahead of an old tag), None when git
+    cannot say (no copy of the release source here, a commit it does not know). Never guesses: the banner says nothing rather than something false."""
+    if not worker_rev or not tag_commit or str(tag_commit).startswith(str(worker_rev)[:7]) or str(worker_rev).startswith(str(tag_commit)[:7]):
+        return False
+    try:
+        r = run(["git", "-C", str(Path(home) / "source.git"), "merge-base", "--is-ancestor", str(worker_rev), str(tag_commit)], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    return True if r.returncode == 0 else False if r.returncode == 1 else None
+
+
+def pending(cache, local_version, worker_release=None, behind=None):
+    """What is out of date, from the cache: {'tag': ..., 'this_computer': bool, 'worker': bool}, or None when nothing is. `behind(worker_commit, tag_commit)` says whether the worker is BEHIND the release
+    (True), at or ahead of it (False) or unknown (None); the worker is only called out of date when it is certainly behind."""
     tag = cache.get("tag")
     if not tag:
         return None
     newer = (version_tuple(tag) or (0, 0, 0)) > (version_tuple(local_version) or (0, 0, 0))
-    worker = bool(worker_release) and bool(cache.get("commit")) and not str(cache["commit"]).startswith(str(worker_release)[:7]) and not str(worker_release).startswith(str(cache["commit"])[:7])
+    differs = bool(worker_release) and bool(cache.get("commit")) and not str(cache["commit"]).startswith(str(worker_release)[:7]) and not str(worker_release).startswith(str(cache["commit"])[:7])
+    worker = bool(differs and behind and behind(worker_release, cache["commit"]) is True)
     return {"tag": tag, "this_computer": newer, "worker": worker} if (newer or worker) else None
 
 
@@ -119,13 +136,14 @@ def after_command(updates_cfg, home, local_version, worker_release=None, stream=
         cache = load(home)
         if url and due(cache, now):
             refresh(home, url)
-        info = pending(cache, local_version, worker_release)
-        if not info or now() - cache.get("banner", 0) < BANNER_EVERY_S:
+        info = pending(cache, local_version, worker_release, behind=lambda w, t: is_behind(home, w, t))
+        if not info or now() - cache.get("banner", 0) < BANNER_EVERY_S or _SHOWN:
             return False
         from . import ui
         ui.show([ui.paint("┃ ", ui.PRIMARY, stream=stream) + ui.paint(banner_text(info, local_version), ui.DIM, stream=stream)], stream=stream)
         cache["banner"] = int(now())
         save(home, cache)
+        _SHOWN.add(1)                                          # once per run: each worker's client context keeps its own daily throttle, so two of them would each print it
         return True
     except Exception:
         return False

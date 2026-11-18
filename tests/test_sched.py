@@ -241,3 +241,18 @@ class CostAware(unittest.TestCase):
         heavy_here = worker_view("h", "direct", state(classes=("profile-run",)), {"classes": {"profile-run": {"kind": "profile", "cost": "heavy"}}}, 30, 5)
         light_there = worker_view("l", "direct", state(classes=("profile-run",)), {"classes": {"profile-run": {"kind": "profile", "cost": "light"}}}, 30, 5)
         self.assertEqual((heavy_here.cost_of("profile-run"), light_there.cost_of("profile-run")), (4, 1))
+
+
+class TheWorkersOwnConfigurationDisagrees(unittest.TestCase):
+    def test_it_is_said_with_what_to_run(self):
+        s = state()
+        s["transport"], s["transport_configured"], s["pickup_max_s"] = "github", "direct", 300
+        v = worker_view("mini", "github", s, {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 90)
+        self.assertIn("its own configuration says direct, but it fetches over github", v.mismatch)
+        self.assertIn("ct-setup install", v.mismatch)
+        self.assertIn("WARNING", dict((n, r) for n, _, r in pick([v]).lines)["mini"])
+
+    def test_a_worker_whose_configuration_agrees_says_nothing(self):
+        s = state()
+        s["transport"], s["pickup_max_s"] = "direct", 5
+        self.assertEqual(worker_view("vmx", "direct", s, {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 5).mismatch, "")

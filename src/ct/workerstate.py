@@ -32,6 +32,13 @@ def packages_of(registry):
     return sorted(out)
 
 
+def transport_facts(configured, origin_url):
+    """{'transport': what this worker really fetches jobs over, 'transport_configured': what its configuration says (only when that differs)}. The truth is where its queue copy points (that is where
+    `git fetch` goes), not the configuration: a half-moved install can have one and not the other (seen on a real worker, whose configuration said direct while it still fetched from GitHub)."""
+    actual = ("github" if "github.com" in origin_url else "direct") if origin_url else configured
+    return {"transport": actual, **({"transport_configured": configured} if configured != actual else {})}
+
+
 def build(*, snapshot, registry, extra, jail, locked, now_iso):
     """snapshot: Worker.snapshot(); extra: {name, release, os, cpu, claude, approvers, native_claude}; returns (environment dict, full document)."""
     environment = {
@@ -46,6 +53,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         "locked": bool(locked),
         "claude_paused": bool((extra.get("claude_budget") or {}).get("paused")),
         "transport": extra.get("transport"), "pickup_max_s": extra.get("pickup_max_s"),
+        **({"transport_configured": extra["transport_configured"]} if extra.get("transport_configured") else {}),
     }
     observed = {k: snapshot.get(k) for k in ("load_1m", "temp_c", "mem_available_mb", "disk_free_gb", "running", "waiting")}
     observed["at"] = snapshot.get("at")

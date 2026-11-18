@@ -97,6 +97,9 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | A check that is about one worker (the install check, the wizard's first job) runs on THAT worker | yes (`test_pinned_checks`, a guard on every internal send, and `test_pinned_end_to_end`: the real `ct-run submit` on two real git queues with the scheduler really choosing) | two real machines: not yet | found by hand: the Mac mini passed its check on the VM's job |
 | A heavy job goes to the worker it fits on now; a burst of heavy jobs goes one per worker | yes (`CostAware`, `PendingJobsCountInCapacityPoints`) | gap | |
 | A submit split into several jobs stays on ONE worker | yes (`ABatchStaysOnOneWorker`: real `--dir` split, two real git queues) | gap | |
+| A worker's own configuration disagrees with the connection it really fetches over | yes (`transport_facts`, the explanation) | | found by hand on the Mac mini |
+| The "newer release" banner for a worker ahead of, or behind, the newest tag | yes (`Pending`, `is_behind`, once per run) | | found by hand: a worker on main was told a tag was newer |
+| One send's time and the host cap's cost as jobs accumulate | yes (`ReadingTheJobsBranchCostsOneProcessNotOnePerJob`, `NoRepeatedNetworkTrips`) | by hand: `scripts/loadtest`, and the profile of one send | `scripts/loadtest --jobs 8` |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 

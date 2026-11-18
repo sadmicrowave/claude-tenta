@@ -274,3 +274,48 @@ class PendingJobsCountInCapacityPoints(Setup):
             (ctx, ch), main, _ = self.route(cls="profile-run")
             placed.append(ch.worker)
         self.assertEqual(sorted(placed), ["ghx", "mini", "vmx"])
+
+
+class ABurstReadsEachWorkerOnce(Setup):
+    """The second load test: eight simultaneous sends each re-read every worker over the network while holding the placement lock, so the sends took 18 s. A snapshot for a few seconds lets them share one look;
+    the load from this computer's own record is still worked out fresh for each, so the burst still spreads."""
+
+    def route_n(self, n, fetch):
+        out = []
+        for _ in range(n):
+            (ctx, ch), main, _ = self.route_with(fetch)
+            place.record(main.home, [f"j-{len(out)}"], ch.worker, "sys-status")
+            out.append(ch.worker)
+        return out
+
+    def route_with(self, fetch):
+        main = Ctx("mini", self.tmp / "home")
+        r = place.route(main, self.cfgs["mini"], "sys-status", None, entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], make_ctx=lambda e: main if e[0] == "mini" else Ctx(e[0], self.tmp / f"h-{e[0]}"), fetch=fetch)
+        return r, main, None
+
+    def test_placements_within_a_few_seconds_share_one_look_at_the_workers(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        looks = []
+        placed = self.route_n(6, lambda repos: looks.append(1))
+        self.assertEqual(len(looks), 3)                                         # one look per worker, not one per placement
+        self.assertEqual({w: placed.count(w) for w in ("mini", "vmx", "ghx")}, {"mini": 2, "vmx": 2, "ghx": 2})      # and the burst still spreads
+
+    def test_an_old_snapshot_is_not_used(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        looks = []
+        self.route_n(1, lambda repos: looks.append(1))
+        with mock.patch("ct.client.place.time.time", return_value=__import__("time").time() + 60):
+            self.route_n(1, lambda repos: looks.append(1))
+        self.assertEqual(len(looks), 6)
+
+    def test_a_snapshot_never_hides_a_worker_that_was_added_or_removed(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        looks = []
+        self.route_n(1, lambda repos: looks.append(1))
+        drop = self.ents
+        self.ents = lambda cfg: [e for e in drop(cfg) if e[0] != "ghx"]
+        self.route_n(1, lambda repos: looks.append(1))
+        self.assertEqual(len(looks), 5)                                         # the set of workers changed: looked at again

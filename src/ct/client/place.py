@@ -103,6 +103,42 @@ def gather(ents, repos_of, fetch=None, home=None):
         return list(pool.map(lambda e: view_of(e[0], e[1], repos_of(e), fetch, home=home), ents))
 
 
+SNAPSHOT_FOR_S = 5
+
+
+def gather_shared(ents, repos_of, fetch=None, home=None):
+    """`gather`, but a look taken in the last few seconds by another placement is reused (a burst of sends reads each worker once, not once per send). What is NOT shared is this computer's own record of
+    what it has sent: that is worked out fresh, so every placement still sees the ones before it."""
+    f = Path(home) / "views.json" if home else None
+    names = sorted(e[0] for e in ents)
+    now = time.time()
+    if f:
+        try:
+            snap = json.loads(f.read_text())
+            if now - snap["at"] <= SNAPSHOT_FOR_S and sorted(snap["views"]) == names:
+                out = []
+                for e in ents:
+                    d = dict(snap["views"][e[0]])
+                    if d.get("age_s") is not None:
+                        d["age_s"] += now - snap["at"]
+                    v = sched.Worker(**d)
+                    v.sent_pending = pending_sent(home, e[0], repos_of(e))
+                    out.append(v)
+                return out
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    views = gather(ents, repos_of, fetch, home=home)
+    if f:
+        try:
+            keep = ("name", "connection", "reachable", "why_not", "state", "registry", "age_s", "pickup_s", "configured")
+            tmp = f.with_name(f.name + f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"at": now, "views": {v.name: {k: getattr(v, k) for k in keep} for v in views}}))
+            os.replace(tmp, f)
+        except OSError:
+            pass
+    return views
+
+
 def kind_of(cls, views):
     for v in views:
         c = (v.registry or {}).get("classes", {}).get(cls)
@@ -192,7 +228,7 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         e = by_name[forced]
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
-        views = gather(ents, repos_of, fetch, home=ctx.home)
+        views = gather_shared(ents, repos_of, fetch, home=ctx.home)
         ch = decide(cls, views, prefs)
         if ch.worker is None:
             raise ClientError(f"No worker can take a {cls} job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."])
@@ -223,3 +259,23 @@ def for_job(ctx, cfg, jid, make_ctx=None, entries_fn=None):
             other.fleet, other.max_in_flight, other.home_main = ctx.fleet, ctx.max_in_flight, ctx.home
             return other
     return ctx
+
+
+PRUNE_EVERY_S = 3600
+
+
+def prune_due(home, now=None):
+    """Pruning the queue branch is housekeeping that rarely has anything to do: once an hour is enough, not once per send."""
+    now = time.time() if now is None else now
+    try:
+        return now - float((Path(home) / "pruned.stamp").read_text()) >= PRUNE_EVERY_S
+    except (OSError, ValueError):
+        return True
+
+
+def prune_done(home, now=None):
+    try:
+        Path(home).mkdir(parents=True, exist_ok=True)
+        (Path(home) / "pruned.stamp").write_text(str(time.time() if now is None else now))
+    except OSError:
+        pass

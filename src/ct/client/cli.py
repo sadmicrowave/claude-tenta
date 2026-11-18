@@ -142,10 +142,12 @@ def cmd_submit(ctx, a):
         emit(f"Queued {jid}", f"{ctx.product} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
-    try:
-        r.prune_jobs()
-    except ClientError:
-        pass
+    if place.prune_due(ctx.home):                         # housekeeping, an hour apart: it is a network round trip that almost never finds anything to do
+        try:
+            r.prune_jobs()
+            place.prune_done(ctx.home)
+        except ClientError:
+            pass
     if not should_wait(ctx, a):
         print("\n".join(ids))                                               # output: data (job ids for a script)
         return 0

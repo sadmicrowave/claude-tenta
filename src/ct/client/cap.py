@@ -19,9 +19,10 @@ MAX_AGE_S = 24 * 3600
 def jobs_sent(repos):
     """{job id: created epoch seconds} of the job files on the jobs branch (what this computer sent and has not had pruned)."""
     out = {}
-    names = repos.git(repos.queue, "ls-tree", "-r", "--name-only", f"origin/{repos.jobs_branch}", check=False).stdout.split("\n")
-    for path in filter(None, names):
-        txt = repos.show_file(f"origin/{repos.jobs_branch}", path) or ""
+    names = [n for n in repos.git(repos.queue, "ls-tree", "-r", "--name-only", f"origin/{repos.jobs_branch}", check=False).stdout.split("\n") if n]
+    texts = repos.show_files(f"origin/{repos.jobs_branch}", names)                 # one git process for all of them
+    for path in names:
+        txt = texts.get(path) or ""
         try:
             from datetime import datetime
             out[Path(path).stem] = datetime.fromisoformat(json.loads(txt)["created"].replace("Z", "+00:00")).timestamp()
@@ -34,8 +35,8 @@ def in_flight(repos, now=None):
     """The ids of jobs sent through `repos` that are queued or running (or not yet seen) and younger than a day."""
     now = time.time() if now is None else now
     try:
-        repos.fetch_queue()
-        repos.pull_results()
+        repos.fetch_queue(max_age=15)                        # a brake, not a gate: a look made moments ago (the placement's, the send's) is good enough
+        repos.pull_results(max_age=15)
     except Exception:
         pass                                                         # the last downloaded state is good enough for a brake
     live = []

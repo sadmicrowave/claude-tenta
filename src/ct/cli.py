@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import shutil
 import signal
 import sys
@@ -125,6 +126,12 @@ class Context:
         approvers = cfg.path("approvers")
         claude_memo = {}
 
+        def origin_of(clone):
+            try:
+                return subprocess.run(["git", "-C", str(clone), "remote", "get-url", "origin"], capture_output=True, text=True, timeout=5).stdout.strip()
+            except Exception:
+                return ""
+
         def state_facts():
             """What only the install knows, for worker-state.json. The Claude tool is asked about at most every half hour (it is a program that has to be run)."""
             def read(path):
@@ -146,7 +153,7 @@ class Context:
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
                     "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
-                    "transport": transport.for_config(cfg).kind,          # what this worker really listens on: the scheduler trusts this over what a computer's configuration believes
+                    **workerstate.transport_facts(transport.for_config(cfg).kind, origin_of(cfg.path("queue_clone"))),          # what this worker really fetches over: the scheduler trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 
         def signed_approval(jid, digest):

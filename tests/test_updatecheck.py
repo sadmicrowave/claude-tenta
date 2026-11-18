@@ -39,9 +39,32 @@ class Pending(unittest.TestCase):
         self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa111"}, "0.1.0"))
         self.assertIsNone(updatecheck.pending({}, "0.1.0"))
 
-    def test_a_worker_on_another_release_is_pending_even_when_this_computer_is_current(self):
-        info = updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999")
+    def test_a_worker_BEHIND_the_release_is_pending_even_when_this_computer_is_current(self):
+        info = updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999", behind=lambda worker, tag: True)
         self.assertEqual((info["this_computer"], info["worker"]), (False, True))
+
+    def test_a_worker_AHEAD_of_the_newest_tag_is_not_called_out_of_date(self):
+        """Seen on a real fleet: workers running main, newer than the old release-0.1.0 tag, were told 'a newer release is available: release-0.1.0'."""
+        self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999", behind=lambda worker, tag: False))
+
+    def test_when_it_cannot_tell_it_says_nothing(self):
+        self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999", behind=lambda worker, tag: None))
+        self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999"))             # no way to tell was given
+
+    def test_behind_is_asked_of_git_and_unknown_when_git_cannot_say(self):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, {"behind": 0, "ahead": 1}.get(self.outcome, 128), "", "")
+        self.outcome = "behind"
+        self.assertTrue(updatecheck.is_behind("/home", "wwww", "tttt", run=run))
+        self.assertIn("--is-ancestor", calls[0])
+        self.outcome = "ahead"
+        self.assertFalse(updatecheck.is_behind("/home", "wwww", "tttt", run=run))
+        self.outcome = "broken"
+        self.assertIsNone(updatecheck.is_behind("/home", "wwww", "tttt", run=run))
+        self.assertFalse(updatecheck.is_behind("/home", "wwww", "wwww", run=run))                # the same commit is not behind itself
         self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="aaa1111"))     # same commit, short form
 
 
@@ -78,10 +101,19 @@ class Settings:
 
 class Banner(unittest.TestCase):
     def setUp(self):
+        updatecheck._SHOWN.clear()                                 # the once-per-run guard is per process: each test is a new run
         self.home = Path(tempfile.mkdtemp())
         updatecheck.save(self.home, {"checked": T, "tag": "release-0.2.0", "commit": "ccc3334"})
         self.refreshed = []
         os.environ.pop("CT_NO_UPDATE_CHECK", None)
+
+    def test_it_is_shown_once_per_run_even_when_two_workers_each_have_their_own_cache(self):
+        """Seen on a real `ct-admin apply`: the same banner printed twice, once from each worker's client context."""
+        self.assertTrue(self.run_it()[0])
+        import tempfile
+        other_home = Path(tempfile.mkdtemp())
+        shown = updatecheck.after_command(Settings, other_home, "0.1.0", stream=Tty(), now=lambda: T, refresh=lambda h, u: None)
+        self.assertFalse(shown)
 
     def run_it(self, stream=None, cfg=Settings, **kw):
         stream = stream if stream is not None else Tty()
@@ -98,6 +130,7 @@ class Banner(unittest.TestCase):
     def test_it_is_shown_at_most_twice_a_day_not_on_every_command(self):
         self.assertTrue(self.run_it(now=lambda: T)[0])
         self.assertFalse(self.run_it(now=lambda: T + 3600)[0])
+        updatecheck._SHOWN.clear()                                            # a later command is a new run
         self.assertTrue(self.run_it(now=lambda: T + 50000)[0])
 
     def test_nothing_is_shown_when_piped_or_switched_off(self):

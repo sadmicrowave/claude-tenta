@@ -1079,7 +1079,8 @@ class ReleaseTests(AdminBase):
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 0)
         self.assertEqual(self.ssh.calls, [])
-        self.assertIn("already at this version", err)
+        self.assertIn("already at", err)
+        self.assertEqual(err.count("Nothing to change"), 1)
 
     def test_the_connection_check_runs_the_real_worker_command_not_one_named_after_the_install(self):
         runs = []
@@ -1334,3 +1335,24 @@ class FleetWideCommands(AdminBase):
         (code, out, err), calls, _ = self.run_diff(targets=[("first", a)])
         self.assertEqual((code, calls), (0, ["first"]))
         self.assertNotIn("WORKER", out + err)
+
+
+class ApplyOnAnAlreadyCurrentWorker(AdminBase):
+    """Seen on a real `ct-admin apply`: an up-to-date worker got two 'Nothing to change' cards, and a hint (--force) that would have forced every worker."""
+
+    def run_apply(self, *extra, targets=1):
+        sha = self.rel[0]
+        out = io.StringIO()
+        with mock.patch.object(release, "installed_rev", return_value=sha), mock.patch.object(self.ctx.source, "resolve", return_value=sha):
+            with redirect_stdout(out), redirect_stderr(out):
+                code = cli.main(["apply", *extra], ctx=self.ctx)
+        return code, out.getvalue()
+
+    def test_it_says_nothing_to_change_once(self):
+        code, text = self.run_apply()
+        self.assertEqual(code, 0)
+        self.assertEqual(text.count("Nothing to change"), 1, text)
+
+    def test_the_force_hint_names_the_worker_so_it_does_not_force_them_all(self):
+        code, text = self.run_apply()
+        self.assertIn(f"ct-admin apply --force --worker {self.ctx.name}", text)

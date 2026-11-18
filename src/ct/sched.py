@@ -51,6 +51,9 @@ class Worker:
             said.append(f"this computer's configuration says {self.configured}, but its copies of the queue and results use {self.connection}")
         if self.connection != self.listens_on:
             said.append(f"this computer sends over {self.connection}, but the worker listens on {self.listens_on}")
+        own = self.doc("transport_configured")
+        if own and own != self.listens_on:
+            said.append(f"its own configuration says {own}, but it fetches over {self.listens_on}: run ct-setup install on it again and choose {self.listens_on} (or {own}) so they agree")
         return "; ".join(said)
 
     @property

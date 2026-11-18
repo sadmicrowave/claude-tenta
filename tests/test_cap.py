@@ -36,6 +36,9 @@ class Repos:
         jid = path.split("/")[-1][:-5]
         return json.dumps({"created": stamp(self.jobs[jid])})
 
+    def show_files(self, ref, paths):                           # the real one reads them in one git process (tested in test_concurrent_submit); a fake only has to give the same answer
+        return {p: self.show_file(ref, p) for p in paths}
+
     def read_result(self, jid):
         return {"status": self.results[jid]} if jid in self.results else None
 

@@ -37,6 +37,7 @@ class ClientRepos:
         self.queue_url, self.results_url = queue_url, results_url
         self.admin_target, self.kind = admin_target or "you@the-worker", kind          # who you log in to the worker as, and which connection this is: for explaining a failure
         self.results_branch, self.jobs_branch, self.keep_commits, self._sleep = results_branch, jobs_branch, keep_commits, sleep
+        self._seen = {}                                   # when this process last looked at each repository (see max_age)
 
     @classmethod
     def from_config(cls, cfg, **kw):
@@ -89,13 +90,43 @@ class ClientRepos:
         return rows
 
     # ---- the queue repo ----
-    def fetch_queue(self):
-        """Update every remote branch of the queue repo. Never touches the working tree."""
+    def _recent(self, kind, max_age):
+        return bool(max_age) and kind in self._seen and time.monotonic() - self._seen[kind] < max_age
+
+    def fetch_queue(self, max_age=0):
+        """Update every remote branch of the queue repo. Never touches the working tree. `max_age` (seconds): a look made that recently in this process is reused (for callers that only need a recent picture;
+        the default is always a real one)."""
+        if self._recent("queue", max_age):
+            return
         self.git(self.queue, "fetch", "--quiet", "--prune", "origin", REFSPEC, check=False)
+        self._seen["queue"] = time.monotonic()
 
     def show_file(self, ref, path):
         r = subprocess.run(["git", "-C", str(self.queue), "show", f"{ref}:{path}"], capture_output=True, text=True)
         return r.stdout if r.returncode == 0 else None
+
+    def show_files(self, ref, paths):
+        """{path: text or None} for many files of `ref` in ONE git process (`cat-file --batch`), not one `git show` each: reading every job file on the queue branch was most of the time of a send, and
+        grew with every job sent. A path that is not there is None."""
+        paths = list(paths)
+        if not paths:
+            return {}
+        r = subprocess.run(["git", "-C", str(self.queue), "cat-file", "--batch"], input="".join(f"{ref}:{p}\n" for p in paths).encode(), capture_output=True)
+        buf, i, out = r.stdout, 0, {}
+        for p in paths:
+            j = buf.find(b"\n", i)
+            if j < 0:
+                out[p] = None
+                continue
+            head = buf[i:j].split()
+            if len(head) < 3 or head[1] != b"blob":                       # "<name> missing" (or anything that is not a file)
+                out[p] = None
+                i = j + 1
+                continue
+            size = int(head[2])
+            out[p] = buf[j + 1:j + 1 + size].decode("utf-8", "replace")
+            i = j + 1 + size + 1
+        return out
 
     def remote_branch_exists(self, branch):
         return self.git(self.queue, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}", check=False).returncode == 0
@@ -138,11 +169,13 @@ class ClientRepos:
         raise ClientError(f"Could not push to branch {branch} on {self.where}", "Check your connection and access, then try again.", self.unreachable_steps)
 
     # ---- the results repo ----
-    def pull_results(self):
+    def pull_results(self, max_age=0):
         """Mirror the results repo (it may be empty or have no branch yet; that is not an error). Returns the security status dict
-        if the worker has locked itself, else None."""
-        if self.git(self.results, "fetch", "--quiet", "origin", self.results_branch, check=False).returncode == 0:
-            self.git(self.results, "checkout", "-q", "-f", "-B", self.results_branch, "FETCH_HEAD", check=False)
+        if the worker has locked itself, else None. `max_age`: reuse a pull made that recently (never for the lock check before a send)."""
+        if not self._recent("results", max_age):
+            if self.git(self.results, "fetch", "--quiet", "origin", self.results_branch, check=False).returncode == 0:
+                self.git(self.results, "checkout", "-q", "-f", "-B", self.results_branch, "FETCH_HEAD", check=False)
+            self._seen["results"] = time.monotonic()
         sec = self.security()
         return sec if sec.get("locked") else None
 
@@ -191,8 +224,8 @@ class ClientRepos:
         """Squash the jobs branch to one commit holding only jobs newer than `days` (at least 1) and every job that has no final result yet.
         Force-push with a lease on the commit seen, so a job pushed meanwhile is never lost. Returns a message."""
         days = max(1, int(days))
-        self.fetch_queue()
-        self.pull_results()
+        self.fetch_queue(max_age=30)                         # the send that called this has just looked at both
+        self.pull_results(max_age=30)
         b = self.jobs_branch
         if not self.remote_branch_exists(b):
             return "no jobs branch yet"

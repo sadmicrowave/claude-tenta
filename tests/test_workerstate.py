@@ -53,3 +53,25 @@ class Build(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheConnectionAWorkerReallyUses(unittest.TestCase):
+    """Found on the real Mac mini: its configuration said direct while its queue copy still pointed at GitHub, so it announced the wrong connection. What it fetches over is where its copy points."""
+
+    def test_the_copy_decides_and_a_disagreeing_configuration_is_published_separately(self):
+        facts = workerstate.transport_facts("direct", "git@github.com:someone/queue.git")
+        self.assertEqual(facts, {"transport": "github", "transport_configured": "direct"})
+        self.assertEqual(workerstate.transport_facts("github", "git@github.com:someone/queue.git"), {"transport": "github"})
+        self.assertEqual(workerstate.transport_facts("direct", "/var/lib/x-mail/queue.git"), {"transport": "direct"})
+
+    def test_with_no_copy_to_look_at_the_configuration_is_used(self):
+        self.assertEqual(workerstate.transport_facts("direct", ""), {"transport": "direct"})
+
+    def test_build_carries_both(self):
+        class Jail:
+            name = "bwrap"
+
+            def ready(self):
+                return True
+        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "transport_configured": "direct", "claude": {"auth": "none"}}, jail=Jail(), locked=False, now_iso="x")
+        self.assertEqual((doc["transport"], doc["transport_configured"]), ("github", "direct"))
