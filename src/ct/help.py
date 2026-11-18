@@ -16,7 +16,7 @@ SECTIONS = [
                                        ("ct-run classes", "what the worker can run today"),
                                        ("ct-run patch <job>", "show the patch a write-capable job returned, and apply it here after a look"),
                                        ("ct-run offload ...", "find out which of your commands are worth running on the worker")]),
-    ("Run it", "from your computer; approvals and orders are signed here, no login", [("ct-admin status | check | workers | watch", "the worker's health, the connection to it, a comparison of your workers, and alerts when one locks, goes quiet or cannot be reached"),
+    ("Run it", "from your computer; approvals and orders are signed here, no login", [("ct-admin status | check | workers | locate | watch", "the worker's health, the connection to it, a comparison of your workers, finding a worker whose address changed, and alerts when one locks, goes quiet or cannot be reached"),
                                               ("ct-admin wake | audit | tripwire-test", "wake a worker now, check it against its configuration, or prove its tripwire (every worker, or --worker NAME)"),
                                               ("ct-admin review | approve", "look at waiting jobs, then approve exactly what you saw"),
                                               ("ct-admin cancel | kill", "stop a job that has not started, or one that is running"),
