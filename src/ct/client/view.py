@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import cards, ui
-from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, paint
+from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, chip, paint
 from .repo import PENDING
 
 STATUS_COLOR = {"queued": CYAN, "running": CYAN, "ok": GREEN, "error": RED, "rejected": RED, "killed": RED, "quarantined": RED, "limit": YELLOW,
@@ -132,9 +132,9 @@ def format_result(res, admin="ct-admin", suggest_name=None, received=None):
                     tail.append(f"  {paint(f'{k.split(chr(95))[0]:<8}', DIM)}estimated ~{est[k]:g}{unit}, actual {val:g}{unit}{note}")
         if pr["verdict"] == "fits" and suggest_name:
             tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('register it and install it on the worker, asking you once', DIM)}\n",
-                     paint(f"{admin} adopt {res['id']} --name {suggest_name}", BOLD, GREEN) + "\n", paint("The name is a suggestion; change it if you like.", DIM) + "\n"]
+                     chip(f"{admin} adopt {res['id']} --name {suggest_name}") + "\n", paint("The name is a suggestion; change it if you like.", DIM) + "\n"]
         elif pr["verdict"] in ("fits", "does-not-fit"):
-            tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('record that it does not fit, so it is never offloaded', DIM)}\n", paint(f"ct-run offload propose {res['id']}", BOLD, GREEN) + "\n"]
+            tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('record that it does not fit, so it is never offloaded', DIM)}\n", chip(f"ct-run offload propose {res['id']}") + "\n"]
     return head, res.get("output") or "", tail
 
 

@@ -58,7 +58,7 @@ class WizardCards(unittest.TestCase):
     def test_commands_sit_beneath_the_card_alone_on_their_line(self):
         raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["ct-run submit fan-profile"])
         lines = ANSI.sub("", raw).split("\n")
-        self.assertIn("ct-run submit fan-profile", lines)                       # no rail, no frame beside it
+        self.assertIn(" ct-run submit fan-profile ", lines)                     # no rail, no frame beside it
         self.assertIn(" TRY ONE ", lines)
 
     def test_a_plain_log_keeps_the_old_one_line_shape(self):
@@ -113,7 +113,7 @@ class Breakout(unittest.TestCase):
         lines = ANSI.sub("", raw).split("\n")
         at = lines.index(" TRY IT ")
         self.assertEqual(lines[at - 2:at], ["", ""])
-        self.assertEqual(lines[at + 1:at + 4], ["", "ct-run classes", "ct-admin status"])
+        self.assertEqual(lines[at + 1:at + 4], ["", " ct-run classes ", " ct-admin status "])
         self.assertIn(theme.sgr(" TRY IT ", "primary_chip"), raw)
 
 

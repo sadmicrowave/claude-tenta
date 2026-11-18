@@ -34,9 +34,9 @@ QUESTIONS = [
        "Two private repositories are created under it: one for the jobs you send and one for the results. They are the mailbox between your computer and the server. An organisation name works too.",
        risk="Both are created private and nothing is ever pushed publicly. It needs your signed-in `gh` command; without it you create the repositories by hand.",
        examples=["your-username", "your-organisation"], half="both", required=True, when=lambda a: a.get("transport.kind", "github") == "github"),
-    _Q("hardware.profile", "How strong is the server?",
-       "Sets how many jobs run at once (a heavy job counts as 4 points) and when new jobs wait because the machine is busy or hot. It was suggested from what the server reported.",
-       risk="Too high for a weak machine makes jobs slow and the machine hot; too low just makes jobs wait their turn. Easy to change later in ct.toml.", half="server"),
+    _Q("hardware.profile", "What kind of computer is the server?",
+       "This decides how much work the server takes on at once, and when it makes new jobs wait because it is busy or running hot. The choice below was suggested from what the server reported about itself, so it is usually right: change it only if it does not describe the computer you are setting up as the server.",
+       risk="Picking bigger than the machine really is makes jobs slow and the fans loud; picking smaller only makes jobs wait their turn. Either is easy to change later in ct.toml.", half="server"),
     _Q("network.ipv6", "Should the server use IPv6?",
        "IPv6 is the newer kind of network address. Many home networks never need it to reach the server, and switching it off leaves less to attack.",
        risk="Turning it off applies to the whole machine and lasts across restarts (a system settings file). If you reach the server over IPv6, choose enabled.", half="server"),
@@ -93,10 +93,10 @@ QUESTIONS = [
 ]
 # What each choice means, in the order shown. A question with choices lists them numbered: type the name, the number, or part of the name and press Tab.
 CHOICES = {
-    "hardware.profile": [("old-laptop", "2 jobs at a time, backs off early (70 C, low load). For an old laptop or anything under 4 GB of memory."),
-                         ("small-server", "4 points at a time, backs off at 75 C. A mini PC or a small server."),
-                         ("workstation", "8 points at a time, backs off at 80 C. A desktop or workstation with plenty of memory."),
-                         ("custom", "Starts like small-server; you set capacity, max_load and max_temp_c yourself in ct.toml.")],
+    "hardware.profile": [("old-laptop", "An older or low-power computer: a laptop from around 2015 or earlier, a Raspberry Pi, or anything with 2 or 4 processor cores and 4 GB of memory or less. It takes on one or two jobs at a time and eases off early so it stays cool."),
+                         ("small-server", "A mini PC, a small home server or a recent laptop: roughly 2018 to today, a 4 to 8 core processor (an Intel Core i3 or i5, a Ryzen 3 or 5, an Apple M1 Mac mini) and 8 to 16 GB of memory. A good middle choice."),
+                         ("workstation", "A desktop or workstation from about 2018 or newer, built for heavy work: a 6 or more core processor (a Core i7 or i9, a Ryzen 7 or 9, a Xeon) and 16 GB of memory or more, with proper cooling. It takes on several jobs at once."),
+                         ("custom", "Not sure, or none of these fit. Starts like small-server; you then set the exact limits yourself in ct.toml.")],
     "network.ipv6": [("enabled", "Keep IPv6. The firewall blocks the private (unique-local) range so jobs cannot reach your devices that way."),
                      ("disabled", "Turn IPv6 off on the server. Less to attack and nothing extra to firewall. Choose this if nothing needs IPv6 to reach it.")],
     "access.sudo": [("readonly-nopasswd", "status, show, review, quarantine and output work without a password."),

@@ -251,6 +251,25 @@ class TheScreens(unittest.TestCase):
         pick, _ = self.choose(["1", "2", "enter"], n=14)
         self.assertEqual(pick, "198.51.100.21")                                                     # row 12 of 15 (the 15th is "none of these")
 
+    def test_workers_you_already_have_are_in_the_list_to_set_up_again_and_are_not_the_default(self):
+        """Seen on a real network: every machine found was already a worker, so the list held only 'other' and the machines in the card above could not be picked."""
+        devs = self.devices(2)
+        for d in devs:
+            d.known = True
+        configured = {"198.51.100.10": "box0.example", "198.51.100.11": "box1.example"}
+        ui, out = self.screen(["up", "up", "enter"])                            # the highlight starts on the way to type another, the last row
+        pick = addworker.choose_device(ui, None, lambda m: None, devs, configured=configured)
+        self.assertEqual(pick, "box0.example")                                    # the name it is configured under: that is what sends the choice down the set-up-again route
+        self.assertIn("already a worker", out.getvalue())
+        ui, _ = self.screen(["enter"] + list("new.example") + ["enter"])
+        self.assertEqual(addworker.choose_device(ui, None, lambda m: None, devs, configured=configured), "new.example")   # Enter alone does not pick a worker: the default is the way to type another
+
+    def test_new_machines_come_first_and_stay_the_default_when_there_are_both(self):
+        devs = self.devices(2)
+        devs[0].known = True
+        ui, _ = self.screen(["enter"])
+        self.assertEqual(addworker.choose_device(ui, None, lambda m: None, devs, configured={"198.51.100.10": "box0.example"}), "198.51.100.11")
+
     def test_the_last_row_is_the_way_to_type_an_address_yourself(self):
         ui2, _ = self.screen(["down"] * 3 + ["enter"] + list("box.example") + ["enter"])
         self.assertEqual(addworker.choose_device(ui2, None, lambda m: None, self.devices(3)), "box.example")

@@ -112,7 +112,8 @@ class Styler:
         """A command to copy: alone on its line, no rail beside it, so selecting it picks up nothing else."""
         if not self.styled:
             return "    " + text
-        return self.p(text, GREEN, BOLD)
+        from .. import cards
+        return cards.chip(text)
 
     def line(self, text):
         """Any other line a part of the setup hands over as plain text, put on the rail in the style its first word asks for (NOTE, ERROR, OK, SKIP, a `$ command`, an

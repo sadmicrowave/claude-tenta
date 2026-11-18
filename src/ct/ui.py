@@ -28,18 +28,50 @@ def paint(text, *codes, stream=None):
     return theme.sgr(text, *codes)
 
 
+def clipboard_tool(env=None, which=None):
+    """The program that puts text on the clipboard of the machine this runs on, or None: pbcopy on a Mac, wl-copy / xclip / xsel on Linux with a desktop. Not used over SSH (the clipboard
+    there is another computer's), where the terminal's own escape sequence is the only way."""
+    import shutil
+    env, which = os.environ if env is None else env, which or shutil.which
+    if env.get("SSH_CONNECTION") or env.get("SSH_TTY"):
+        return None
+    for argv in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+        if (argv[0] in ("wl-copy",) and not env.get("WAYLAND_DISPLAY")) or (argv[0] in ("xclip", "xsel") and not env.get("DISPLAY")):
+            continue
+        if which(argv[0]):
+            return argv
+    return None
+
+
+def _run_clipboard_tool(argv, text):
+    import subprocess
+    try:
+        return subprocess.run(argv, input=text.encode(), timeout=3, capture_output=True).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def chip(text, stream=None):
+    """A command to copy as a code chip when a person is watching a terminal, plain text otherwise."""
+    return cards.chip(text) if _color_on(stream or sys.stderr) else text
+
+
 def offer_copy(run, stream):
-    """Put the first (recommended) command on the clipboard of a person watching a terminal (OSC 52, which terminals that do not support it ignore) and return the line that says so.
+    """Put the first (recommended) command on the clipboard of a person watching a terminal and return the lines that say so. A clipboard program is used where there is one (a terminal
+    often ignores the escape sequence for it: it did, and nothing was copied); the sequence (OSC 52) is sent as well, for a terminal that honours it, and is the only way over SSH.
     Nothing is typed or run for them: they paste it. Off with CT_COPY=never; never when output is piped, captured or plain."""
     first = (run if isinstance(run, str) else (list(run) or [""])[0]).strip()
     if not first or os.environ.get("CT_COPY", "").lower() == "never" or not _color_on(stream):
         return []
+    tool = clipboard_tool()
+    if tool:
+        _run_clipboard_tool(tool, first)
     try:
         stream.write("\x1b]52;c;" + base64.b64encode(first.encode()).decode() + "\x07")
         stream.flush()
     except (OSError, ValueError):
         return []
-    return ["", paint("copied to your clipboard: paste it at the prompt (CT_COPY=never turns this off)", DIM, stream=stream)]
+    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream), paint("paste it at the prompt", DIM, stream=stream), paint("(CT_COPY=never turns this off)", DIM, stream=stream)]
 
 
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
@@ -70,7 +102,7 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
         out += ["", paint(steps_label, BOLD, stream=stream)] + [f"  - {x}" for x in steps]
     if run:
         out += ["", paint(run_label, BOLD, stream=stream), ""]
-        out += [paint(c, BOLD, GREEN, stream=stream) for c in ([run] if isinstance(run, str) else run)]
+        out += [c for c in ([run] if isinstance(run, str) else run)]       # plain text, not a terminal: exactly as typed, nothing to select around
     print("\n".join(out) + "\n", file=stream)
 
 
@@ -136,7 +168,7 @@ def related(*pairs, title="From here", stream=None, force=False):
         return False
     out = ["", paint(title, BOLD, PRIMARY, stream=stream)]
     for what, command in pairs:
-        out += ["", paint(what, BOLD, stream=stream), paint(command, BOLD, GREEN, stream=stream)]
+        out += ["", paint(what, BOLD, stream=stream), chip(command, stream)]
     print("\n".join(out) + "\n", file=stream)
     return True
 

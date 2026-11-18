@@ -95,7 +95,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     w = width(cols=cols)
     rows = [d for d in details if d]
     labelled = [d for d in rows if isinstance(d, tuple)]
-    lw = max([len(d[0]) for d in labelled] or [0])
+    lw = max([len(d[0]) + (2 if isinstance(d[0], Cmd) else 0) for d in labelled] or [0])
     body = []                                                           # (kind, payload) so the two frames can place them
     for d in rows:
         if isinstance(d, tuple):
@@ -113,7 +113,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
 
     def label(text):
         if isinstance(text, Cmd):
-            return p(str(text), "ok", "strong") + " " * max(0, lw - len(text))
+            return chip(str(text)) + " " * max(0, lw - len(text) - 2)                       # the chip's two padding spaces count
         return p(text.upper().ljust(lw if lw else 0), role if framed else "label")
 
     out = []
@@ -200,7 +200,12 @@ def meta(sections, cols=None):
     return out
 
 
+def chip(text):
+    """A command or name as it is typed, as a code chip: the one way a command to copy is drawn anywhere (callers check whether colour is on)."""
+    return theme.sgr(f" {text} ", "code")
+
+
 def commands(run, label="Run this"):
-    """The commands to copy: a label, then each command alone on its own line with nothing before or after it."""
+    """The commands to copy: a label, then each command alone on its own line as a code chip (nothing before or after it), so it is selected and copied the same way everywhere."""
     cmds = [run] if isinstance(run, str) else list(run)
-    return ["", "", theme.sgr(f" {label.upper()} ", "primary_chip"), ""] + [theme.sgr(c, "ok", "strong") for c in cmds]       # its own breakout, set apart from the card above
+    return ["", "", theme.sgr(f" {label.upper()} ", "primary_chip"), ""] + [chip(c) for c in cmds]       # its own breakout, set apart from the card above; every command is a code chip, the same as one written in `backticks` in a sentence

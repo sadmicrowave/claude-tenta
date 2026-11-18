@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ct import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
 from ct import jail as jail_mod  # noqa: E402
 from ct.client import cli  # noqa: E402
+from ct import ui as _ui  # noqa: E402
+_ui._run_clipboard_tool = lambda argv, text: False       # a test never touches the real clipboard
 from ct.client.repo import ClientRepos  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}

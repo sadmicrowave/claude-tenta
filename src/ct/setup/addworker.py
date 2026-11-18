@@ -232,14 +232,21 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
 
 
-def choose_device(ui, ask, say, devices, user_given=None):
-    """Pick one of the found devices (or give an address). Returns the address."""
+def choose_device(ui, ask, say, devices, user_given=None, configured=None):
+    """Pick one of the found devices (or give an address). Returns the address. Computers that are already your workers are listed after the new ones, to set up again (the choice is the name
+    they are configured under, which sends it down that route); the default is the first new computer, or, when there is none, the way to type another."""
+    configured = configured or {}
+
+    def line(d):
+        return (d.name + " · " if d.name else "") + d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + (" · virtual network inside this computer" if d.virtual else "")
     fresh = [d for d in devices if not d.known]
-    choices = [(d.ip, (d.name + " · " if d.name else "") + d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + (" · virtual network inside this computer" if d.virtual else "")) for d in fresh]
+    choices = [(d.ip, line(d)) for d in fresh]
+    choices += [(configured.get(d.ip) or configured.get(d.name) or d.ip, "already a worker: set it up again · " + line(d)) for d in devices if d.known]
     choices.append(("other", "none of these: type an address or name yourself"))
+    default = choices[0][0] if fresh else "other"
     q = {"key": "worker.device", "title": "Which computer should become a worker?", "why": "The list is what answered on your network, likely Linux servers first. Picking one does not change it: a short check comes next, and asks first.",
          "choices": choices, "required": True, "select": True}
-    pick = ask_one(ui, ask, say, q, choices[0][0], [v for v, _ in choices])
+    pick = ask_one(ui, ask, say, q, default, [v for v, _ in choices])
     if pick == "other":
         pick = ask_one(ui, ask, say, {"key": "worker.address", "title": "What is its name or address?", "why": "A name such as box.example or an address such as 198.51.100.50.", "examples": ["worker2.example", "198.51.100.50"], "required": True},
                        "", ())
@@ -274,6 +281,12 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
                 known_addrs.add(lookup(h))
             except OSError:
                 pass
+        configured = {h: h for h in hosts}
+        for h in hosts:
+            try:
+                configured[lookup(h)] = h
+            except OSError:
+                pass
         devices, notes = (scan or discover.scan)(nets, known=known_addrs)
         found_card(devices, notes, nets, notice)
         if not [d for d in devices if not d.known] and not interactive:
@@ -285,7 +298,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         if not interactive:
             notice("Say which computer", "Pass its address to add one without questions.", tag="NEXT", color=YELLOW, run="ct-setup add-worker <address> --yes", stream=sys.stderr)
             return 1
-        target = choose_device(ui, ask, say, devices)
+        target = choose_device(ui, ask, say, devices, configured=configured)
     if target in hosts:
         ex = existing_worker(target, wfile)
         if ex is not None:

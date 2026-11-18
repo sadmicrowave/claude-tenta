@@ -161,9 +161,63 @@ class Related(unittest.TestCase):
             self.assertTrue(ui.related(("Add one", "ct-admin add <x>"), ("Never shown", None), ("Remove one", "ct-admin remove <x>"), stream=err, force=True))
         import re
         text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
-        self.assertIn("Add one\nct-admin add <x>\n\nRemove one\nct-admin remove <x>", text)
+        self.assertIn("Add one\n ct-admin add <x> \n\nRemove one\n ct-admin remove <x> ", text)
         self.assertNotIn("Never shown", text)
 
     def test_it_can_be_turned_off(self):
         with clean_env(CT_HINTS="never"):
             self.assertFalse(ui.related(("a", "b"), stream=Tty()))
+
+
+class TheClipboardIsReallyUsed(unittest.TestCase):
+    """Found on a real Mac: the terminal ignored the escape sequence, the card said 'copied', and the clipboard held something else."""
+
+    def test_a_clipboard_program_gets_the_first_command_and_the_card_says_what_was_copied_on_separate_lines(self):
+        with clean_env():
+            out, calls = Tty(), []
+            with mock.patch.object(ui, "clipboard_tool", return_value=["pbcopy"]), mock.patch.object(ui, "_run_clipboard_tool", side_effect=lambda a, t: calls.append((a, t)) or True):
+                ui.say("Done", tag="DONE", run=["ct-admin workers", "ct-admin watch"], stream=out)
+        self.assertEqual(calls, [(["pbcopy"], "ct-admin workers")])
+        lines = [theme_strip(x) for x in out.getvalue().splitlines()]
+        self.assertIn("copied to your clipboard: ct-admin workers", lines)
+        self.assertIn("paste it at the prompt", lines)
+        self.assertIn("(CT_COPY=never turns this off)", lines)
+
+    def test_over_ssh_no_program_is_used_and_off_means_off(self):
+        self.assertIsNone(ui.clipboard_tool(env={"SSH_CONNECTION": "x"}, which=lambda n: "/usr/bin/" + n))
+        self.assertEqual(ui.clipboard_tool(env={}, which=lambda n: "/x" if n == "pbcopy" else None), ["pbcopy"])
+        self.assertIsNone(ui.clipboard_tool(env={}, which=lambda n: "/x" if n == "xclip" else None))                      # no desktop, no clipboard program
+        with clean_env(CT_COPY="never"), mock.patch.object(ui, "_run_clipboard_tool") as run:
+            ui.say("Done", tag="DONE", run="ct-admin workers", stream=Tty())
+        run.assert_not_called()
+
+
+class EveryCommandBlockIsACodeChip(unittest.TestCase):
+    def test_each_command_of_a_run_list_is_a_chip_without_backticks(self):
+        with clean_env():
+            out = Tty()
+            ui.say("Done", tag="DONE", run=["ct-admin workers", "ct-admin watch"], stream=out)
+        chip = theme.sgr(" ct-admin watch ", "code")
+        self.assertIn(chip, out.getvalue())
+        self.assertIn(theme.sgr(" ct-admin workers ", "code"), out.getvalue())
+        self.assertNotIn("`", out.getvalue())
+
+
+def theme_strip(text):
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", text).strip()
+
+
+class NoCommandIsDrawnAnyOtherWay(unittest.TestCase):
+    """The standing rule: a command to copy is a code chip everywhere (cards.chip). A command painted bold green is the old look; this finds any left."""
+
+    def test_no_source_file_paints_a_command_in_the_old_bold_green(self):
+        import re
+        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        allowed = {"review.py": 1, "view.py": 1}          # the exact command a job will run, shown for review and in a job's details: data to read, not a command to copy
+        found = {}
+        for f in root.rglob("*.py"):
+            n = len(re.findall(r'(?:BOLD, GREEN|GREEN, BOLD)\)|"ok", "strong"', f.read_text()))
+            if n and f.name not in ("theme.py", "ui.py"):
+                found[f.name] = n
+        self.assertEqual({k: v for k, v in found.items() if allowed.get(k) != v}, {}, "draw it with ui.chip / cards.chip")

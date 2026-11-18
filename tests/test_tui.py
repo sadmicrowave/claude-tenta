@@ -520,12 +520,18 @@ class Descriptions(unittest.TestCase):
                 for _, desc in q["choices"]:
                     self.assertGreater(len(desc), 25)
 
-    def test_the_machine_descriptions_state_the_numbers_the_profiles_really_use(self):
-        text = dict(question("hardware.profile")["choices"])
-        for name, prof in config.PROFILES.items():
-            if name == "custom":
-                continue
-            self.assertIn(f"{prof['max_temp_c']} C", text[name], name)
+    def test_the_machine_question_helps_a_person_pick_by_their_computer_not_by_internal_numbers(self):
+        """It was titled 'How strong is the server?' (reads as security) and described in points and degrees. A person picks by the kind of machine, its age and its processor."""
+        q = question("hardware.profile")
+        self.assertNotIn("strong", q["title"].lower())
+        text = dict(q["choices"])
+        self.assertEqual(set(text), set(config.PROFILES))
+        for name, desc in text.items():
+            self.assertNotRegex(desc, r"\d+ ?C\b|points|max_load|max_temp|capacity", name) if name != "custom" else None
+        for name in ("old-laptop", "small-server", "workstation"):
+            self.assertRegex(text[name], r"20\d\d|today", name)                  # an era
+            self.assertRegex(text[name], r"core|processor", name)                  # a processor
+            self.assertRegex(text[name], r"GB", name)                             # memory
 
     def test_no_setting_is_asked_that_nothing_uses(self):
         self.assertNotIn("hardware.thermal", questions.BY_KEY)
