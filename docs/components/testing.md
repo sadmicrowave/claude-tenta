@@ -83,6 +83,9 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | A block taller than the terminal, an error that wraps | yes (scrolling virtual terminal) | | a real window |
 | Worker with IPv6 off and a name that still resolves to it | yes (settings, installer) | gap | timing only on a real network |
 | Real kernel features (AppArmor profile, tripwire, sandbox check) | plan only | gap: OrbStack has none | a VM |
+| `add-worker` when every machine found is already a worker | yes (`TheScreens`: listed to set up again, not the default) | | the real network (confirmed by hand) |
+| A command offered to copy (chip, copy note, real clipboard) | yes (chip on every path; clipboard program faked) | | confirmed by hand on a Mac; Linux desktop and over SSH not tried |
+| The machine-kind question (`hardware.profile`) wording and choices | yes (no jargon, era, processor, memory) | | read in the wizard: not yet |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 
