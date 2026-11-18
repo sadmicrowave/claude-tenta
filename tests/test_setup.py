@@ -390,6 +390,34 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.exists("/usr/local/sbin/ct-mail-shell"))
         self.assertTrue(ran("runuser -u ctworker -- git clone --quiet /var/lib/claude-tenta-mail/queue.git"))                  # the worker clones from the local path
 
+    def test_setting_up_again_for_direct_points_an_existing_github_clone_at_the_mailbox_after_filling_it(self):
+        """Seen on a real machine: the worker's clones said EXISTS and kept fetching from GitHub, so a job sent through the mailbox never arrived."""
+        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.put("/var/lib/claude-tenta/queue/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.put("/var/lib/claude-tenta/results/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "git@github-claude-tenta-queue:someone/claude-tenta-queue.git\n")
+        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "git@github-claude-tenta-results:someone/claude-tenta-results.git\n")
+        self.h.replies["git -C /var/lib/claude-tenta-mail/queue.git rev-parse"] = Result(1, "")                      # the mailbox is empty
+        self.h.replies["git -C /var/lib/claude-tenta-mail/results.git rev-parse"] = Result(1, "")
+        s = self.setup_obj(dry_run=False, given={"transport.kind": "direct"})
+        s.run_all()
+        ran = self.h.ran
+        self.assertTrue(ran("git -c safe.directory=* -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/remotes/origin/*:refs/heads/*"))
+        self.assertTrue(ran("git -c safe.directory=* -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/heads/*:refs/heads/*"))
+        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url origin /var/lib/claude-tenta-mail/queue.git"))
+        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/results remote set-url origin /var/lib/claude-tenta-mail/results.git"))
+        self.assertFalse(ran("git clone"))                                                                            # nothing is cloned again
+
+    def test_an_existing_clone_that_already_points_the_right_way_is_left_alone(self):
+        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.put("/var/lib/claude-tenta/queue/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.put("/var/lib/claude-tenta/results/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/queue.git\n")
+        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/results.git\n")
+        self.setup_obj(dry_run=False, given={"transport.kind": "direct"}).run_all()
+        self.assertFalse(self.h.ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url"))
+        self.assertFalse(self.h.ran("git -c safe.directory=*"))
+
     def test_a_github_install_has_no_mailbox_and_no_mail_shell(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()

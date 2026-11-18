@@ -47,8 +47,9 @@ class Plan(Installed):
         titles = [t for t, _ in m.steps()]
         self.assertLess(titles.index("Copy the history into the mailbox"), titles.index("Point the worker's clones at the mailbox"))
         pushes = [a.argv for a in steps["Copy the history into the mailbox"] if "push" in a.argv]
-        self.assertEqual(len(pushes), 2)
-        self.assertTrue(all("--mirror" in p for p in pushes))
+        self.assertEqual(len(pushes), 4)                                         # two repositories, each: what the clone saw of its origin, then its own branches
+        self.assertTrue(all("--mirror" not in p for p in pushes))                # --mirror from a clone would store the origin's branches where nothing looks for them
+        self.assertTrue(any("refs/remotes/origin/*:refs/heads/*" in p for p in pushes))
 
     def test_the_mailbox_is_made_before_the_history_is_copied_into_it(self):
         titles = [t for t, _ in self.plan()[0].steps()]

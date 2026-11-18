@@ -158,10 +158,35 @@ class Human(unittest.TestCase):
         self.assertEqual(output, "done")
 
 
+class DirectPace(unittest.TestCase):
+    def test_what_a_person_is_told_to_expect_matches_the_pace_of_the_connection(self):
+        from ct import config
+        cfg = config.Config(config.validate({"server": {"admin_user": "me", "host": "h"}, "github": {"owner": "o"}, "transport": {"kind": "direct"}})[0])
+        try:
+            view.set_pace(cfg.schedule, direct=True)
+            self.assertNotIn("90 s", view.pace_text())
+            self.assertIn("every few seconds", view.pace_text())
+            view.set_pace(cfg.schedule)
+            self.assertIn("90 s", view.pace_text())
+        finally:
+            view.set_pace(cfg.schedule)
+
+
 class Repo(RepoFixture):
     def test_clone_is_idempotent(self):
         self.assertEqual([w for w, _ in self.repos.clone_all(self.home)], ["exists", "exists"])
         self.assertTrue(self.repos.is_set_up())
+
+    def test_a_clone_that_is_already_there_follows_the_address_the_configuration_now_says(self):
+        """Seen on a real machine: set up again for another connection, the clones kept the old address, so jobs were sent and read the old way."""
+        import subprocess
+        new = self.tmp / "elsewhere"
+        subprocess.run(["git", "clone", "-q", "--bare", str(self.repos.queue_url), str(new)], check=True)
+        moved = ClientRepos(self.repos.queue, self.repos.results, str(new), self.repos.results_url)
+        self.assertEqual([w for w, _ in moved.clone_all(self.home)], ["repointed", "exists"])
+        got = subprocess.run(["git", "-C", str(self.repos.queue), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(got, str(new))
+        self.assertEqual([w for w, _ in moved.clone_all(self.home)], ["exists", "exists"])           # and a second run changes nothing
 
     def test_a_bad_address_is_explained(self):
         bad = ClientRepos(self.tmp / "x" / "queue", self.tmp / "x" / "results", str(self.tmp / "nope.git"), str(self.tmp / "nope2.git"))

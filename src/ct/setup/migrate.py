@@ -102,8 +102,8 @@ class Migrate:
         copy = []
         for which, owner in (("queue", mail), ("results", w)):
             clone, bare = c.path(f"{which}_clone"), t2.repo_path(c2, which)
-            copy += [A("run", argv=["git", "-c", "safe.directory=*", "-C", clone, "push", "--mirror", "--quiet", bare], why=f"copies the {which} history into the mailbox, so nothing is lost"),
-                     A("run", argv=["chown", "-R", f"{owner}:{mail}", bare]), A("run", argv=["chmod", "-R", "u+rwX,g+rX,o-rwx", bare])]
+            copy += [A("run", argv=argv, why=f"copies the {which} history into the mailbox, so nothing is lost") for argv in transport.copy_history_commands(clone, bare)]
+            copy += [A("run", argv=["chown", "-R", f"{owner}:{mail}", bare]), A("run", argv=["chmod", "-R", "u+rwX,g+rX,o-rwx", bare])]
         out.append(("Copy the history into the mailbox", copy))
         out.append(("Point the worker's clones at the mailbox", [A("run", argv=["runuser", "-u", w, "--", "git", "-C", c.path(f"{which}_clone"), "remote", "set-url", "origin", t2.worker_url(c2, which)])
                                                                  for which in ("queue", "results")]))

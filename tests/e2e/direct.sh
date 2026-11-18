@@ -29,6 +29,7 @@ step "ct-setup install with the Direct connection"
 as_admin ct-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set transport.kind=direct --set network.ssh_from=$SSH_FROM >/tmp/e2e-install.out 2>&1; rc=$?
 tail -45 /tmp/e2e-install.out
 check "the install command finished successfully" test $rc -eq 0
+check "no error line was printed" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-install.out"
 check "no GitHub was needed: no gh, no deploy keys, no github clone urls" bash -c "! grep -qi 'deploy key' /tmp/e2e-install.out && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$MAIL@'"
 check "the mailbox exists with the queue and results repositories" bash -c "test -d /var/lib/$NAME-mail/queue.git && test -d /var/lib/$NAME-mail/results.git"
 check "the registry was seeded in the queue" git -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml

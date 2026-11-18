@@ -267,13 +267,17 @@ def render_classes(info, pending=(), excluded=0, out=None, product="the worker")
 PACE = {"idle": 90, "sleep": 300}          # how often a worker checks while idle / asleep; set from the configuration (see set_pace)
 
 
-def set_pace(schedule):
+def set_pace(schedule, direct=False):
     """Take the worker's polling pace from the configuration, so what a person is told to expect is what the worker does."""
     PACE.update(idle=int(schedule.idle_fetch_s) or 5, sleep=int(schedule.sleep_fetch_s) or int(schedule.idle_fetch_s) or 5)
+    if direct:                                                      # a Direct worker does not slow down when idle (see Settings in ct.cli)
+        PACE.update(idle=5, sleep=5)
 
 
 def pace_text():
     """What to expect before a job is noticed: a busy worker looks every few seconds, an idle one less often, a sleeping one least."""
+    if PACE["idle"] <= 5 and PACE["sleep"] <= 5:
+        return "the worker looks every few seconds, busy or idle"
     return f"a busy worker looks every few seconds, an idle one every {PACE['idle']} s, a sleeping one every {max(1, PACE['sleep'] // 60)} min"
 
 

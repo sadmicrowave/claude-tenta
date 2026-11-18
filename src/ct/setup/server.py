@@ -336,13 +336,42 @@ class ServerSetup:
                 self.say(f"    still waiting for: {', '.join(pending)}")
         return pending
 
+    def adopt_clone(self, which, dest):
+        """A clone that is already there must follow the connection the configuration now says: an install that used GitHub and is set up again for Direct (or the other way) would
+        otherwise keep fetching from the old place, and no job sent the new way would ever arrive (seen on a real machine). For Direct the mailbox is filled from the clone first when it is empty,
+        so the registry and the history are not lost."""
+        cfg, w = self.cfg, self.cfg.server.worker_user
+        want = remote_url(cfg, which)
+        have = self.host.run(["git", "-C", dest, "remote", "get-url", "origin"], ) if not self.dry_run else None
+        if have is not None and have.ok and have.out.strip() == want:
+            self.note(f"{which} clone", "exists")
+            return
+        if self.dry_run:
+            self.note(f"{which} clone", "planned", f"would point at {want}")
+            return
+        t = transport.for_config(cfg)
+        if t.kind == "direct":
+            bare = t.repo_path(cfg, which)
+            if not self.host.run(["git", "-C", bare, "rev-parse", "--verify", "-q", "refs/heads/main"]).ok:         # the mailbox is empty: give it what the clone has
+                for argv in transport.copy_history_commands(dest, bare):
+                    self.host.run(argv)
+                mail = t.mail_user(cfg)
+                owner = mail if which == "queue" else w
+                self.run(["chown", "-R", f"{owner}:{mail}", bare], step=f"hand the {which} repository to {owner}")
+                self.run(["chmod", "-R", "u+rwX,g+rX,o-rwx", bare], step=f"close the {which} repository to everyone else")
+                if which == "results":
+                    self.run(["find", bare, "-type", "d", "-exec", "chmod", "g+s", "{}", "+"], step="make new results folders belong to the mailbox group")
+                self.note(f"{which} history", "copied", "into the mailbox")
+        self.run(["git", "-C", dest, "remote", "set-url", "origin", want], step=f"point the {which} clone at its new address", as_user=w)
+        self.note(f"{which} clone", "repointed", want)
+
     def clones(self, pubs):
         cfg, w = self.cfg, self.cfg.server.worker_user
         todo = [(which, dest) for which, dest in (("queue", cfg.path("queue_clone")), ("results", cfg.path("results_clone")))]
         pending = []
         for which, dest in todo:
             if self.host.exists(dest + "/.git"):
-                self.note(f"{which} clone", "exists")
+                self.adopt_clone(which, dest)
             elif not self.dry_run and not self.reachable(which):
                 pending.append(which)
         if pending and self.wait_for_keys:

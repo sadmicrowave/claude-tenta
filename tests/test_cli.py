@@ -423,6 +423,13 @@ class FromConfig(unittest.TestCase):
         self.assertEqual(w.io.job_sources[0][0], "origin/jobs")
         self.assertEqual((w.api_key, w.oauth_token), ("key_1", None))               # api-key: the token that is also in the file is not given out
 
+    def test_a_direct_worker_never_slows_down_when_idle_and_a_github_one_does(self):
+        """Seen on a real machine: Direct was promised within seconds but an idle worker only looked every 90 s, because the GitHub pace applied to it."""
+        github = cli.Context.from_config(self.cfg(), env={}).w.s
+        direct = cli.Context.from_config(self.cfg(extra='[transport]\nkind = "direct"\n'), env={}).w.s
+        self.assertEqual((github.idle_fetch_s, github.sleep_fetch_s), (90, 300))
+        self.assertEqual((direct.idle_fetch_s, direct.sleep_fetch_s), (0, 0))
+
     def test_the_alert_address_comes_from_the_secrets_file(self):
         cfg = self.cfg(extra='[alerts]\nkind = "ntfy"\n')                    # no address in ct.toml: it loads, and the notifier gets it from secrets.env
         (self.root / "etc").mkdir(exist_ok=True)

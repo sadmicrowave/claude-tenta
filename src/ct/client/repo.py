@@ -66,8 +66,13 @@ class ClientRepos:
         Path(home).mkdir(parents=True, exist_ok=True)
         rows = []
         for path, url in ((self.queue, self.queue_url), (self.results, self.results_url)):
-            if (path / ".git").exists():
-                rows.append(("exists", str(path)))
+            if (path / ".git").exists() or (path / "HEAD").exists():
+                have = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+                if have and have != url:                                    # an install set up again for another connection must send and read the new way, not the old
+                    subprocess.run(["git", "-C", str(path), "remote", "set-url", "origin", url], capture_output=True)
+                    rows.append(("repointed", str(path)))
+                else:
+                    rows.append(("exists", str(path)))
                 continue
             r = subprocess.run(["git", "clone", "--quiet", url, str(path)], capture_output=True, text=True, env=self._net_env())
             if r.returncode:

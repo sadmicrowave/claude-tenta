@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import clihelp, config
+from .. import clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from . import cap
@@ -54,7 +54,7 @@ class Context:
 
     @classmethod
     def from_config(cls, cfg):
-        view.set_pace(cfg.schedule)
+        view.set_pace(cfg.schedule, direct=transport.for_config(cfg).kind == "direct")
         repos = ClientRepos.from_config(cfg)
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],

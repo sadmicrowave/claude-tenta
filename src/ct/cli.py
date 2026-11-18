@@ -23,7 +23,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import transport, alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import publishdiag, workerstate
 from . import cards
@@ -104,11 +104,12 @@ class Context:
         secrets = config.read_env_file(secrets_path)
         problem = config.secrets_file_problem(secrets_path)
         state = Path(cfg.path("state"))
+        direct = transport.for_config(cfg).kind == "direct"
         settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
-                            idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=int(cfg.schedule.idle_fetch_s),
-                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=int(cfg.schedule.sleep_fetch_s),
+                            idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
+                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=0 if direct else int(cfg.schedule.sleep_fetch_s),      # Direct reads a local folder, so there is no reason to slow down: a job is picked up within seconds, idle or not
                             claude_jobs_per_day=int(cfg.claude.jobs_per_day), claude_turns_per_day=int(cfg.claude.turns_per_day))
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,

@@ -133,6 +133,14 @@ class HappyPath(InstallBase):
         self.assertTrue(any("deploy key for someone/claude-tenta-queue" in line and "read-only" in line for line in self.said))
         self.assertTrue(any("deploy key for someone/claude-tenta-results" in line and "read and write" in line for line in self.said))
 
+    def test_setting_up_again_for_direct_ignores_the_deploy_keys_an_earlier_github_install_left_on_the_server(self):
+        """Seen on a real machine: an install that used GitHub, set up again for Direct, printed 'could not add the queue deploy key ... on None/...' because the old key files were still there."""
+        self.ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
+        self.ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
+        self.installer(given={"transport.kind": "direct"}).run_all()
+        self.assertEqual(self.ran_local("gh repo deploy-key"), [])
+        self.assertFalse([line for line in self.said if "deploy key" in line and "ERROR" in line], self.said)
+
     def test_an_install_already_on_the_server_keeps_its_worker_account_even_when_the_saved_answers_do_not_say(self):
         self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
         inst = self.installer()

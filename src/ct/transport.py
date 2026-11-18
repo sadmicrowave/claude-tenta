@@ -103,3 +103,11 @@ TRANSPORTS = {"github": GitHub(), "direct": Direct()}
 def for_config(cfg):
     """The transport the configuration chose (`[transport] kind`)."""
     return TRANSPORTS[cfg.transport.kind]
+
+
+def copy_history_commands(clone, bare):
+    """The git commands that copy everything a clone has into a bare repository as branches: first what it last saw of its origin (refs/remotes/origin/* become refs/heads/*), then its own
+    branches on top (so the worker's own newer results win). Not `push --mirror`: from a clone that would store the origin's branches as refs/remotes/..., where nothing looks for them,
+    and the jobs branch would be lost."""
+    base = ["git", "-c", "safe.directory=*", "-C", clone, "push", "--quiet", "--force", bare]
+    return [base + ["refs/remotes/origin/*:refs/heads/*"], base + ["refs/heads/*:refs/heads/*"]]

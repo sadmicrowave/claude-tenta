@@ -189,5 +189,22 @@ check "the job loop is running again and nothing failed" bash -c "systemctl is-a
 check "a job goes through the whole loop over the mailbox" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-direct.out 2>&1"
 check "running the move again says the install already uses Direct" bash -c "as_admin ct-setup transport direct 2>&1 | grep -qi 'already uses direct'"
 
+step "Setting up again with the other connection (the wizard, not the move command): GitHub, then Direct, and jobs still go through"
+SWITCH=(--yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16)
+as_admin ct-setup install "${SWITCH[@]}" --set transport.kind=github >/tmp/e2e-switch-github.out 2>&1; rc=$?
+tail -12 /tmp/e2e-switch-github.out
+check "setting up again for GitHub finished successfully" test $rc -eq 0
+check "no error line was printed (seen once: deploy key errors on a switch)" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-switch-github.out"
+check "both of the worker's clones and both of this computer's clones now point at GitHub" bash -c "git -C /var/lib/$NAME/queue remote get-url origin | grep -q github && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q github"
+check "a job goes through over GitHub after the switch" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-switch1.out 2>&1"
+as_admin ct-setup install "${SWITCH[@]}" --set transport.kind=direct >/tmp/e2e-switch-direct.out 2>&1; rc=$?
+tail -12 /tmp/e2e-switch-direct.out
+check "setting up again for Direct finished successfully" test $rc -eq 0
+check "no error line was printed (seen on a real machine: deploy key errors against github owner None)" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-switch-direct.out"
+check "both of the worker's clones and both of this computer's clones now point at the mailbox" bash -c "git -C /var/lib/$NAME/queue remote get-url origin | grep -q '$NAME-mail' && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$NAME-mail@'"
+check "the registry survived into the mailbox" git -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
+check "a job goes through over the mailbox within 30 seconds (a Direct worker never slows down)" bash -c "as_admin ct-run submit sys-status --wait --timeout 30 >/tmp/e2e-job-switch2.out 2>&1"
+check "the worker's pass is the quick one, not the idle one" bash -c "! journalctl -u $NAME-fetch.service --no-pager -o cat | tail -20 | grep -qi 'idle'"
+
 printf '\n=== %d passed, %d failed\n' "$PASS" "$FAIL"
 exit "$FAIL"
