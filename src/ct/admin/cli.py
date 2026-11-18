@@ -118,6 +118,9 @@ def cmd_status(ctx, a):
     return rc
 
 
+REMEMBER_WHERE_IT_ANSWERED = ("check", "status", "wake", "audit")
+
+
 def cmd_check(ctx, a):
     r = ctx.ssh._run(ctx.ssh.argv("true", batch=True), capture_output=True, text=True)
     if r.returncode:
@@ -453,7 +456,8 @@ def cmd_locate(ctx, a):
         return 0
     by_ip = {d.ip: d for d in devices}
     if m.kind != "one":
-        steps = {"unknown": ["Connect to it once from here so its key is recorded:  ssh " + c.ssh.target + " true"], "none": ["Check that it is on and on the same network, then run this again.", "A computer that is on a different network cannot be found from here."],
+        steps = {"unknown": ["Connect to it once from here so its key is recorded:  ssh " + c.ssh.target + " true"], "none": ["Check that it is on and on the same network, then run this again.", "A computer that is on a different network cannot be found from here.",
+                 f"If the worker was reinstalled, it has a new SSH key. Forget the old one with  ssh-keygen -R {host}  and connect once  (ssh {c.ssh.target} true)  to trust the new one."],
                  "several": ["Find which one it is by its name or what it is, then set server.host in its configuration by hand."]}[m.kind]
         emit("The worker was not found", m.note, *[("Also found", ", ".join(m.addresses))] * bool(m.addresses), tag="NOT FOUND", color=YELLOW, steps=steps, steps_label="What to do", stream=sys.stdout)
         return 1
@@ -1163,6 +1167,12 @@ def main(argv=None, ctx=None, cfg=None):
             cfg = cfg or config.load()
             ctx = Context.from_config(cfg)
         rc = DISPATCH[a.cmd](ctx, a)
+        if rc == 0 and a.cmd in REMEMBER_WHERE_IT_ANSWERED and not getattr(a, "worker", None):       # the worker answered over SSH: note where, so a later failure can try that address first
+            from .. import rediscover
+            try:                                                      # best effort: noting an address must never turn a command that worked into one that failed
+                rediscover.remember(ctx.home, ctx.name, ctx.ssh.host, ctx.ssh.port)
+            except Exception:
+                pass
         if real and a.cmd != "update" and not getattr(a, "json", False):
             updatecheck.after_command(cfg.updates, ctx.home, __version__, (workers.read_state(ctx.repos.results) or {}).get("release"))
         return rc

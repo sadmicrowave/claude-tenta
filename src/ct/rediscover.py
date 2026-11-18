@@ -47,7 +47,7 @@ def recorded_keys(host, port=22, known_hosts=None, run=None):
 def shown_keys(ip, port=22, run=None):
     """The host keys the machine at `ip` shows to anyone who connects (nothing is logged in to)."""
     run = run or _run
-    return parse_keys(run(["ssh-keyscan", "-T", "3", "-p", str(int(port)), "-t", KEY_TYPES, ip], 12))
+    return parse_keys(run(["ssh-keyscan", "-T", "2", "-p", str(int(port)), "-t", KEY_TYPES, ip], 8))
 
 
 @dataclass

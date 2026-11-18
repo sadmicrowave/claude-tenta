@@ -23,7 +23,7 @@ INSTALLED = "cat /etc/testct/installed-rev 2>/dev/null"
 class FakeSsh:
     """Records every remote command; `answers` maps a substring of a captured command to its stdout."""
 
-    host, user = "worker.example", "admin"
+    host, user, port = "worker.example", "admin", 22
     target = "admin" + "@" + "worker.example"
 
     def __init__(self):
@@ -1216,3 +1216,25 @@ class Locate(AdminBase):
             code, out, _ = self.locate(shown=keys)
         self.assertEqual(code, 0)
         self.assertIn("is where its configuration says", out)
+
+
+class RememberingWhereTheWorkerAnswered(AdminBase):
+    """Found testing on a real machine: the last address that worked was only written by `watch` and `locate`, so a user who never ran them had nothing for that rung."""
+
+    def test_an_ordinary_successful_command_notes_the_address_and_a_failed_one_does_not(self):
+        from ct import rediscover
+        with mock.patch("socket.gethostbyname", return_value="192.0.2.44"), mock.patch("ct.rediscover._arp", return_value={}):
+            self.ssh._run = lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "no route")
+            self.admin("check")
+            self.assertEqual(rediscover.last_seen(self.home, "testct"), {})
+            self.ssh._run = lambda argv, **k: subprocess.CompletedProcess(argv, 0, "", "")
+            self.admin("check")
+        self.assertEqual(rediscover.last_seen(self.home, "testct")["ip"], "192.0.2.44")
+
+
+class ALostWorkerThatWasReinstalled(Locate):
+    def test_a_machine_with_no_matching_key_says_a_reinstalled_worker_has_a_new_key_and_how_to_trust_it(self):
+        code, out, _ = self.locate(shown={"192.0.2.31": {("ssh-ed25519", "OTHER")}, "192.0.2.32": {("ssh-ed25519", "OTHER2")}})
+        self.assertEqual(code, 1)
+        self.assertIn("ssh-keygen -R worker.example", out)
+        self.assertIn("new SSH key", out)
