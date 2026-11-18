@@ -94,7 +94,7 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | Several workers: one unreachable, locked, or lacking the class | yes | gap | VM off: by hand |
 | Many `ct-run submit` at once from one computer (a script, two sessions) | yes (`test_concurrent_submit`: real git, 8 threads at once; `ManyPlacementsAtOnce`) | by hand: `scripts/loadtest` on the real workers (found the lost jobs and the herd) | `scripts/loadtest --jobs 8` |
 | `ct-admin apply`, `diff`, `check`, `status`, `quarantine`, `unlock` with several workers (every worker in turn, or `--worker`) | yes (`FleetWideCommands`, and the classification of all 25 commands) | | confirmed by hand: `ct-admin diff` across the Mac mini and the VM |
-| A check that is about one worker (the install check, the wizard's first job) runs on THAT worker | yes (`test_pinned_checks`, and a guard on every internal send) | gap | found by hand: the Mac mini passed its check on the VM's job |
+| A check that is about one worker (the install check, the wizard's first job) runs on THAT worker | yes (`test_pinned_checks`, a guard on every internal send, and `test_pinned_end_to_end`: the real `ct-run submit` on two real git queues with the scheduler really choosing) | two real machines: not yet | found by hand: the Mac mini passed its check on the VM's job |
 | Arrow keys and Ctrl-C in a real terminal | yes (virtual terminal) | | a pseudo-terminal check, not yet kept in the repo |
 
 
