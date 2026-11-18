@@ -55,7 +55,12 @@ ipv6 = "enabled"                # enabled | disabled. disabled turns IPv6 off on
 
 [claude]
 auth = "none"                   # none | account | api-key. none: Claude is not used on this worker (every other job still runs) | account: a claude.ai subscription token | api-key: an Anthropic API key. The token or key itself goes in secrets.env
+jobs_per_day = 20               # the most Claude jobs this worker starts in a UTC day; at the limit new ones wait and other jobs carry on. 0 = no limit
+turns_per_day = 300             # the most Claude turns the jobs of a UTC day may use in total; reaching it pauses new Claude jobs too. 0 = no limit
 update_days = 7                 # days between automatic updates of the claude tool (it cannot update itself inside a job's jail)
+
+[limits]
+max_in_flight = 8               # the most jobs this computer has queued or running at once across every worker it administers; ct-run submit refuses past it. Jobs waiting for your approval do not count. 0 = no cap
 
 [access]
 sudo = "readonly-nopasswd"      # readonly-nopasswd: status, show, review... need no password | password: always ask

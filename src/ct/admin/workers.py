@@ -108,7 +108,9 @@ def row_for(name, doc, now=None):
     has, text = claude_summary(doc)
     mem_total, mem_free = hw.get("mem_total_mb"), obs.get("mem_available_mb")
     load, temp = obs.get("load_1m"), obs.get("temp_c")
-    return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(),
+    today = obs.get("claude_today") or {}
+    spend = ("PAUSED: " if today.get("paused") else "") + f"{today.get('jobs', 0)}" + (f"/{today['limit_jobs']}" if today.get("limit_jobs") else "") + f" jobs, {today.get('turns', 0)}" + (f"/{today['limit_turns']}" if today.get("limit_turns") else "") + " turns" if today else ""
+    return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(), "spend": spend, "paused": bool(today.get("paused")),
             "cpu": f"{hw.get('cores', '?')} cores" + ("" if hw.get("native_claude", True) else ", old CPU"),
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
             "claude": text, "state": "LOCKED" if doc.get("locked") else ("jail ON" if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
@@ -121,7 +123,7 @@ def row_for(name, doc, now=None):
 # ---- the cards: the wizard's question-card look (a coloured rail down the left, a chip, labelled rows) ----------------------------------------------
 BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "primary", "primary_chip", "warn_chip", "bad_chip"          # roles: ct.theme decides the colours
 RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
-ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
+ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("TODAY", "spend"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
 HANG = 10
 
 

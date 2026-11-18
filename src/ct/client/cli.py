@@ -26,6 +26,8 @@ from pathlib import Path
 from .. import clihelp, config
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
+from . import cap
+from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
 from . import view
@@ -40,13 +42,14 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None):
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
+        self.max_in_flight, self.fleet = int(max_in_flight or 0), fleet or (lambda: [("main", repos)])
         self.is_tty = is_tty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
 
     @classmethod
@@ -55,7 +58,21 @@ class Context:
         repos = ClientRepos.from_config(cfg)
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
-                   own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser())
+                   own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos))
+
+
+def fleet_of(cfg, main):
+    """[(name, ClientRepos)] for the main worker and every one in workers.toml (the same list ct-admin workers shows), for the job cap."""
+    from ..admin import workers as workers_mod
+    out = [(cfg.identity.name, main)]
+    wfile = Path(cfg.source).parent / "workers.toml" if cfg.source else None
+    for name, path in (workers_mod.load_list(wfile) if wfile else {}).items():
+        try:
+            out.append((name, ClientRepos.from_config(config.load(path, env={"CT_CONFIG": ""}))))
+        except Exception:
+            continue                                                  # an unreadable worker configuration is the workers command's problem, not a reason to block sending
+    return out
 
 
 def fail_from(e):
@@ -87,6 +104,7 @@ def cmd_submit(ctx, a):
     if files:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
+    cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
     ids = sub.job_ids(base, len(batches))
     if len(batches) > 1:
@@ -258,6 +276,48 @@ def cmd_classes(ctx):
     return 0
 
 
+def cmd_patch(ctx, a):
+    """Show the patch a write-capable job returned, and (only when asked, after a look) apply it to the folder you are in. Nothing is applied by the worker, ever."""
+    import subprocess
+    r = ctx.repos
+    r.need_setup()
+    r.pull_results()
+    res = r.read_result(a.id)
+    if res is None:
+        raise ClientError(f"There is no result for {a.id} yet", "The job has not finished, or the id is wrong.", example=f"ct-run result {a.id} --wait")
+    p = res.get("patch")
+    if not p:
+        raise ClientError(f"{a.id} returned no patch", f"Its status is {res.get('status')}. Only a job of a class that returns a patch, and that ended ok, has one.", [f"See what it did: ct-run result {a.id}"])
+    text, notes = p.get("text") or "", list(p.get("notes") or [])
+    bad = patch_mod.problems(text)
+    if a.out:
+        Path(a.out).expanduser().write_text(text)
+        emit("Patch saved", f"{len(p.get('files') or [])} file(s) in {a.out}. Read it before you apply it.", tag="DONE", color=GREEN, run=f"git apply --check {a.out}")
+        return 0
+    _ui.document(f"Patch from {a.id}", text, tag="PATCH", as_diff=True, stream=sys.stdout,
+                 notes=[("Files", ", ".join(p.get("files") or []) or "none")] + [("Note", n) for n in notes] + [("Refused", b) for b in bad])
+    if not a.apply:
+        emit("Nothing was changed", "That was only a look.", tag="NEXT", color=GREEN, run_label="Apply it to this folder", run=f"ct-run patch {a.id} --apply")
+        return 0
+    if bad:
+        raise ClientError("This patch will not be applied", "; ".join(bad), [f"Save it and read it: ct-run patch {a.id} --out patch.diff"])
+    if not text.strip():
+        emit("The patch is empty", "The job changed nothing, so there is nothing to apply.", tag="NOTE", color=YELLOW)
+        return 0
+    check = subprocess.run(["git", "apply", "--check", "-"], input=text, text=True, capture_output=True)
+    if check.returncode:
+        raise ClientError("The patch does not fit this folder", check.stderr.strip()[-300:] or "git apply --check refused it.",
+                          ["Go to the folder the job was sent from (the files must be where they were), then run this again."])
+    if not (a.yes or (ctx.is_tty() and ctx.ask(_ui.confirm_prompt(f"Apply {len(p.get('files') or [])} file(s) of changes to {Path.cwd()}?")).strip().lower() == "y")):
+        emit("Not applied", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
+        return 1
+    done = subprocess.run(["git", "apply", "-"], input=text, text=True, capture_output=True)
+    if done.returncode:
+        raise ClientError("git could not apply the patch", done.stderr.strip()[-300:])
+    emit("Applied", f"{len(p.get('files') or [])} file(s) changed in {Path.cwd()}. Nothing was committed.", tag="DONE", color=GREEN, run="git diff")
+    return 0
+
+
 def cmd_prune(ctx, days, force):
     ctx.repos.need_setup()
     emit("Jobs branch", ctx.repos.prune_jobs(days, force), tag="PRUNE", color=CYAN)
@@ -384,6 +444,7 @@ def cmd_profile(ctx, a):
     job = off.build_profile_job(argv, what, expect, est, flags={**spec["flags"], **off.parse_flags(a.flag)}, packages=spec["packages"] + (a.package or []), why=why,
                                 side_effects=side, watch_for=watch, timeout_s=timeout_s, files=files, retry_example=lambda extra: off.own_command_with(a.raw, extra))
     jid = a.id or sub.new_job_id("profile", r.result_ids())
+    cap.check(ctx.fleet(), ctx.max_in_flight, 1)
     sub.push_job(r, jid, job)
     if name:
         ctx.names.remember(jid, name)
@@ -520,6 +581,11 @@ def build_parser():
     r.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     r.add_argument("--json", action="store_true", help="print the result as JSON")
     r.add_argument("--approved", action="store_true", help=argparse.SUPPRESS)          # ct-admin sets it: the job was just approved, so say "approved" while it waits
+    pt = sp.add_parser("patch", add_help=False)
+    pt.add_argument("id", help="the job id")
+    pt.add_argument("--apply", action="store_true", help="apply it to the folder you are in, after showing it and asking (nothing is committed)")
+    pt.add_argument("--out", metavar="FILE", help="save the patch to a file instead of showing it")
+    pt.add_argument("--yes", action="store_true", help="with --apply: do not ask")
     s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
     sp.add_parser("classes", add_help=False)
@@ -578,6 +644,7 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "ct-run jobs"), ("Show more", "ct-run jobs -n 40")]),
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
         "classes": ("what the worker can run today", [("List them", "ct-run classes")]),
+        "patch": ("show the patch a write-capable job returned, and apply it here after a look", [("Look at it", "ct-run patch <job>"), ("Apply it to this folder", "ct-run patch <job> --apply"), ("Save it to a file", "ct-run patch <job> --out fix.diff")]),
         "prune": ("squash old job files out of the jobs branch", [("Tidy it", "ct-run prune")])}
 
 
@@ -622,6 +689,8 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":
             return cmd_classes(ctx)
+        if a.cmd == "patch":
+            return cmd_patch(ctx, a)
         if a.cmd == "prune":
             return cmd_prune(ctx, a.days, a.force)
         emit("No command given", "Run ct-run help to see the commands.", tag="ERROR", color=RED)

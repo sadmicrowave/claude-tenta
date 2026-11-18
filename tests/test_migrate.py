@@ -91,7 +91,8 @@ class Refusals(Installed):
 
     def test_a_missing_clone_stops_before_anything_is_touched(self):
         __import__("shutil").rmtree(self.h.path(self.cfg.path("queue_clone") + "/.git"))
-        self.assertIn("no queue clone", self.refused(self.mg()).title)
+        self.assertIn("no queue clone", self.refused(self.mg(dry_run=False)).title)
+        self.mg(dry_run=True).check()          # a preview is run by the administrator, who cannot see those folders: it must not say they are missing
 
     def test_a_running_job_stops_the_move(self):
         self.h.replies["sh -c ls"] = Result(0, "job-1\n")

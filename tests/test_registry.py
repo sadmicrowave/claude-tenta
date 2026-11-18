@@ -36,6 +36,13 @@ class ClaudeClassTools(unittest.TestCase):
     def test_max_running_is_accepted_as_a_positive_number(self):
         self.assertEqual(self.check(["Read"], max_running=2), [])
 
+    def test_a_patch_returning_class_needs_files_and_only_the_value_patch_is_known(self):
+        self.assertEqual(self.check(["Read", "Edit"], reviewed=True, accepts_files=True, returns="patch", patch_max_kb=100), [])
+        self.assertTrue(any("accepts_files" in e for e in self.check(["Read", "Edit"], reviewed=True, returns="patch")))
+        self.assertTrue(any("returns may only be patch" in e for e in self.check(["Read"], returns="branch")))
+        self.assertTrue(any("only a claude class" in e for e in registry.validate(
+            {"classes": {"c": {"kind": "command", "tier": "auto", "cost": "light", "run": ["/bin/true"], "returns": "patch"}}}, "/nonexistent-tools-root", allow_empty=True)))
+
 
 class Packages(unittest.TestCase):
     def test_names_are_validated_sorted_and_deduplicated(self):

@@ -30,7 +30,7 @@ def next_delay(failures, base=BASE_S, ceiling=CEILING_S):
 def decide(name, security, state, fetched_ok, prev, now):
     """(events, new memory) for one worker. `security` and `state` are the published documents ({} / None when absent), `fetched_ok` says whether the fetch worked, `prev` is what
     was remembered. An event is (kind, title, text); only changes produce one."""
-    mem = {"failures": 0, "locked_since": None, "reminders": 0, "silent": False, "unreachable": False, **(prev or {})}
+    mem = {"failures": 0, "locked_since": None, "reminders": 0, "silent": False, "unreachable": False, "paused": False, **(prev or {})}
     events = []
     if not fetched_ok:
         mem["failures"] += 1
@@ -65,6 +65,10 @@ def decide(name, security, state, fetched_ok, prev, now):
     if mem["silent"] and not silent and state:
         events.append(("back", f"{name} is reporting again", f"{name} published a fresh reading."))
     mem["silent"] = silent
+    paused = bool((((state or {}).get("observed") or {}).get("claude_today") or {}).get("paused"))
+    if paused and not mem["paused"]:
+        events.append(("paused", f"{name} paused its Claude jobs", f"{name} reached its daily Claude limit; new Claude jobs wait until tomorrow or until the limit is raised. Nothing is wrong. See: ct-admin status"))
+    mem["paused"] = paused
     return events, mem
 
 

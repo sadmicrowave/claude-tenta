@@ -44,9 +44,12 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         "packages": packages_of(registry),
         "approvers": list(extra.get("approvers") or []),
         "locked": bool(locked),
+        "claude_paused": bool((extra.get("claude_budget") or {}).get("paused")),
     }
     observed = {k: snapshot.get(k) for k in ("load_1m", "temp_c", "mem_available_mb", "disk_free_gb", "running", "waiting")}
     observed["at"] = snapshot.get("at")
+    if extra.get("claude_budget") is not None:
+        observed["claude_today"] = extra["claude_budget"]              # today's use and the limits (counts only: no job names)
     return environment, {"v": VERSION, "updated": now_iso, **environment, "observed": observed}
 
 

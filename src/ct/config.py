@@ -231,7 +231,12 @@ SCHEMA = {
         "auth": ("none", _enum("account", "api-key", "none"),
                  "how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). "
                  "The token or key itself lives only in secrets.env"),
+        "jobs_per_day": (20, _num(0, 10000), "the most Claude jobs this worker STARTS in a UTC day; at the limit new ones wait (they start tomorrow or when you raise this) and other jobs carry on. 0 means no limit"),
+        "turns_per_day": (300, _num(0, 1000000), "the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit"),
         "update_days": (7, _num(1, 60), "days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail)"),
+    },
+    "limits": {
+        "max_in_flight": (8, _num(0, 1000), "the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap"),
     },
     "access": {
         "sudo": ("readonly-nopasswd", _enum("readonly-nopasswd", "password"),

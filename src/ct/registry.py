@@ -13,7 +13,7 @@ from .pkgspec import check_packages, is_pinned
 COST_W = {"light": 1, "medium": 2, "heavy": 4}      # capacity points; a heavy job runs alone on a capacity-4 machine
 CLASS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 PLACEHOLDER = re.compile(r"^\{(\w+)\}$")
-POS_INT_KEYS = ("timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars", "max_running")
+POS_INT_KEYS = ("patch_max_kb", "timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars", "max_running")
 HELPER_TOOLS = ("Task", "Agent")                    # tools that start helper agents with turns of their own: never on a device, whatever the class says (see docs/design/SINGLE-JOB-DEVICES.md)
 RISKY_TOOLS = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch")        # write, run or fetch: only for a class marked `reviewed: true`
 
@@ -194,6 +194,10 @@ def validate(reg, tools_root, allow_empty=False):
                 errs.append(f"{w}: env may only set {', '.join(ENV_KEYS)} to folders under {tools_root}")
         if "batchable" in c and not isinstance(c["batchable"], bool):
             errs.append(f"{w}: batchable must be true or false")
+        if "returns" in c and kind != "claude":
+            errs.append(f"{w}: only a claude class can return a patch")
+        if c.get("returns") == "patch" and not c.get("accepts_files"):
+            errs.append(f"{w}: a class that returns a patch needs accepts_files: true (the patch is the difference from the files it was sent)")
         if c.get("batchable") and not c.get("accepts_files"):
             errs.append(f"{w}: batchable needs accepts_files: true")
         if "output_keys" in c and not (isinstance(c["output_keys"], list) and c["output_keys"]
@@ -219,6 +223,8 @@ def validate(reg, tools_root, allow_empty=False):
                     if m and m.group(1) not in params:
                         errs.append(f"{w}: run uses {{{m.group(1)}}} but no such param is declared")
         elif kind == "claude":
+            if "returns" in c and c["returns"] != "patch":
+                errs.append(f"{w}: returns may only be patch (the work comes back as a patch inside the result)")
             tools = c.get("allowed_tools")
             if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools):
                 errs.append(f"{w}: allowed_tools must be a non-empty list of strings")

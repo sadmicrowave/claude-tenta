@@ -41,10 +41,12 @@ check "ct-run submit sys-status came back with a result" test $rc -eq 0
 check "ct-admin status reads the worker and fetch and step are healthy" bash -c "as_admin ct-admin status 2>&1 | grep -E 'Fetch +OK' && as_admin ct-admin status 2>&1 | grep -E 'Step +OK'"
 
 step "What the mailbox key must NOT be able to do"
-KEY=$H/$ADMIN/.ct/mailbox/key
+KEY=$H/$ADMIN/.ct/mailbox/key; export KEY
 MSSH="ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes $MAIL@localhost"
 check "it cannot get a shell or run an arbitrary command" bash -c "! as_admin $MSSH id 2>&1 | grep -q uid="
-check "it cannot push to the results repository" bash -c "cd \$(mktemp -d) && as_admin git clone -q ssh://$MAIL@localhost/var/lib/$NAME-mail/results.git r 2>/dev/null; cd r 2>/dev/null && ! (as_admin env GIT_SSH_COMMAND='ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes' git -c user.name=x -c user.email=x@x commit --allow-empty -qm x && as_admin env GIT_SSH_COMMAND='ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes' git push origin HEAD:main)"
+push_results() { local d; d=$(mktemp -d); chmod 777 $d; as_admin env GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes" bash -c "cd $d && git clone -q ssh://$MAIL@localhost/var/lib/$NAME-mail/results.git r && cd r && git -c user.name=x -c user.email=x@x commit --allow-empty -qm x && git push origin HEAD:refs/heads/probe"; }
+check "it can read the results" bash -c "d=\$(mktemp -d); chmod 777 \$d; as_admin env GIT_SSH_COMMAND='ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q ssh://$MAIL@localhost/var/lib/$NAME-mail/results.git \$d/r"
+check "it cannot push to the results repository" bash -c "$(declare -f push_results); export KEY MAIL NAME; ! push_results"
 check "it cannot use scp or sftp" bash -c "! as_admin scp -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes $MAIL@localhost:/etc/passwd /tmp/x 2>&1 | grep -q root"
 check "the mailbox account has no password and its key file is the only way in" bash -c "passwd -S $MAIL | awk '{print \$2}' | grep -qx -E 'L|NP' && grep -c ssh- /var/lib/$NAME-mail/.ssh/authorized_keys | grep -qx 1"
 check "the worker's own account never connects out" bash -c "! ls $H/$WORKER/.ssh/id_* 2>/dev/null | grep -q ."

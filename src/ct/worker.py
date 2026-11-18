@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
@@ -45,6 +45,8 @@ class Settings:
     approve_note: str = "approve it: ct-admin approve {jid} (on your computer) or ct-approve {jid} (on the worker)"
     exec_argv: list = field(default_factory=list)       # the command that runs one job: exec_argv + [job id]
     claude_command: str = "claude"
+    claude_jobs_per_day: int = 0              # the daily Claude limits (see ledger); 0 is no limit
+    claude_turns_per_day: int = 0
     prune_days: int = 14
     prune_threshold: int = 200
     pkg_timeout: int = 900
@@ -76,6 +78,7 @@ class Worker:
         self.is_job_process = is_job_process or self._pid_is_job
         self._spawn = spawn or self._default_spawn
         self.find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
+        self.ledger = ledger_mod.Ledger(settings.state, settings.claude_jobs_per_day, settings.claude_turns_per_day, clock=clock)
         self.limits = registry.limits_of({})
         self.policy = registry.policy_of({})
         self.state = Path(settings.state)
@@ -214,6 +217,7 @@ class Worker:
         res.update(status="quarantined", output="", note=f"output withheld by the security guard ({', '.join(sorted(rules))}); "
                                                           "the full text is on the worker only (ct-admin quarantine)")
         res.pop("facts", None)
+        res.pop("patch", None)                                  # a patch is output too: withheld with the rest
 
     def publish_security(self):
         st = self.lock.public_status()
@@ -389,6 +393,8 @@ class Worker:
             target = wd / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
+        returns_patch = kind == "claude" and cls.get("returns") == "patch"
+        before, before_notes = patch_mod.snapshot(wd) if returns_patch else ({}, [])      # what the folder held when the job began: the patch is the difference from this
         self.io.publish({**res, "status": "running", "note": f"approved; running on {self.s.product} now"})   # so the client can tell it was picked up
         if kind == "claude" and files:                    # Claude is not told by the files themselves that they exist: "this file" would have nothing to point at
             prompt = f"{prompt}\n\n[Attached files, in the current directory: {', '.join(sorted(files))}. Use the Read tool to look at them.]"
@@ -402,6 +408,13 @@ class Worker:
                 st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
                                                          marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
                                                          api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
+        if kind == "claude":
+            self.ledger.finish(jid, job.get("class"), (metrics or {}).get("claude"), st)
+        patch_text = ""
+        if returns_patch and st == "ok":
+            after, after_notes = patch_mod.snapshot(wd)
+            patch_text, changed, patch_note = patch_mod.make(before, after, int(cls.get("patch_max_kb", 200)) * 1000)
+            res["patch"] = {"files": changed, "text": patch_text, "notes": sorted(set(before_notes + after_notes + ([patch_note] if patch_note else [])))}
         shaped, shape_note = results.shape_output(cls, out, self.limits["output_max_chars"])
         summarised = st == "error" and kind != "claude" and not cls.get("output_keys") and bool(out)
         if summarised:
@@ -414,6 +427,8 @@ class Worker:
         allow, tokens = set(cls.get("output_allow") or []), guard.canary_tokens(self.state)
         scan = lambda text: guard.scan(text, allow=allow, hostname=self.hostname, canary_tokens=tokens)   # noqa: E731
         hits = scan(shaped if summarised or cls.get("output_keys") else out)       # what is sent is what the guard judges
+        if patch_text:
+            hits = sorted(set(hits) | set(scan(patch_text)))                        # the patch is published too, so the guard reads it like any output
         if summarised and "canary" not in hits and any(t and t in (out or "") for t in tokens):
             hits.append("canary")                            # a decoy credential in the full output is a breach even if it was not going to be sent
         if hits:
@@ -552,11 +567,19 @@ class Worker:
                 if cap and sum(1 for mk in markers.values() if mk.get("class") == job.get("class")) >= cap:
                     self.log(f"waiting: {jid}: {cap} {job.get('class')} job(s) already running")
                     continue
+                if cls.get("kind") == "claude":
+                    spent = self.ledger.exceeded()
+                    if spent:
+                        self.log(f"waiting: {jid}: {spent}")
+                        self._announce_pause(spent)
+                        continue                                 # a pause for Claude jobs only: everything else behind it still runs
                 why = self.busy_reason()
                 if why:
                     self.log(f"waiting: {jid}: {why}")
                     break
                 pid = self._spawn(jid)
+                if cls.get("kind") == "claude":
+                    self.ledger.start(jid, job.get("class"))
                 limit = min(jobs.job_timeout(cls, job), MAX_TIMEOUT) + (self.s.pkg_timeout if job.get("packages") else 0)
                 markers[jid] = {"pid": pid, "weight": w, "class": job.get("class"), "started": iso(self.clock()), "deadline": time.time() + limit + self.s.grace_s}
                 self._p("running", jid).write_text(json.dumps(markers[jid]))
@@ -564,6 +587,23 @@ class Worker:
                 started.append(jid)
                 self.log(f"started {jid} (weight {w}, {used}/{self.s.capacity} in use)")
         return started
+
+    def _announce_pause(self, why):
+        """Say once per UTC day that new Claude jobs are paused (a quiet notice, not an alarm: nothing is wrong)."""
+        mark = self._p("ledger-paused")
+        day = self.ledger.day()
+        try:
+            if mark.read_text().strip() == day:
+                return
+        except OSError:
+            pass
+        mark.write_text(day)
+        try:
+            self.lock.notifier.send(f"{self.s.product} PAUSED CLAUDE JOBS", f"{why}. They start again tomorrow or when the limit is raised.",
+                                    fields=[("State", "new Claude jobs are paused; other jobs still run"), ("Why", why), ("Next", "ct-admin status shows today's use; raise claude.jobs_per_day or turns_per_day to continue now")],
+                                    tags="hourglass", priority="default")
+        except Exception as e:
+            self.log(f"pause notice: {e}")
 
     def execute(self, jid):
         """The exec pass: run one queued job in this process. A stop signal is turned into a 'killed' result by the runner."""
@@ -636,7 +676,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra=self.state_facts(), jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())

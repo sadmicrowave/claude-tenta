@@ -75,6 +75,8 @@ class Migrate:
             raise SetupError(f"The worker account {w} does not exist on this machine", "Nothing was changed.",
                              ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."])
         for which in ("queue", "results"):
+            if self.dry_run:
+                break                       # the preview runs as the administrator, who cannot see the worker's private folders (found on a real machine); the real run is root and checks
             if not self.host.exists(self.cfg.path(f"{which}_clone") + "/.git"):
                 raise SetupError(f"The worker has no {which} clone", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
                                  ["Run ct-setup install again; it makes the clones."])

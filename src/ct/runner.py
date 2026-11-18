@@ -269,6 +269,11 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     outp.unlink(missing_ok=True)
     errp.unlink(missing_ok=True)
     out = stdout + stderr
+    if claude:
+        from . import ledger
+        used = ledger.usage_of(stdout)
+        if used:
+            m["claude"] = used                           # turns and notional cost the job reported, for the spend ledger and the result
     if claude and status == "ok":
         try:
             out = json.loads(stdout).get("result", stdout)

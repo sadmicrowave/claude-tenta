@@ -108,7 +108,8 @@ class Context:
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=int(cfg.schedule.idle_fetch_s),
-                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=int(cfg.schedule.sleep_fetch_s))
+                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=int(cfg.schedule.sleep_fetch_s),
+                            claude_jobs_per_day=int(cfg.claude.jobs_per_day), claude_turns_per_day=int(cfg.claude.turns_per_day))
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
@@ -531,6 +532,11 @@ def cmd_status(ctx, hours=12):
             slow = (f"; asleep, so it asks GitHub every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s") if p.get("idle") else ""
             took = f", took {p['took_s']:g} s" if p.get("took_s") is not None else ""
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
+    if getattr(w, "ledger", None) is not None and w.s.claude_command and (w.ledger.jobs_per_day or w.ledger.turns_per_day or w.ledger.today()["jobs"]):
+        b = w.ledger.summary()
+        used = f"{b['jobs']}" + (f" of {b['limit_jobs']}" if b["limit_jobs"] else "") + f" job(s), {b['turns']}" + (f" of {b['limit_turns']}" if b["limit_turns"] else "") + f" turn(s) today (UTC)"
+        line(not b["paused"], "Claude today", "PAUSED" if b["paused"] else "OK", (f"{b['reason']}: new Claude jobs wait, everything else runs. " if b["paused"] else "") + used
+             + (f"; notional cost ${b['cost_usd']:.2f}" if b["cost_usd"] else ""))
     pf = publishdiag.load(w.state)
     if pf and any((w.state / "finished").glob("*.json")):
         kind, meaning, fix = publishdiag.classify(pf.get("error"))
