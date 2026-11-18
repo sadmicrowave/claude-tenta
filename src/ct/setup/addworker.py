@@ -117,11 +117,13 @@ def fingerprint(paths):
     return out
 
 
-def protected_files(main_cfg, wfile):
+def protected_files(main_cfg, wfile, leave=None):
     """Everything of the existing installs that adding a worker must leave exactly as it is."""
     home = Path(main_cfg.paths.client_home).expanduser()
     files = [main_cfg.source, home / "queue" / ".git" / "config", home / "results" / ".git" / "config", home / "approval" / "key.pub", home / "install-answers.toml", home / "install-state.json"]
-    for path in workers_mod.load_list(wfile).values():
+    for wname, path in workers_mod.load_list(wfile).items():
+        if leave and wname == leave:                                       # the worker being set up again: its own files are the ones that change
+            continue
         files.append(Path(path).expanduser())
         try:
             wh = Path((tomllib.loads(Path(path).expanduser().read_text()).get("paths") or {}).get("client_home", "")).expanduser()
@@ -189,6 +191,34 @@ def reachable_name(facts, ip, resolve=None):
     return ip
 
 
+def existing_worker(target, wfile):
+    """(name, configuration file, its settings) of the worker in workers.toml whose address is `target`, or None (the main worker, or nothing)."""
+    for entry, path in workers_mod.load_list(wfile).items():
+        try:
+            raw = tomllib.loads(Path(path).expanduser().read_text())
+        except (OSError, ValueError):
+            continue
+        if (raw.get("server") or {}).get("host") == target:
+            return (raw.get("identity") or {}).get("name") or entry, Path(path).expanduser(), raw
+    return None
+
+
+def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive):
+    """A worker you already added is set up AGAIN: the current release is sent to it, its protections and connection are checked and repaired, and a first job proves it works, using ITS OWN
+    configuration and folder (the plain installer would read the first install's). Everything else stays as it is."""
+    name, conf, raw = ex
+    user = a.user or (raw.get("server") or {}).get("admin_user") or cfg.server.admin_user or os.environ.get("USER", "")
+    home = Path((raw.get("paths") or {}).get("client_home") or paths_for(cfg, name)[1]).expanduser()
+    notice(f"{name} is already a worker: set it up again", ("Machine", f"{user}@{target}"), ("Its configuration", str(conf)),
+           "This sends it the current release, checks and repairs its protections and the connection, and sends a first job. Your other workers, your first install and the commands on your PATH are not touched.",
+           tag="AGAIN", color=PRIMARY, stream=sys.stderr)
+    if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
+        notice("Stopped", "Nothing was changed.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
+        return 1
+    kind = (raw.get("transport") or {}).get("kind")
+    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
+
+
 def choose_device(ui, ask, say, devices, user_given=None):
     """Pick one of the found devices (or give an address). Returns the address."""
     fresh = [d for d in devices if not d.known]
@@ -237,6 +267,9 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
             return 1
         target = choose_device(ui, ask, say, devices)
     if target in hosts:
+        ex = existing_worker(target, wfile)
+        if ex is not None:
+            return rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive)
         notice("That computer is already one of your workers", f"{target} is in your configuration. To change it use ct-setup install; to see it: ct-admin workers.", tag="NOTE", color=YELLOW, run="ct-admin workers", stream=sys.stderr)
         return 0
     default_user = a.user or cfg.server.admin_user or os.environ.get("USER", "")
@@ -265,9 +298,15 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if taken(name):
         raise SetupError("That worker name cannot be used", taken(name), [f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"])
     conf, home = paths_for(cfg, name)
-    before = fingerprint(protected_files(cfg, wfile))
+    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user)
+
+
+def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None):
+    """Run the installer for ONE worker with its own configuration and folder, prove nothing of the others changed, and register it. `again`: the worker already exists and is being set up again
+    (its own files are of course allowed to change; everything else is not)."""
+    before = fingerprint(protected_files(cfg, wfile, leave=name if again else None))
     share_approval_key(cfg, home)
-    suggest = {"identity.name": name, "server.host": server_host, "server.admin_user": user, "paths.client_home": str(home)}
+    suggest = {"identity.name": name, "server.host": server_host, "server.admin_user": user, "paths.client_home": str(home), **(extra or {})}
     old_env = os.environ.get("CT_CONFIG")
     os.environ["CT_CONFIG"] = str(conf)                                                         # the first job and every command the install runs read THIS worker's configuration
     try:
@@ -282,14 +321,14 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
             os.environ.pop("CT_CONFIG", None)
         else:
             os.environ["CT_CONFIG"] = old_env
-    after = fingerprint(protected_files(cfg, wfile))
+    after = fingerprint(protected_files(cfg, wfile, leave=name if again else None))
     touched = changed(before, after)
     if touched:
         notice("Something of your existing installs changed", *[("Changed", p) for p in touched], "Adding a worker must not do that. Nothing was undone; check these files.", tag="WARNING", color=RED, stream=sys.stderr)
     if any(r[1] == "failed" for r in report):
         notice(f"{name} was set up but its first job did not come back", "Run ct-admin check and ct-admin status for it.", tag="WARNING", color=YELLOW, stream=sys.stderr)
     workers_mod.add(wfile, name, str(conf))
-    notice(f"{name} is now a worker", ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
+    notice(f"{name} is set up again" if again else f"{name} is now a worker", ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
            tag="DONE", color=GREEN, run_label="See all your workers", run=["ct-admin workers", "ct-admin watch"], stream=sys.stderr)
     return 1 if touched else 0
 

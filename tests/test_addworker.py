@@ -179,6 +179,21 @@ class TheRealCommand(unittest.TestCase):
         self.assertEqual(config.load(self.main).identity.name, "claude-tenta")                       # and the first install's file is as it was
         self.assertEqual(os.environ["CT_CONFIG"], str(self.main))                                     # the environment is put back
 
+    def test_the_same_command_again_sets_the_registered_worker_up_again_through_the_real_installer(self):
+        """The route after the first run: through the real command line, with the worker's own configuration (a file that exists now, unlike the first time)."""
+        b = self.base
+        w_conf, w_home = self.conf_dir / "tenta2.toml", b.tmp / ".ct" / "workers" / "tenta2"
+        w_conf.write_text(f'[identity]\nname = "tenta2"\n[server]\nhost = "worker2.example"\nadmin_user = "agent"\n[transport]\nkind = "direct"\n[paths]\nclient_home = "{w_home}"\n')
+        (self.conf_dir / "workers.toml").write_text(f'[workers.tenta2]\nconfig = "{w_conf}"\n')
+        main_before = self.main.read_text()
+        rc, registered, text = self.run_command()
+        self.assertEqual(rc, 0, text)
+        self.assertNotIn("cannot read", text)
+        self.assertIn("set up again", text)
+        self.assertEqual([n for n, _ in registered], ["tenta2"])
+        self.assertEqual(self.main.read_text(), main_before)
+        self.assertTrue(b.machine.exists(str(w_conf)))                                               # the worker's own file was rewritten by the install, in its own place
+
     def test_the_new_worker_is_asked_about_nothing_it_was_already_told_and_uses_the_first_installs_connection(self):
         rc, _, text = self.run_command()
         cfg_text = self.base.machine.read(str(self.conf_dir / "tenta2.toml"))
@@ -261,6 +276,49 @@ class TheScreens(unittest.TestCase):
         ui, _ = self.screen(["ctrl-c"])
         with self.assertRaises(KeyboardInterrupt):
             addworker.choose_device(ui, None, lambda m: None, self.devices(2))
+
+
+class SettingAWorkerUpAgain(Base):
+    """The route a user takes after the first add-worker: the same command, for a worker that is already registered. Uses ITS configuration and folder, never the first install's."""
+
+    def setUp(self):
+        super().setUp()
+        self.w_home = self.tmp / ".ct" / "workers" / "tenta2"
+        self.w_conf = self.conf_dir / "tenta2.toml"
+        self.w_conf.write_text(f'[identity]\nname = "tenta2"\n[server]\nhost = "worker2.example"\nadmin_user = "agent"\n[transport]\nkind = "github"\n[paths]\nclient_home = "{self.w_home}"\n')
+        (self.w_home / "queue" / ".git").mkdir(parents=True)
+        (self.w_home / "queue" / ".git" / "config").write_text("[remote]\n")
+        (self.conf_dir / "workers.toml").write_text(f'[workers.tenta2]\nconfig = "{self.w_conf}"\n')
+
+    def test_the_command_for_a_registered_worker_sets_that_worker_up_again_with_its_own_files(self):
+        rc = self.run_flow(args(name="worker2.example", yes=True))
+        self.assertEqual(rc, 0, self.text())
+        (c,) = self.calls
+        self.assertEqual((c["name"], c["host"], c["user"], c["conf"], c["home"]), ("tenta2", "worker2.example", "agent", self.w_conf, self.w_home))
+        self.assertEqual(c["ct_config"], str(self.w_conf))
+        self.assertEqual(c["suggest"]["transport.kind"], "github")                                     # ITS connection, not the first install's (direct)
+        self.assertIn("set up again", self.text())
+        self.assertEqual(config.load(self.main).identity.name, "claude-tenta")                          # the first install is as it was
+
+    def test_the_workers_own_files_may_change_and_any_other_file_may_not(self):
+        other = self.conf_dir / "other.toml"
+        other.write_text('[identity]\nname = "other"\n[server]\nhost = "other.example"\n')
+        (self.conf_dir / "workers.toml").write_text(f'[workers.tenta2]\nconfig = "{self.w_conf}"\n[workers.other]\nconfig = "{other}"\n')
+        rc = self.run_flow(args(name="worker2.example", yes=True), mutate=lambda: self.w_conf.write_text(self.w_conf.read_text() + "# rewritten by the install\n"))
+        self.assertEqual(rc, 0, self.text())                                                           # its own configuration changing is the point of setting it up again
+        rc = self.run_flow(args(name="worker2.example", yes=True), mutate=lambda: other.write_text("# touched\n"))
+        self.assertEqual(rc, 1)                                                                        # another worker's file changing is reported
+        self.assertIn(str(other), self.text())
+
+    def test_the_first_worker_is_not_set_up_again_by_this_command(self):
+        self.calls.clear()
+        rc = self.run_flow(args(name="mini.example", yes=True))
+        self.assertEqual((rc, self.calls), (0, []))
+        self.assertIn("already one of your workers", self.text())
+
+    def test_saying_no_stops_before_anything_is_changed(self):
+        rc = self.run_flow(args(name="worker2.example"), ask=["n"], interactive=True)
+        self.assertEqual((rc, self.calls), (1, []))
 
 
 class Interactive(Base):

@@ -247,7 +247,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
 
             def installer_factory(conf, home, name, server_host, user, suggest):
                 return Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None,
-                                 given={**load_answers(a.answers, a.set), **suggest, **{"transport.kind": main.transport.kind}}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
+                                 given={**load_answers(a.answers, a.set), "transport.kind": main.transport.kind, **suggest}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
                                  repos_factory=repos_factory or default_repos, wait_for_keys=900, home=home, config_path=conf, targeted=True, suggest=flat_main,
                                  verify=verify or (lambda cfg: default_verify(cfg, say=say)))
             return addworker.run(a, host, ask, ssh_factory, say, ui=screen_, installer_factory=installer_factory, interactive=interactive)
