@@ -3,6 +3,7 @@
 # There is no GitHub here at all: the worker keeps a mailbox, your computer talks to it over SSH with one key. Exit status is the number of failed checks.
 set -uo pipefail
 SRC=${SRC:-/opt/ct-src}
+rgit() { git -c safe.directory="*" "$@"; }; export -f rgit      # root LOOKING at a repository that belongs to someone else, for that one command; the programs under test get no such trust
 H=/home; NAME=claude-tenta; ADMIN=ctadmin; WORKER=ctworker; MAIL=$NAME-mail
 export DEBIAN_FRONTEND=noninteractive
 PASS=0; FAIL=0
@@ -20,7 +21,7 @@ usermod -aG sudo $ADMIN; usermod -p '*' $ADMIN
 systemctl enable --now ssh >/dev/null 2>&1
 runuser -u $ADMIN -- bash -c '[ -f ~/.ssh/id_ed25519 ] || { mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519; }; cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys'
 printf 'Host *\n  StrictHostKeyChecking accept-new\n' > /etc/ssh/ssh_config.d/99-e2e.conf
-git config --system safe.directory '*'; git config --system user.name e2e; git config --system user.email e2e@example.com
+git config --system --add safe.directory $SRC; git config --system user.name e2e; git config --system user.email e2e@example.com
 echo "$ADMIN ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/e2e-$ADMIN; chmod 440 /etc/sudoers.d/e2e-$ADMIN
 python3 -m venv --system-site-packages /opt/ctvenv && /opt/ctvenv/bin/pip install -q -e $SRC
 chmod -R a+rX /opt/ctvenv $SRC
@@ -32,7 +33,7 @@ check "the install command finished successfully" test $rc -eq 0
 check "no error line was printed" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-install.out"
 check "no GitHub was needed: no gh, no deploy keys, no github clone urls" bash -c "! grep -qi 'deploy key' /tmp/e2e-install.out && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$MAIL@'"
 check "the mailbox exists with the queue and results repositories" bash -c "test -d /var/lib/$NAME-mail/queue.git && test -d /var/lib/$NAME-mail/results.git"
-check "the registry was seeded in the queue" git -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
+check "the registry was seeded in the queue" rgit -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
 check "the timers are running and nothing failed" bash -c "systemctl is-active $NAME-fetch.timer $NAME-step.timer | sort -u | grep -qx active && ! systemctl --failed --no-legend | grep -q $NAME"
 
 step "A job through the whole loop, over SSH"

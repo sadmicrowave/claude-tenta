@@ -24,8 +24,9 @@ Standard library only, plus PyYAML for the registry tests (the tests skip cleanl
 ### End-to-end test
 
 ```
-scripts/e2e-orbstack            # create the machine if needed, copy the tracked files in, run the scenario
-scripts/e2e-orbstack --fresh    # start from a clean Ubuntu
+scripts/e2e-orbstack            # create a fresh machine, copy the tracked files in, run the scenario, save its logs, DELETE the machine
+scripts/e2e-orbstack --keep     # leave the machine running afterwards, to look around (then scripts/e2e-clean)
+scripts/e2e-clean               # delete every test machine this project ever made (--list only lists them)
 scripts/e2e-orbstack --delete   # remove the machine
 scripts/e2e-matrix              # the scenario on Ubuntu 26.04 and 24.04 and Debian 12 and 13 at once, one pass/fail line each (CT_E2E_IMAGE picks one release for e2e-orbstack)
 ```
@@ -51,3 +52,6 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 
 
 **Supported releases and how each was checked.** Ubuntu 24.04 and 26.04, Debian 12 and 13 pass the whole GitHub scenario (install, jobs, rename, move to Direct, uninstall, reinstall) in OrbStack; Direct passes on Ubuntu 26.04. OrbStack machines share one kernel, so the tripwire (auditd) and the systemd sandbox check are only exercised on real machines or full VMs (the Mini, a VMware Fusion VM). Found by the matrix: Debian 13's bubblewrap 0.12 cannot open `/usr` under `RestrictSUIDSGID`, so the services no longer set it.
+
+
+**Test machines are never left behind.** `scripts/e2e-orbstack` deletes its machine when the run ends, whether it passed, failed or was interrupted, after copying the scenario's output files and the services' journal to `/tmp/ct-e2e-logs/<machine>/`; `--keep` is the only way to leave one. It refuses to start when 4 test machines already exist. `scripts/e2e-matrix` cleans up after itself, and `scripts/e2e-clean` removes every machine named `ct-e2e*`, `ct-mx*`, `ct-u*` or `cw-e2e*` (a machine OrbStack lists but can no longer address is deleted by its id). `tests/e2e/smoke.sh` and `smoke-fail.sh` test the harness itself (`CT_E2E_SCENARIO=smoke scripts/e2e-orbstack`). OrbStack machines are on a virtual network inside your computer; they are visible to the add-worker scan as such.

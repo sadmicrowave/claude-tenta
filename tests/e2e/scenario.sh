@@ -7,6 +7,7 @@
 # Use scripts/e2e-orbstack to run it in a disposable OrbStack machine. Exit status is the number of failed checks.
 set -uo pipefail
 SRC=${SRC:-/opt/ct-src}
+rgit() { git -c safe.directory="*" "$@"; }; export -f rgit      # root LOOKING at a repository that belongs to someone else, for that one command; the programs under test get no such trust
 H=/home; NAME=claude-tenta; ADMIN=ctadmin; WORKER=ctworker; OWNER=someone
 export DEBIAN_FRONTEND=noninteractive
 PASS=0; FAIL=0
@@ -32,7 +33,7 @@ runuser -u git -- bash -c "mkdir -p ~/.ssh ~/$OWNER && chmod 700 ~/.ssh ; touch 
 cat $H/$ADMIN/.ssh/id_ed25519.pub >> $H/git/.ssh/authorized_keys
 usermod -p '*' git; usermod -p '*' $ADMIN                      # no password, but not locked (sshd refuses locked accounts even for keys)
 printf 'Host *\n  StrictHostKeyChecking accept-new\n' > /etc/ssh/ssh_config.d/99-e2e.conf   # this machine's test setup: trust the stand-in hosts on first use
-git config --system safe.directory '*'      # root inspects repositories owned by the git user
+git config --system --add safe.directory $SRC      # only the release checkout (copied in by root, packaged by the admin). NOT every repository: trusting '*' once hid a real bug (the mailbox account was refused the results repository)
 git config --system user.name e2e; git config --system user.email e2e@example.com
 check "the stand-in GitHub answers over SSH with the admin's key" as_admin ssh -o BatchMode=yes git@github.com true
 check "the checkout is where the scenario expects it" test -f $SRC/pyproject.toml
@@ -69,7 +70,7 @@ check "it added the server's two keys to GitHub, results with write access" bash
 check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'claude-tenta-' $H/git/.ssh/authorized_keys | grep -qx 2"
 check "the working folder it used on the server was removed" bash -c "! ls -d /tmp/ct-install.* 2>/dev/null"
 check "the client configuration was written" test -f $H/$ADMIN/.config/claude-tenta/ct.toml
-check "the registry was seeded on main of the queue repository" git -C $H/git/$OWNER/claude-tenta-queue.git cat-file -e main:registry.yaml
+check "the registry was seeded on main of the queue repository" rgit -C $H/git/$OWNER/claude-tenta-queue.git cat-file -e main:registry.yaml
 
 step "Running the install again changes nothing and still works"
 as_admin ct-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
@@ -152,7 +153,7 @@ check "the folders carry the new name and the old ones are gone" bash -c "test -
 check "the services were renamed: the old ones are gone and the timers run under the new name" bash -c "! ls /etc/systemd/system/$NAME-* 2>/dev/null | grep -q . && systemctl is-active $NEWNAME-fetch.timer $NEWNAME-step.timer $NEWNAME-canary.timer | sort -u | grep -qx active"
 check "the sudo rule and the commands follow the name, and no file named after the old name is left in the protections' folders" bash -c "test -f /etc/sudoers.d/$NEWNAME && ! test -e /etc/sudoers.d/$NAME && test -x /opt/$NEWNAME/bin/$NEWNAME && ! ls /etc/sysctl.d/*$NAME* /etc/audit/rules.d/*$NAME* /etc/ssh/sshd_config.d/*$NAME* 2>/dev/null | grep -q ."
 check "the two GitHub repositories were renamed" bash -c "test -d $H/git/$OWNER/$NEWNAME-queue.git && test -d $H/git/$OWNER/$NEWNAME-results.git && ! test -d $H/git/$OWNER/$NAME-queue.git"
-check "the client configuration and clones carry the new name" bash -c "grep -q '$NEWNAME' $H/$ADMIN/.config/claude-tenta/ct.toml && git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q $NEWNAME-queue"
+check "the client configuration and clones carry the new name" bash -c "grep -q '$NEWNAME' $H/$ADMIN/.config/claude-tenta/ct.toml && rgit -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q $NEWNAME-queue"
 NAME=$NEWNAME
 check "a job still goes through the whole loop under the new name" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-renamed.out 2>&1"
 check "no service has failed after the rename" bash -c "! systemctl --failed --no-legend | grep -q $NAME"
@@ -169,7 +170,7 @@ check "the units, commands and sudoers rule are gone" bash -c "! ls /etc/systemd
 check "no timer is left" bash -c "! systemctl list-timers --all --no-legend | grep -q $NAME"
 check "the protections stay: password SSH is still off and the firewall is still on" bash -c "sshd -T | grep -qx 'passwordauthentication no' && ufw status | grep -q 'Status: active'"
 check "the worker account stays (reinstalling reuses it)" bash -c "getent passwd $WORKER"
-check "the repositories on GitHub were not touched" git -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
+check "the repositories on GitHub were not touched" rgit -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
 as_admin ct-setup install --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER \
   --set network.ssh_from=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 >/tmp/e2e-reinstall.out 2>&1; rc=$?
 tail -6 /tmp/e2e-reinstall.out
@@ -182,9 +183,9 @@ check "the preview says what it would do and changes nothing" bash -c "grep -q P
 as_admin ct-setup transport direct --apply --yes --no-sandbox-test --source $SRC >/tmp/e2e-transport.out 2>&1; rc=$?
 tail -25 /tmp/e2e-transport.out
 check "the move finished successfully" test $rc -eq 0
-check "the mailbox holds the registry that was on GitHub (history copied)" git -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
-check "both clones now point at the mailbox" bash -c "git -C /var/lib/$NAME/queue remote get-url origin | grep -q '$NAME-mail' && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$NAME-mail@'"
-check "the GitHub repositories were not touched" git -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
+check "the mailbox holds the registry that was on GitHub (history copied)" rgit -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
+check "both clones now point at the mailbox" bash -c "rgit -C /var/lib/$NAME/queue remote get-url origin | grep -q '$NAME-mail' && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$NAME-mail@'"
+check "the GitHub repositories were not touched" rgit -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
 check "the job loop is running again and nothing failed" bash -c "systemctl is-active $NAME-fetch.timer $NAME-step.timer | sort -u | grep -qx active && ! systemctl --failed --no-legend | grep -q $NAME"
 check "a job goes through the whole loop over the mailbox" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-direct.out 2>&1"
 check "running the move again says the install already uses Direct" bash -c "as_admin ct-setup transport direct 2>&1 | grep -qi 'already uses direct'"
@@ -195,14 +196,14 @@ as_admin ct-setup install "${SWITCH[@]}" --set transport.kind=github >/tmp/e2e-s
 tail -12 /tmp/e2e-switch-github.out
 check "setting up again for GitHub finished successfully" test $rc -eq 0
 check "no error line was printed (seen once: deploy key errors on a switch)" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-switch-github.out"
-check "both of the worker's clones and both of this computer's clones now point at GitHub" bash -c "git -C /var/lib/$NAME/queue remote get-url origin | grep -q github && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q github"
+check "both of the worker's clones and both of this computer's clones now point at GitHub" bash -c "rgit -C /var/lib/$NAME/queue remote get-url origin | grep -q github && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q github"
 check "a job goes through over GitHub after the switch" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-switch1.out 2>&1"
 as_admin ct-setup install "${SWITCH[@]}" --set transport.kind=direct >/tmp/e2e-switch-direct.out 2>&1; rc=$?
 tail -12 /tmp/e2e-switch-direct.out
 check "setting up again for Direct finished successfully" test $rc -eq 0
 check "no error line was printed (seen on a real machine: deploy key errors against github owner None)" bash -c "! grep -E '^ *(ERROR|FAILED) ' /tmp/e2e-switch-direct.out"
-check "both of the worker's clones and both of this computer's clones now point at the mailbox" bash -c "git -C /var/lib/$NAME/queue remote get-url origin | grep -q '$NAME-mail' && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$NAME-mail@'"
-check "the registry survived into the mailbox" git -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
+check "both of the worker's clones and both of this computer's clones now point at the mailbox" bash -c "rgit -C /var/lib/$NAME/queue remote get-url origin | grep -q '$NAME-mail' && as_admin git -C $H/$ADMIN/.ct/queue remote get-url origin | grep -q 'ssh://$NAME-mail@'"
+check "the registry survived into the mailbox" rgit -C /var/lib/$NAME-mail/queue.git cat-file -e main:registry.yaml
 check "a job goes through over the mailbox within 30 seconds (a Direct worker never slows down)" bash -c "as_admin ct-run submit sys-status --wait --timeout 30 >/tmp/e2e-job-switch2.out 2>&1"
 check "the worker's pass is the quick one, not the idle one" bash -c "! journalctl -u $NAME-fetch.service --no-pager -o cat | tail -20 | grep -qi 'idle'"
 

@@ -2,7 +2,7 @@
 # Run the GitHub end-to-end scenario on every supported release at once, each in its own disposable OrbStack machine, and print one line per release.
 #   scripts/e2e-matrix                 all releases below, in parallel (a fresh machine each: this takes a while)
 #   scripts/e2e-matrix debian:trixie   only the ones named
-# Output of each run: /tmp/ct-matrix/<machine>.out. Needs OrbStack. These share OrbStack's kernel, so the kernel-dependent checks (the tripwire, auditd) are skipped here;
+# Each machine is deleted when its run ends (see e2e-orbstack); the run's output is /tmp/ct-matrix/<machine>.out and the machine's logs are in /tmp/ct-e2e-logs/<machine>/. Needs OrbStack. These share OrbStack's kernel, so the kernel-dependent checks (the tripwire, auditd) are skipped here;
 # run scenario.sh on a real machine or a full VM for those. Exit status is the number of releases that failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -14,6 +14,7 @@ for image in $RELEASES; do
   ( CT_E2E_IMAGE=$image CT_E2E_MACHINE=$name scripts/e2e-orbstack --fresh >"$OUT/$name.out" 2>&1; echo "run-ended $?" >>"$OUT/$name.out" ) &
 done
 wait
+scripts/e2e-clean >/dev/null 2>&1 || echo "Some test machines could not be deleted: run scripts/e2e-clean" >&2     # whatever a crashed run left
 bad=0
 for image in $RELEASES; do
   name=$(name_of "$image")
