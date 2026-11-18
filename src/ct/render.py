@@ -17,6 +17,8 @@ from .config import NAME_RE, PATH_RE, USER_RE
 # Also not set, found by running the jail inside a unit with these settings: ProtectHostname (its seccomp filter stops the jail from giving a job
 # its own host name) and ProtectKernelLogs (a /proc with hidden files cannot have a fresh /proc mounted inside the jail). The jail already
 # gives every job its own host name and process list, so both protections are covered where it matters.
+# RestrictSUIDSGID is not set either, found on Debian 13 (systemd 257, bubblewrap 0.12): with it the jail cannot even open /usr ("Can't open source /usr: Function not implemented"), so no job
+# ran. The jail already runs every job with no new privileges and no capabilities, and the worker never creates a setuid or setgid file, so little is lost.
 # PrivateTmp is not set either, found on a real server: a job keeps running after the short fetch/step pass that started it, and systemd deletes that
 # pass's private /tmp when the pass ends. The job (and bubblewrap, which builds its jail under /tmp) then had no usable /tmp. The jail gives every job
 # its own empty /tmp anyway. ProtectSystem=strict makes the shared /tmp read-only, so it is listed as writable below (the worker's own scratch space).
@@ -29,7 +31,6 @@ ProtectControlGroups=yes
 ProtectClock=yes
 LockPersonality=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native"""
 

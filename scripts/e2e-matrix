@@ -1,0 +1,24 @@
+#!/bin/bash
+# Run the GitHub end-to-end scenario on every supported release at once, each in its own disposable OrbStack machine, and print one line per release.
+#   scripts/e2e-matrix                 all releases below, in parallel (a fresh machine each: this takes a while)
+#   scripts/e2e-matrix debian:trixie   only the ones named
+# Output of each run: /tmp/ct-matrix/<machine>.out. Needs OrbStack. These share OrbStack's kernel, so the kernel-dependent checks (the tripwire, auditd) are skipped here;
+# run scenario.sh on a real machine or a full VM for those. Exit status is the number of releases that failed.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+RELEASES=${*:-"ubuntu:26.04 ubuntu:24.04 debian:bookworm debian:trixie"}
+OUT=/tmp/ct-matrix; mkdir -p "$OUT"
+declare -A PIDS
+for image in $RELEASES; do
+  name="ct-mx-$(echo "$image" | tr ':.' '--')"
+  ( CT_E2E_IMAGE=$image CT_E2E_MACHINE=$name scripts/e2e-orbstack --fresh >"$OUT/$name.out" 2>&1; echo "run-ended $?" >>"$OUT/$name.out" ) &
+  PIDS[$image]=$name
+done
+wait
+bad=0
+for image in $RELEASES; do
+  name=${PIDS[$image]}
+  summary=$(grep -E "^=== [0-9]+ passed" "$OUT/$name.out" | tail -1)
+  if [ -n "$summary" ] && echo "$summary" | grep -q " 0 failed"; then printf 'PASS  %-18s %s\n' "$image" "$summary"; else printf 'FAIL  %-18s %s (see %s)\n' "$image" "${summary:-no summary}" "$OUT/$name.out"; bad=$((bad+1)); fi
+done
+exit $bad

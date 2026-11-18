@@ -27,6 +27,7 @@ Standard library only, plus PyYAML for the registry tests (the tests skip cleanl
 scripts/e2e-orbstack            # create the machine if needed, copy the tracked files in, run the scenario
 scripts/e2e-orbstack --fresh    # start from a clean Ubuntu
 scripts/e2e-orbstack --delete   # remove the machine
+scripts/e2e-matrix              # the scenario on Ubuntu 26.04 and 24.04 and Debian 12 and 13 at once, one pass/fail line each (CT_E2E_IMAGE picks one release for e2e-orbstack)
 ```
 
 `tests/e2e/scenario.sh` can also be run as root on any fresh Ubuntu 24.04 or Debian 12 machine. It: installs the project with `pip`; runs `ct-setup client`; runs `ct-setup server` twice (the first run must stop for the deploy keys, the second must carry on);
@@ -47,3 +48,6 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 ### Privacy guard
 
 `scripts/privacy-check` runs as a `pre-commit` and `commit-msg` hook and with `--history` before any push. It blocks private IPs, MAC addresses, e-mail addresses, `.local` host names, keys, tokens, home paths, and anything on a personal denylist kept outside the repository. A line may carry `privacy-ok` with a reason.
+
+
+**Supported releases and how each was checked.** Ubuntu 24.04 and 26.04, Debian 12 and 13 pass the whole GitHub scenario (install, jobs, rename, move to Direct, uninstall, reinstall) in OrbStack; Direct passes on Ubuntu 26.04. OrbStack machines share one kernel, so the tripwire (auditd) and the systemd sandbox check are only exercised on real machines or full VMs (the Mini, a VMware Fusion VM). Found by the matrix: Debian 13's bubblewrap 0.12 cannot open `/usr` under `RestrictSUIDSGID`, so the services no longer set it.

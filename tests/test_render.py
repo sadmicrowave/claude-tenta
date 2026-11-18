@@ -38,6 +38,11 @@ class Rendering(unittest.TestCase):
 
 
 class Units(unittest.TestCase):
+    def test_the_services_that_start_jobs_do_not_set_restrict_suid_sgid(self):
+        """Found on Debian 13: with it the jail (bubblewrap 0.12) cannot open /usr and no job runs. A test jail check on the real machine is what caught it."""
+        for unit, text in render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES).items():
+            self.assertNotIn("RestrictSUIDSGID", text, unit)
+
     def test_a_direct_workers_services_may_write_the_mailbox_and_a_github_workers_do_not(self):
         """Found on a real machine: the sandbox stopped the worker pushing results into its own mailbox ('unpacker error'), so no job ever came back."""
         direct = cfg(CT_IDENTITY_NAME="homect", CT_TRANSPORT_KIND="direct")
