@@ -124,7 +124,7 @@ def main(argv):
                 sha, *rest = line.strip().split("\x00")
                 hits += scan_text(f"{sha[:8]}:author", "\n".join(rest[:2]), {k: v for k, v in GENERIC.items() if k != "email"}, [])
                 for who in rest[:2]:
-                    if not who.endswith("@users.noreply.github.com>"):
+                    if not (who.endswith("@users.noreply.github.com>") or who == "GitHub <noreply@github.com>"):          # the second is GitHub's own identity as the committer of a merge made in its web interface
                         hits.append(f"{sha[:8]}:author: [email] not a GitHub noreply address")
                 hits += scan_text(f"{sha[:8]}:message", "\n".join(rest[2:]), GENERIC, personal)
         patch = git("log", "--all", "-p", "--format=", "--no-color")

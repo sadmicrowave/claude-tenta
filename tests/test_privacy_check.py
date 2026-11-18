@@ -30,7 +30,25 @@ def history(d, env):
     return subprocess.run([sys.executable, str(SCRIPT), "--history"], cwd=d, env=env, capture_output=True, text=True)
 
 
+def merged_on_github(committer_email):
+    """A repository whose last commit has a noreply author and the given committer, as a merge made in GitHub's own interface has."""
+    d, env = repo_with("src/ok.txt")
+    (d / "src" / "ok.txt").write_text("nothing private\n")
+    subprocess.run(["git", "-C", str(d), "commit", "-q", "-a", "-m", "y", "--amend", "--reset-author"], check=True, env=env)
+    env2 = {**env, "GIT_COMMITTER_NAME": "GitHub", "GIT_COMMITTER_EMAIL": committer_email}
+    subprocess.run(["git", "-C", str(d), "commit", "-q", "--amend", "--no-edit"], check=True, env=env2)
+    return d, env
+
+
 class History(unittest.TestCase):
+    def test_github_s_own_web_merge_identity_is_accepted_and_any_other_committer_is_not(self):
+        d, env = merged_on_github("noreply" + "@" + "github.com")
+        self.assertEqual(history(d, env).returncode, 0, history(d, env).stderr)
+        d, env = merged_on_github("someone" + "@" + "gmail.com")
+        r = history(d, env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a GitHub noreply address", r.stderr)
+
     def test_a_host_key_in_a_recorded_fixture_is_not_a_leak(self):
         d, env = repo_with("tests/fixtures/real/x/keyscan.txt")
         r = history(d, env)
