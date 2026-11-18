@@ -1021,7 +1021,8 @@ def selftest(ctx, wait_s=240):
     info = ctx.repos.registry_info() or {}
     if release.SELFTEST_CLASS not in (info.get("classes") or {}):
         return None, f"the worker has no {release.SELFTEST_CLASS} class to test with"
-    rc = client_cli.main(["submit", release.SELFTEST_CLASS, "--wait", "--timeout", str(wait_s)])
+    argv = ["submit", release.SELFTEST_CLASS, "--here", "--wait", "--timeout", str(wait_s)]            # --here: the check is ABOUT this worker, so the scheduler must not pick another
+    rc = client_cli.main(argv, ctx=client_cli.Context.from_config(ctx.cfg), cfg=ctx.cfg) if getattr(ctx, "cfg", None) is not None else client_cli.main(argv)
     return rc == 0, "ok" if rc == 0 else f"exit {rc}"
 
 
@@ -1053,8 +1054,8 @@ HELP = {
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "ct-admin proposals"), ("Merge one", "ct-admin proposals merge registry/ssh-version"), ("Merge them all", "ct-admin proposals merge --all"), ("Delete merged branches", "ct-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "ct-admin proposals publish")]),
     "clean": ("remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox)", [("Show what can go and ask", "ct-admin clean")]),
     "update": ("is there a newer release? show what changed, then update this computer and the worker if you agree", [("Look and ask", "ct-admin update"), ("Only say whether there is one", "ct-admin update --check")]),
-    "diff": ("show what installing a version would change", [("Compare the installed version with the latest", "ct-admin diff"), ("All the code, not only root-run files", "ct-admin diff --full")]),
-    "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest", "ct-admin apply"), ("Install one commit", "ct-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "ct-admin apply --force")]),
+    "diff": ("show what installing a version would change", [("Compare the installed version with the latest, on every worker", "ct-admin diff"), ("One worker only", "ct-admin diff --worker tenta2"), ("All the code, not only root-run files", "ct-admin diff --full")]),
+    "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest on every worker, one after the other (each asks first)", "ct-admin apply"), ("Install on one worker only", "ct-admin apply --worker tenta2"), ("Install one commit", "ct-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "ct-admin apply --force")]),
 }
 EXAMPLES = [("See what needs your attention", "ct-admin proposals"), ("Approve a waiting job", "ct-admin approve <job>"), ("Install the latest release", "ct-admin apply")]
 
@@ -1138,7 +1139,39 @@ def build_parser():
             s.add_argument("--force", action="store_true", help="install even when the worker is already at this version")
             s.add_argument("--no-verify", action="store_true", help="do not check the worker (or run a test job) after installing")
             yes(s)
+    for n in FLEET_COMMANDS + PICK_COMMANDS:                                     # defined below: this runs after the module has loaded
+        if not any("--worker" in x.option_strings for x in sp.choices[n]._actions):
+            sp.choices[n].add_argument("--worker", metavar="NAME", help=("only this worker, by the name in ct-admin workers (default: every worker, one after the other)" if n in FLEET_COMMANDS
+                                                                       else "act on this worker, by the name in ct-admin workers (default: the main one)"))
     return ap, sp
+
+
+FLEET_COMMANDS = ("apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
+PICK_COMMANDS = ("update", "clean", "adopt", "retire", "action", "proposals")      # one worker: the main one, or the one named with --worker
+
+
+def run_command(ctx, a):
+    """Run a command on the workers it is about. A fleet command visits every worker in turn with a heading each; one that fails, or is declined, does not stop the rest, and the exit code is the worst of them.
+    `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
+    if a.cmd in FLEET_COMMANDS:
+        targets = ctx.targets(getattr(a, "worker", None))
+        if len(targets) == 1:
+            return DISPATCH[a.cmd](targets[0][1], a)
+        rc = 0
+        for name, c in targets:
+            emit(f"{a.cmd}: {name}", tag="WORKER", color=_ui.PRIMARY, stream=sys.stdout)
+            try:
+                r = DISPATCH[a.cmd](c, a)
+            except ClientError as e:
+                fail_from(e)
+                r = 2
+            except SystemExit as e:                                   # a declined question or a stop() on one worker: carry on with the next
+                r = e.code if isinstance(e.code, int) else 1
+            rc = max(rc, r or 0)
+        return rc
+    if a.cmd in PICK_COMMANDS and getattr(a, "worker", None):
+        ctx = ctx.for_worker(a.worker)
+    return DISPATCH[a.cmd](ctx, a)
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
@@ -1172,7 +1205,7 @@ def main(argv=None, ctx=None, cfg=None):
             other = place.worker_of(ctx.home, jid)
             if other and other != ctx.name:
                 ctx = ctx.for_worker(other)
-        rc = DISPATCH[a.cmd](ctx, a)
+        rc = run_command(ctx, a)
         if rc == 0 and a.cmd in REMEMBER_WHERE_IT_ANSWERED and not getattr(a, "worker", None):       # the worker answered over SSH: note where, so a later failure can try that address first
             from .. import rediscover
             try:                                                      # best effort: noting an address must never turn a command that worked into one that failed

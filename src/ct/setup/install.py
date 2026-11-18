@@ -583,7 +583,7 @@ def default_verify(cfg, say=None, sleep=time.sleep, attempts=8, wait_s=15):
     ok = False
     for i in range(attempts):
         client_cli.LAST_RESULT.clear()
-        if client_cli.main(["submit", "sys-status", "--wait", "--timeout", "200"]) == 0:
+        if client_cli.main(["submit", "sys-status", "--here", "--wait", "--timeout", "200"]) == 0:
             ok = True
             break
         last = client_cli.LAST_RESULT

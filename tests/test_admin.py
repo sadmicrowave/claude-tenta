@@ -1258,3 +1258,79 @@ class ACommandOnAJobSentToAnotherWorker(AdminBase):
         with mock.patch.dict(cli.DISPATCH, {"output": lambda c, a: seen.append(c.name) or 0}):
             self.admin("output", "j-here")
         self.assertEqual(seen, ["testct"])
+
+
+class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
+    """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
+    so a new command cannot be added without saying which it is."""
+    FLEET = {"apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
+    PICK = {"update", "clean", "adopt", "retire", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
+    OWN_FLAG = {"wake", "audit", "tripwire-test", "locate"}                                # already every worker (or the one named) with their own --worker
+    BY_NATURE = {"watch", "workers"}                                                       # look at the whole fleet by definition
+    BY_JOB = {"approve", "review", "cancel", "kill", "output"}                             # follow the job to the worker it was sent to (placements)
+    LOCAL = {"theme", "action-hash"}                                                       # about this computer only
+
+    def test_every_command_is_in_exactly_one_class_and_the_flag_exists_where_it_should(self):
+        ap, sp = cli.build_parser()
+        classes = [self.FLEET, self.PICK, self.OWN_FLAG, self.BY_NATURE, self.BY_JOB, self.LOCAL]
+        every = set(sp.choices)
+        self.assertEqual(set().union(*classes), every, "classify the new command above")
+        self.assertEqual(sum(len(c) for c in classes), len(every), "a command is in two classes")
+        for name in self.FLEET | self.PICK | self.OWN_FLAG:
+            self.assertTrue(any("--worker" in a.option_strings for a in sp.choices[name]._actions), f"{name} has no --worker")
+        self.assertEqual(set(cli.FLEET_COMMANDS), self.FLEET)
+        self.assertEqual(set(cli.PICK_COMMANDS), self.PICK)
+
+    def test_no_internal_send_is_left_to_the_scheduler(self):
+        """The checks that are ABOUT a worker (the install check, the wizard's first job) must say so: --here."""
+        import re
+        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        for f in root.rglob("*.py"):
+            for n, line in enumerate(f.read_text().splitlines(), 1):
+                if re.search(r'\.main\(\["submit"', line):
+                    self.assertIn('"--here"', line, f"{f.name}:{n} sends a job without pinning it to the worker it is about")
+
+
+class FleetWideCommands(AdminBase):
+    def two(self):
+        a, b = mock.Mock(name="a"), mock.Mock(name="b")
+        a.name, b.name = "first", "second"
+        return a, b
+
+    def run_diff(self, *extra, targets=None, inner=None):
+        a, b = self.two()
+        seen = []
+        with mock.patch.object(self.ctx, "targets", side_effect=lambda n=None: seen.append(n) or (targets or [("first", a), ("second", b)])), \
+                mock.patch.dict(cli.DISPATCH, {"diff": inner or (lambda c, args: calls.append(c.name) or 0)}):
+            calls = []
+            out = self.admin("diff", *extra)
+        return out, calls, seen
+
+    def test_every_worker_is_visited_with_a_heading_each_when_there_are_several(self):
+        (code, out, err), calls, seen = self.run_diff()
+        self.assertEqual((code, calls, seen), (0, ["first", "second"], [None]))
+        self.assertIn("first", out + err)
+        self.assertIn("second", out + err)
+
+    def test_worker_narrows_it_to_the_one_named(self):
+        a, b = self.two()
+        (code, out, err), calls, seen = self.run_diff("--worker", "second", targets=[("second", b)])
+        self.assertEqual((calls, seen), (["second"], ["second"]))
+
+    def test_one_worker_failing_or_being_declined_does_not_skip_the_others_and_is_reflected_in_the_exit_code(self):
+        def inner(c, args):
+            calls.append(c.name)
+            if c.name == "first":
+                raise ClientError("first is unreachable")
+            return 0
+        calls = []
+        (code, out, err), called, _ = self.run_diff(inner=inner)
+        self.assertEqual(called if called else calls, ["first", "second"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("first is unreachable", out + err)
+
+    def test_a_single_worker_is_run_exactly_as_before_with_no_heading(self):
+        a, _ = self.two()
+        (code, out, err), calls, _ = self.run_diff(targets=[("first", a)])
+        self.assertEqual((code, calls), (0, ["first"]))
+        self.assertNotIn("WORKER", out + err)

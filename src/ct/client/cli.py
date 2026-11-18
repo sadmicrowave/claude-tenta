@@ -94,6 +94,8 @@ def explain(ch, cls):
 
 def route_submit(ctx, cfg, a):
     """With several workers, choose one and say why (before sending, so the person sees where it goes); with one, nothing changes."""
+    if getattr(a, "here", False):
+        return ctx
     def say(ch):
         emit(f"Sending to {ch.worker}", *place.rows(ch), *(["Every worker is busy; it queues on this one."] if ch.busy_all else []), tag="PLACED", color=CYAN)
     ctx2, _ch = place.route(ctx, cfg, a.cls, getattr(a, "worker", None), say=say)
@@ -604,6 +606,7 @@ def build_parser():
     s.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
     s.add_argument("--worker", metavar="NAME", help="send it to this worker instead of letting ct-run choose (names: ct-admin workers)")
+    s.add_argument("--here", action="store_true", help="send it to the worker this configuration is for, without choosing (what the checks that are about one worker use)")
     wh = sp.add_parser("where", add_help=False)
     wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
     r = sp.add_parser("result", add_help=False)
