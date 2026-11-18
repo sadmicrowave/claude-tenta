@@ -122,7 +122,7 @@ System helpers (root, not user commands): update  canary-watch  sandbox-test
 
 ## End-to-end test
 
-`scripts/e2e-orbstack` runs `tests/e2e/scenario.sh` in a disposable Ubuntu machine (OrbStack). It installs from a checkout, runs `ct-setup client` and then
+`scripts/e2e-orbstack` runs the routes of `tests/e2e/routes/` in disposable Ubuntu machine (OrbStack). It installs from a checkout, runs `ct-setup client` and then
 `ct-setup server` twice (the first run must stop and ask for the deploy keys, the second must carry on), sends `sys-status` through the whole loop,
 checks that `sudo` cannot be profiled and that a denied program cannot be installed, and re-installs the release. GitHub is simulated by an SSH user on the
 same machine (`github.com` resolves to it), so every clone, fetch and push uses real keys. The decoy-credential tripwire needs kernel audit, which

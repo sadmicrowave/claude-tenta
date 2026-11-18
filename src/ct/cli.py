@@ -79,8 +79,9 @@ class Context:
     """Everything a command needs: the worker, and the names that appear in messages."""
 
     def __init__(self, worker, *, product="the worker", admin="ct-admin", installed_rev=None, notifier=None, canary_status=None,
-                 ask=input, hardware=None, uptime=None, token_days=None):
+                 ask=input, hardware=None, uptime=None, token_days=None, store="GitHub"):
         self.w, self.product, self.admin = worker, product, admin
+        self.store = store                                  # what jobs and results are passed through: the words of a message ("GitHub", "the mailbox")
         self.installed_rev, self.notifier = installed_rev, notifier
         self.canary_status = canary_status or Path(f"/run/{product}/canary-watch.json")
         self.ask = ask
@@ -161,7 +162,7 @@ class Context:
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json",
-                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None)
+                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None, store=transport.store_for(cfg))
 
 
 def _log(msg):
@@ -467,7 +468,7 @@ def cmd_status(ctx, hours=12):
             jid = f.stem if f.suffix == ".json" else f.name
             if dname == "queued" and any((w.state / x / jid).exists() for x in ("running", "fetching")):
                 continue
-            extra = {"queued": "waiting for capacity", "finished": "finished; waiting to be published to GitHub"}.get(dname, "")
+            extra = {"queued": "waiting for capacity", "finished": f"finished; waiting to be published to {ctx.store}"}.get(dname, "")
             if dname in ("running", "fetching"):
                 info = w._marker(f)
                 alive = "alive" if dname == "fetching" or w.is_job_process(info.get("pid"), jid) else "PROCESS GONE"
@@ -521,7 +522,7 @@ def cmd_status(ctx, hours=12):
         passes = json.loads((Path(w.state) / PASS_FILE).read_text())
     except (OSError, ValueError):
         passes = {}
-    for which, label, what in (("fetch", "Fetch", "pulling new jobs from GitHub"), ("step", "Step", "starting queued jobs")):
+    for which, label, what in (("fetch", "Fetch", f"pulling new jobs from {ctx.store}"), ("step", "Step", "starting queued jobs")):
         p = passes.get(which)
         if not p:
             line(False, label, "NOT RUN YET", f"the timer has not run the {which} pass yet ({what})")
@@ -530,7 +531,7 @@ def cmd_status(ctx, hours=12):
         elif time.time() - p["ts"] > 300:
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
-            slow = (f"; asleep, so it asks GitHub every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks GitHub every {w.s.idle_fetch_s} s") if p.get("idle") else ""
+            slow = (f"; asleep, so it asks {ctx.store} every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks {ctx.store} every {w.s.idle_fetch_s} s") if p.get("idle") else ""
             took = f", took {p['took_s']:g} s" if p.get("took_s") is not None else ""
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
     if getattr(w, "ledger", None) is not None and w.s.claude_command and (w.ledger.jobs_per_day or w.ledger.turns_per_day or w.ledger.today()["jobs"]):
@@ -613,7 +614,7 @@ def run_pass(ctx, which):
     took = time.monotonic() - t0
     record_pass(ctx.w.state, which, True, idle=bool(getattr(ctx.w, "idle_now", False)) and which == "fetch", mode=getattr(ctx.w, "mode", "active"), took=took)
     if took > 8:                                                        # a slow pass is the usual reason a job is noticed late: say so in the journal
-        print(f"{which} pass took {took:.0f} s (GitHub or the network is slow); the timer starts the next one after this ended", file=sys.stderr)       # output: log (the journal)
+        print(f"{which} pass took {took:.0f} s ({ctx.store} or the network is slow); the timer starts the next one after this ended", file=sys.stderr)       # output: log (the journal)
     return 0
 
 

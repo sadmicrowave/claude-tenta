@@ -44,7 +44,7 @@ def only_loopback(proc_net_dev):
     return names == ["lo"]
 
 
-def checks(home, state, queue_repo, helper=None, have=os.path.exists, python="/usr/bin/python3", jail_argv=None):
+def checks(home, state, queue_repo, helper=None, have=os.path.exists, python="/usr/bin/python3", jail_argv=None, store="GitHub"):
     """[(name, argv, expect)]; expect(returncode, output) -> bool. An entry (name, None, reason) is skipped with that reason."""
     ok0 = lambda rc, out: rc == 0                                                       # noqa: E731
     out = [
@@ -60,9 +60,9 @@ def checks(home, state, queue_repo, helper=None, have=os.path.exists, python="/u
         ("the package database can be read", ["/usr/bin/apt-cache", "show", "--no-all-versions", "bash"], ok0),
     ]
     if have(os.path.join(str(queue_repo), ".git")):
-        out.append(("GitHub can be reached over SSH", ["/usr/bin/git", "-c", f"core.sshCommand={GIT_SSH}", "-C", str(queue_repo), "ls-remote", "--exit-code", "--heads", "origin"], ok0))
+        out.append((f"{store} can be reached" + (" over SSH" if store == "GitHub" else ""), ["/usr/bin/git", "-c", f"core.sshCommand={GIT_SSH}", "-C", str(queue_repo), "ls-remote", "--exit-code", "--heads", "origin"], ok0))
     else:
-        out.append(("GitHub can be reached over SSH", None, f"no queue clone at {queue_repo}"))
+        out.append((f"{store} can be reached" + (" over SSH" if store == "GitHub" else ""), None, f"no queue clone at {queue_repo}"))
     if helper and have(helper):
         # the helper with no argument prints its usage and exits 2: that proves sudo let the worker in, without touching any hardware
         out.append(("sudo works for the thermal helper", ["/usr/bin/sudo", "-n", helper], lambda rc, o: rc == 2 and "usage" in o.lower()))
@@ -111,7 +111,7 @@ def test_unit(unit_text, cfg, runner=run_in_sandbox, have=os.path.exists, helper
     if cfg.isolation.method == "bwrap":                 # prove the jail still works under the unit's own sandbox settings
         from . import jail
         jail_argv = jail.Bwrap(hide=[cfg.paths.config]).probe_argv(cfg.path("state"))
-    plan = checks(cfg.paths.worker_home, cfg.path("state"), cfg.path("queue_clone"), helper=helper, have=have, jail_argv=jail_argv)
+    plan = checks(cfg.paths.worker_home, cfg.path("state"), cfg.path("queue_clone"), helper=helper, have=have, jail_argv=jail_argv, store=getattr(cfg, "transport", None) and __import__("ct.transport", fromlist=["x"]).store_for(cfg) or "GitHub")
     results = run_all(props, runner=runner, plan=plan)
     width = max(len(n) for n, _, _ in results)
     mark = {"ok": "OK  ", "fail": "FAIL", "skip": "SKIP"}

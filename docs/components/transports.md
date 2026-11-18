@@ -32,7 +32,7 @@ It makes the mailbox, copies the history into it (`git push --mirror`), points t
 
 ### What running it for real found
 
-The first end-to-end run of Direct on a fresh machine found four faults that no unit test had: the mailbox wrapper's clean environment dropped the client's command, the worker's sandbox did not allow writing its mailbox, git's group-shared files are refused by the sandbox, and the worker's umask hid new results from the mailbox account. Each now has a test. Run `CT_E2E_SCENARIO=direct CT_E2E_MACHINE=ct-e2e-direct scripts/e2e-orbstack --fresh` for the Direct scenario; the GitHub scenario ends with the move to Direct.
+The first end-to-end run of Direct on a fresh machine found four faults that no unit test had: the mailbox wrapper's clean environment dropped the client's command, the worker's sandbox did not allow writing its mailbox, git's group-shared files are refused by the sandbox, and the worker's umask hid new results from the mailbox account. Each now has a test. Run `scripts/e2e-routes direct` for the Direct route; the `move` route ends on Direct.
 
 ### Later
 

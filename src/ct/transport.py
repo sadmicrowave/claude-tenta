@@ -14,7 +14,13 @@ import shlex
 from pathlib import Path
 
 
+def store_for(cfg):
+    """What jobs and results are passed through, in the words a message uses ("GitHub", "the mailbox"): so a Direct worker is never described as waiting on GitHub."""
+    return for_config(cfg).store
+
+
 class GitHub:
+    store = "GitHub"
     """A private repository on GitHub each way. Nothing listens anywhere: the worker and your computer only connect out to github.com."""
     kind = "github"
     label = "GitHub"
@@ -55,6 +61,7 @@ class GitHub:
 
 
 class Direct:
+    store = "the mailbox"
     """Each worker keeps its own two repositories (the mailbox) and your computer connects to the worker over SSH, as a restricted account that can only run git on them: it may
     push jobs to the queue and read results, nothing else. The worker makes no connection to anything for the mailbox, so its block on the LAN stays on."""
     kind = "direct"

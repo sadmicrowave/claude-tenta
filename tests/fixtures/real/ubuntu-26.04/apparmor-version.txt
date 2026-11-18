@@ -1,0 +1,1 @@
+AppArmor parser version 5.0.2

@@ -1,0 +1,41 @@
+#!/bin/bash
+# Run the end-to-end ROUTES (tests/e2e/routes/*.sh) in parallel, each in its own machine cloned from the cached base machine, and print one line per route. Each machine is deleted when its
+# route ends; the logs are kept in /tmp/ct-e2e-logs/<machine>/.
+#   scripts/e2e-routes                      every route, on $CT_E2E_IMAGE (default ubuntu:26.04)
+#   scripts/e2e-routes rename move          only these
+#   scripts/e2e-routes --image debian:trixie [routes]
+# Routes: install rename uninstall move switch direct. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
+# Needs OrbStack. Exit status is the number of routes that failed. Use it to CONFIRM what the unit tests and probes already proved (see docs/components/testing.md).
+set -uo pipefail
+cd "$(dirname "$0")/.."
+IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}
+[ "${1:-}" = "--image" ] && { IMAGE=$2; shift 2; }
+ROUTES=${*:-"install rename uninstall move switch direct"}
+TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG
+OUT=/tmp/ct-routes/$TAG; mkdir -p "$OUT"
+n=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)' || true)
+[ "$n" -ge 4 ] && { echo "There are already $n test machines. Run scripts/e2e-clean first." >&2; exit 3; }
+scripts/e2e-base "$IMAGE" >/dev/null || { echo "could not prepare the cached base machine" >&2; exit 2; }
+one() {  # one route: clone, copy the checkout in, run, save the logs, delete
+  local route=$1 M=ct-run-$TAG-$1 logs=/tmp/ct-e2e-logs/ct-run-$TAG-$1
+  orb delete -f "$M" >/dev/null 2>&1 || true
+  orbctl clone "$CACHE" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }
+  git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"
+  orb -m "$M" -u root bash /opt/ct-src/tests/e2e/routes/$route.sh >"$OUT/$route.out" 2>&1
+  local rc=$?
+  mkdir -p "$logs"
+  orb -m "$M" -u root bash -c 'journalctl --no-pager -o cat 2>/dev/null | tail -600 > /tmp/e2e-journal.out; tar -cf - /tmp/e2e-*.out 2>/dev/null' 2>/dev/null | tar -xf - -C "$logs" 2>/dev/null || true
+  orb delete -f "$M" >/dev/null 2>&1 || true
+  return $rc
+}
+START=$(date +%s)
+for r in $ROUTES; do ( one "$r"; echo "route-ended $?" >> "$OUT/$r.out" ) & done
+wait
+bad=0
+for r in $ROUTES; do
+  summary=$(grep -E "^=== [0-9]+ passed" "$OUT/$r.out" | tail -1)
+  took=$(grep -E "^=== time per step" "$OUT/$r.out" | grep -oE "[0-9]+s in all" | head -1)
+  if echo "$summary" | grep -q " 0 failed"; then printf 'PASS  %-10s %s (%s)\n' "$r" "$summary" "$took"; else printf 'FAIL  %-10s %s (see %s)\n' "$r" "${summary:-no summary}" "$OUT/$r.out"; bad=$((bad+1)); fi
+done
+printf 'wall time %ds for %s on %s\n' "$(( $(date +%s) - START ))" "$(echo $ROUTES | wc -w | tr -d ' ') route(s)" "$IMAGE"
+exit $bad

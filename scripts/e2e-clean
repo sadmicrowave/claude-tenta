@@ -1,11 +1,13 @@
 #!/bin/bash
-# Delete every OrbStack machine this project's test scripts ever made (names starting ct-e2e, ct-mx, ct-u or cw-e2e). Run it at the end of any session that used them.
+# Delete every OrbStack machine this project's test scripts ever made (names starting ct-e2e, ct-mx, ct-u, ct-run or cw-e2e); the cached base machines (ct-cache-*) are kept unless you say --all. Run it at the end of any session that used them.
 #   scripts/e2e-clean           delete them all
 #   scripts/e2e-clean --list    only list them
+#   scripts/e2e-clean --all     also the cached base machines (the next scripts/e2e-routes builds them again)
 # A machine OrbStack lists but can no longer address (it happens after a name is reused quickly) is deleted by its id as a second try.
 set -uo pipefail
 command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&2; exit 2; }
-names=$(orb list 2>/dev/null | awk '{print $1}' | grep -E '^(ct-e2e|ct-mx|ct-u|cw-e2e)' || true)
+PATTERN='^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)'; [ "${1:-}" = "--all" ] && { PATTERN='^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e|ct-cache)'; shift; }
+names=$(orb list 2>/dev/null | awk '{print $1}' | grep -E "$PATTERN" || true)
 if [ -z "$names" ]; then echo "No test machines."; exit 0; fi
 if [ "${1:-}" = "--list" ]; then echo "$names"; exit 0; fi
 for m in $names; do
@@ -14,6 +16,6 @@ for m in $names; do
   id=$(orb list --format json 2>/dev/null | python3 -c "import json,sys; print(next((x['id'] for x in json.load(sys.stdin) if x['name']=='$m'), ''))" 2>/dev/null)
   if [ -n "$id" ] && orb delete -f "$id" >/dev/null 2>&1; then echo "ok (by id)"; else echo "could not delete it: delete it in the OrbStack app"; fi
 done
-left=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|cw-e2e)' || true)
+left=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE "$PATTERN" || true)
 echo "$left test machine(s) left."
 exit $(( left > 0 ))

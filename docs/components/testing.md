@@ -21,22 +21,21 @@ Standard library only, plus PyYAML for the registry tests (the tests skip cleanl
 - **Documentation and tests use reserved example values only** (`example.com`, `192.0.2.0/24`); the privacy guard enforces it.
 - `scripts/gen-docs --check` runs as a test, so the generated reference pages cannot go out of date.
 
-### End-to-end test
+### End-to-end routes
 
 ```
-scripts/e2e-orbstack            # create a fresh machine, copy the tracked files in, run the scenario, save its logs, DELETE the machine
-scripts/e2e-orbstack --keep     # leave the machine running afterwards, to look around (then scripts/e2e-clean)
-scripts/e2e-clean               # delete every test machine this project ever made (--list only lists them)
-scripts/e2e-orbstack --delete   # remove the machine
-scripts/e2e-matrix              # the scenario on Ubuntu 26.04 and 24.04 and Debian 12 and 13 at once, one pass/fail line each (CT_E2E_IMAGE picks one release for e2e-orbstack)
+scripts/e2e-routes                # every route in parallel, each in its own machine cloned from a cached base; one line per route; machines deleted as each ends
+scripts/e2e-routes direct move    # only these
+scripts/e2e-base [image]          # (re)build the cached base machine ct-cache-<release> (done automatically when missing)
+scripts/e2e-orbstack              # one cold route-free run on a fresh machine (slow; for checking the base itself)
+scripts/e2e-matrix                # the scenario on Ubuntu 26.04 and 24.04 and Debian 12 and 13 at once
+scripts/e2e-clean [--list|--all]  # delete every test machine this project made (the caches stay unless --all)
 ```
 
-`tests/e2e/scenario.sh` can also be run as root on any fresh Ubuntu 24.04 or Debian 12 machine. It: installs the project with `pip`; runs `ct-setup client`; runs `ct-setup server` twice (the first run must stop for the deploy keys, the second must carry on);
-checks the accounts, installed commands, that the worker reports its isolation as ON, that `job-isolation` is satisfied, composed registry, timers, password-less SSH, the firewall, groups and permissions and `ct-setup audit`; sends `sys-status` and waits for the result; checks `ct-admin check` and `ct-admin status`;
-checks that `sudo` cannot be profiled and that a denied program cannot be installed; reads a decoy credential and expects a lockdown; and re-installs the release.
+The scenario is split into independent **routes** in `tests/e2e/routes/` (`install`, `direct`, `switch`, `move`, `rename`, `uninstall`), sharing `tests/e2e/lib.sh`. Each does its own baseline install, so the routes run side by side and the wall time is the slowest route, not the sum. The slow, identical preparation (system packages, git, a stand-in for GitHub) is done once into a cached base machine that every run clones in a second; the cache is keyed by release. Every step prints its seconds, and each route ends with its slowest steps, so the next saving is measured, not guessed.
 
 GitHub is simulated: `github.com` resolves to the machine itself, where an SSH user called `git` holds the two bare repositories, so every clone, fetch and push uses real keys, including the worker's own deploy keys.
-The decoy-credential check needs kernel audit, which container-style machines (OrbStack) lack; there it reports SKIP and the hardening module explains why. Use a full VM to cover it.
+The decoy-credential check needs kernel audit, which container-style machines (OrbStack) lack; there it reports SKIP. The kernel probe (below) and `ct-setup tripwire-test` cover it on a real machine.
 
 ### The tripwire on a real machine
 
@@ -74,6 +73,8 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 | Install again, other connection (wizard) | yes (clones repointed, deploy-key loop skipped) | yes | |
 | `ct-setup transport direct` | yes (history copy checked with real git) | yes | |
 | Cross-account git ownership (mailbox account, worker's repository) | env passing only | yes (real accounts found it) | probe: `scripts/probe ownership` (real accounts, in seconds) |
+| What each supported release prints and provides (sudo-rs, git, Python, systemd) | yes (recorded real outputs, `test_real_outputs.py`) | yes (matrix) | probe: `scripts/probe --releases release` |
+| Timer accuracy, AppArmor and sandbox settings on a real kernel | plan and template guard | gap: OrbStack has none | probe: `scripts/probe --on user@host kernel` |
 | Rename, uninstall and reinstall | yes | yes | |
 | `add-worker`, new machine | yes (real command) | gap: needs two machines | a VM |
 | `add-worker` again for a registered worker | yes (real command) | gap | pending |
@@ -86,3 +87,9 @@ The end-to-end test runs in a container, which has no kernel audit, so it cannot
 
 
 **Environment probes.** `scripts/probe [name]` runs `tests/probes/<name>.sh` in a throwaway container (`docker run --rm`, the checkout mounted read-only at `/src`): about 20 seconds, nothing to clean up. A probe proves ONE fact about a real operating system that a unit test cannot, using the project's own code. `ownership` creates the two accounts (the worker and the mailbox account) and shows: git refuses a repository owned by another account (the premise); the mailbox shell serves it anyway, for that one repository and no other; and root copying history between repositories owned by others works with the project's helper and not without it. It was written from two bugs the full end-to-end runs found, and it fails on the old code for both. Needs Docker (OrbStack provides it); `CT_PROBE_IMAGE` picks the release (default Ubuntu 24.04).
+
+**More probes.** `release` runs on all four supported releases at once (`scripts/probe --releases release`) and shows that the packages and tools the installer needs exist there, at the versions the code assumes (git 2.32 or newer, Python 3.11 or newer, bubblewrap, systemd directives). `kernel` is read-only and runs on a real machine over SSH (`scripts/probe --on user@host kernel`): the AppArmor restriction and profile, user namespaces, timer accuracy, the services' sandbox settings. It is how the timer `AccuracySec` that systemd silently ignored (an inline comment) was found on a real VM. `record` is not a test: `scripts/record-fixtures` runs it per release and saves what the real tools printed.
+
+**Recorded real outputs.** `tests/fixtures/real/<release>/` holds the real output of `os-release`, `sudo --version` (sudo-rs on Ubuntu 26.04), git, Python, systemd, bubblewrap, OpenSSH, git's refusal of another account's repository, and the whole candidacy-check script. `tests/test_real_outputs.py` runs the parsers over them, so a parser is tested against what a release really prints, not against its author's idea of it. Re-record with `scripts/record-fixtures` when a release is added. Recording found that git 2.53 (Ubuntu 26.04) does not refuse the foreign repository the way 2.43 does, so the ownership bug cannot show there.
+
+**Change-based planning.** `scripts/test-plan [base]` lists, for the files changed (including uncommitted and new ones), the scoped unit modules, the probes and the routes worth running, from the table in `tests/impact.py`. `tests/test_impact.py` fails when any file of the project has no rule, or a rule names something that does not exist; a file the table does not know plans everything. The full unit suite stays the gate before a push.

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Probes(unittest.TestCase):
     def test_every_probe_is_valid_shell_says_what_it_proves_and_ends_with_a_count_and_an_exit_status(self):
-        probes = sorted((ROOT / "tests" / "probes").glob("*.sh"))
+        probes = sorted(p for p in (ROOT / "tests" / "probes").glob("*.sh") if p.stem != "record")      # record.sh is the fixture recorder, not a probe
         self.assertTrue(probes)
         for p in probes:
             text = p.read_text()

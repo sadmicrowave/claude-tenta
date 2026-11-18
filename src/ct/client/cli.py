@@ -54,7 +54,7 @@ class Context:
 
     @classmethod
     def from_config(cls, cfg):
-        view.set_pace(cfg.schedule, direct=transport.for_config(cfg).kind == "direct")
+        view.set_pace(cfg.schedule, direct=transport.for_config(cfg).kind == "direct", store=transport.store_for(cfg))
         repos = ClientRepos.from_config(cfg)
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],

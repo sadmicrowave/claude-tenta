@@ -1,0 +1,12 @@
+#!/bin/bash
+# Record what the tools the project reads REALLY print, on every supported release, into tests/fixtures/real/<release>/ (see tests/probes/record.sh). About a minute; the files are small and
+# are committed, so unit tests parse real output. Run it when a release changes or a parser starts reading something new, and read the diff.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+command -v docker >/dev/null || { echo "Docker was not found (OrbStack provides it)." >&2; exit 2; }
+for img in ubuntu:24.04 ubuntu:26.04 debian:12 debian:13; do
+  dir=tests/fixtures/real/$(echo "$img" | tr ':' '-')
+  ( rm -rf "$dir" && mkdir -p "$dir" && docker run --rm -v "$PWD":/src:ro -v "$PWD/$dir":/out "$img" bash /src/tests/probes/record.sh > "/tmp/record-$(echo $img | tr ':' '-').log" 2>&1; tail -1 "/tmp/record-$(echo $img | tr ':' '-').log" ) &
+done
+wait
+ls tests/fixtures/real/*/ | head -60

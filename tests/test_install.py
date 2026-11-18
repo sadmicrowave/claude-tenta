@@ -188,6 +188,13 @@ class HappyPath(InstallBase):
         inst.run_all()
         self.assertEqual(asked, [])
 
+    def test_the_server_phase_has_one_heading_printed_before_its_output_not_a_second_one_after_it(self):
+        """Seen on a real install: 'The server' at the start and 'Setting up the server' printed late, after the server's own output."""
+        self.installer(given={"transport.kind": "direct"}).run_all()
+        headings = [line for line in self.said if "The server" in line or "Setting up the server" in line]
+        self.assertEqual(len([h for h in headings if "Setting up the server" in h]), 0, headings)
+        self.assertEqual(len([h for h in headings if h.strip().endswith("The server")]), 1, headings)
+
     def failed_clone(self, sudo_without_password, ask=None, tty=False):
         class Dead(Exception):
             why = "fatal: detected dubious ownership"

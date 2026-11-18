@@ -43,6 +43,52 @@ class Family(unittest.TestCase):
         self.assertIn("network.ipv6", client_setup.ALSO_FOR_THE_CLIENT)
 
 
+class WordsFollowTheConnection(unittest.TestCase):
+    """Seen on a real Direct worker: the round-trip card said 'next look at GitHub' and 'published to GitHub'. A message names what this install passes jobs through."""
+    TRIP = (7, 5, 1, 2, 4)
+
+    def rows(self, direct):
+        from ct.client import view
+        schedule = cfg(kind="direct" if direct else "github").schedule
+        view.set_pace(schedule, direct=direct, store=transport.store_for(cfg(kind="direct" if direct else "github")))
+        try:
+            return " ".join(v for _, v in view.trip_rows(self.TRIP))
+        finally:
+            view.set_pace(schedule)
+
+    def test_a_direct_worker_is_never_said_to_wait_on_github(self):
+        text = self.rows(True)
+        self.assertNotIn("GitHub", text)
+        self.assertIn("the mailbox", text)
+
+    def test_a_github_worker_still_says_github(self):
+        self.assertIn("GitHub", self.rows(False))
+
+    def test_the_worker_status_words_follow_the_connection_too(self):
+        import inspect
+        from ct import cli
+        src = inspect.getsource(cli)
+        for fixed in ("pulling new jobs from GitHub", "waiting to be published to GitHub", "(GitHub or the network", "it asks GitHub every"):
+            self.assertNotIn(fixed, src, fixed)                                                  # no sentence of the worker's status names GitHub as a literal: it uses what the install uses
+        self.assertEqual(transport.store_for(cfg(kind="direct")), "the mailbox")
+        self.assertEqual(transport.store_for(cfg(kind="github")), "GitHub")
+
+
+class TheAdminAndSandboxWordsFollowTheConnection(unittest.TestCase):
+    def test_the_sandbox_check_does_not_say_github_for_a_direct_worker(self):
+        from ct import sandboxtest
+        for store, want in (("GitHub", "GitHub can be reached over SSH"), ("the mailbox", "the mailbox can be reached")):
+            names = [c[0] for c in sandboxtest.checks("/home/w", "/var/lib/x", "/var/lib/x/queue", have=lambda p: True, store=store)]
+            self.assertIn(want, names)
+        self.assertFalse([n for n in [c[0] for c in sandboxtest.checks("/home/w", "/var/lib/x", "/var/lib/x/queue", have=lambda p: True, store="the mailbox")] if "GitHub" in n])
+
+    def test_the_admin_context_carries_the_words_of_its_connection(self):
+        from ct.admin import cli as admin_cli
+        ctx = admin_cli.Context.from_config(cfg(kind="direct"))
+        self.assertEqual(ctx.store, "the mailbox")
+        self.assertEqual(admin_cli.Context.from_config(cfg(kind="github")).store, "GitHub")
+
+
 class BusyLine(unittest.TestCase):
     class Tty(io.StringIO):
         def isatty(self):

@@ -18,7 +18,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from .. import __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
+from .. import transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -49,6 +49,7 @@ class Context:
     def __init__(self, repos, ssh, source, *, name="claude-tenta", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
                  run_result=None, main_branch="main", sleep=time.sleep, workers_file=None, cfg=None):
         self.repos, self.ssh, self.source, self.name = repos, ssh, source, name
+        self.store = transport.store_for(cfg) if cfg is not None else "GitHub"              # what jobs and results pass through: the words of a message ("GitHub", "the mailbox")
         self.config_dir, self.code_dir = config_dir or f"/etc/{name}", code_dir or f"/opt/{name}"
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.props, self.viewed = Proposals(repos, main_branch), jobs.Viewed(self.home)
@@ -155,7 +156,7 @@ def cmd_review(ctx, a):
         _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
-        emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on GitHub. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
+        emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
         if ctx.remote("review", *gone):
             raise ClientError("Could not show those jobs", "They were NOT marked as viewed.", example="ct-admin check")
         for jid in gone:
@@ -339,7 +340,7 @@ def approve_on_worker(ctx, a, jid):
     pub = ctx.repos.read_result(jid)
     if not pub or pub.get("status") != "awaiting_approval":
         raise ClientError(f"No job called {jid}", f"Its file is not on the jobs branch, and {ctx.name} does not show it waiting for approval.", example="ct-run jobs")
-    emit("The job file is no longer on GitHub", f"{ctx.name} kept its own copy, so you review and approve it there.", tag="NOTE", color=YELLOW)
+    emit(f"The job file is no longer on {ctx.store}", f"{ctx.name} kept its own copy, so you review and approve it there.", tag="NOTE", color=YELLOW)
     rc = ctx.remote("approve", jid, *(["--yes"] if a.yes else []))
     ctx.viewed.mark(jid, "")
     return follow(ctx, a, rc, jid)
@@ -360,7 +361,7 @@ def cmd_clean(ctx, a):
     ref = f"origin/{approvals.BRANCH}"
     names = subprocess.run(["git", "-C", str(ctx.repos.queue), "ls-tree", "-r", "--name-only", ref], capture_output=True, text=True).stdout.split()
     if not names:
-        emit("Nothing to tidy", "There are no signed approvals or orders on GitHub.", tag="OK", color=GREEN)
+        emit("Nothing to tidy", f"There are no signed approvals or orders on {ctx.store}.", tag="OK", color=GREEN)
         return 0
     ctx.repos.pull_results()
     old, now = [], time.time()
@@ -379,10 +380,10 @@ def cmd_clean(ctx, a):
             if (result and result.get("status") not in ("awaiting_approval", "running", "queued")) or rec.get("expires", 0) < now:
                 old.append((name, "job finished or approval expired"))
     if not old:
-        emit("Nothing to tidy", f"{len(names)} file(s) on GitHub, none finished or stale.", tag="OK", color=GREEN)
+        emit("Nothing to tidy", f"{len(names)} file(s) on {ctx.store}, none finished or stale.", tag="OK", color=GREEN)
         return 0
     emit(f"{len(old)} file(s) can go", *[f"{n}  ({why})" for n, why in old[:12]], tag="TIDY", color=CYAN)
-    if not ctx.confirm("Remove them from GitHub?", a.yes):
+    if not ctx.confirm(f"Remove them from {ctx.store}?", a.yes):
         stop("Nothing removed", "You answered no.")
     ctx.repos.push_files(approvals.BRANCH, {}, f"tidy: remove {len(old)} finished approvals and orders", remove=[n for n, _ in old])
     emit("Tidied", f"{len(old)} file(s) removed.", tag="DONE", color=GREEN)
@@ -747,7 +748,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     p.push_main(sha)
     gone = p.delete(branch)
     p.fetch()
-    emit(f"Merged {branch} into main as {release.short(sha)}", "The branch was deleted." if gone else "The branch is still on GitHub; `ct-admin proposals tidy` removes it.",
+    emit(f"Merged {branch} into main as {release.short(sha)}", "The branch was deleted." if gone else f"The branch is still on {ctx.store}; `ct-admin proposals tidy` removes it.",
          tag="MERGED", color=GREEN)
     return sha
 
@@ -779,7 +780,7 @@ def cmd_proposals(ctx, a):
         if not done:
             emit("Nothing to tidy", "No merged branches are left.", tag="OK", color=GREEN)
             return 0
-        if not ctx.confirm(f"Delete {len(done)} merged branch(es) ({', '.join(done)}) from GitHub?", a.yes):
+        if not ctx.confirm(f"Delete {len(done)} merged branch(es) ({', '.join(done)}) from {ctx.store}?", a.yes):
             stop("Nothing deleted", "You answered no.")
         gone = [b for b in done if p.delete(b)]
         emit(f"Deleted {len(gone)} branch(es)", tag="DONE", color=GREEN)
@@ -791,7 +792,7 @@ def after_merge(ctx, a):
     """A merge changes GitHub only. With an approval key here the registry is signed and published at once; otherwise it waits for an install."""
     if use_signed(ctx, a):
         return install_registry_change(ctx, a)
-    emit("Install it", "Merging changes GitHub only; the worker has it after the next install.", tag="NEXT", color=CYAN, run="ct-admin apply")
+    emit("Install it", f"Merging changes {ctx.store} only; the worker has it after the next install.", tag="NEXT", color=CYAN, run="ct-admin apply")
     return 0
 
 
@@ -981,14 +982,14 @@ HELP = {
     "kill": ("stop a running job", [("Ask it to stop", "ct-admin kill some-job"), ("Stop the whole process tree", "ct-admin kill some-job --hard")]),
     "quarantine": ("list results held back by the output guard, or read one", [("List them", "ct-admin quarantine"), ("Read one in full", "ct-admin quarantine some-job")]),
     "unlock": ("clear a security lockdown after you have looked at it", [("Unlock", "ct-admin unlock")]),
-    "output": ("the full output of a failed command (GitHub only gets its error lines)", [("List the kept outputs", "ct-admin output"), ("Read one", "ct-admin output some-job")]),
+    "output": ("the full output of a failed command (only its error lines are ever published)", [("List the kept outputs", "ct-admin output"), ("Read one", "ct-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "ct-admin adopt profile-k7m2xq --name ssh-version")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "ct-admin retire ssh-version")]),
     "action": ("register, list or remove commands that must run as root", [("Register one from a pack or a YAML file", "ct-admin action add packs/fan-control"), ("After you changed the program, pin it again", "ct-admin action add packs/fan-control"), ("See what is registered", "ct-admin action list"), ("Remove one and the class that runs it", "ct-admin action remove fan-profile")]),
     "theme": ("show the colour roles, what they look like and where the theme came from", [("Show them", "ct-admin theme")]),
     "action-hash": ("print the SHA-256 to pin for a root-level action's program, and check it could be one", [("Hash a program on the worker", "ct-admin action-hash /usr/local/sbin/fan-profile")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "ct-admin proposals"), ("Merge one", "ct-admin proposals merge registry/ssh-version"), ("Merge them all", "ct-admin proposals merge --all"), ("Delete merged branches", "ct-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "ct-admin proposals publish")]),
-    "clean": ("remove signed approvals and orders that are finished or stale from GitHub", [("Show what can go and ask", "ct-admin clean")]),
+    "clean": ("remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox)", [("Show what can go and ask", "ct-admin clean")]),
     "update": ("is there a newer release? show what changed, then update this computer and the worker if you agree", [("Look and ask", "ct-admin update"), ("Only say whether there is one", "ct-admin update --check")]),
     "diff": ("show what installing a version would change", [("Compare the installed version with the latest", "ct-admin diff"), ("All the code, not only root-run files", "ct-admin diff --full")]),
     "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest", "ct-admin apply"), ("Install one commit", "ct-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "ct-admin apply --force")]),
@@ -1034,7 +1035,7 @@ def build_parser():
     s.add_argument("--config", help="with add: the worker's configuration file")
     s.add_argument("--claude", action="store_true", help="only workers whose Claude access works and that are not locked")
     s.add_argument("--json", action="store_true", help="print the comparison as JSON")
-    s.add_argument("--no-refresh", action="store_true", help="use what was last downloaded; do not pull from GitHub first")
+    s.add_argument("--no-refresh", action="store_true", help="use what was last downloaded; do not pull first")
     s = sp.add_parser("cancel", add_help=False)
     s.add_argument("id", help="the job id")
     s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")

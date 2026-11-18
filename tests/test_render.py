@@ -38,6 +38,20 @@ class Rendering(unittest.TestCase):
 
 
 class Units(unittest.TestCase):
+    def test_no_setting_in_a_unit_has_a_comment_after_it_on_the_same_line(self):
+        """Found by running the real systemd on every release: systemd has no inline comments, so `AccuracySec=1s  # why` is an invalid value, the whole line is ignored and the timer fires up to a
+        minute late (the very thing the comment says the setting prevents). A comment goes on its own line."""
+        import re
+        units = render.unit_files(cfg(CT_IDENTITY_NAME="homect", CT_TRANSPORT_KIND="direct"), TEMPLATES)
+        for name, text in units.items():
+            for n, line in enumerate(text.splitlines(), 1):
+                if re.match(r"^[A-Za-z]+=", line):
+                    self.assertNotRegex(line, r"\s#", f"{name}:{n}: {line}")
+        for path in sorted((TEMPLATES / "systemd").glob("*.in")):                                          # and the templates themselves, before anything is filled in
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if re.match(r"^[A-Za-z]+=", line):
+                    self.assertNotRegex(line, r"\s#", f"{path.name}:{n}: {line}")
+
     def test_the_services_that_start_jobs_do_not_set_restrict_suid_sgid(self):
         """Found on Debian 13: with it the jail (bubblewrap 0.12) cannot open /usr and no job runs. A test jail check on the real machine is what caught it."""
         for unit, text in render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES).items():

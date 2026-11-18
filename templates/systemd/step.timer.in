@@ -2,7 +2,8 @@
 Description=Start queued {{name}} jobs as capacity frees up
 
 [Timer]
-AccuracySec=1s                  # systemd's default is a minute, which let a timer fire up to a minute late
+# systemd's default accuracy is a minute, which let a timer fire up to a minute late. (A comment must be on its own line: systemd has no inline comments and would ignore this setting.)
+AccuracySec=1s
 OnBootSec=70
 OnUnitInactiveSec={{step_s}}
 

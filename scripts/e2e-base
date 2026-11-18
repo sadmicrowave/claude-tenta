@@ -1,0 +1,28 @@
+#!/bin/bash
+# Build (or reuse) the CACHED BASE machine for one release: ct-cache-<release>, with everything a route needs that does not depend on the code under test already in it (the packages, the
+# accounts, the keys, the GitHub stand-in, and the packages the installer itself installs), so a run never waits on apt again. Routes are cloned from it (copy-on-write: no extra disk to speak of).
+#   scripts/e2e-base [image]        reuse it when it is current, build it when missing or out of date (image default $CT_E2E_IMAGE or ubuntu:26.04)
+#   scripts/e2e-base --rebuild [image]
+# It is a cache, not a test machine: stopped between runs, kept by scripts/e2e-clean unless told --all, and rebuilt when tests/e2e/lib.sh or this script changes.
+# A cache cannot prove that the installer can install its own packages: scripts/probe release does that per release, and `scripts/e2e-orbstack` starts from a bare machine for the cold run.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+REBUILD=0; [ "${1:-}" = "--rebuild" ] && { REBUILD=1; shift; }
+IMAGE=${1:-${CT_E2E_IMAGE:-ubuntu:26.04}}
+TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG
+HASH=$(cat tests/e2e/lib.sh scripts/e2e-base | shasum | cut -c1-12)
+exists() { orb list 2>/dev/null | awk '{print $1}' | grep -qx "$1"; }
+if exists "$CACHE" && [ "$REBUILD" = 0 ]; then
+  have=$(orb -m "$CACHE" -u root cat /etc/ct-cache-hash 2>/dev/null || true)
+  orbctl stop "$CACHE" >/dev/null 2>&1 || true
+  [ "$have" = "$HASH" ] && { echo "cache $CACHE is current"; exit 0; }
+  echo "cache $CACHE is out of date: rebuilding"
+fi
+exists "$CACHE" && orb delete -f "$CACHE" >/dev/null 2>&1 || true
+echo "building $CACHE from $IMAGE"
+orb create "$IMAGE" "$CACHE" >/dev/null
+tar -cf - -C tests/e2e lib.sh | COPYFILE_DISABLE=1 orb -m "$CACHE" -u root bash -c 'mkdir -p /opt/ct-e2e && tar -xf - -C /opt/ct-e2e'
+orb -m "$CACHE" -u root env WARM=1 bash -c '. /opt/ct-e2e/lib.sh; prepare_system' 2>&1 | sed "/^tar:/d" | tail -5
+echo "$HASH" | orb -m "$CACHE" -u root tee /etc/ct-cache-hash >/dev/null
+orbctl stop "$CACHE" >/dev/null 2>&1 || true
+echo "cache $CACHE built"

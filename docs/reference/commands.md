@@ -38,7 +38,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `ct-admin quarantine` | list results held back by the output guard, or read one |
 | `ct-admin unlock` | clear a security lockdown after you have looked at it |
-| `ct-admin output` | the full output of a failed command (GitHub only gets its error lines) |
+| `ct-admin output` | the full output of a failed command (only its error lines are ever published) |
 
 ### Registry
 
@@ -57,7 +57,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 | `ct-admin diff` | show what installing a version would change |
 | `ct-admin apply` | install a version on the worker, check it, offer to roll back |
 | `ct-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
-| `ct-admin clean` | remove signed approvals and orders that are finished or stale from GitHub |
+| `ct-admin clean` | remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox) |
 
 ### Look
 

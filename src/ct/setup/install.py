@@ -442,7 +442,6 @@ class Installer:
                 if not authed:
                     self._sleep(1)
                     continue
-                self._heading("Setting up the server", "3 of 4")
             got = {} if getattr(getattr(self, "client", None), "direct", False) else keys_mod.published(self.ssh, self.cfg.paths.config)      # Direct has no deploy keys; the files an earlier GitHub install left behind must not start the loop (seen: "could not check the deploy keys on None/...")
             if len(got) == 2 and not dk.complete:
                 if dk.available:

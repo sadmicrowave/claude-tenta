@@ -2,12 +2,28 @@
 # Run one environment probe (tests/probes/<name>.sh) in a throwaway container: a few seconds, nothing left behind (--rm), no machine to clean up.
 #   scripts/probe ownership        one probe
 #   scripts/probe                  every probe
+#   scripts/probe --releases [p]   the named probes (default: release) on every supported release at once, in parallel (ubuntu:24.04 ubuntu:26.04 debian:12 debian:13): about a minute in all
+#   scripts/probe --on user@host name   a read-only probe on a REAL machine over SSH (a VM, the worker itself): the kernel and permission facts a container cannot show
 # A probe proves ONE fact about a real operating system that a unit test cannot (another account, a kernel setting, a permission), with the project's own code mounted read-only at /src.
 # Needs Docker (OrbStack provides it). Exit status is the number of probes that failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 command -v docker >/dev/null || { echo "Docker was not found (OrbStack provides it)." >&2; exit 2; }
 IMAGE=${CT_PROBE_IMAGE:-ubuntu:24.04}
+RELEASES="ubuntu:24.04 ubuntu:26.04 debian:12 debian:13"
+if [ "${1:-}" = "--releases" ]; then
+  shift; names=${*:-release}; mkdir -p /tmp/ct-probes; pids=""
+  for img in $RELEASES; do for n in $names; do ( CT_PROBE_IMAGE=$img scripts/probe "$n" > "/tmp/ct-probes/$n-$(echo $img | tr ':' '-').out" 2>&1; echo "probe-ended $?" >> "/tmp/ct-probes/$n-$(echo $img | tr ':' '-').out" ) & done; done
+  wait; bad=0
+  for img in $RELEASES; do for n in $names; do f="/tmp/ct-probes/$n-$(echo $img | tr ':' '-').out"; summary=$(grep -E "^=== [0-9]+ passed" "$f" | tail -1)
+    if echo "$summary" | grep -q " 0 failed"; then printf 'PASS  %-8s %-14s %s\n' "$n" "$img" "$summary"; else printf 'FAIL  %-8s %-14s %s (see %s)\n' "$n" "$img" "${summary:-no summary}" "$f"; bad=$((bad+1)); fi; done; done
+  exit $bad
+fi
+if [ "${1:-}" = "--on" ]; then                          # a probe on a real machine: copy the probe and the project's source over SSH, run it there, leave nothing behind
+  host=$2; n=$3; shift 3
+  tar -cf - tests/probes/$n.sh src templates 2>/dev/null | COPYFILE_DISABLE=1 ssh -o BatchMode=yes -o AddressFamily=inet "$host" 'd=$(mktemp -d /tmp/ct-probe.XXXXXX) && tar -xf - -C "$d" 2>/dev/null && echo "=== probe: '$n' on '$host'" && CT_PROBE_ROOT="$d" bash "$d/tests/probes/'$n'.sh"; rc=$?; rm -rf "$d"; exit $rc'
+  exit $?
+fi
 names=${*:-$(ls tests/probes/*.sh | xargs -n1 basename | sed 's/\.sh$//')}
 bad=0
 for n in $names; do

@@ -33,7 +33,7 @@ class Viewed:
 
 
 def job_bytes(repos, jid, branches=("jobs", "main")):
-    """The job file as it is on GitHub (the jobs branch, or main for old ones), or None."""
+    """The job file as it is in the queue (the jobs branch, or main for old ones), or None."""
     for b in branches:
         text = repos.show_file(f"origin/{b}", f"jobs/{jid}.json")
         if text is not None:
@@ -113,7 +113,7 @@ def classify(waiting_jobs, seen, current):
         if jid not in seen:
             skipped.append((jid, "not viewed yet"))
         elif raw is None and seen[jid] == "":
-            skipped.append((jid, "its file is no longer on GitHub; review it again"))
+            skipped.append((jid, "its file is no longer in the queue; review it again"))
         elif seen[jid] != now:
             skipped.append((jid, "changed since you viewed it"))
         else:

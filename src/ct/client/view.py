@@ -56,7 +56,7 @@ def parse_when(text):
 
 def round_trip(res, received=None):
     """(total, waited, ran, back) in seconds for a finished job: from the client sending it to the client having its result in hand, and where the time went:
-    waiting to be picked up (and approved), running, and the result coming back (the worker publishing it to GitHub and this computer fetching it). `received` is the
+    waiting to be picked up (and approved), running, and the result coming back (the worker publishing it and this computer fetching it). `received` is the
     moment of seeing it; it defaults to now. Without it there is no honest end to the trip, so `back` is None and the total stops at the worker's publish time.
     None when the result does not say when it was sent (an older result) or never started. Never negative: two clocks differ."""
     sent, started, done = parse_when(res.get("created")), parse_when(res.get("started")), parse_when(res.get("finished"))
@@ -71,11 +71,12 @@ def round_trip(res, received=None):
 def trip_rows(trip, label=str):
     """The round trip as four labelled rows, so each part reads on its own line."""
     total, waited, ran, back, noticed = trip
-    wait_rows = ([(label("noticing"), f"{human_dur(noticed)}  until the worker's next look at GitHub found it"),
+    store = STORE["name"]
+    wait_rows = ([(label("noticing"), f"{human_dur(noticed)}  until the worker's next look {'at' if store == 'GitHub' else 'in'} {store} found it"),
                   (label("starting"), f"{human_dur(waited - noticed)}  your approval, a free slot, and the next start pass")] if noticed is not None
                  else [(label("waiting"), f"{human_dur(waited)}  until the worker started it (noticing it, and your approval)")])
     return [(label("total"), f"{human_dur(total)}  from sending the job to having its result here")] + wait_rows + [
-        (label("running"), f"{human_dur(ran)}  on the worker"), (label("coming back"), f"{human_dur(back)}  the result published to GitHub and fetched here")]
+        (label("running"), f"{human_dur(ran)}  on the worker"), (label("coming back"), f"{human_dur(back)}  the result published to {store} and fetched here")]
 
 
 # ---- one result ----
@@ -264,14 +265,16 @@ def render_classes(info, pending=(), excluded=0, out=None, product="the worker")
 
 
 # ---- waiting for a result ----
+STORE = {"name": "GitHub"}                  # what jobs and results pass through, in the words of a message (set with the pace, see set_pace)
 PACE = {"idle": 90, "sleep": 300}          # how often a worker checks while idle / asleep; set from the configuration (see set_pace)
 
 
-def set_pace(schedule, direct=False):
+def set_pace(schedule, direct=False, store=None):
     """Take the worker's polling pace from the configuration, so what a person is told to expect is what the worker does."""
     PACE.update(idle=int(schedule.idle_fetch_s) or 5, sleep=int(schedule.sleep_fetch_s) or int(schedule.idle_fetch_s) or 5)
     if direct:                                                      # a Direct worker does not slow down when idle (see Settings in ct.cli)
         PACE.update(idle=5, sleep=5)
+    STORE["name"] = store or ("the mailbox" if direct else "GitHub")        # what the worker and this computer pass jobs and results through, for the words of a message
 
 
 def pace_text():

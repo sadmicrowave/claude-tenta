@@ -1,0 +1,26 @@
+#!/bin/sh
+# What is worth running for what changed since a base (default HEAD, plus uncommitted and new files): unit modules, probes, e2e routes.
+#   scripts/test-plan                 print the plan and the commands
+#   scripts/test-plan origin/main     against another base
+# Prints; runs nothing. The final gate before a push is still the FULL unit suite.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT" || exit 1
+CHANGED=$( (git diff --name-only "${1:-HEAD}"; git ls-files --others --exclude-standard) | sort -u) || exit 1
+export CHANGED
+exec "${CT_PY:-$HOME/.ct-venv/bin/python}" -I - "$ROOT" <<'PYEOF'
+import os
+import sys
+sys.path.insert(0, sys.argv[1] + "/tests")
+import impact
+changed = [c for c in os.environ["CHANGED"].splitlines() if c and os.path.exists(os.path.join(sys.argv[1], c))]      # a deleted file has nothing left to test
+p = impact.plan(changed)
+print(f"{len(changed)} changed files")
+if p["unmapped"]:
+    print("NOT IN tests/impact.py (so everything is planned): " + ", ".join(p["unmapped"]))
+print("\nunit (scoped, fast):")
+print("  scripts/t --snapshot " + " ".join(p["unit"]) if p["unit"] else "  none named; the full suite is still the gate")
+print("\nprobes (seconds each, in a container):")
+print("  " + ("; ".join(f"scripts/probe {x}" for x in p["probes"]) if p["probes"] else "none"))
+print("\ne2e routes (minutes; only for what a unit test and a probe cannot show):")
+print("  " + (f"scripts/e2e-routes {' '.join(p['routes'])}" if p["routes"] else "none"))
+PYEOF
