@@ -64,3 +64,13 @@ If a mix ever caused a conflict the design could not absorb, the fallback is a n
 4. **Registry settings.** Signed per-class preferences and dedicated workers; `ct-admin` commands to set them.
 5. **Submit and batches.** `ct-run submit` places a batch on one worker; the explanation is printed with the "queued" card.
 6. **Comparison command.** `ct-admin workers` shows the reasoning column; the route-by-tier matrix gets rows for each route (one worker busy, one offline, mixed connections, laptop off the home network).
+
+## A journey the tests must cover (added 2026-11-18)
+
+**Move one registered worker to another connection and back, after the multi-worker environment is established** (for example the worker on GitHub to Direct and back to GitHub, while the others stay as they are). What it must prove:
+- the other workers, their configurations and the scheduler's view of them do not change (the `add-worker` fingerprint rule, applied to a move);
+- jobs already queued or running on that worker finish and are read back across the move, and no job is sent twice or lost;
+- the scheduler's reading of that worker (connection, pick-up time, reachability) follows the move on the next look, with no restart;
+- the host's job cap and the "where it answered" memory (`last-seen.json`) still hold for it;
+- the same move works in both directions, and a second move right after the first.
+Cells: unit (the real command with only the machines faked, two workers in one `workers.toml`), then the two real machines by hand.
