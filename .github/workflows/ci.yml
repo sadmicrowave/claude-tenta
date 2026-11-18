@@ -21,8 +21,7 @@ jobs:
         os: [ubuntu-24.04]
         python: ["3.11", "3.12", "3.13"]
         include:
-          - {os: macos-latest, python: "3.11"}
-          - {os: macos-latest, python: "3.13"}
+          - {os: macos-latest, python: "3.13"}          # one macOS job: GitHub's macOS runners are often over capacity, and a second one only ever queued (3.11 passed there once, on the first run)
     steps:
       - uses: actions/checkout@v5
         with:
