@@ -42,6 +42,7 @@ ROLES = {
     "brand": "the logo",
     "brand_dim": "the logo's shadow",
     "quiet": "the logo's subtitle",
+    "code": "a command or name written exactly as typed, inside a sentence (`ct-setup install`): a filled background, so it is never lost in the text around it",
 }
 
 THEMES = {
@@ -55,6 +56,7 @@ THEMES = {
         "root": "38;5;207", "root_chip": "48;5;127;38;5;255;1",
         "info": "38;2;173;98;152", "neutral_chip": "48;5;240;38;5;255;1", "wait_chip": "48;5;220;38;5;16;1",
         "brand": "38;5;80", "brand_dim": "38;5;37", "quiet": "38;5;245",
+        "code": "48;5;236;38;5;120",
     },
     "light": {                                              # for a white terminal: darker, no pale tones
         "strong": "1", "label": "38;5;25", "prompt": "38;5;130", "muted": "38;5;241", "italic": "3",
@@ -66,8 +68,9 @@ THEMES = {
         "root": "38;5;90", "root_chip": "48;5;90;38;5;255;1",
         "info": "38;2;120;30;98", "neutral_chip": "48;5;250;38;5;16;1", "wait_chip": "48;5;179;38;5;16;1",
         "brand": "38;5;30", "brand_dim": "38;5;37", "quiet": "38;5;244",
+        "code": "48;5;254;38;5;22",
     },
-    "mono": {r: ("1" if r in ("strong", "label", "prompt", "primary", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") else "")
+    "mono": {r: ("1" if r in ("strong", "label", "prompt", "primary", "ok", "bad", "warn", "root") else "2" if r in ("muted", "quiet", "brand_dim") else "7" if r.endswith("_chip") or r == "code" else "")
              for r in ROLES},
 }
 CODE_RE = re.compile(r"^[0-9]{1,3}(;[0-9]{1,3}){0,15}$")

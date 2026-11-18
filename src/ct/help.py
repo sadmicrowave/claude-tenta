@@ -5,6 +5,7 @@ from . import cards, ui
 
 SECTIONS = [
     ("Set up", "run once", [("ct-setup install", "everything, from your computer: both sides, the deploy keys, a first job"),
+                            ("ct-setup add-worker [address]", "find another computer on your network, check it, and set it up as one more worker; your other installs are not touched"),
                             ("ct-setup client", "set up your computer: config, SSH key login, the two private repositories"),
                             ("ct-setup server", "turn a clean Ubuntu or Debian machine into a worker (run as root on it)"),
                             ("ct-setup audit", "check a server against its configuration, read-only"),

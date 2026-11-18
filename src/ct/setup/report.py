@@ -69,10 +69,11 @@ class Styler:
     def note(self, status, step, detail=""):
         if not self.styled:
             return f"  {status.upper():<9} {step}" + (f"  ({detail})" if detail else "")
-        lead = self.p(status.upper().ljust(self.WIDTH), BOLD, status_color(status))
+        width = max(self.WIDTH, len(status) + 1)                      # a label as long as the column ("BOOTSTRAPPED") still gets its space before the step
+        lead = self.p(status.upper().ljust(width), BOLD, status_color(status))
         if not detail:
-            return "\n".join(self.wrapped(lead, step, self.WIDTH, dim=False))
-        return "\n".join(self.wrapped(lead + step + "  ", detail, self.WIDTH + len(step) + 2))       # the detail starts right after the step, and wraps under itself
+            return "\n".join(self.wrapped(lead, step, width, dim=False))
+        return "\n".join(self.wrapped(lead + step + "  ", detail, width + len(step) + 2))       # the detail starts right after the step, and wraps under itself
 
     def cmd(self, text):
         """A raw command the setup runs: shown in a plain log, hidden on a terminal unless --verbose (the cards and --dry-run already show what will happen)."""

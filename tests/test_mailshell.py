@@ -41,6 +41,29 @@ class Main(unittest.TestCase):
             ex.assert_not_called()
 
 
+class GitIsToldTheRepositoryIsMeant(unittest.TestCase):
+    def test_git_is_given_exactly_the_repository_it_serves_as_trusted_for_this_one_command(self):
+        """Found on a real machine: the results repository belongs to the worker, so git refused to serve it to the mailbox account ('dubious ownership')."""
+        cfg = mock.Mock()
+        cfg.path.return_value = "/var/lib/x-mail"
+        with mock.patch("ct.config.load", return_value=cfg), mock.patch.object(os, "execve") as ex, mock.patch.object(os, "execv", side_effect=AssertionError("the old exec, with the whole environment")):
+            mailshell.main(environ={"SSH_ORIGINAL_COMMAND": f"git-upload-pack '{R}'"})
+        (program, argv, env), _ = ex.call_args
+        self.assertEqual(argv, ["git-upload-pack", R])
+        self.assertEqual((env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]), ("1", "safe.directory", R))
+        self.assertEqual(sorted(env), ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "PATH"])        # nothing else of the environment goes on
+
+    def test_a_real_git_serves_a_repository_owned_by_another_account_when_told_so(self):
+        """The behaviour itself, with the real git: refused without the setting, served with it (skipped where git has no ownership check, or the test runs as the owner's own account)."""
+        import subprocess
+        import tempfile
+        d = tempfile.mkdtemp()
+        subprocess.run(["git", "init", "-q", "--bare", d + "/r.git"], check=True)
+        env = {"PATH": "/usr/bin:/bin:/usr/local/bin", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": d + "/r.git"}
+        r = subprocess.run(["git", "upload-pack", "--advertise-refs", d + "/r.git"], capture_output=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class TheInstalledWrapper(unittest.TestCase):
     def test_the_command_the_client_sent_survives_the_wrapper_s_clean_environment(self):
         """Found on a real machine: `env -i` dropped SSH_ORIGINAL_COMMAND, so every clone was refused. Run the real wrapper and see the command arrive."""

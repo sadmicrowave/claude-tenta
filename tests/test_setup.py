@@ -4,6 +4,7 @@ import os
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr
 from pathlib import Path
 
@@ -288,6 +289,38 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("apt-get install -y bubblewrap", steps)
         self.assertIn("not installed", mod.check(h2, self.cfg).detail)
 
+    def test_on_ubuntu_24_04_with_the_restriction_on_bubblewrap_gets_an_apparmor_profile(self):
+        """Found on a real Ubuntu 24.04 machine: 'bwrap: loopback: Failed RTM_NEWADDR' with the restriction on and no profile for bubblewrap, so no job could ever run (container test machines have no AppArmor)."""
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.put("/usr/bin/bwrap", "")
+        h.put("/etc/apparmor.d/abi/4.0", "")
+        h.replies["sysctl -n kernel.apparmor_restrict_unprivileged_userns"] = Result(0, "1\n")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        h.replies["runuser"] = Result(1, "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n")
+        h.env["TOOLS"] = "git ssh gh bwrap apparmor_parser"
+        c = mod.check(h, self.cfg)
+        self.assertFalse(c.ok)
+        acts = mod.plan(h, self.cfg)
+        writes = [a for a in acts if a.kind == "write"]
+        self.assertEqual([a.path for a in writes], ["/etc/apparmor.d/ct-bwrap"])
+        for needle in ("profile ct-bwrap /bin/bwrap flags=(unconfined)", "userns,", "abi <abi/4.0>"):
+            self.assertIn(needle, writes[0].text)
+        self.assertIn("apparmor_parser -r /etc/apparmor.d/ct-bwrap", [a.show() for a in acts])
+        h.put("/etc/apparmor.d/ct-bwrap", "# there")
+        self.assertTrue(any(a.kind == "remove" and a.path == "/etc/apparmor.d/ct-bwrap" for a in mod.revert(h, self.cfg)))
+
+    def test_where_the_profile_is_already_there_or_apparmor_is_absent_nothing_is_written(self):
+        mod, h = hardening.MODULES["job-isolation"], self.h
+        h.put("/usr/bin/bwrap", "")
+        h.replies["sysctl -n kernel.apparmor_restrict_unprivileged_userns"] = Result(0, "1\n")
+        h.replies["runuser"] = Result(1, "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n")
+        h.replies["stat -c %a"] = Result(0, "755\n")
+        self.assertEqual([a for a in mod.plan(h, self.cfg) if a.kind == "write"], [])          # Debian, or a system without AppArmor 4: no abi file, no parser
+        h.put("/etc/apparmor.d/abi/4.0", "")
+        h.put("/etc/apparmor.d/ct-bwrap", "# there")
+        h.env["TOOLS"] = "git ssh gh bwrap apparmor_parser"
+        self.assertEqual([a for a in mod.plan(h, self.cfg) if a.kind == "write"], [])
+
     def test_job_isolation_reports_a_jail_that_cannot_be_built(self):
         mod, h = hardening.MODULES["job-isolation"], self.h
         h.put("/usr/bin/bwrap", "")
@@ -328,6 +361,13 @@ class ServerTests(unittest.TestCase):
         return src
 
     def setup_obj(self, **kw):
+        # A fake machine cannot change its own state, so every protection "is applied, but the check still fails" here. That used to be tolerated and is now fatal (a failed protection stops the setup),
+        # so the tests that are about something else see a protection that worked. The tests about the failure itself patch run_module again and say what they want.
+        real_run = hardening.run_module
+        tolerant = lambda mod, *a, **k: (("applied",) + tuple(real_run(mod, *a, **k)[1:])) if real_run(mod, *a, **k)[0] == "failed" else real_run(mod, *a, **k)      # noqa: E731
+        patcher = mock.patch.object(hardening, "run_module", tolerant)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         given = {"server.admin_user": "me", "github.owner": "someone", **kw.pop("given", {})}
         return server.ServerSetup(self.h, self.src, say=self.said.append, given=given, use_defaults=True, rev="a" * 40, is_root=lambda: True,
                                   systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0,
@@ -402,8 +442,8 @@ class ServerTests(unittest.TestCase):
         s = self.setup_obj(dry_run=False, given={"transport.kind": "direct"})
         s.run_all()
         ran = self.h.ran
-        self.assertTrue(ran("git -c safe.directory=* -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/remotes/origin/*:refs/heads/*"))
-        self.assertTrue(ran("git -c safe.directory=* -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/heads/*:refs/heads/*"))
+        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/remotes/origin/*:refs/heads/*")])
+        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/heads/*:refs/heads/*")])
         self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url origin /var/lib/claude-tenta-mail/queue.git"))
         self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/results remote set-url origin /var/lib/claude-tenta-mail/results.git"))
         self.assertFalse(ran("git clone"))                                                                            # nothing is cloned again
@@ -416,7 +456,7 @@ class ServerTests(unittest.TestCase):
         self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/results.git\n")
         self.setup_obj(dry_run=False, given={"transport.kind": "direct"}).run_all()
         self.assertFalse(self.h.ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url"))
-        self.assertFalse(self.h.ran("git -c safe.directory=*"))
+        self.assertFalse([c for c in self.h.calls if c[:2] == ["sh", "-c"] and "GIT_CONFIG_GLOBAL" in " ".join(c)])
 
     def test_a_github_install_has_no_mailbox_and_no_mail_shell(self):
         s = self.setup_obj(dry_run=False)
@@ -462,6 +502,27 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-step.timer"))
         self.assertTrue(self.h.exists("/etc/claude-tenta/hardening.json"))
         self.assertEqual([c for c in self.h.calls if c[:2] == ["systemctl", "enable"] and "update.timer" in " ".join(c)], [])
+
+    def test_a_failed_protection_stops_the_setup_before_the_job_loop_is_started(self):
+        """Seen on a real machine: job isolation failed and the setup went on to start the timers and send a first job anyway."""
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True)
+        real = hardening.run_module
+        with mock.patch.object(hardening, "run_module", lambda mod, *a, **k: ("failed", "a test jail could not be created: bwrap: loopback: Failed RTM_NEWADDR") if mod.id == "job-isolation" else real(mod, *a, **k)):
+            with self.assertRaises(server.SetupError) as e:
+                s.run_all()
+        self.assertIn("not started", e.exception.title)
+        self.assertIn("Failed RTM_NEWADDR", e.exception.why)                                     # the machine's own message is kept
+        for part in ("fetch", "step", "registry-sync"):
+            self.assertEqual(self.h.ran(f"systemctl enable --now claude-tenta-{part}.timer"), [], part)      # the job loop was not started (the canary watch belongs to the tripwire protection, not to it)
+        self.assertTrue(self.h.ran("systemctl disable --now claude-tenta-fetch.timer"))          # and one a first run left behind is stopped
+        self.assertTrue(self.h.ran("systemctl disable --now claude-tenta-step.timer"))
+
+    def test_a_blocked_protection_does_not_stop_the_setup_but_a_failed_one_does(self):
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True)
+        real = hardening.run_module
+        with mock.patch.object(hardening, "run_module", lambda mod, *a, **k: ("blocked", "this machine has no kernel audit") if mod.id == "auditd-canaries" else real(mod, *a, **k)):
+            s.run_all()
+        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))
 
     def test_the_registry_is_installed_after_the_clones_and_before_hardening(self):
         order = []

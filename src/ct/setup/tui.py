@@ -28,7 +28,7 @@ DOT = "•"
 BRAND = "@claude-tenta"
 
 SECTIONS = {"identity": "INSTALL", "server": "SERVER", "transport": "CONNECTION", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
-            "access": "ACCESS", "alerts": "ALERTS", "claude": "CLAUDE", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS"}
+            "access": "ACCESS", "alerts": "ALERTS", "claude": "CLAUDE", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS", "worker": "NEW WORKER"}
 
 
 def strip(text):
@@ -215,10 +215,24 @@ class TuiPrompter:
         self.out.write(text)
         self.out.flush()
 
+    def inline(self, lines, base=None):
+        """`code` spans in the code colour, the rest in `base` (plain text when colour is off)."""
+        from .. import cards
+        return cards.inline(lines, base) if self.color else list(lines)
+
+    @property
+    def cols(self):
+        """The real width of the terminal (not the capped width the screens are drawn to): a line longer than this takes more than one screen row."""
+        return max(20, self._width or shutil.get_terminal_size((80, 24)).columns)
+
+    def vrows(self, line):
+        """How many screen rows one printed line takes: a line wider than the terminal wraps onto more (seen: an error message wrapped, the redraw counted one row, and every key press left a line behind)."""
+        return max(1, -(-len(strip(line)) // self.cols))
+
     def emit(self, lines):
         for line in lines:
             self.write(line + "\n")
-        self.row += len(lines)
+        self.row += sum(self.vrows(line) for line in lines)
 
     def erase(self):
         """Erase everything drawn since the block began, leaving the cursor where it started."""
@@ -352,17 +366,60 @@ class TuiPrompter:
         parts = ([("↑", "back")] if can_back else []) + [("Enter", "next")] + ([("Tab", "completes")] if options else []) + [("Ctrl-C", "stop")]
         return self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in parts))
 
-    def choice_lines(self, q, current):
+    def choice_lines(self, q, current, start=0, count=None):
         rows, width = q["choices"], self.width - 4
         name_w = max(len(v) for v, _ in rows)
         out = []
-        for n, (value, desc) in enumerate(rows, 1):
+        for n, (value, desc) in enumerate(rows[start:start + count] if count else rows, start + 1):
             on = value == current
             lead = "  " + self.sgr("▸ " if on else "  ", GREEN) + self.sgr(f"{n} ", DIM) + (self.sgr(value.ljust(name_w), BOLD) if on else value.ljust(name_w)) + "  "
             lines = textwrap.wrap(desc, max(20, width - name_w - 10)) or [""]
             out.append(self.rail(lead + self.sgr(lines[0], DIM)))
             out += [self.rail(" " * (name_w + 8) + self.sgr(line, DIM)) for line in lines[1:]]
         return out
+
+    def select(self, q, default=""):
+        """A list to choose from with the arrow keys: up and down move the highlight, Enter takes it, a number jumps to that row (two digits for a long list), Ctrl-C stops. Used where
+        the answer is one of a list and nothing is typed (the text questions keep their own keys: there down means "accept" and up means "back"). A long list shows only the rows that fit
+        and scrolls, so the block is never taller than the screen. Returns ('answer', the chosen value)."""
+        rows_all = q["choices"]
+        idx = next((i for i, (v, _) in enumerate(rows_all) if v == default), 0)
+        typed = ""
+        room = max(3, self.rows - 12)                              # rows left for the list after the title, the text and the key line
+        w = self.width - 4
+        section = SECTIONS.get(q["key"].partition(".")[0], "SETUP")
+        with self.listening():
+            while True:
+                self.erase()
+                start = min(max(0, idx - room // 2), max(0, len(rows_all) - room))
+                above, below = start, max(0, len(rows_all) - start - room)
+                head = [self.rail(self.sgr(f" {section} ", BLUE_CHIP)), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
+                head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)] + [self.rail()]
+                if above:
+                    head.append(self.rail(self.sgr(f"  ▲ {above} more above", DIM)))
+                head += self.choice_lines(q, rows_all[idx][0], start, room)
+                if below:
+                    head.append(self.rail(self.sgr(f"  ▼ {below} more below", DIM)))
+                head += [self.rail(), self.rail(self.sgr("↑ ↓ choose  ·  Enter select  ·  number jumps to a row  ·  Ctrl-C stop", DIM))]
+                self.emit(head)
+                ev = self.event()
+                if ev == "up":
+                    idx, typed = max(0, idx - 1), ""
+                elif ev == "down":
+                    idx, typed = min(len(rows_all) - 1, idx + 1), ""
+                elif ev == "enter":
+                    self.erase()
+                    return ("answer", rows_all[idx][0])
+                elif ev == "ctrl-c":
+                    self.erase()
+                    raise KeyboardInterrupt
+                elif isinstance(ev, str) and len(ev) == 1 and ev.isdigit():
+                    typed = (typed + ev)[-2:]
+                    if 1 <= int(typed) <= len(rows_all):
+                        idx = int(typed) - 1
+                    elif 1 <= int(ev) <= len(rows_all):
+                        idx, typed = int(ev) - 1, ev
+                # any other key does nothing: a stray key never answers, and never moves the screen
 
     # ---- a question ----
     def ask(self, q, default, options, problem=None, shown="", view=None):
@@ -377,7 +434,7 @@ class TuiPrompter:
         head = [] if bare else [self.progress(pos, total), ""]
         head += self.answered_lines(items) + ([self.rail()] if items else [])
         head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + ("" if bare else self.sgr(f"  {pos + 1} of {total}", DIM))), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
-        head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)]
+        head += [self.rail(line) for line in self.inline(textwrap.wrap(q["why"], w), DIM)]
         if q.get("risk"):
             head += [self.rail()] + self.labelled("RISK", AMBER, q["risk"])
         if q.get("choices"):
@@ -385,13 +442,15 @@ class TuiPrompter:
         elif q.get("examples"):
             head += [self.rail()] + self.labelled("EXAMPLES", "label", "  ·  ".join(q["examples"]))
         if problem:
-            head += [self.rail(), self.rail(self.sgr("That did not work: " + problem, RED))]
+            head += [self.rail()] + [self.rail(line) for line in self.inline(textwrap.wrap("That did not work: " + problem, w), RED)]
         head.append(self.rail())
-        hint = ("Enter keeps: " + shown) if shown else ("this one needs an answer" if q.get("required") else "Enter leaves it empty")
+        shown_fit = shown if len(shown) <= w - 16 else shown[:w - 17] + "…"          # a long default must not wrap the hint onto a second row
+        hint = ("Enter keeps: " + shown_fit) if shown else ("this one needs an answer" if q.get("required") else "Enter leaves it empty")
         tail = [self.rail(self.sgr("─" * min(44, w), DIM)), self.rail(self.sgr(hint, DIM)), self.controls(can_back, options), ]
         self.emit(head + [self.rail()] + tail)             # the empty rail line is where the answer is typed; the underline, hint and keys sit below it
-        self.write(f"\x1b[{len(tail) + 1}A\r")
-        self.row -= len(tail) + 1
+        below = sum(self.vrows(line) for line in tail) + 1      # screen rows (a wrapped hint is more than one) from the typing line to the cursor
+        self.write(f"\x1b[{below}A\r")
+        self.row -= below
         editor = Editor(prefill, secret=bool(q.get("secret")), options=options)
         with self.listening():
             self.draw_input(editor, shown if not q.get("secret") else "")

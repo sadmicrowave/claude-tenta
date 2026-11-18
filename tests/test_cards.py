@@ -136,6 +136,41 @@ class YesNoPrompt(unittest.TestCase):
                 self.assertNotIn("[y/N]", f.read_text(), f"{f.name}: use ui.confirm_prompt")
 
 
+class InlineCode(unittest.TestCase):
+    """A command written inside a sentence is not lost in the text around it: it gets its own background. (Asked for after a card said 'run `ct-setup install` again' and it read as plain prose.)"""
+    CODE = theme.code("code")
+
+    def test_only_the_span_between_backticks_is_in_the_code_colour(self):
+        (line,) = cards.inline(["Run `ct-setup install` now"], "muted")
+        self.assertEqual(ANSI.sub("", line), "Run `ct-setup install` now")                       # the same words, backticks kept, so colour-off output still shows what is code
+        self.assertIn(theme.sgr("`ct-setup install`", "code"), line)
+        self.assertIn(theme.sgr("Run ", "muted"), line)                                       # the words around it keep the text colour
+        self.assertIn(theme.sgr(" now", "muted"), line)
+        self.assertEqual(line.count(self.CODE), 1)
+
+    def test_a_span_that_runs_over_a_line_break_is_in_the_code_colour_on_both_lines(self):
+        lines = cards.inline(["Run `ssh -t agent@h 'sudo systemctl", "disable --now x' ` then stop"], None)
+        self.assertIn(self.CODE, lines[0])
+        self.assertIn(self.CODE, lines[1])
+        self.assertEqual(ANSI.sub("", "".join(lines)), "Run `ssh -t agent@h 'sudo systemctldisable --now x' ` then stop")
+
+    def test_text_without_backticks_is_untouched_and_an_unclosed_one_does_not_break_anything(self):
+        self.assertEqual(cards.inline(["plain words"], None), ["plain words"])
+        (line,) = cards.inline(["a stray ` backtick"], None)
+        self.assertEqual(ANSI.sub("", line), "a stray ` backtick")
+
+    def test_cards_style_code_in_notes_facts_and_steps(self):
+        lines = cards.card("Stopped", ["Run `ct-setup install` again", ("Why", "Use `git config` here")], tag="ERROR", color="bad", steps=["Then `ct-admin status`"], cols=100)
+        text = "\n".join(lines)
+        for span in ("`ct-setup install`", "`git config`", "`ct-admin status`"):
+            self.assertIn(theme.sgr(span, "code"), text, span)
+
+    def test_every_theme_gives_code_a_background(self):
+        for name in ("default", "light"):
+            self.assertIn("48;", theme.THEMES[name]["code"], name)
+        self.assertIn("code", theme.ROLES)
+
+
 if __name__ == "__main__":
     unittest.main()
 

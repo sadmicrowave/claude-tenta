@@ -27,9 +27,10 @@ SEED_REGISTRY = ("# YOUR job classes, added with `ct-admin adopt` after you test
 
 class ClientSetup:
     def __init__(self, host, home, *, ask=None, say=None, dry_run=True, given=None, use_defaults=False, repos_factory=None,
-                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None, styled=False, verbose=False):
+                 queue_key=None, results_key=None, ui=None, advanced=False, confirm_card=None, scripts_dir="auto", interactive=None, styled=False, verbose=False, config_path=None, targeted=False):
         say = say or _sink()
         self.host, self.home = host, Path(home)
+        self.config_override, self.targeted = config_path, targeted          # targeted: one more worker; its own configuration file, nothing of this computer's other installs is touched
         self.ask, self.say, self.dry_run, self.given, self.use_defaults = ask, say, dry_run, given or {}, use_defaults
         self.repos_factory, self.queue_key, self.results_key, self.ui = repos_factory, queue_key, results_key, ui
         self.advanced = advanced
@@ -100,6 +101,8 @@ class ClientSetup:
             self.say(self.r.head(text))
 
     def config_path(self):
+        if self.config_override:
+            return str(self.config_override)
         return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-tenta" / "ct.toml")
 
     def ssh_login(self):
@@ -146,7 +149,7 @@ class ClientSetup:
                      f"add the {which} deploy key")
             self.note(f"{which} deploy key", "planned" if self.dry_run else "added", "read and write" if rw else "read-only")
 
-    def clone_and_seed(self):
+    def clone_and_seed(self, strict=False):
         if self.dry_run:
             self.note("clone and seed the registry", "planned")
             return
@@ -155,7 +158,10 @@ class ClientSetup:
             for what, path in repos.clone_all(self.cfg.paths.client_home):
                 self.note(f"clone: {Path(path).name}", what)
         except Exception as e:                          # a ClientError: the repositories are not there yet
-            self.note("clone", "waiting", getattr(e, "why", None) or str(e))
+            why = getattr(e, "why", None) or str(e)
+            self.note("clone", "waiting", why)
+            if strict:                                   # Direct: the mailbox is already made, so nothing is "yet to come": this computer cannot read it
+                raise SetupError("This computer cannot read the worker's mailbox", why, list(getattr(e, "steps", None) or []) or ["Run ct-setup install again once the cause above is fixed."])
             return
         repos.fetch_queue()
         if repos.remote_branch_exists(self.cfg.github.main_branch):
@@ -289,7 +295,10 @@ class ClientSetup:
         self._sub("Approval key")
         self.approval_key()
         self._sub("Commands on your PATH")
-        self.commands_on_path()
+        if self.targeted:
+            self.note("commands on your PATH", "ok", "already set up by the first install; left as they are")
+        else:
+            self.commands_on_path()
         if self.direct:
             self._sub("Mailbox key")
             self.mailbox_key()
@@ -308,5 +317,5 @@ class ClientSetup:
     def finish_direct(self):
         """Direct: after the worker made its mailbox, clone the two repositories over SSH and seed the registry."""
         self._sub("Clones and registry")
-        self.clone_and_seed()
+        self.clone_and_seed(strict=True)
         return self.report

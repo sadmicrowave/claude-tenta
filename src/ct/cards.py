@@ -55,6 +55,30 @@ def width(stream=None, cols=None):
     return max(50, min(cols, 100))
 
 
+def inline(lines, base=None):
+    """Lines of one paragraph with every `code` span shown in the code role (a filled background) and the rest in `base`. A span may run over a line break. The backticks stay, inside the
+    coloured span, so the same text still reads as code where colour is off."""
+    out, in_code = [], False
+    for line in lines:
+        res, buf = [], ""
+
+        def flush(text, role):
+            if text:
+                res.append(theme.sgr(text, role) if role else text)
+        for ch in line:
+            if ch == "`" and not in_code:
+                flush(buf, base)
+                buf, in_code = "`", True
+            elif ch == "`":
+                flush(buf + "`", "code")
+                buf, in_code = "", False
+            else:
+                buf += ch
+        flush(buf, "code" if in_code else base)
+        out.append("".join(res))
+    return out
+
+
 def role_for(color):
     """The role a message's colour stands for; an unknown one reads as plain information."""
     return ROLE_OF.get(color, "primary")
@@ -113,7 +137,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         if kind == "blank":
             out.append(row())
         elif kind == "note":
-            out += [row(p(t, "muted")) for t in wrap(item, inner)]
+            out += [row(t) for t in inline(wrap(item, inner), "muted")]
         elif kind == "head":
             out.append(row(p(item.upper(), role if framed else "label")))
         elif kind == "raw":
@@ -125,11 +149,11 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "fact":
-            first, *rest = wrap(item[1], fact_room)
+            first, *rest = inline(wrap(item[1], fact_room))
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "step":
-            first, *rest = wrap(item, inner - 4)
+            first, *rest = inline(wrap(item, inner - 4))
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
         out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]

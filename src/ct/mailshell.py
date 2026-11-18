@@ -36,7 +36,10 @@ def main(argv=None, environ=None):
     if argv is None:
         sys.stderr.write("This account can only fetch from the queue and results repositories and push to the queue.\n")       # output: log (git's own client prints it)
         return 1
-    os.execv("/usr/bin/" + argv[0] if os.path.exists("/usr/bin/" + argv[0]) else "/usr/lib/git-core/" + argv[0], argv)
+    # The results repository belongs to the worker account, so git (2.35.2 and newer) refuses to serve it to this one ("detected dubious ownership") unless told it is meant. Said for exactly this
+    # repository, for this one command, and nowhere else (found on a real machine: the test machines had trusted every repository for another reason, which hid it).
+    env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": argv[1]}
+    os.execve("/usr/bin/" + argv[0] if os.path.exists("/usr/bin/" + argv[0]) else "/usr/lib/git-core/" + argv[0], argv, env)
 
 
 if __name__ == "__main__":

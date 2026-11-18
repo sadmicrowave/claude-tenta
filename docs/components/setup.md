@@ -189,3 +189,22 @@ Stopping an install, or running it again without uninstalling, never starts from
   cleanly. The two that could lock you out (`ssh-keys-only`, `ufw-lan-egress`) are marked "could lock you out"; the rest say "recommended". The frame is erased when you decide, and the result is printed as the usual one-line status.
 - **No library.** Plain ANSI sequences (cursor up, erase to the end of the screen), and the keys are read in cbreak mode with bracketed paste turned on while a screen is up.
 - **Tested** with a small virtual terminal that obeys the same sequences, so the tests check what is actually on screen after each key, and by driving the real thing through a pseudo-terminal with typed answers, arrow keys, Tab and a bracketed paste.
+
+
+### Adding another worker: `ct-setup add-worker`
+
+`ct-setup add-worker [address] [--user U] [--worker-name N] [--yes] [--dry-run]` (`src/ct/setup/addworker.py`, `discover.py`, `assess.py`). It does not reinstall anything you have.
+
+1. **Scan.** Without an address it looks at this computer's own private networks (at most a /22 each) for machines that answer on the SSH port, and says how many it found and what the network alone shows: address, name (from Bonjour when the machine announces one), what its SSH greeting says it runs, its network card's maker, the delay. Nothing is logged in to.
+2. **Pick.** A numbered choice in the wizard's style; machines you already have are left out; "none of these" lets you type an address.
+3. **Check.** A card lists exactly what the check will look at and says it only reads; you answer yes or no. Then one SSH login with your key runs a fixed read-only script and a verdict card says whether the machine meets the requirements (Ubuntu 24.04 or newer, Debian 12 or newer, x86-64 or ARM64, Python 3.11, systemd, 1 GB of memory, 2 GB of disk, sudo for the account) and, for each failure, why and how to fix it. `--dry-run` stops here.
+4. **Set up.** If it meets them and you say yes, the ordinary install wizard runs for that one machine with its address filled in, and the worker is added to `workers.toml`.
+
+Targeted by construction: the worker gets its own configuration file (`<name>.toml` beside your main one) and its own folder (`~/.ct/workers/<name>`); the approval key is shared through a link, so one signature works for every worker; the commands on your PATH and your shell startup files are not touched; the first install's configuration, answers, clones and key are fingerprinted before and after, and any change is shown as a warning (`tests/test_addworker.py` runs the real installer and checks the same). Without a terminal, give the address and `--yes`.
+
+
+### Known problems, and what a failed setup does
+
+- **A failed protection stops the setup.** If any hardening step reports FAILED (it was applied, or there was nothing to apply, and its check still fails), the worker is not started: its job timers are turned off, nothing is sent to it, and the machine's own error text is shown with the steps. A protection that cannot work on this kind of machine at all (the tripwire on a container) is BLOCKED and only a warning. On Ubuntu 24.04 and newer with the user-namespace restriction on, job isolation gets a small AppArmor profile (`/etc/apparmor.d/ct-bwrap`) that lets bubblewrap, and only it, use user namespaces; without it no job can run (`loopback: Failed RTM_NEWADDR`).
+- **A Direct setup whose clones fail stops the job loop** (it asks for the sudo password again if the worker needs one, or prints the one command) and sends no first job.
+- **Each failure to clone from the worker is explained by its own cause** (`src/ct/clonediag.py`): git's "dubious ownership" (with the one command that fixes it), a refused key, a changed host key, an unreachable worker, a missing mailbox, an older mailbox shell. An unrecognised error gets the general list. The machine's real error text is always kept.

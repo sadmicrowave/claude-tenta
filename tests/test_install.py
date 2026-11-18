@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from support import RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
@@ -68,6 +69,10 @@ class FakeSsh:
         if remote.startswith("env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="):
             return subprocess.CompletedProcess(remote, 0, "PREVIEW OUTPUT\n", "")
         return subprocess.CompletedProcess(remote, 0, "", "")
+
+    def interactive(self, remote):
+        self.interactive_calls = getattr(self, "interactive_calls", []) + [remote]
+        return 0
 
     def send(self, remote, data):
         self.sent.append((remote, data))
@@ -140,6 +145,55 @@ class HappyPath(InstallBase):
         self.installer(given={"transport.kind": "direct"}).run_all()
         self.assertEqual(self.ran_local("gh repo deploy-key"), [])
         self.assertFalse([line for line in self.said if "deploy key" in line and "ERROR" in line], self.said)
+
+    def test_a_direct_setup_whose_clones_fail_stops_the_job_loop_says_the_real_reason_and_sends_no_first_job(self):
+        """Seen on a real machine: 'detected dubious ownership' on the mailbox, then eight retries of a first job against a computer that was not set up."""
+        class Dead(Exception):
+            why = "fatal: detected dubious ownership in repository at '/var/lib/tenta2-mail/results.git'"
+            steps = []
+        self.repos.clone_all = lambda home: (_ for _ in ()).throw(Dead("clone failed"))
+        with self.assertRaises(install.SetupError) as e:
+            self.installer(given={"transport.kind": "direct"}).run_all()
+        self.assertIn("cannot read the worker's mailbox", e.exception.title)
+        self.assertIn("dubious ownership", e.exception.why)                                         # the machine's own message
+        self.assertTrue([c for c in self.ssh.calls if "systemctl disable --now" in c and "fetch.timer" in c], self.ssh.calls)      # the worker's job loop was stopped
+        self.assertTrue(any("job loop was stopped" in step for step in e.exception.steps))
+        self.assertEqual(self.verified, [])                                                         # and no first job was attempted against it
+
+    def failed_clone(self, sudo_without_password, ask=None, tty=False):
+        class Dead(Exception):
+            why = "fatal: detected dubious ownership"
+            steps = ["the cause-specific step"]
+        self.repos.clone_all = lambda home: (_ for _ in ()).throw(Dead("clone failed"))
+        real = self.ssh.capture
+        self.ssh.capture = lambda remote: subprocess.CompletedProcess(remote, 0 if sudo_without_password else 1, "", "") if remote.startswith("sudo -n systemctl disable") else real(remote)
+        with mock.patch.object(sys.stdin, "isatty", return_value=tty):
+            with self.assertRaises(install.SetupError) as e:
+                inst = self.installer(given={"transport.kind": "direct"})
+                inst.ask = ask
+                inst.run_all()
+        return e.exception
+
+    def test_a_worker_whose_sudo_wants_a_password_is_stopped_only_after_asking_the_person(self):
+        """sudo remembers a password per terminal, so the setup's own cannot be reused for a second connection: the person is asked, and a yes runs the stop with a terminal."""
+        asked = []
+        e = self.failed_clone(False, ask=lambda prompt: asked.append(prompt) or "y", tty=True)
+        self.assertEqual(len(asked), 1)
+        self.assertIn("Stop it now?", asked[0])
+        self.assertTrue([c for c in getattr(self.ssh, "interactive_calls", []) if "sudo systemctl disable --now" in c and "fetch.timer" in c])
+        self.assertTrue(any("job loop was stopped" in step for step in e.steps))
+
+    def test_a_no_leaves_the_loop_running_and_says_the_one_command_in_code_style(self):
+        e = self.failed_clone(False, ask=lambda prompt: "n", tty=True)
+        self.assertEqual(getattr(self.ssh, "interactive_calls", []), [])
+        text = " ".join(e.steps)
+        self.assertIn("may still be running", text)
+        self.assertRegex(text, r"`ssh -t admin" + "@" + r"worker.example 'sudo systemctl disable --now [^`]*fetch.timer[^`]*'`")          # a single backtick span: shown as code
+
+    def test_without_a_terminal_nothing_is_asked_and_the_command_is_given(self):
+        e = self.failed_clone(False, ask=None, tty=False)
+        self.assertEqual(getattr(self.ssh, "interactive_calls", []), [])
+        self.assertIn("may still be running", " ".join(e.steps))
 
     def test_an_install_already_on_the_server_keeps_its_worker_account_even_when_the_saved_answers_do_not_say(self):
         self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'

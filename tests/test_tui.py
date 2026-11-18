@@ -15,8 +15,8 @@ from test_setup import FakeHost, cfg_of
 class Screen:
     """Enough of a terminal for the wizard: text, newline, carriage return, cursor up and right, erase line, erase to the end of the screen. Colour codes are ignored."""
 
-    def __init__(self):
-        self.lines, self.r, self.c = [""], 0, 0
+    def __init__(self, cols=None):
+        self.lines, self.r, self.c, self.cols = [""], 0, 0, cols          # cols: the terminal wraps a line that reaches the right edge onto the next row, as a real one does
 
     def feed(self, s):
         i = 0
@@ -45,6 +45,11 @@ class Screen:
                 while len(self.lines) <= self.r:
                     self.lines.append("")
             else:
+                if self.cols and self.c >= self.cols:
+                    self.r += 1
+                    self.c = 0
+                    while len(self.lines) <= self.r:
+                        self.lines.append("")
                 line = self.lines[self.r].ljust(self.c)
                 self.lines[self.r] = line[:self.c] + ch + line[self.c + 1:]
                 self.c += 1
@@ -55,9 +60,9 @@ class Screen:
 
 
 class Terminal(io.StringIO):
-    def __init__(self):
+    def __init__(self, cols=None):
         super().__init__()
-        self.screen = Screen()
+        self.screen = Screen(cols)
 
     def write(self, s):
         self.screen.feed(s)
@@ -72,8 +77,8 @@ def typed(*answers):
     return events
 
 
-def prompter(events=(), width=76, rows=40):
-    out = Terminal()
+def prompter(events=(), width=76, rows=40, cols=None):
+    out = Terminal(cols)
     return tui.TuiPrompter(out=out, width=width, rows=rows, keys=iter(events)), out
 
 
@@ -633,6 +638,50 @@ class Hardening(unittest.TestCase):
         self.assertTrue(hardening.MODULES["ssh-keys-only"].lockout)
         self.assertTrue(hardening.MODULES["ufw-lan-egress"].lockout)
         self.assertFalse(hardening.MODULES["unattended-upgrades"].lockout)
+
+
+class WrappedLines(unittest.TestCase):
+    """Seen on a real terminal: an error line longer than the terminal wrapped onto a second row, the redraw counted one, and every Enter or down arrow left the progress bar line behind.
+    Checked on a virtual terminal that wraps long lines the way a real one does."""
+    Q = {"key": "alerts.url", "title": "What is the alert address?", "why": "Paste it.", "examples": ["https://ntfy.sh/your-long-random-topic"], "required": False}
+    LONG = "must start with https:// and have no spaces or ?query (for example https://ntfy.sh/your-private-topic)"
+    VIEW = {"items": [], "pos": 5, "total": 7, "can_back": True, "prefill": ""}
+
+    def ask_again(self, times, cols=60, problem=LONG, shown=""):
+        p, out = prompter(["enter"] * times, width=cols, cols=cols)
+        for _ in range(times):
+            p.ask(self.Q, "", [], problem=problem, shown=shown, view=self.VIEW)
+        return p, out
+
+    def test_pressing_enter_on_an_error_again_and_again_leaves_exactly_one_progress_bar(self):
+        for times in (1, 2, 3, 6):
+            p, out = self.ask_again(times)
+            self.assertEqual(out.screen.text().count("5 of 7 done"), 1, f"{times} presses:\n" + out.screen.text())
+
+    def test_the_same_holds_at_any_terminal_width(self):
+        for cols in (61, 80, 100, 130):
+            p, out = self.ask_again(4, cols=cols)
+            self.assertEqual(out.screen.text().count("5 of 7 done"), 1, cols)
+            self.assertEqual(out.screen.text().count("What is the alert address?"), 1, cols)
+
+    def test_a_line_longer_than_the_terminal_counts_as_the_rows_it_takes(self):
+        p, out = prompter(["enter"], width=60, cols=60)
+        p.emit(["x" * 130, "short", ""])
+        self.assertEqual(p.row, 3 + 1 + 1)                         # 130 characters on a 60-column terminal are 3 rows, then the short line and the empty one
+
+    def test_the_error_message_is_wrapped_by_the_screen_and_a_long_default_does_not_wrap_the_hint(self):
+        long_default = "/var/lib/a/very/long/default/path/that/would/not/fit/on/one/line/at/all/for/sure"
+        p, out = self.ask_again(2, shown=long_default)
+        for line in out.screen.lines:
+            self.assertLessEqual(len(line.rstrip()), 60, line)
+        self.assertIn("That did not work:", out.screen.text())
+        self.assertIn("…", out.screen.text())
+
+    def test_the_old_one_row_count_would_have_failed_this(self):
+        """The property the old code broke, stated directly: after the block is erased nothing of it is left on screen."""
+        p, out = self.ask_again(3)
+        p.erase()
+        self.assertEqual(out.screen.text().strip(), "")
 
 
 if __name__ == "__main__":

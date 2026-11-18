@@ -1,7 +1,8 @@
-"""ct-setup install | uninstall | rename | transport | demo | client | server | audit | tripwire-test
+"""ct-setup install | add-worker | uninstall | rename | transport | demo | client | server | audit | tripwire-test
 
   client    set up your own computer: your config, SSH key login, the two private repositories, the registry
   server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  add-worker find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
   transport move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
   rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   audit     read-only: check a server against its configuration and report anything that drifted
@@ -61,7 +62,7 @@ def load_answers(path, sets):
 def build_parser():
     ap = argparse.ArgumentParser(prog="ct-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport", "add-worker"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -77,6 +78,9 @@ def build_parser():
         s.add_argument("--approver-file", help="the public key that may approve jobs from the administrator's computer (server only)")
         s.add_argument("--mailbox-key-file", help="the public key your computer uses for the Direct mailbox (server only)")
         s.add_argument("name", nargs="?", help="with rename: the new name")
+        s.add_argument("--user", help="with add-worker: the account to log in as on the new computer (default: your admin account)")
+        s.add_argument("--worker-name", help="with add-worker: the new worker's install name (default: made from its hostname)")
+        s.add_argument("--port", type=int, default=22, help="with add-worker: its SSH port")
         s.add_argument("--to", help="with rename --here (on the server): the new name")
         s.add_argument("--json", action="store_true", help="with rename --here: print the plan as JSON (the client half draws it)")
         s.add_argument("--no-sandbox-test", action="store_true", help="rename only: skip the check of the services' sandbox (a test machine whose systemd cannot enforce one; never on a real worker)")
@@ -230,6 +234,23 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                     emit("Moved on this machine", f"The worker now uses {run.to}.", tag="DONE", color=GREEN)
                 return 0
             return migrate.transport_command(a, host, ask, ssh_factory, say)
+        if a.cmd == "add-worker":
+            from . import addworker
+            from ..admin.ssh import Ssh
+            interactive = not a.yes and sys.stdin.isatty()
+            screen_ = tui.make(interactive=interactive)
+
+            from .install import flat as flat_answers
+            main = config.load()                                          # read NOW: once the install starts CT_CONFIG names the new worker's file, which does not exist yet
+            answered = tomllib.loads(Path(main.source).read_text()) if main.source else {}                          # only what you answered for the first worker, as defaults for this one
+            flat_main = {k: v for k, v in flat_answers(answered).items() if k not in ("identity.name", "server.host", "server.admin_user", "paths.client_home")}
+
+            def installer_factory(conf, home, name, server_host, user, suggest):
+                return Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None,
+                                 given={**suggest, **{"transport.kind": main.transport.kind}}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
+                                 repos_factory=repos_factory or default_repos, wait_for_keys=900, home=home, config_path=conf, targeted=True, suggest=flat_main,
+                                 verify=verify or (lambda cfg: default_verify(cfg, say=say)))
+            return addworker.run(a, host, ask, ssh_factory, say, ui=screen_, installer_factory=installer_factory, interactive=interactive)
         if a.cmd == "tripwire-test":
             from . import tripwire
             cfg = config.load()

@@ -531,6 +531,13 @@ class ServerSetup:
     def read_secret(self, q):
         return read_secret(self.ui, q)
 
+    def hold_timers(self):
+        """Make sure the job loop is NOT running (an earlier run of this setup may have started it): a worker whose setup failed does not fetch or start jobs."""
+        cfg = self.cfg
+        for part in ("fetch.timer", "step.timer", "registry-sync.timer", "update.timer", "claude-update.timer"):
+            self.host.run(["systemctl", "disable", "--now", cfg.unit(part)])
+        self.note("timers", "stopped", "the setup did not finish, so the job loop is off")
+
     def start_timers(self):
         cfg = self.cfg
         timers = ([cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
@@ -562,7 +569,13 @@ class ServerSetup:
         self.say(self.r.head("Job registry"))
         self.registry_step()
         self.say(self.r.head("Hardening"))
-        self.hardening_step()
+        results = self.hardening_step()
+        failed = {m: r["detail"] for m, r in results.items() if r["status"] == "failed"}
+        if failed and not self.dry_run:
+            self.hold_timers()
+            raise SetupError("A protection could not be applied, so the worker was not started", "; ".join(f"{m}: {d}" for m, d in failed.items()),
+                             ["Nothing is running: the job timers are off, and no job can be sent to it.", "Read the reason above and fix it, then run the same command again: it continues from here.",
+                              "A protection that says 'applied, but the check still fails' is one the setup could not make work on this machine; the reason is the machine's own message."])
         self.say(self.r.head("Claude"))
         self.claude_step()
         self.say(self.r.head("Starting"))

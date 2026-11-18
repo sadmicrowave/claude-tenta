@@ -7,6 +7,7 @@ squashed; the results repo is mirrored (fetch and reset), never rebased onto, be
 import json
 import os
 import subprocess
+from urllib.parse import urlparse
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,11 +27,12 @@ class ClientError(Exception):
 
 class ClientRepos:
     def __init__(self, queue, results, queue_url, results_url, *, results_branch="main", jobs_branch="jobs", keep_commits=150, sleep=time.sleep, ssh_command=None,
-                 where="GitHub", unreachable_steps=None):
+                 where="GitHub", unreachable_steps=None, admin_target=None, kind="github"):
         self.queue, self.results = Path(queue), Path(results)
         self.ssh_command, self.where = ssh_command, where                 # the transport's way of reaching the repositories (None: the person's own ssh) and what to call the other end
         self.unreachable_steps = unreachable_steps or ["Check that your GitHub SSH key is set up on this computer:  ssh -T git@github.com"]
         self.queue_url, self.results_url = queue_url, results_url
+        self.admin_target, self.kind = admin_target or "you@the-worker", kind          # who you log in to the worker as, and which connection this is: for explaining a failure
         self.results_branch, self.jobs_branch, self.keep_commits, self._sleep = results_branch, jobs_branch, keep_commits, sleep
 
     @classmethod
@@ -39,7 +41,8 @@ class ClientRepos:
         from .. import transport
         t = transport.for_config(cfg)
         return cls(cfg.path("client_queue"), cfg.path("client_results"), cfg.queue_url, cfg.results_url, jobs_branch=cfg.github.jobs_branch,
-                   ssh_command=t.client_ssh_command(cfg), where=t.where(cfg), unreachable_steps=t.unreachable_steps(cfg), **kw)
+                   ssh_command=t.client_ssh_command(cfg), where=t.where(cfg), unreachable_steps=t.unreachable_steps(cfg),
+                   admin_target=f"{cfg.server.admin_user}@{cfg.server.host}", kind=t.kind, **kw)
 
     def _net_env(self, env=None):
         """The environment for a git command that talks to the other end: with the transport's own ssh command when it has one."""
@@ -76,7 +79,9 @@ class ClientRepos:
                 continue
             r = subprocess.run(["git", "clone", "--quiet", url, str(path)], capture_output=True, text=True, env=self._net_env())
             if r.returncode:
-                raise ClientError(f"Could not clone a repository from {self.where}", f"{url}: {r.stderr.strip()[:200]}", self.unreachable_steps)
+                from .. import clonediag
+                cause, meaning, steps = clonediag.classify(r.stderr, kind=self.kind, admin=self.admin_target, path=urlparse(url).path, host=urlparse(url).hostname or "")
+                raise ClientError(f"Could not clone a repository from {self.where}", f"{url}: {' '.join(r.stderr.split())[:400]}" + (f" ({meaning})" if meaning else ""), steps or self.unreachable_steps)
             rows.append(("cloned", str(path)))
         return rows
 

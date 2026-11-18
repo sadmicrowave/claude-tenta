@@ -42,6 +42,15 @@ class Styled(unittest.TestCase):
         self.assertTrue(all(re.match(r"┃ [A-Z]+ +\S", line) for line in plain))          # on the rail, status in capitals
         self.assertTrue(all("\x1b[" in x for x in rows))                    # and the status is coloured
 
+    def test_a_status_as_long_as_the_column_still_has_a_space_before_the_step_and_nothing_else_moves(self):
+        """Seen on a real machine: 'BOOTSTRAPPEDjob registry'."""
+        r = report.Styler(styled=True)
+        for status in ("bootstrapped", "planned", "satisfied", "unchanged", "installed"):
+            line = ANSI.sub("", r.note(status, "job registry"))
+            self.assertRegex(line, rf"┃ {status.upper()} +job registry", line)
+        ok = ANSI.sub("", r.note("ok", "tools"))
+        self.assertEqual(ok.index("tools"), 2 + report.Styler.WIDTH)                     # the short ones keep the usual column
+
     def test_the_colour_says_what_kind_of_news_it_is(self):
         r = report.Styler(styled=True)
         self.assertIn(theme.code("ok"), r.note("installed", "x").split("INSTALLED")[0])     # green: done

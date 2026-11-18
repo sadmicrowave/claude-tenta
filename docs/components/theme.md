@@ -55,3 +55,8 @@ Everything that shows git changes to a person is drawn the way GitHub draws it (
 ## Following the terminal
 
 When no theme was chosen (no `CT_THEME`, no `theme.toml`), the first colour a command asks for follows the terminal's background: a light terminal gets the `light` theme, a dark one the default. The terminal is asked once per run (see `theme.background`; `CT_BACKGROUND=light|dark` answers for it), and only when both input and output are a terminal, so a piped command never asks. Choosing a theme, by `CT_THEME` or a file, always wins.
+
+
+### Code inside a sentence
+
+A command or name written exactly as typed inside a message is wrapped in backticks, and it is shown in the `code` role (a filled background; `src/ct/cards.py` `inline`, used by every card's notes, facts and steps and by the wizard's question text): "run `ct-setup install` again" is never lost in the prose. The backticks stay, inside the coloured span, so output with colour off still shows what is code. A span may run over a line break. Where a message is a whole command to copy, it is still shown in its own "Run this" block.

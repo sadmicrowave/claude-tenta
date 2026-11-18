@@ -103,8 +103,9 @@ CLAUDE_ON_THIS_COMPUTER = "curl -fsSL https://claude.ai/install.sh | bash"
 
 class Installer:
     def __init__(self, source, *, ssh_factory, local, say=None, ask=None, given=None, use_defaults=False, dry_run=False, repos_factory=None,
-                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False):
+                 wait_for_keys=900, poll_s=5, verify=None, sleep=time.sleep, archive=archive_source, home=None, ui=None, advanced=False, interactive=None, verbose=False, config_path=None, targeted=False, suggest=None):
         say = say or _sink()
+        self.config_override, self.targeted, self.suggest = config_path, targeted, dict(suggest or {})      # targeted: adding one worker, with its own configuration file and folder
         self.source, self.ssh_factory, self.machine, self.say, self.ask = Path(source), ssh_factory, local, say, ask
         self.given, self.use_defaults, self.dry_run, self.repos_factory = dict(given or {}), use_defaults, dry_run, repos_factory
         self.wait_for_keys, self.poll_s, self.verify, self._sleep, self.archive = wait_for_keys, poll_s, verify, sleep, archive
@@ -120,6 +121,8 @@ class Installer:
 
     # ---- what an earlier run left behind ----
     def config_file(self):
+        if self.config_override:
+            return str(self.config_override)
         return str(Path(self.machine.env.get("HOME", "~")).expanduser() / ".config" / "claude-tenta" / "ct.toml")
 
     def answers_file(self):
@@ -212,7 +215,7 @@ class Installer:
         else:
             self.say("\nConnecting to the server")
         conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced,
-                                          suggestions=self.previous_answers())
+                                          suggestions={**self.suggest, **self.previous_answers()})
         if missing:
             raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
         c = conn.get("server", {})
@@ -251,7 +254,7 @@ class Installer:
             self.say("\nQuestions")
         given = {**({"server.worker_user": self.existing_worker} if getattr(self, "existing_worker", None) else {}), **self.given, **flat(conn)}       # an explicit answer still wins
         pre = [(questions.BY_KEY[k]["label"], questions.show(v)) for k, v in flat(conn).items() if k in questions.BY_KEY]
-        rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions={**self.facts.suggestions(), **self.previous_answers()}, use_defaults=self.use_defaults,
+        rest, missing = questions.collect(("client", "server"), ask=self.ask, say=self.say, given=given, suggestions={**self.facts.suggestions(), **self.suggest, **self.previous_answers()}, use_defaults=self.use_defaults,
                                           ui=self.ui, allow_back=self.ui is not None, pre_items=pre, advanced=self.advanced,
                                           confirm="Show what would be done?" if self.dry_run else "Set everything up now?")
         if rest is questions.BACK:
@@ -283,6 +286,7 @@ class Installer:
         self._heading("Your computer", "2 of 4")
         c = ClientSetup(self.machine, self.home, say=self.say, dry_run=self.dry_run, given=flat(nested), use_defaults=True, repos_factory=self.repos_factory,
                         confirm_card=self.confirm_card, interactive=self.interactive, styled=self.ui is not None, verbose=self.verbose,
+                        config_path=self.config_override, targeted=self.targeted,
                         **({"ask": self.ask} if self.ask is not None and self.ui is None else {}))
         self.client = c
         c.run_all()
@@ -455,6 +459,26 @@ class Installer:
         self.note("server setup", "done")
         self.mark("server", rev=rev)
 
+    def hold_worker(self):
+        """After a failed setup: stop the worker's job loop. Returns a plain sentence saying what is now true, or the one command to run. The setup's own sudo cannot be reused here (sudo remembers a
+        password per terminal, and this is another connection), so unless sudo needs no password a person at a terminal is asked first."""
+        c = self.cfg
+        units = [c.unit(p) for p in ("fetch.timer", "step.timer", "registry-sync.timer", "update.timer", "claude-update.timer")]
+        cmd = "systemctl disable --now " + " ".join(units)
+        stopped = "The worker's job loop was stopped, so it fetches and runs nothing until the setup is finished."
+        try:
+            if self.ssh.capture(f"sudo -n {cmd}").returncode == 0:
+                self.note("worker job loop", "stopped", "the setup did not finish, so nothing is fetched or started on the worker")
+                return stopped
+        except Exception:
+            pass
+        if self.ask is not None and sys.stdin.isatty():
+            answer = self.ask(ui_mod.confirm_prompt("The worker's job loop is running although its setup failed. Stop it now? (it asks for the administrator's sudo password on the worker)")).strip().lower()
+            if answer in ("", "y", "yes") and self.ssh.interactive(f"sudo {cmd}") == 0:
+                self.note("worker job loop", "stopped", "the setup did not finish, so nothing is fetched or started on the worker")
+                return stopped
+        return f"The worker's job loop may still be running: stop it with `ssh -t {self.ssh.user}@{self.ssh.host} 'sudo {cmd}'`"
+
     def _left_edge(self):
         try:
             if sys.stdin.isatty():
@@ -518,7 +542,11 @@ class Installer:
         finally:
             self.cleanup(d)
         if getattr(getattr(self, "client", None), "direct", False) and not self.dry_run:
-            self.report += self.client.finish_direct()
+            try:
+                self.report += self.client.finish_direct()
+            except SetupError as e:                                   # the worker's half is done and its timers run, but this computer cannot use it: stop the job loop, say why
+                stopped = self.hold_worker()
+                raise SetupError(e.title, e.why, [stopped, *e.steps])
         if not self.dry_run:
             self.first_job()
         return self.report

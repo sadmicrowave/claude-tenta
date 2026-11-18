@@ -1,5 +1,6 @@
 """The transport decides where the two repositories live; GitHub's answers are exactly what the code used to build by hand."""
 import unittest
+from pathlib import Path
 
 import support  # noqa: F401
 
@@ -110,6 +111,35 @@ class GitHub(unittest.TestCase):
     def test_an_unknown_transport_is_a_configuration_problem_not_a_crash(self):
         clean, problems = config.validate({"server": {"admin_user": "me", "host": "h.example"}, "github": {"owner": "someone"}, "transport": {"kind": "carrier-pigeon"}})
         self.assertTrue(any("transport" in p and "github" in p for p in problems), problems)
+
+
+class CopyingHistory(unittest.TestCase):
+    def test_both_the_origins_branches_and_the_clones_own_arrive_in_the_mailbox_as_branches(self):
+        """With real git: the jobs branch (only ever a remote branch in a clone) and main both end up as refs/heads in the empty bare repository (`push --mirror` would have lost jobs)."""
+        import subprocess
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        git = lambda *a, cwd=None: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=cwd, check=True, capture_output=True, text=True).stdout   # noqa: E731
+        git("init", "-q", "--bare", "-b", "main", str(d / "origin.git"))
+        seed = d / "seed"
+        git("clone", "-q", str(d / "origin.git"), str(seed))
+        (seed / "a").write_text("1")
+        git("add", "-A", cwd=seed)
+        git("commit", "-q", "-m", "one", cwd=seed)
+        git("branch", "-M", "main", cwd=seed)
+        git("push", "-q", "origin", "main", cwd=seed)
+        git("checkout", "-q", "-b", "jobs", cwd=seed)
+        (seed / "job").write_text("j")
+        git("add", "-A", cwd=seed)
+        git("commit", "-q", "-m", "job", cwd=seed)
+        git("push", "-q", "origin", "jobs", cwd=seed)
+        git("clone", "-q", str(d / "origin.git"), str(d / "clone"))                      # a clone: main is local, jobs is only origin/jobs
+        git("init", "-q", "--bare", "-b", "main", str(d / "mailbox.git"))
+        for argv in transport.copy_history_commands(str(d / "clone"), str(d / "mailbox.git")):
+            r = subprocess.run(argv, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        refs = git("for-each-ref", "--format=%(refname)", cwd=d / "mailbox.git").split()
+        self.assertEqual(sorted(refs), ["refs/heads/jobs", "refs/heads/main"])
 
 
 if __name__ == "__main__":

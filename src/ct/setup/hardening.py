@@ -238,6 +238,11 @@ class JobIsolation(Module):
     risk = "None for logins. Until it works, jobs are refused rather than run without a jail."
     SYSCTL = "kernel.apparmor_restrict_unprivileged_userns"
 
+    PROFILE = "/etc/apparmor.d/ct-bwrap"
+    PROFILE_TEXT = ("# Written by ct-setup. Ubuntu 24.04 and newer let only programs with an AppArmor profile use unprivileged user namespaces with their usual powers; without one, bubblewrap\n"
+                    "# cannot even set up the jail's network (\"loopback: Failed RTM_NEWADDR\"), so no job could run. This gives bubblewrap, and only it, that permission.\n"
+                    "abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile ct-bwrap {bwrap} flags=(unconfined) {{\n  userns,\n\n  include if exists <local/ct-bwrap>\n}}\n")
+
     def sysctl_path(self, cfg):
         return f"/etc/sysctl.d/61-{cfg.identity.name}-userns.conf"
 
@@ -276,6 +281,10 @@ class JobIsolation(Module):
         steps = []
         if cfg.isolation.method == "bwrap" and not host.exists(host.which("bwrap") or "/usr/bin/bwrap"):
             steps.append(Action("run", argv=["apt-get", "install", "-y", "bubblewrap"], why="the tool that builds the jail"))
+        if cfg.isolation.method == "bwrap" and self.sysctl_value(host) == "1" and not host.exists(self.PROFILE) and host.exists("/etc/apparmor.d/abi/4.0") and host.which("apparmor_parser"):
+            bwrap = host.which("bwrap") or "/usr/bin/bwrap"                  # (found on a real Ubuntu 24.04 machine; 26.04 ships a profile of its own and never gets here)
+            steps += [Action("write", path=self.PROFILE, text=self.PROFILE_TEXT.format(bwrap=bwrap), mode=0o644, why="lets bubblewrap, and only it, use user namespaces"),
+                      Action("run", argv=["apparmor_parser", "-r", self.PROFILE])]
         if cfg.isolation.method == "bwrap" and self.sysctl_value(host) == "0":
             text = (f"# Written by ct-setup. Ubuntu's default: only programs with an AppArmor profile (such as bubblewrap) may use unprivileged user namespaces.\n"
                     f"{self.SYSCTL} = 1\n")
@@ -283,7 +292,8 @@ class JobIsolation(Module):
         return steps
 
     def revert(self, host, cfg):
-        return [Action("remove", path=self.sysctl_path(cfg)), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=0"])]
+        return [Action("remove", path=self.sysctl_path(cfg)), Action("run", argv=["sysctl", "-w", f"{self.SYSCTL}=0"])] + (
+            [Action("run", argv=["apparmor_parser", "-R", self.PROFILE]), Action("remove", path=self.PROFILE)] if host.exists(self.PROFILE) else [])
 
 
 def run_module(mod, host, cfg, *, dry_run=True, out=None, confirm=None, present=None):

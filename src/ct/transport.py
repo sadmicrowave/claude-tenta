@@ -105,9 +105,20 @@ def for_config(cfg):
     return TRANSPORTS[cfg.transport.kind]
 
 
+TRUSTED = ('f=$(mktemp) && printf "[safe]\\n\\tdirectory = *\\n" > "$f" && GIT_CONFIG_GLOBAL="$f" "$@"; rc=$?; rm -f "$f"; exit $rc')
+
+
+def trusted(argv):
+    """`argv` (a git command) run with a throwaway GLOBAL git configuration that trusts every repository, for that one command. Root copies between repositories that belong to other accounts,
+    and the receiving git is a child process on ANOTHER repository: git clears `-c` and GIT_CONFIG_COUNT for that child ("detected dubious ownership", found by an end-to-end run), but not the
+    file named by GIT_CONFIG_GLOBAL. The file exists only while the command runs."""
+    return ["sh", "-c", TRUSTED, "sh", *argv]
+
+
 def copy_history_commands(clone, bare):
     """The git commands that copy everything a clone has into a bare repository as branches: first what it last saw of its origin (refs/remotes/origin/* become refs/heads/*), then its own
-    branches on top (so the worker's own newer results win). Not `push --mirror`: from a clone that would store the origin's branches as refs/remotes/..., where nothing looks for them,
-    and the jobs branch would be lost."""
-    base = ["git", "-c", "safe.directory=*", "-C", clone, "push", "--quiet", "--force", bare]
-    return [base + ["refs/remotes/origin/*:refs/heads/*"], base + ["refs/heads/*:refs/heads/*"]]
+    branches on top (so the worker's own newer results win), then the stray `HEAD` branch a glob makes of origin/HEAD is removed. Not `push --mirror`: from a clone that would store the
+    origin's branches as refs/remotes/..., where nothing looks for them, and the jobs branch would be lost."""
+    push = ["git", "-C", clone, "push", "--quiet", "--force", bare]
+    return [trusted(push + ["refs/remotes/origin/*:refs/heads/*"]), trusted(push + ["refs/heads/*:refs/heads/*"]),
+            trusted(["git", "-C", bare, "update-ref", "-d", "refs/heads/HEAD"])]
