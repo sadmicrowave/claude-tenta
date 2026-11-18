@@ -3,7 +3,17 @@
 #   scripts/t test_cli test_worker        (names of files in tests/, without .py)
 #   scripts/t                             (the whole suite: slow, only for release or real-machine changes)
 # Long runs: start it with run_in_background and wait once; never pipe it to tail.
-cd "$(dirname "$0")/../tests" || exit 1
+#   scripts/t --snapshot [modules]       run against a COPY of the working tree taken now, so edits made while it runs change nothing in it and it never has to be stopped
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "${1:-}" = "--snapshot" ]; then
+  shift
+  SNAP=$(mktemp -d /tmp/ct-snap.XXXXXX) || exit 1
+  trap 'rm -rf "$SNAP"' EXIT
+  (cd "$ROOT" && git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | tar -xf - -C "$SNAP") || exit 1
+  cp -R "$ROOT/.git" "$SNAP/.git" 2>/dev/null                       # a few tests ask git about the checkout
+  ROOT="$SNAP"
+fi
+cd "$ROOT/tests" || exit 1
 PY="${CT_PY:-$HOME/.ct-venv/bin/python}"
 [ -x "$PY" ] || { echo "no $PY: create the venv (python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e ..)"; exit 1; }
 "$PY" preflight.py || exit 1                     # a missing package or tool is one clear message, not hundreds of errors
