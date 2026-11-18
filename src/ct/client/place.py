@@ -52,25 +52,33 @@ PENDING_FOR_S = 900
 
 
 def pending_sent(home, name, repos, now=None):
-    """How many jobs this computer sent to `name` in the last 15 minutes that have no final result yet (read from the record of placements and the results already downloaded)."""
+    """The capacity points of the jobs this computer sent to `name` in the last 15 minutes that have no final result yet (read from the record of placements and the results already downloaded): a light
+    job counts 1, a medium 2, a heavy 4, by what that worker's own registry says; a record with no class counts 1."""
     from .repo import PENDING
     now = time.time() if now is None else now
     try:
         data = json.loads((Path(home) / "placements.json").read_text()) or {}
     except (OSError, ValueError, TypeError):
         return 0
+    try:
+        classes = (repos.registry_info() or {}).get("classes") or {}
+    except Exception:
+        classes = {}
+
+    def weight(p):
+        return sched.COST.get((classes.get(p.get("class")) or {}).get("cost"), 1) if p.get("class") else 1
     n = 0
     for jid, p in data.items():
         if p.get("worker") != name:
             continue
         if p.get("reserve"):                                          # a send in progress: counts until released, or for two minutes if that send died
-            n += now - p.get("at", 0) <= RESERVE_FOR_S
+            n += weight(p) if now - p.get("at", 0) <= RESERVE_FOR_S else 0
             continue
         if now - p.get("at", 0) > PENDING_FOR_S:
             continue
         res = repos.read_result(jid)
         if res is None or res.get("status") in PENDING:
-            n += 1
+            n += weight(p)
     return n
 
 
@@ -138,10 +146,10 @@ def _update(home, change):
         os.replace(tmp, f)
 
 
-def record(home, ids, worker):
+def record(home, ids, worker, cls=None):
     def add(data):
         for jid in ids:
-            data[jid] = {"worker": worker, "at": int(time.time())}
+            data[jid] = {"worker": worker, "at": int(time.time()), **({"class": cls} if cls else {})}
         cutoff = time.time() - 14 * 86400                          # a record older than a fortnight is of no use: its result is long since pruned
         for k in [k for k, v in data.items() if v.get("at", 0) < cutoff]:
             del data[k]
@@ -151,10 +159,10 @@ def record(home, ids, worker):
 RESERVE_FOR_S = 120
 
 
-def reserve(home, worker):
-    """Mark that a job is about to be sent to `worker`, counted as its load straight away (before the send finishes, so a placement made a moment later sees it). Returns a token for `release`."""
+def reserve(home, worker, cls=None):
+    """Mark that a job of class `cls` is about to be sent to `worker`, counted as its load straight away (before the send finishes, so a placement made a moment later sees it). Returns a token for `release`."""
     token = "reserve-" + uuid.uuid4().hex[:10]
-    _update(home, lambda data: data.__setitem__(token, {"worker": worker, "at": int(time.time()), "reserve": True}))
+    _update(home, lambda data: data.__setitem__(token, {"worker": worker, "at": int(time.time()), "reserve": True, **({"class": cls} if cls else {})}))
     return token
 
 
@@ -188,7 +196,7 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         ch = decide(cls, views, prefs)
         if ch.worker is None:
             raise ClientError(f"No worker can take a {cls} job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."])
-        token = reserve(ctx.home, ch.worker)
+        token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)
     chosen = _with(make_ctx(by_name[ch.worker]), ctx)

@@ -141,7 +141,7 @@ def cmd_submit(ctx, a):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
         emit(f"Queued {jid}", f"{ctx.product} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
-        place.record(ctx.home_main, ids, ctx.product)
+        place.record(ctx.home_main, ids, ctx.product, a.cls)
     try:
         r.prune_jobs()
     except ClientError:

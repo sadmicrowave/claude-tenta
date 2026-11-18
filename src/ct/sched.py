@@ -25,7 +25,7 @@ class Worker:
     registry: dict = None                      # registry.json (the classes it offers), or None
     age_s: float = None                        # how old the reading is
     pickup_s: int = 5                          # how long, at most, until it notices a job (its idle pace)
-    sent_pending: int = 0                      # jobs THIS computer sent to it that have no final result yet: the only live measure of its load that exists here
+    sent_pending: int = 0                      # capacity POINTS of the jobs THIS computer sent to it that have no final result yet (a light job 1, medium 2, heavy 4): the only live measure of its load here
     configured: str = None                     # what this computer's configuration SAYS the connection is, when that differs from the one its copies really use
 
     def doc(self, *keys, default=None):
@@ -72,6 +72,13 @@ class Worker:
     @property
     def headroom(self):
         return self.capacity - self.busy
+
+    def cost_of(self, cls):
+        """Capacity points a job of this class takes on THIS worker, from its own published registry (a worker may weigh a class differently)."""
+        return COST.get((self.offered.get(cls) or {}).get("cost", "medium"), COST["medium"])
+
+    def fits(self, cls):
+        return self.headroom >= self.cost_of(cls)
 
     @property
     def per_core(self):
@@ -132,14 +139,15 @@ def _left_out(w, cls, kind, prefs):
 
 def _rank(w, cls, prefs):
     order = prefs.preferred.get(cls) or []
-    return (order.index(w.name) if w.name in order else len(order), w.stale, -w.headroom, w.wait_s, w.per_core, w.name)
+    return (order.index(w.name) if w.name in order else len(order), w.stale, not w.fits(cls), -w.headroom, w.wait_s, w.per_core, w.name)
 
 
-def _why_chosen(w, best_rank, others):
+def _why_chosen(w, best_rank, others, cls):
     bits = []
     if w.name in best_rank["preferred"]:
         bits.append("your preferred worker for this class")
-    bits.append(f"{max(w.headroom, 0)} of {w.capacity} capacity free" if w.capacity else "capacity unknown")
+    need = w.cost_of(cls)
+    bits.append((f"{max(w.headroom, 0)} of {w.capacity} capacity points free, the job needs {need}" + ("" if w.fits(cls) else " so it will wait for running jobs")) if w.capacity else "capacity unknown")
     bits.append(f"notices a job within {w.wait_s} s")
     if w.mismatch:
         bits.append(f"WARNING: {w.mismatch}")
@@ -166,18 +174,20 @@ def choose(cls, kind, workers, prefs=None):
     order = prefs.preferred.get(cls) or []
     for i, w in enumerate(eligible):
         if w is best:
-            out[w.name] = ("CHOSEN", _why_chosen(w, {"preferred": order[:1]}, eligible))
+            out[w.name] = ("CHOSEN", _why_chosen(w, {"preferred": order[:1]}, eligible, cls))
         else:
-            out[w.name] = ("not chosen", _worse_than(w, best, order) + (f" (WARNING: {w.mismatch})" if w.mismatch else ""))
-    return Choice(best.name, [(w.name, *out[w.name]) for w in ordered], busy_all=best.headroom <= 0)
+            out[w.name] = ("not chosen", _worse_than(w, best, order, cls) + (f" (WARNING: {w.mismatch})" if w.mismatch else ""))
+    return Choice(best.name, [(w.name, *out[w.name]) for w in ordered], busy_all=not best.fits(cls))
 
 
-def _worse_than(w, best, order):
+def _worse_than(w, best, order, cls):
     a, b = (order.index(w.name) if w.name in order else len(order)), (order.index(best.name) if best.name in order else len(order))
     if a != b:
         return f"{best.name} is preferred for this class"
     if w.stale != best.stale:
         return "its reading is old, and a fresh one was available"
+    if w.fits(cls) != best.fits(cls):
+        return f"the job would have to wait for running jobs here ({max(w.headroom, 0)} of {w.capacity} capacity points free, it needs {w.cost_of(cls)}), and it has room for it now on {best.name}"
     if w.headroom != best.headroom:
         return f"{best.name} has more capacity free ({max(best.headroom, 0)} against {max(w.headroom, 0)})"
     if w.wait_s != best.wait_s:

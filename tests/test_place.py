@@ -245,3 +245,32 @@ class ManyPlacementsAtOnce(Setup):
         [t.start() for t in ts]
         [t.join() for t in ts]
         self.assertEqual(len(json.loads((home / "placements.json").read_text())), 20)
+
+
+class PendingJobsCountInCapacityPoints(Setup):
+    def test_a_pending_heavy_job_weighs_four_a_light_one_and_an_unknown_class_one(self):
+        self.add("vmx", classes=("sys-status", "profile-run"))
+        (self.repos["vmx"].results / "registry.json").write_text(json.dumps({"classes": {"sys-status": {"cost": "light"}, "profile-run": {"cost": "heavy"}, "claude-read": {"cost": "medium"}}, "capacity": 4}))
+        home = self.tmp / "home"
+        place.record(home, ["j-heavy"], "vmx", "profile-run")
+        place.record(home, ["j-medium"], "vmx", "claude-read")
+        place.record(home, ["j-light"], "vmx", "sys-status")
+        place.record(home, ["j-old-style"], "vmx")                            # recorded before classes were: counts as one
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 4 + 2 + 1 + 1)
+
+    def test_a_reservation_for_a_class_weighs_what_the_class_weighs(self):
+        self.add("vmx")
+        (self.repos["vmx"].results / "registry.json").write_text(json.dumps({"classes": {"profile-run": {"cost": "heavy"}}, "capacity": 4}))
+        home = self.tmp / "home"
+        place.reserve(home, "vmx", "profile-run")
+        self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 4)
+
+    def test_a_heavy_burst_goes_one_per_worker_because_each_takes_all_its_capacity(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, classes=("profile-run",))
+            (self.repos[n].results / "registry.json").write_text(json.dumps({"classes": {"profile-run": {"kind": "profile", "cost": "heavy"}}, "capacity": 4}))
+        placed = []
+        for _ in range(3):
+            (ctx, ch), main, _ = self.route(cls="profile-run")
+            placed.append(ch.worker)
+        self.assertEqual(sorted(placed), ["ghx", "mini", "vmx"])

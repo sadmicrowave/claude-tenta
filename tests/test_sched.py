@@ -13,7 +13,7 @@ def state(*, running=0, waiting=0, capacity=4, cores=4, load=0.2, locked=False, 
             "claude_paused": paused, "observed": {"running": running, "waiting": waiting, "load_1m": load}}
 
 
-KINDS = {"sys-status": {"kind": "command", "cost": "light"}, "claude-read": {"kind": "claude", "cost": "medium"}}
+KINDS = {"sys-status": {"kind": "command", "cost": "light"}, "claude-read": {"kind": "claude", "cost": "medium"}, "profile-run": {"kind": "profile", "cost": "heavy"}}
 
 
 def w(name, connection="direct", age=30, pickup=5, sent=0, **kw):
@@ -205,3 +205,39 @@ class LoadIsWhatThisComputerSent(unittest.TestCase):
             sent[c.worker] += 1
             placed.append(c.worker)
         self.assertEqual(placed, ["fast", "slow", "fast", "slow", "fast", "slow"])
+
+
+class CostAware(unittest.TestCase):
+    """A heavy job takes the whole of a capacity-4 worker; a light one takes a quarter. Counting jobs, not capacity points, sent a heavy job to a worker that could only queue it."""
+
+    def test_a_heavy_job_goes_to_the_worker_it_fits_on_now_not_just_the_one_with_fewer_jobs(self):
+        classes = ("sys-status", "profile-run")
+        a = w("a", age=1000, sent=1, classes=classes)                       # one light job: 3 of 4 points free: a heavy job (4) would have to wait
+        b = w("b", age=1000, sent=0, classes=classes, pickup=300)           # idle, and slower to notice: but the heavy job fits at once
+        c = pick([a, b], "profile-run", "profile")
+        self.assertEqual(c.worker, "b")
+        self.assertIn("would have to wait", dict((n, r) for n, _, r in c.lines)["a"])
+
+    def test_a_light_job_still_takes_the_freest_worker(self):
+        a = w("a", age=1000, sent=1)
+        b = w("b", age=1000, sent=0)
+        self.assertEqual(pick([a, b]).worker, "b")
+
+    def test_when_the_job_fits_nowhere_it_queues_on_the_worker_with_the_most_room_and_says_so(self):
+        classes = ("sys-status", "profile-run")
+        c = pick([w("a", age=1000, sent=3, classes=classes), w("b", age=1000, sent=2, classes=classes)], "profile-run", "profile")
+        self.assertEqual((c.worker, c.busy_all), ("b", True))
+
+    def test_a_job_that_fits_now_is_not_called_busy(self):
+        c = pick([w("a", age=1000, sent=2)])
+        self.assertFalse(c.busy_all)
+
+    def test_a_medium_job_needs_two_points(self):
+        a = w("a", age=1000, sent=3)                                         # 1 point free
+        b = w("b", age=1000, sent=2)                                         # 2 free
+        self.assertEqual(pick([a, b], "claude-read", "claude").worker, "b")
+
+    def test_the_cost_of_a_class_is_what_each_workers_own_registry_says(self):
+        heavy_here = worker_view("h", "direct", state(classes=("profile-run",)), {"classes": {"profile-run": {"kind": "profile", "cost": "heavy"}}}, 30, 5)
+        light_there = worker_view("l", "direct", state(classes=("profile-run",)), {"classes": {"profile-run": {"kind": "profile", "cost": "light"}}}, 30, 5)
+        self.assertEqual((heavy_here.cost_of("profile-run"), light_there.cost_of("profile-run")), (4, 1))

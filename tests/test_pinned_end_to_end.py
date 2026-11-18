@@ -63,5 +63,24 @@ class ThePinnedCheckOnRealQueues(unittest.TestCase):
         self.assertNotIn("Sending to", text)                                        # nothing was chosen, so nothing is said about choosing
 
 
+class ABatchStaysOnOneWorker(ThePinnedCheckOnRealQueues):
+    """Design requirement 1: a submit that is split into several independent jobs is placed on ONE worker as a unit, even when another worker would be a fine home for some of them."""
+
+    def test_every_job_of_a_split_submit_lands_on_the_same_worker(self):
+        for fx in (self.first, self.second):
+            reg = json.loads((fx.repos.results / "registry.json").read_text())
+            reg["classes"]["sys-status"].update({"batchable": True, "accepts_files": True})
+            reg["limits"] = {"files": {"max_count": 2, "max_batches": 8}}
+            (fx.repos.results / "registry.json").write_text(json.dumps(reg))
+        folder = self.first.tmp / "attached"
+        folder.mkdir()
+        for i in range(6):
+            (folder / f"f{i}.txt").write_text(f"file {i}\n")
+        code, text = self.submit("--dir", str(folder))
+        self.assertEqual(code, 0, text)
+        counts = (len(self.jobs_on(self.first)), len(self.jobs_on(self.second)))
+        self.assertIn(counts, ((3, 0), (0, 3)), f"split across workers: {counts}")
+
+
 if __name__ == "__main__":
     unittest.main()
