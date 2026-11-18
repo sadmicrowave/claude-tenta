@@ -26,7 +26,8 @@ RULES = [
     ("src/ct/sandboxtest.py", ("test_connection",), ("kernel",), ("install",)),
     ("src/ct/jail.py", (), ("kernel",), ("install",)),
     ("src/ct/*", (), (), ()),                                    # every other module of the package: its own unit tests are enough
-    ("tests/e2e/lib.sh", (), (), ALL_ROUTES),
+    ("tests/e2e/lib.sh", ("test_e2e_lib",), (), ALL_ROUTES),
+    ("tests/e2e/baseline.sh", ("test_e2e_lib",), (), ALL_ROUTES),
     ("tests/e2e/routes/*.sh", (), (), ()),                       # the route itself is added by name below
     ("tests/probes/*.sh", ("test_probes",), (), ()),             # the probe itself is added by name below
     ("tests/fixtures/*", ("test_real_outputs",), (), ()),

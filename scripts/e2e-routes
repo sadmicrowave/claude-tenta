@@ -16,20 +16,34 @@ OUT=/tmp/ct-routes/$TAG; mkdir -p "$OUT"
 n=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)' || true)
 [ "$n" -ge 4 ] && { echo "There are already $n test machines. Run scripts/e2e-clean first." >&2; exit 3; }
 scripts/e2e-base "$IMAGE" >/dev/null || { echo "could not prepare the cached base machine" >&2; exit 2; }
-one() {  # one route: clone, copy the checkout in, run, save the logs, delete
-  local route=$1 M=ct-run-$TAG-$1 logs=/tmp/ct-e2e-logs/ct-run-$TAG-$1
+one() {  # one route: clone (from the cache, or from the shared baseline), copy the checkout in unless it is already there, run, save the logs, delete
+  local route=$1 FROM=${2:-$CACHE} M=ct-run-$TAG-$1 logs=/tmp/ct-e2e-logs/ct-run-$TAG-$1 script=${3:-$1}
   orb delete -f "$M" >/dev/null 2>&1 || true
-  orbctl clone "$CACHE" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }
-  git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"
-  orb -m "$M" -u root bash /opt/ct-src/tests/e2e/routes/$route.sh >"$OUT/$route.out" 2>&1
+  orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }
+  [ "$FROM" = "$CACHE" ] && { git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"; } || true
+  local sub=routes/$script.sh; [ "$script" = baseline ] && sub=baseline.sh
+  orb -m "$M" -u root bash /opt/ct-src/tests/e2e/$sub >"$OUT/$route.out" 2>&1
   local rc=$?
   mkdir -p "$logs"
   orb -m "$M" -u root bash -c 'journalctl --no-pager -o cat 2>/dev/null | tail -600 > /tmp/e2e-journal.out; tar -cf - /tmp/e2e-*.out 2>/dev/null' 2>/dev/null | tar -xf - -C "$logs" 2>/dev/null || true
+  [ "$route" = baseline ] && { orbctl stop "$M" >/dev/null 2>&1 || true; return $rc; }       # kept (stopped) for the routes to clone; deleted at the end
   orb delete -f "$M" >/dev/null 2>&1 || true
   return $rc
 }
 START=$(date +%s)
-for r in $ROUTES; do ( one "$r"; echo "route-ended $?" >> "$OUT/$r.out" ) & done
+BASE_M=ct-run-$TAG-baseline
+trap 'orb delete -f "$BASE_M" >/dev/null 2>&1; for r in $ROUTES; do orb delete -f ct-run-$TAG-$r >/dev/null 2>&1; done' EXIT      # whatever ends the run, no machine is left (rule: tests delete what they made)
+DEPENDENT=""; INDEPENDENT=""
+for r in $ROUTES; do case $r in move|rename|switch|uninstall) DEPENDENT="$DEPENDENT $r";; *) INDEPENDENT="$INDEPENDENT $r";; esac; done
+for r in $INDEPENDENT; do ( one "$r"; echo "route-ended $?" >> "$OUT/$r.out" ) & done          # these need no baseline: they run while it is built
+if [ -n "$DEPENDENT" ]; then
+  ( one baseline "$CACHE" baseline; echo "route-ended $?" >> "$OUT/baseline.out" )
+  if grep -q "route-ended 0" "$OUT/baseline.out" 2>/dev/null; then
+    for r in $DEPENDENT; do ( one "$r" "$BASE_M"; echo "route-ended $?" >> "$OUT/$r.out" ) & done
+  else
+    for r in $DEPENDENT; do echo "the shared baseline failed (see $OUT/baseline.out)" > "$OUT/$r.out"; done
+  fi
+fi
 wait
 bad=0
 for r in $ROUTES; do
@@ -37,5 +51,6 @@ for r in $ROUTES; do
   took=$(grep -E "^=== time per step" "$OUT/$r.out" | grep -oE "[0-9]+s in all" | head -1)
   if echo "$summary" | grep -q " 0 failed"; then printf 'PASS  %-10s %s (%s)\n' "$r" "$summary" "$took"; else printf 'FAIL  %-10s %s (see %s)\n' "$r" "${summary:-no summary}" "$OUT/$r.out"; bad=$((bad+1)); fi
 done
+orb delete -f "$BASE_M" >/dev/null 2>&1 || true
 printf 'wall time %ds for %s on %s\n' "$(( $(date +%s) - START ))" "$(echo $ROUTES | wc -w | tr -d ' ') route(s)" "$IMAGE"
 exit $bad

@@ -69,7 +69,13 @@ GH
   chmod +x /usr/local/bin/gh
 }
 
+# A machine cloned from the shared baseline (scripts/e2e-routes builds it once per run: tests/e2e/baseline.sh) already has the checkout installed and a GitHub baseline that works; the routes that are
+# about something else start from it instead of each repeating a minute of install, measured as 6x slower when six ran at once.
+BASELINE_MARK=${BASELINE_MARK:-/etc/ct-e2e-baseline}
+from_baseline() { [ -f "$BASELINE_MARK" ]; }
+
 prepare_checkout() {
+  from_baseline && { printf '  (the checkout and the baseline install come from the shared baseline machine)\n'; return 0; }
   # the release comes from a git checkout (the update tool records which commit is installed)
   [ -d $SRC/.git ] || { git -C $SRC init -q && git -C $SRC add -A && git -C $SRC -c user.name=e2e -c user.email=e2e@example.com commit -qm e2e; }
   git config --system --add safe.directory $SRC      # only the release checkout (copied in by root, packaged by the admin). NOT every repository: trusting '*' once hid a real bug (the mailbox account was refused the results repository)
@@ -86,6 +92,7 @@ install_flags() { echo --yes --source $SRC --set server.host=localhost --set ser
 install_github() { as_admin ct-setup install $(install_flags) "$@"; }                       # the whole wizard, answered on the command line (GitHub is the default connection)
 
 baseline_github() {
+  from_baseline && { printf '  (from the shared baseline machine)\n'; return 0; }
   # the starting point of every route that is about something else: a GitHub install that works. Its own detail is checked by routes/install.sh.
   step "Baseline: ct-setup install (GitHub) and a first job"
   install_github >/tmp/e2e-install.out 2>&1; local rc=$?

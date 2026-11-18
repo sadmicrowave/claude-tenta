@@ -23,7 +23,8 @@ step "A job through the whole loop, over SSH"
 as_admin ct-run setup >/dev/null 2>&1
 as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job.out 2>&1; rc=$?
 check "ct-run submit sys-status came back with a result" test $rc -eq 0
-check "ct-admin status reads the worker and fetch and step are healthy" bash -c "as_admin ct-admin status 2>&1 | grep -E 'Fetch +OK' && as_admin ct-admin status 2>&1 | grep -E 'Step +OK'"
+# the step timer's first pass comes within its own interval of the job finishing: a faster machine (this one, now) reaches this line before it, so wait for it rather than assume it has run
+check "ct-admin status reads the worker and fetch and step are healthy" bash -c 'for _ in $(seq 30); do out=$(runuser -u '$ADMIN' -- env PATH=/opt/ctvenv/bin:/usr/local/bin:/usr/bin:/bin HOME='$H/$ADMIN' ct-admin status 2>&1); echo "$out" | grep -qE "Fetch +OK" && echo "$out" | grep -qE "Step +OK" && exit 0; sleep 3; done; echo "$out"; exit 1'
 
 step "What the mailbox key must NOT be able to do"
 KEY=$H/$ADMIN/.ct/mailbox/key; export KEY
