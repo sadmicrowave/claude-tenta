@@ -111,19 +111,20 @@ class ClientRepos:
         origin/<base or branch> (none for a brand-new orphan branch). A plain push, never forced: a rejected one is re-fetched and retried."""
         for _ in range(retries):
             self.fetch_queue()
-            parent_ref, has_parent = f"origin/{base or branch}", self.remote_branch_exists(base or branch)
+            has_parent = self.remote_branch_exists(base or branch)
+            parent = self.git(self.queue, "rev-parse", f"origin/{base or branch}").stdout.strip() if has_parent else None        # ONE commit id, used for the tree and for the parent: a name read twice can move in between
             idx = self.queue / ".git" / f"ct-client.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.index"        # its own file: other sends at the same moment (a script, a second session, a load test) never share it
             idx.unlink(missing_ok=True)
             env = {**os.environ, **CLIENT_IDENTITY, "GIT_INDEX_FILE": str(idx)}
             try:
                 if has_parent:
-                    self._plumb(env, "read-tree", parent_ref)
+                    self._plumb(env, "read-tree", parent)
                 for path, text in files.items():
                     blob = self._plumb(env, "hash-object", "-w", "--stdin", input=text)
                     self._plumb(env, "update-index", "--add", "--cacheinfo", f"100644,{blob},{path}")
                 for path in remove:                                 # files taken out of the new commit (everything else on the branch stays)
                     self._plumb(env, "update-index", "--force-remove", path)
-                args = ["commit-tree", self._plumb(env, "write-tree"), "-m", msg + "\n"] + (["-p", parent_ref] if has_parent else [])
+                args = ["commit-tree", self._plumb(env, "write-tree"), "-m", msg + "\n"] + (["-p", parent] if has_parent else [])
                 commit = self._plumb(env, *args)
             finally:
                 idx.unlink(missing_ok=True)
