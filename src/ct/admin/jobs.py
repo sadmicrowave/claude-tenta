@@ -84,6 +84,18 @@ def describe(job, pub=None, product="the worker", info=None):
     return json.dumps(shown, indent=2)
 
 
+def tool_check_rows(check, tools):
+    """Rows saying which tool a class would really run: its program, where it is found (a tool folder, the system, or nowhere), and each folder's state on the worker. Nothing is claimed when the worker
+    has not said (an older release, or it has not looked yet)."""
+    if not check:
+        return [("Program", "not known yet: the worker has not published which tool it would run")]
+    where = {"tool folder": "in a tool folder", "system": "in the system's own folders (not in a tool folder)", "path": "at the path it names"}
+    rows = [("Program", check["program"] or "?"),
+            ("Found", f"{check['found']}  ({where.get(check['where'], check['where'])})" if check.get("found") else "NOT FOUND in any tool folder or the system's folders")]
+    rows += [("Folder state" if i == 0 else "", f"{f['path']}  " + ("ok" if f["exists"] and f["allowed"] else "missing on the worker" if not f["exists"] else "not allowed by the worker")) for i, f in enumerate(check.get("folders") or [])]
+    return rows
+
+
 def review_card(job, pub=None, product="the worker", info=None, digest=None):
     """What a person reads before approving, as a card for `ui.say`. Something that runs as ROOT is drawn in the root outline with its program, where it may write, its
     network and its time limit as labelled rows, then the job file itself; a profile run gets the caution outline; anything else the plain rail."""
@@ -101,7 +113,10 @@ def review_card(job, pub=None, product="the worker", info=None, digest=None):
                 "Your signature is the only thing that lets it run, and it covers exactly this file. Approve only a program and arguments you recognise.",
                 cards.Heading("Job file"), cards.Block(json.dumps(shown, indent=2).split("\n"))] + pin
         return dict(title=f"{job.get('class')} on {product}", details=rows, tag="RUNS AS ROOT", color=ui.ROOT)
-    return review_mod.text_card(jid, describe(job, pub, product, info), product, digest)
+    card = review_mod.text_card(jid, describe(job, pub, product, info), product, digest)
+    if info and info.get("tools"):                                       # which tool will really run, before the person signs
+        card["details"] = [("Tool folders" if i == 0 else "", t) for i, t in enumerate(info["tools"])] + tool_check_rows(info.get("tool_check"), info["tools"]) + ["\n"] + card["details"]
+    return card
 
 
 def classify(waiting_jobs, seen, current):

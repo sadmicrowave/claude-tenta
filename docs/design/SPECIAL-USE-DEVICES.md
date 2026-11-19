@@ -1,4 +1,4 @@
-# Special-use and shared devices (design, 2026-11-19; slices 1 to 3 built)
+# Special-use and shared devices (design, 2026-11-19; slices 1 to 5 built)
 
 ## The need
 
@@ -47,8 +47,8 @@ There is no command today that changes a class after it was created: `ct-admin a
 1. **Built.** `isolation.mode`, `tool_roots` in the configuration, `tools` in the registry (validated), the jail shows the folders read-only and sets PATH; unit tests plus a probe on the four supported releases (a jail run that can read a tool folder and cannot read another).
 2. **Built.** `ct-admin class set` and `class show`.
 3. **Built.** The setup question and the per-protection labels (see "Slice 3 as built").
-4. Status, workers cards and the scheduler know the relaxed state.
-5. A check before approval that shows which tool a class's program resolves to.
+4. **Built.** Status, workers cards and the scheduler know the relaxed state.
+5. **Built.** A check before approval that shows which tool a class's program resolves to.
 6. Documentation and the test matrix rows (fresh install per purpose; an upgrade from a full-isolation worker that is switched to relaxed; a class naming a missing folder).
 
 ## Slice 1 as built
@@ -65,3 +65,9 @@ There is no command today that changes a class after it was created: `ct-admin a
 - **What a purpose decides** (`questions.derive`, only when the person did not say otherwise): `shared` and `special-use` default `hardening.modules` to the protections that affect only tenta's own jobs (`job-isolation`, `auditd-canaries`); `special-use` also sets `isolation.mode = "relaxed"`. The whole-machine protections (`ssh-keys-only`, `ufw-lan-egress`, `no-root-equivalent-groups`, `unattended-upgrades`) are not in the default list there; they are added with `--set hardening.modules=...` or by editing `ct.toml`.
 - **Who a protection affects.** Every hardening module carries `affects`: "only tenta's own jobs" or "every user of this machine". It is printed with the protection and shown as an `AFFECTS` row on the protection screen, whatever the purpose.
 - Not yet: offering the whole-machine protections one by one inside the wizard for a shared or special-use computer (today they are left out of the default list and added by hand), and showing the purpose in `ct-admin status` and `ct-admin workers` (slice 4).
+
+## Slices 4 and 5 as built
+
+- **Status.** `ct-worker status` says `ISOLATION RELAXED` (a warning-coloured notice, never a problem) with the tool folders, and a `USED FOR` row. `ct-admin workers` shows `PURPOSE` and `jail ON, relaxed`; `ct-run classes` lists a class's `TOOLS`. A worker from before these settings publishes nothing and shows no row.
+- **Scheduler.** A class that names tool folders goes only to a worker in `relaxed` mode that allows each folder; the others are left out with the reason (`ct-run where CLASS` says it).
+- **Which tool will run.** The worker looks at its own folders (`workerstate.tool_check`) and publishes, per class with tool folders: the program (the first word of its command), where it is found (the first folder, in the order the class lists them, that holds an executable of that name; else the system's folders; else not found) and each folder's state (exists here, allowed). `ct-admin class show CLASS` and the review card that `ct-admin review` and `approve` show for a job of that class print it: `FOUND /opt/tools/a/scan (in a tool folder)`, `NOT FOUND ...` in red words, `/opt/tools/b missing on the worker`. When the worker has not published it (an older release, or not looked yet) the card says "not known yet" and claims nothing.

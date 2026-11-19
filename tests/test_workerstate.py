@@ -51,6 +51,51 @@ class Build(unittest.TestCase):
         self.assertNotEqual(workerstate.digest(a), workerstate.digest(d))         # a new class and package are
 
 
+class ToolCheck(unittest.TestCase):
+    """Which tool a class with tool folders would really run, looked at on the worker (published in worker-state.json)."""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.base = os.path.realpath(tempfile.mkdtemp())
+        for d in ("a/bin", "b"):
+            os.makedirs(f"{self.base}/tools/{d}")
+        for path in (f"{self.base}/tools/a/bin/scan", f"{self.base}/tools/b/scan", f"{self.base}/tools/b/only-b"):
+            with open(path, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(path, 0o755)
+        self.root = f"{self.base}/tools"
+
+    def check(self, run, tools, roots=None, mode="relaxed"):
+        reg = {"classes": {"scan": {"kind": "command", "run": run, "tools": tools}, "plain": {"kind": "command", "run": ["/bin/echo"]}}}
+        return workerstate.tool_check(reg, [self.root] if roots is None else roots, mode)
+
+    def test_the_first_folder_that_holds_the_program_wins_in_the_order_given(self):
+        out = self.check(["scan"], [f"{self.root}/a/bin", f"{self.root}/b"])
+        self.assertEqual((out["scan"]["found"], out["scan"]["where"]), (f"{self.root}/a/bin/scan", "tool folder"))
+        out = self.check(["scan"], [f"{self.root}/b", f"{self.root}/a/bin"])
+        self.assertEqual(out["scan"]["found"], f"{self.root}/b/scan")
+        self.assertNotIn("plain", out)                                                         # a class without tool folders is not listed
+
+    def test_a_program_in_no_tool_folder_falls_back_to_the_system_or_is_not_found(self):
+        self.assertEqual(self.check(["ls"], [f"{self.root}/b"])["scan"]["where"], "system")
+        gone = self.check(["no-such-tool-here"], [f"{self.root}/b"])["scan"]
+        self.assertEqual((gone["found"], gone["where"]), (None, None))
+
+    def test_a_folder_the_worker_does_not_allow_or_in_full_isolation_is_not_searched_and_says_so(self):
+        out = self.check(["only-b"], [f"{self.root}/b", f"{self.base}/missing"], roots=[f"{self.root}/a"])["scan"]
+        self.assertIsNone(out["found"])
+        self.assertEqual([(f["exists"], f["allowed"]) for f in out["folders"]], [(True, False), (False, False)])
+        self.assertFalse(self.check(["only-b"], [f"{self.root}/b"], mode="full")["scan"]["folders"][0]["allowed"])
+
+    def test_the_state_carries_it_only_when_a_class_has_tool_folders(self):
+        reg = {"classes": {"scan": {"kind": "command", "run": ["scan"], "tools": [f"{self.root}/b"]}}}
+        env, _ = workerstate.build(snapshot={}, registry=reg, extra={"isolation_mode": "relaxed", "tool_roots": [self.root]}, jail=type("J", (), {"ready": lambda s: True, "name": "bwrap"})(), locked=False, now_iso="x")
+        self.assertEqual(env["tool_check"]["scan"]["found"], f"{self.root}/b/scan")
+        env2, _ = workerstate.build(snapshot={}, registry={"classes": {}}, extra={}, jail=type("J", (), {"ready": lambda s: True, "name": "bwrap"})(), locked=False, now_iso="x")
+        self.assertNotIn("tool_check", env2)
+
+
 if __name__ == "__main__":
     unittest.main()
 

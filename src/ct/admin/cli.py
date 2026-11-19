@@ -181,8 +181,13 @@ def cmd_approve(ctx, a):
 
 # ---- approving from this computer: sign here, publish, nothing to log in to ----
 def class_info(ctx, job):
-    """What the worker published about the job's class (None if it did not), so a job that runs as root is shown as such."""
-    return ((ctx.repos.registry_info() or {}).get("classes") or {}).get(job.get("class"))
+    """What the worker published about the job's class (None if it did not), so a job that runs as root is shown as such, with what it published about which tool the class would really run
+    (only for a class that names tool folders)."""
+    info = ((ctx.repos.registry_info() or {}).get("classes") or {}).get(job.get("class"))
+    if info and info.get("tools"):
+        check = ((workers.read_state(ctx.repos.results) or {}).get("tool_check") or {}).get(job.get("class"))
+        info = {**info, "tool_check": check}
+    return info
 
 
 def approval_key(ctx):
@@ -1108,6 +1113,7 @@ def cmd_class(ctx, a):
             allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
             rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]
             rows += [("This worker", f"isolation {iso.get('mode', 'full')}" + (f"; allowed folders: {', '.join(roots)}" if roots else "; no tool folders allowed"))]
+            rows += jobs.tool_check_rows(((state.get("tool_check") or {}).get(name)), tools)
         else:
             rows += [("Tool folders", "none")]
         change = [] if from_pack else ([f"ct-admin class set {name} --tier approve"] if tier == "auto" else []) + [f"ct-admin class set {name} --network {'off' if network else 'on'}", f"ct-admin class set {name} --tools <folder> [<folder> ...]"]

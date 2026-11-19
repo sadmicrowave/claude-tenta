@@ -1363,6 +1363,40 @@ class RegeditSetFields(unittest.TestCase):
         self.assertIsNone(regedit.set_class_fields(self.TEXT, "nope", {"tier": "auto"}))
 
 
+class BeforeApprovingAToolClass(AdminBase):
+    """Which tool a class with tool folders would really run is said before the person signs, and in `class show`."""
+    INFO = {"kind": "command", "cost": "light", "tier": "approve", "run": ["scan"], "tools": ["/opt/tools/a", "/opt/tools/b"]}
+    CHECK = {"program": "scan", "found": "/opt/tools/a/scan", "where": "tool folder",
+             "folders": [{"path": "/opt/tools/a", "exists": True, "allowed": True}, {"path": "/opt/tools/b", "exists": False, "allowed": True}]}
+
+    def text_of(self, card):
+        import re
+        return re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(" ".join(str(x) for x in d) if isinstance(d, tuple) else str(d) for d in card["details"]))
+
+    def test_the_review_card_names_the_folders_the_program_found_and_each_folders_state(self):
+        from ct.admin import jobs
+        card = jobs.review_card({"id": "scan-abc123", "class": "scan"}, None, "lab", info={**self.INFO, "tool_check": self.CHECK}, digest="a" * 64)
+        text = self.text_of(card)
+        for needle in ("Tool folders /opt/tools/a", "/opt/tools/b", "Found /opt/tools/a/scan  (in a tool folder)", "/opt/tools/b  missing on the worker"):
+            self.assertIn(needle, text)
+
+    def test_a_program_that_is_found_nowhere_is_said_loudly_and_an_unknown_state_is_not_invented(self):
+        from ct.admin import jobs
+        none = jobs.tool_check_rows({**self.CHECK, "found": None, "where": None}, ["/opt/tools/a"])
+        self.assertTrue(any("NOT FOUND" in str(v) for _, v in none))
+        unknown = jobs.tool_check_rows(None, ["/opt/tools/a"])
+        self.assertTrue(any("not known yet" in str(v) for _, v in unknown))
+
+    def test_class_show_reads_it_from_the_workers_published_state(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"updated": "2999-01-01T00:00:00Z", "isolation": {"mode": "relaxed", "tool_roots": ["/opt/tools"]}, "tool_check": {"careful": self.CHECK}}))
+        self.admin("class", "set", "careful", "--tools", "/opt/tools/a", "/opt/tools/b", "--yes")
+        self.repos.registry_info = lambda: {"classes": {"careful": self.INFO}}
+        code, out, err = self.admin("class", "show", "careful")
+        self.assertEqual(code, 0, err)
+        for needle in ("Program", "scan", "/opt/tools/a/scan", "in a tool folder", "missing on the worker"):
+            self.assertIn(needle, out + err)
+
+
 if __name__ == "__main__":
     unittest.main()
 
