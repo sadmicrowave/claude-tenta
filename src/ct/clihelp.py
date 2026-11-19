@@ -113,10 +113,11 @@ def usage_problem(err, prog, known=()):
         bad, choices = m.group(1), [c.strip().strip("'") for c in m.group(2).split(",")]
         close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.5)
         top = not sub_cmd
-        what = "command" if top else "option"
-        steps = [f"Choose one of: {', '.join(choices)}"] + ([] if not top else [f"Every command, with examples: {prog} help"])
-        return ("That is not a command" if top else "That is not an option", f"The choices are: {', '.join(choices)}.", steps,
-                f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else (None if top else usage), [(what.capitalize(), bad), ("In", here)])
+        arg = re.match(r"argument ([A-Za-z_-]+):", msg)
+        what = "command" if top else (arg.group(1) if arg and arg.group(1) not in ("cmd",) else "option")             # a positional's own name (verb), else 'option'
+        steps = [f"Choose one of: {', '.join(choices)}"] + ([f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"] if not top else [f"Every command, with examples: {prog} help"])         # a syntax error always carries the command's own syntax and where its full help is
+        return ("That is not a command" if top else "That is not one of the choices", f"The choices are: {', '.join(choices)}.", steps,
+                f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else None, [(what.capitalize(), bad), ("In", here)])
     m = re.search(r"required: (.*)", msg)
     if m:
         return ("A required argument is missing", "Something it must be told is missing.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None, [("Command", here), ("Needs", m.group(1))])

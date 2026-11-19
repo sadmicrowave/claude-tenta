@@ -1322,11 +1322,21 @@ class ClassSetTests(AdminBase):
         for needle in ("Tier", "approve", "Network", "/opt/tools/nmap", "NOT inside a folder this worker allows"):
             self.assertIn(needle, out + err)
 
-    def test_a_class_that_is_not_in_your_registry_is_refused_with_the_real_ones(self):
+    def test_a_class_that_is_not_anywhere_is_refused_with_the_real_ones(self):
         code, _, err = self.admin("class", "show", "nope")
         self.assertEqual(code, 2)
-        self.assertIn("cannot be changed here", err)
+        self.assertIn("No such class", err)
         self.assertIn("careful", err)
+
+    def test_a_class_from_a_pack_can_be_shown_but_not_set(self):
+        self.repos.registry_info = lambda: {"classes": {"fromapack": {"tier": "auto", "cost": "light", "network": True, "tools": ["/opt/x"]}}}
+        code, out, err = self.admin("class", "show", "fromapack")
+        self.assertEqual(code, 0, err)
+        for needle in ("a pack (change it there)", "auto", "yes: jobs of this class can reach the network", "/opt/x"):
+            self.assertIn(needle, out + err)
+        code, _, err = self.admin("class", "set", "fromapack", "--tier", "approve", "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("comes from a pack", err)
 
 
 class RegeditSetFields(unittest.TestCase):

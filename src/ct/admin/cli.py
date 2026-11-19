@@ -1093,15 +1093,17 @@ def cmd_class(ctx, a):
     mine = registry.parse(text).get("classes") or {} if text.strip() else {}
     published = (r.registry_info() or {}).get("classes") or {}
     name = a.cls
-    if name not in mine:
-        where = "comes from a pack, so its settings are changed in the pack" if name in published else "is not in your registry"
-        raise ClientError("That class cannot be changed here", f"It {where}.", [f"Your classes: {', '.join(sorted(mine)) or 'none'}"] if mine else None, example="ct-run classes", facts=[("Class", name)])
-    tier, network, tools = class_facts(mine[name])
+    from_pack = name not in mine and name in published
+    if name not in mine and not from_pack:
+        raise ClientError("No such class", "It is neither in your registry nor installed on the worker.", [f"Your classes: {', '.join(sorted(mine))}"] if mine else None, example="ct-run classes", facts=[("Class", name)])
+    if from_pack and a.verb == "set":
+        raise ClientError("That class comes from a pack", "Its settings are changed in the pack, not here.", example=f"ct-admin class show {name}", facts=[("Class", name)])
+    tier, network, tools = class_facts(mine[name] if name in mine else published[name])
     if a.verb == "show":
         state = workers.read_state(r.results) or {}
         iso = state.get("isolation") or {}
         roots = list(iso.get("tool_roots") or [])
-        rows = [("Class", name), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
+        rows = [("Class", name), ("Defined in", "a pack (change it there)" if from_pack else "your registry"), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
         if tools:
             allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
             rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]

@@ -22,7 +22,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from .. import cards, config
+from .. import cards, clihelp, config
 from ..client.repo import ClientError
 from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
@@ -68,7 +68,7 @@ LOCAL_COMMANDS = ("client", "server", "audit", "demo", "tripwire-test")     # th
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(prog="ct-setup", add_help=False)
+    ap = clihelp.Parser(prog="ct-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
     for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport", "add-worker"):
         s = sp.add_parser(n, add_help=False)
@@ -206,8 +206,9 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         return 0
     try:
         a = build_parser().parse_args(argv)
-    except SystemExit:
-        emit("That is not a command ct-setup understands", "Run ct-setup help.", tag="ERROR", color=RED)
+    except (clihelp.UsageError, SystemExit) as e:
+        title, why, steps, example, facts = clihelp.usage_problem(e, "ct-setup") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-setup understands", "Run ct-setup help.", [], None, [])
+        emit(title, *facts, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps or None, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     if not a.cmd:
         emit("No command given", "Run ct-setup help.", tag="ERROR", color=RED)

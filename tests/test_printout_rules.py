@@ -318,5 +318,26 @@ class FoundInTheFleetLog(unittest.TestCase):
         self.assertEqual(cards.code_spans("ct-run accepts: setup, submit."), "`ct-run` accepts: setup, submit.")
 
 
+class SyntaxErrorsCarryTheCommandsSyntax(unittest.TestCase):
+    """Every command syntax error says in TRY what the right syntax is and where the full help is (not only 'choose one of')."""
+
+    def test_a_wrong_verb_gets_usage_and_the_help_pointer(self):
+        from ct import clihelp
+        ap = clihelp.Parser(prog="ct-admin", add_help=False)
+        sp = ap.add_subparsers(dest="cmd")
+        c = sp.add_parser("class", add_help=False)
+        c.add_argument("verb", choices=["set", "show"])
+        try:
+            ap.parse_args(["class", "bogus"])
+        except clihelp.UsageError as e:
+            title, why, steps, example, facts = clihelp.usage_problem(e, "ct-admin")
+        text = " ".join(steps)
+        self.assertIn("Choose one of: set, show", text)
+        self.assertIn("Usage: ct-admin class", text)
+        self.assertIn("ct-admin help class", text)
+        self.assertIn(("Verb", "bogus"), facts)                                          # the argument is named by what it is (verb), not 'option'
+        self.assertIsNone(example)                                                          # no copied 'did you mean' with placeholders when nothing is close
+
+
 if __name__ == "__main__":
     unittest.main()
