@@ -164,7 +164,7 @@ def cmd_where(ctx, cfg, a):
     """Say which worker a job of this class would go to, and why each of the others would not, without sending anything."""
     worker, why = pinned_worker(cfg, a.cls)
     if worker:
-        emit(f"{a.cls} jobs from this folder go to {worker}", ("Why", why), tag="WHERE", color=CYAN, run=["ct-run use"], run_label="See or change it")
+        emit(f"From this folder, {a.cls} goes to {worker}", ("Why", why), tag="WHERE", color=CYAN, run=["ct-run use"], run_label="See or change it")
         return 0
     ents = place.entries(cfg) if cfg is not None else []
     if len(ents) < 2:
