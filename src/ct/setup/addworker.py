@@ -186,7 +186,7 @@ def verdict_card(host, v, card=None):
         rows.append("It meets the requirements" + (f", with {len(v.warnings)} thing(s) to know about." if v.warnings else "."))
         card(f"{host} can be a worker", *rows, tag="MEETS", color=GREEN, stream=sys.stderr)
     else:
-        rows += [f"Why not: {why}" for s, w, why in v.failures]
+        rows += [_ui.cards.Why(why) for s, w, why in v.failures]
         card(f"{host} cannot be a worker yet", *rows, tag="NOT YET", color=RED, steps=v.fixes or None, steps_label="How to fix it", stream=sys.stderr)
 
 

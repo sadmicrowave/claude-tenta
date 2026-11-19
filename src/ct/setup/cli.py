@@ -26,7 +26,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from .. import config
+from .. import cards, config
 from ..client.repo import ClientError
 from .. import ui as _ui
 from ..ui import BOLD, GREEN, RED, YELLOW, paint
@@ -294,7 +294,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             from . import tripwire
             cfg = config.load()
             ok, why = tripwire.run(host, cfg, say=say, confirm=(lambda p: True) if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y"))
-            emit("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=GREEN if ok else RED)
+            emit("The tripwire works" if ok else "The tripwire test did not pass", why if ok else cards.Why(why), tag="OK" if ok else "FAILED", color=GREEN if ok else RED)
             return 0 if ok else 1
         if a.cmd == "demo":
             ui = screen or tui.make(interactive=True)
@@ -371,12 +371,12 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     except SetupError as e:
         for _s in live:
             _s is not None and _s.erase()
-        emit(e.title, e.why, tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
+        emit(e.title, cards.Why(e.why or ""), tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
         return 1
     except ClientError as e:                    # a failed SSH connection or git step on this side: said in plain words, never a traceback
         for _s in live:
             _s is not None and _s.erase()
-        emit(e.title, e.why, tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
+        emit(e.title, cards.Why(e.why or ""), tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
         return 2
     except config.ConfigError as e:
         for _s in live:

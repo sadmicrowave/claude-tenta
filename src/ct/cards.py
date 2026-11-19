@@ -17,6 +17,10 @@ CHIP = {"ok": "ok_chip", "bad": "bad_chip", "warn": "warn_chip", "root": "root_c
 ROLE_OF = {"info": "primary", "primary": "primary", "accent": "accent", "ok": "ok", "bad": "bad", "warn": "warn", "root": "root"}
 
 
+class Why(str):
+    """The reason an error happened, as the card shows it: a blank line above, a WHY chip in the card's colour, and the text in that colour. Every error card that has a reason passes it as a Why."""
+
+
 class Heading(str):
     """A heading inside a card ("Output", "Measured"): a coloured capital line with a blank line above it."""
 
@@ -255,6 +259,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             body += [("blank", None), ("head", str(d))]
         elif isinstance(d, Block):
             body += [("raw", line) for line in d]
+        elif isinstance(d, Why):
+            body += [("blank", None), ("why", str(d))]
         else:
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
@@ -289,6 +295,10 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out.append(row())
         elif kind == "note":
             out += [row(t) for t in inline(wrap(lift(item, inner, found), inner), "muted")]
+        elif kind == "why":
+            first, *rest = inline(wrap(lift(item, inner - 6, found), inner - 6), role)
+            out.append(row(p(" WHY ", CHIP.get(role, "primary_chip")) + " " + first))
+            out += [row("      " + line) for line in rest]
         elif kind == "head":
             out.append(row(p(item.upper(), role if framed else "label")))
         elif kind == "raw":

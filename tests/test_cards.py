@@ -194,6 +194,59 @@ class CommandsInSentencesAreCodeChips(unittest.TestCase):
         self.assertGreaterEqual(text.count(code), 3)
 
 
+class TheReasonOfAnErrorIsAWhyBlock(unittest.TestCase):
+    """The standing rule: an error card that has a reason shows it the same way everywhere: set apart by a blank line, a WHY chip in the card's colour, the text in that colour."""
+
+    def lines(self, framed, **kw):
+        return cards.card("It broke", [("Release", "Debian 13"), cards.Why("agent is not in the sudo group")], tag="NOT YET", color=ui.RED, framed=framed, **kw)
+
+    def test_a_blank_line_then_a_red_why_chip_then_the_text_in_red(self):
+        for framed in (True, False):
+            raw = self.lines(framed)
+            plain = [re.sub(r"\x1b\[[0-9;]*m", "", ln) for ln in raw]
+            at = next(i for i, ln in enumerate(plain) if "WHY" in ln and "sudo group" in ln)
+            self.assertEqual(plain[at - 1].strip("│┃ "), "", "a blank line separates it from the facts above")
+            self.assertIn(theme.code("bad_chip"), raw[at])                         # the chip, in the colour of an error
+            self.assertIn(theme.code("bad"), raw[at].split("WHY")[1])              # and the text in the same colour
+            self.assertNotIn("Why not", " ".join(plain))
+
+    def test_a_long_reason_wraps_under_its_own_text_not_under_the_chip(self):
+        raw = cards.card("T", [cards.Why("word " * 40)], tag="ERROR", color=ui.RED, framed=True)
+        plain = [re.sub(r"\x1b\[[0-9;]*m", "", ln) for ln in raw]
+        rows = [ln for ln in plain if "word" in ln]
+        self.assertGreater(len(rows), 1)
+        self.assertTrue(all(ln.startswith("│       word") or ln.startswith("│  WHY") or ln.startswith("│ WHY") or ln.startswith("│       ") for ln in rows), rows)
+
+    def test_a_yellow_card_has_a_yellow_chip(self):
+        raw = cards.card("T", [cards.Why("because")], tag="STOPPED", color=ui.YELLOW, framed=True)
+        self.assertTrue(any(theme.code("warn_chip") in ln and "WHY" in ln for ln in raw))
+
+    def test_plain_output_says_why_too(self):
+        out = io.StringIO()
+        ui.say("It broke", cards.Why("agent is not in the sudo group"), tag="ERROR", color=ui.RED, stream=out)
+        self.assertIn("WHY  agent is not in the sudo group", out.getvalue())
+
+    def test_no_error_call_in_the_source_passes_a_why_any_other_way(self):
+        """Every emit/say/stop/fail/notice that is handed a variable called why (or an exception's .why) must wrap it in cards.Why, so no error card shows its reason another way."""
+        import ast
+        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        bad = []
+        for f in sorted(root.rglob("*.py")):
+            tree = ast.parse(f.read_text())
+            for call in ast.walk(tree):
+                name = call.func.attr if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) else getattr(getattr(call, "func", None), "id", None)
+                if not (isinstance(call, ast.Call) and name in ("emit", "say", "stop", "fail", "notice")):
+                    continue
+                for a in call.args:
+                    base = a.func.value if isinstance(a, ast.Call) and isinstance(a.func, ast.Attribute) else a                     # why, e.why, why.capitalize()
+                    holds = [base] if (isinstance(base, ast.Name) and base.id == "why") or (isinstance(base, ast.Attribute) and base.attr == "why") else []
+                    wrapped = isinstance(a, ast.Call) and getattr(a.func, "attr", getattr(a.func, "id", "")) == "Why"
+                    ok_branch = isinstance(a, ast.IfExp)                                    # `why if ok else Why(why)`: the success text is not an error reason
+                    if holds and not wrapped and not ok_branch:
+                        bad.append(f"{f.relative_to(root)}:{call.lineno}")
+        self.assertEqual(bad, [], "wrap the reason: cards.Why(why)")
+
+
 if __name__ == "__main__":
     unittest.main()
 

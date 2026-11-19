@@ -18,7 +18,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from .. import transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
+from .. import cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -107,7 +107,7 @@ class Context:
 
 
 def fail_from(e):
-    emit(e.title, e.why, tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
+    emit(e.title, cards.Why(e.why or ""), tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
     return 2
 
 
@@ -1188,8 +1188,8 @@ def main(argv=None, ctx=None, cfg=None):
     try:
         a = ap.parse_args(argv)
     except (clihelp.UsageError, SystemExit) as e:
-        title, why, steps, example = clihelp.usage_problem(e, "ct-admin") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-admin understands", "Run ct-admin help to see the commands.", None, None)
-        emit(title, why, tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
+        title, why, steps, example = clihelp.usage_problem(e, "ct-admin") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-admin understands", "ct-admin has no command by that name.", ["Run ct-admin help to see the commands."], None)
+        emit(title, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     if not a.cmd:
         emit("No command given", "Run ct-admin help to see the commands.", tag="ERROR", color=RED)

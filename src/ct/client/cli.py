@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import clihelp, config, transport
+from .. import cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from . import cap
@@ -77,7 +77,7 @@ def fleet_of(cfg, main):
 
 def fail_from(e):
     """Show a ClientError the way every other error is shown, and return its exit code."""
-    emit(e.title, e.why, tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
+    emit(e.title, cards.Why(e.why or ""), tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
     return 2
 
 
@@ -125,7 +125,7 @@ def cmd_submit(ctx, a):
     info = r.registry_info()
     limits = sub.file_limits(info)
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", why, tag="NOTE", color=YELLOW)))
+        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", cards.Why(why), tag="NOTE", color=YELLOW)))
     batches = [files]
     if files:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
@@ -465,7 +465,7 @@ def cmd_profile(ctx, a):
         files[p.name] = p.read_text()
     limits = sub.file_limits(r.registry_info())
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", why, tag="NOTE", color=YELLOW)))
+        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", cards.Why(why), tag="NOTE", color=YELLOW)))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
         raise ClientError("Too many input files", f"One job can carry at most {limits['max_count']} files and {limits['max_total_kb']} KB of text.",
                           ["Attach only the files the command needs: --include 'src/**/*.js'"])
@@ -704,8 +704,8 @@ def main(argv=None, ctx=None, cfg=None):
         a = ap.parse_args(argv)
         a.argv, a.raw = tail, raw
     except (clihelp.UsageError, SystemExit) as e:
-        title, why, steps, example = clihelp.usage_problem(e, "ct-run") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-run understands", "Run ct-run help to see the commands.", None, None)
-        emit(title, why, tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
+        title, why, steps, example = clihelp.usage_problem(e, "ct-run") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-run understands", "ct-run has no command by that name.", ["Run ct-run help to see the commands."], None)
+        emit(title, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     try:
         if ctx is None:

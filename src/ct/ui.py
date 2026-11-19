@@ -96,6 +96,8 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
                 out.append(f"  {paint(d[0].ljust(width), BOLD, stream=stream)}  {d[1].plain() if isinstance(d[1], cards.Styled) else d[1]}")
             elif isinstance(d, cards.Block):
                 out += [f"  {x}" for x in d]
+            elif isinstance(d, cards.Why):
+                out += ["", f"  {paint('WHY', BOLD, color, stream=stream)}  {d}"]
             elif isinstance(d, cards.Heading):
                 out += ["", f"  {paint(str(d).upper(), BOLD, stream=stream)}"]
             else:
@@ -110,7 +112,7 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
 
 def fail(title, why=None, steps=None, example=None, code=2):
     """An error a person can act on: what went wrong, why, how to fix it, and a command to copy. Exits."""
-    say(title, why, tag="ERROR", color=RED, steps=steps, steps_label="How to fix it", run=example)
+    say(title, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps, steps_label="How to fix it", run=example)
     sys.exit(code)
 
 

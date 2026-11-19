@@ -265,7 +265,7 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
             stop("Not approved", "You answered no. The job stays waiting.")
     ok, why = ctx.w.approve(jid, sha=None if yes else sha)
     if not ok:
-        stop("NOT approved", why, tag="REFUSED", color=RED)
+        stop("NOT approved", cards.Why(why), tag="REFUSED", color=RED)
     emit("Approved", f"Job {jid}", f"{ctx.product} picks it up within a few seconds.", tag="APPROVED", color=GREEN, run_label="Watch for the result", run=f"ct-run result {jid}")
     return 0
 
@@ -304,7 +304,7 @@ def cmd_action_hash(ctx, path, as_json=False):
 def cmd_cancel(ctx, jid):
     ok, why = ctx.w.cancel(jid)
     if not ok:
-        stop(f"Cannot cancel {jid}", why.capitalize() + ".", tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
+        stop(f"Cannot cancel {jid}", cards.Why(why.capitalize() + "."), tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
     emit("Cancelled", f"Job {jid} will not run.", tag="DONE", color=GREEN)
     return 0
 

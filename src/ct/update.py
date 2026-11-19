@@ -440,7 +440,7 @@ def main(argv=None):
             from .setup import tripwire
             from .setup.host import Host
             ok, why = tripwire.run(Host(), cfg, confirm=lambda p: input(_ui.confirm_prompt(p)).strip().lower() == "y")
-            _ui.say("The tripwire works" if ok else "The tripwire test did not pass", why, tag="OK" if ok else "FAILED", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
+            _ui.say("The tripwire works" if ok else "The tripwire test did not pass", why if ok else _ui.cards.Why(why), tag="OK" if ok else "FAILED", color=_ui.GREEN if ok else _ui.RED, stream=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if argv == ["--registry-sync"]:
             status, ok = registry_sync(cfg, install_packages=real_install_packages(cfg))
