@@ -1,6 +1,7 @@
 """ct-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
 import argparse
 import io
+import re
 import json
 import os
 import subprocess
@@ -1259,6 +1260,91 @@ class ReleaseMismatch(AdminBase):
 
 
 
+class ClassSetTests(AdminBase):
+    """ct-admin class set / show: change a class's tier, network access and tool folders without editing registry.yaml by hand."""
+
+    def setUp(self):
+        super().setUp()
+        self.ssh.answers[INSTALLED] = self.rel[0] + "\n"
+        self.ssh.answers["systemctl"] = "timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev={}\n".format(self.rel[0])
+        self.ctx.sleep = lambda s: None
+
+    def registry(self):
+        self.repos.fetch_queue()
+        return self.repos.show_file("origin/main", "registry.yaml")
+
+    def test_the_tier_changes_in_place_and_the_change_is_installed(self):
+        code, out, err = self.admin("class", "set", "careful", "--tier", "auto", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("approve  ->  auto", out + err)
+        self.assertRegex(self.registry(), r"(?m)^  careful:\n(?:    .*\n)*?    tier: auto\n")
+        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
+
+    def test_turning_the_network_on_for_an_automatic_class_also_makes_it_need_approval(self):
+        code, out, err = self.admin("class", "set", "echo", "--network", "on", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("also set to approve", out + err)
+        block = re.search(r"(?m)^  echo:\n((?:    .*\n)+)", self.registry()).group(1)
+        self.assertIn("network: true", block)
+        self.assertIn("tier: approve", block)
+
+    def test_network_without_approval_needs_the_explicit_flag_and_a_person_answering_yes_does_not_count(self):
+        code, out, err = self.admin("class", "set", "echo", "--network", "on", "--tier", "auto", "--yes")
+        self.assertEqual(code, 2)                                                           # no terminal: --yes does not answer it
+        self.assertIn("answering this question yourself", err)
+        self.assertNotIn("network: true", self.registry())
+        self.ctx.is_tty, self.ctx.ask = (lambda: True), (lambda p: "n")
+        self.assertEqual(self.admin("class", "set", "echo", "--network", "on", "--tier", "auto")[0], 1)
+        self.assertNotIn("network: true", self.registry())
+        self.ctx.ask = lambda p: "y"
+        self.assertEqual(self.admin("class", "set", "echo", "--network", "on", "--tier", "auto")[0], 0)
+        self.assertIn("network: true", self.registry())
+
+    def test_tool_folders_can_be_listed_or_repeated_and_removed_with_none(self):
+        self.assertEqual(self.admin("class", "set", "careful", "--tools", "/opt/tools/nmap", "/opt/tools/bin", "--tools", "/srv/more", "--yes")[0], 0)
+        self.assertIn("tools: [/opt/tools/nmap, /opt/tools/bin, /srv/more]", self.registry())
+        self.assertEqual(self.admin("class", "set", "careful", "--tools", "none", "--yes")[0], 0)
+        self.assertNotIn("tools:", self.registry())
+
+    def test_a_folder_that_is_not_plain_and_a_missing_change_and_an_unchanged_class_are_explained(self):
+        code, _, err = self.admin("class", "set", "careful", "--tools", "relative/bin", "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("invalid registry", err)
+        self.assertEqual(self.admin("class", "set", "careful", "--yes")[0], 2)
+        code, out, err = self.admin("class", "set", "careful", "--tier", "approve", "--yes")
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing to change", out + err)
+
+    def test_show_says_what_a_class_may_do(self):
+        self.admin("class", "set", "careful", "--tools", "/opt/tools/nmap", "--yes")
+        code, out, err = self.admin("class", "show", "careful")
+        self.assertEqual(code, 0, err)
+        for needle in ("Tier", "approve", "Network", "/opt/tools/nmap", "NOT inside a folder this worker allows"):
+            self.assertIn(needle, out + err)
+
+    def test_a_class_that_is_not_in_your_registry_is_refused_with_the_real_ones(self):
+        code, _, err = self.admin("class", "show", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be changed here", err)
+        self.assertIn("careful", err)
+
+
+class RegeditSetFields(unittest.TestCase):
+    TEXT = "classes:\n  # about a\n  a:\n    tier: approve\n    run: [/bin/a]\n\n  b:\n    tier: auto\n    tools:\n      - /opt/x\n      - /opt/y\n    run: [/bin/b]\n"
+
+    def test_a_line_is_replaced_in_place_a_new_one_is_added_at_the_end_and_comments_stay(self):
+        out = regedit.set_class_fields(self.TEXT, "a", {"tier": "auto", "network": True})
+        self.assertIn("  # about a\n  a:\n    tier: auto\n    run: [/bin/a]\n    network: true\n", out)
+        self.assertIn("  b:\n    tier: auto", out)                                       # the other class is untouched
+
+    def test_a_list_written_under_the_setting_is_replaced_whole_and_none_removes_it(self):
+        out = regedit.set_class_fields(self.TEXT, "b", {"tools": ["/opt/z"]})
+        self.assertIn("    tools: [/opt/z]\n    run: [/bin/b]\n", out)
+        self.assertNotIn("- /opt/x", out)
+        self.assertNotIn("tools", regedit.set_class_fields(self.TEXT, "b", {"tools": None}))
+        self.assertIsNone(regedit.set_class_fields(self.TEXT, "nope", {"tier": "auto"}))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1359,7 +1445,7 @@ class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
     """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
     so a new command cannot be added without saying which it is."""
     FLEET = {"apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
-    PICK = {"update", "clean", "adopt", "retire", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
+    PICK = {"update", "clean", "adopt", "retire", "class", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
     OWN_FLAG = {"wake", "audit", "tripwire-test", "locate"}                                # already every worker (or the one named) with their own --worker
     BY_NATURE = {"watch", "workers"}                                                       # look at the whole fleet by definition
     BY_JOB = {"approve", "review", "cancel", "kill", "output"}                             # follow the job to the worker it was sent to (placements)

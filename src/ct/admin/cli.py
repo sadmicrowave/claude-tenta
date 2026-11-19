@@ -1078,6 +1078,88 @@ def cmd_retire(ctx, a):
     return rc
 
 
+def class_facts(c):
+    """(tier, network, tools) of a class as the registry text says it, with the defaults a missing line means."""
+    return c.get("tier", "approve"), bool(c.get("network", False)), list(c.get("tools") or [])
+
+
+def cmd_class(ctx, a):
+    """`ct-admin class show CLASS` says what a class may do; `ct-admin class set CLASS ...` changes its approval tier, its network access and its tool folders without editing registry.yaml by hand
+    (the change is shown first, asked about, merged and installed the way retire and adopt are)."""
+    r, p = ctx.repos, ctx.props
+    r.need_setup()
+    p.fetch()
+    text = r.show_file(p.base, "registry.yaml") or ""
+    mine = registry.parse(text).get("classes") or {} if text.strip() else {}
+    published = (r.registry_info() or {}).get("classes") or {}
+    name = a.cls
+    if name not in mine:
+        where = "comes from a pack, so its settings are changed in the pack" if name in published else "is not in your registry"
+        raise ClientError("That class cannot be changed here", f"It {where}.", [f"Your classes: {', '.join(sorted(mine)) or 'none'}"] if mine else None, example="ct-run classes", facts=[("Class", name)])
+    tier, network, tools = class_facts(mine[name])
+    if a.verb == "show":
+        state = workers.read_state(r.results) or {}
+        iso = state.get("isolation") or {}
+        roots = list(iso.get("tool_roots") or [])
+        rows = [("Class", name), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
+        if tools:
+            allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
+            rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]
+            rows += [("This worker", f"isolation {iso.get('mode', 'full')}" + (f"; allowed folders: {', '.join(roots)}" if roots else "; no tool folders allowed"))]
+        else:
+            rows += [("Tool folders", "none")]
+        emit("What a class may do", *rows, tag="CLASS", color=CYAN, run=[f"ct-admin class set {name} --tier approve", f"ct-admin class set {name} --tools <folder> [<folder> ...]"], run_label="Change it")
+        return 0
+    changes, notes = {}, []
+    if a.tier:
+        changes["tier"] = a.tier
+    if a.network:
+        changes["network"] = a.network == "on"
+    if a.tools:
+        flat = [t for group in a.tools for t in group]
+        changes["tools"] = None if flat == ["none"] else flat
+    if not changes:
+        raise ClientError("Say what to change", "Give at least one of --tier, --network or --tools.", example=f"ct-admin class set {name} --tier approve", facts=[("Class", name)])
+    new_tier = changes.get("tier", tier)
+    new_net = changes.get("network", network)
+    if new_net and new_tier == "auto" and "tier" not in changes:                          # never end up silently with a network class that runs unapproved
+        changes["tier"] = new_tier = "approve"
+        notes.append("It is also set to approve: a class with network access should not run without your approval each time. To keep it automatic, say so: --tier auto.")
+    new_text = regedit.set_class_fields(text, name, {k: v for k, v in changes.items()})
+    problems = registry.validate(registry.parse(new_text), "/nonexistent-tools-root", allow_empty=True)
+    if problems:
+        raise ClientError("That would leave an invalid registry", "\n".join(problems[:5]), facts=[("Class", name)])
+    now_tier, now_net, now_tools = class_facts(registry.parse(new_text)["classes"][name])
+    if (now_tier, now_net, now_tools) == (tier, network, tools):
+        emit("Nothing to change", ("Class", name), "It already is that way.", tag="NOTE", color=YELLOW)
+        return 0
+    rows = [("Class", name)]
+    if now_tier != tier:
+        rows.append(("Tier", f"{tier}  ->  {now_tier}"))
+    if now_net != network:
+        rows.append(("Network", f"{'yes' if network else 'no'}  ->  {'yes' if now_net else 'no'}"))
+    if now_tools != tools:
+        rows += [("Tool folders" if i == 0 else "", f) for i, f in enumerate(now_tools)] or [("Tool folders", "none (removed)")]
+    emit("Change a class", *rows, *notes, tag="CHANGE", color=RED if (now_net and now_tier == "auto") else CYAN)
+    dangerous = now_net and now_tier == "auto"
+    if dangerous:
+        emit("This class would run with the network and without your approval", "Anyone who can send this job will run it with the network, each time, without you seeing it first.", tag="WARNING", color=RED)
+        if not ctx.is_tty():                                                                       # never taken from --yes: a security choice is answered by a person at a terminal
+            raise ClientError("This needs your answer at a terminal", "A class that uses the network without your approval can only be set by answering this question yourself; --yes does not answer it.",
+                              facts=[("Class", name)])
+        if ctx.ask(_ui.confirm_prompt(f"Allow {name} to use the network without approval?")).strip().lower() != "y":
+            stop("Not changed", "You answered no. Nothing was changed.")
+    elif not ctx.confirm(f"Change {name} and install the new registry on {ctx.ssh.host} now?", a.yes):
+        stop("Not changed", "You answered no. Nothing was changed.")
+    branch = f"chore/class-{name}"
+    r.push_files(branch, {"registry.yaml": new_text}, f"chore(registry): change the {name} class\n\nChanged in registry.yaml with ct-admin class set.", base=p.main)
+    merge_branch(ctx, branch, yes=True)
+    rc = install_registry_change(ctx, a, name=None, present=True)
+    if rc == 0:
+        emit("A class was changed", ("Class", name), tag="DONE", color=GREEN, run_label="Check it", run=f"ct-admin class show {name}")
+    return rc
+
+
 # ---- release ----
 def show_diff(ctx, sha, full=False, quiet=False):
     """Print what installing `sha` changes. Returns True if anything differs from what is installed."""
@@ -1202,7 +1284,7 @@ def selftest(ctx, wait_s=240):
 
 # ---- parser and help ----
 GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
-          ("Registry", ["adopt", "retire", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
+          ("Registry", ["adopt", "retire", "class", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
@@ -1221,6 +1303,7 @@ HELP = {
     "unlock": ("clear a security lockdown after you have looked at it", [("Unlock", "ct-admin unlock")]),
     "output": ("the full output of a failed command (only its error lines are ever published)", [("List the kept outputs", "ct-admin output"), ("Read one", "ct-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "ct-admin adopt profile-k7m2xq --name ssh-version")]),
+    "class": ("see or change what a class may do: its approval tier, network access and tool folders", [("What may it do?", "ct-admin class show nmap"), ("Ask for approval each time", "ct-admin class set nmap --tier approve"), ("Allow the network", "ct-admin class set nmap --network on"), ("Use tools that already exist", "ct-admin class set nmap --tools /opt/tools/nmap /opt/tools/bin")]),
     "retire": ("remove a class from the registry and install that", [("Show what is removed, ask once, then merge and install", "ct-admin retire ssh-version")]),
     "action": ("register, list or remove commands that must run as root", [("Register one from a pack or a YAML file", "ct-admin action add packs/fan-control"), ("After you changed the program, pin it again", "ct-admin action add packs/fan-control"), ("See what is registered", "ct-admin action list"), ("Remove one and the class that runs it", "ct-admin action remove fan-profile")]),
     "theme": ("show the colour roles, what they look like and where the theme came from", [("Show them", "ct-admin theme")]),
@@ -1248,6 +1331,13 @@ def build_parser():
     s.add_argument("--all", action="store_true", help="approve every waiting job you have viewed and that has not changed since")
     s.add_argument("--no-follow", action="store_true", help="approve and return; do not wait for the result")
     s.add_argument("--ssh", action="store_true", help="approve by logging in to the worker (needs its sudo password) instead of signing here")
+    yes(s)
+    s = sp.add_parser("class", add_help=False)
+    s.add_argument("verb", choices=["set", "show"], help="show: what a class may do | set: change its tier, network access or tool folders")
+    s.add_argument("cls", metavar="class", help="the class (ct-run classes lists them)")
+    s.add_argument("--tier", choices=["auto", "approve"], help="auto runs as soon as it is sent; approve waits for your OK each time")
+    s.add_argument("--network", choices=["on", "off"], help="may jobs of this class reach the network?")
+    s.add_argument("--tools", action="append", nargs="+", metavar="FOLDER", help="folders of tools that already exist on the worker (repeat or list several; none removes them); each must be inside a folder the worker allows")
     yes(s)
     s = sp.add_parser("action", add_help=False)
     s.add_argument("verb", choices=["add", "remove", "list"], help="add: register (or pin again) a root-level action | remove: take one away, with its class | list: show what is registered")
@@ -1327,7 +1417,7 @@ def build_parser():
 
 
 FLEET_COMMANDS = ("apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
-PICK_COMMANDS = ("update", "clean", "adopt", "retire", "action", "proposals")      # one worker: the main one, or the one named with --worker
+PICK_COMMANDS = ("update", "clean", "adopt", "retire", "class", "action", "proposals")      # one worker: the main one, or the one named with --worker
 
 
 def run_command(ctx, a):
@@ -1372,7 +1462,7 @@ def run_command(ctx, a):
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
+            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "class": cmd_class, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

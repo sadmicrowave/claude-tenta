@@ -47,6 +47,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `ct-admin adopt` | turn a finished profile run into a class and install it |
 | `ct-admin retire` | remove a class from the registry and install that |
+| `ct-admin class` | see or change what a class may do: its approval tier, network access and tool folders |
 | `ct-admin action` | register, list or remove commands that must run as root |
 | `ct-admin proposals` | list, merge or tidy the changes waiting on branches |
 | `ct-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
