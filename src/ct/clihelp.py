@@ -72,9 +72,9 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=
     rows = [cards.Heading("Usage"), cards.Block([f"{prog} <command> [options]"])]
     if groups:                                  # [(title, [command, ...])]: the commands under headings, in the order given
         for title, names in groups:
-            rows += [cards.Heading(title)] + cmds([(c, details[c][0]) for c in names])
+            rows += [cards.Heading(title)] + cmds([(c, details[c][0]) for c in sorted(names)])                   # commands alphabetically within each group
     else:
-        rows += [cards.Heading("Commands")] + cmds([(c, d[0]) for c, d in details.items()])
+        rows += [cards.Heading("Commands")] + cmds(sorted((c, d[0]) for c, d in details.items()))                    # alphabetically by command name
     if examples:
         rows += [cards.Heading("Examples")] + [(cards.Cmd(cmd), desc) for desc, cmd in examples]
     rows += [cards.Heading("More")] + cmds([(f"{prog} help <command>", "every option of one command, with examples")] + list(see or []))
@@ -96,6 +96,17 @@ class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise UsageError(self, message)
 
+    def parse_args(self, args=None, namespace=None):
+        """Leftover words are reported against the sub-command they followed (`ct-run use --bogus` is about `ct-run use`), not against the top-level tool."""
+        ns, extra = self.parse_known_args(args, namespace)
+        if extra:
+            chosen = getattr(ns, "cmd", None)
+            for action in self._actions:
+                if isinstance(action, argparse._SubParsersAction) and chosen in action.choices:
+                    raise UsageError(action.choices[chosen], f"unrecognized arguments: {' '.join(extra)}")
+            raise UsageError(self, f"unrecognized arguments: {' '.join(extra)}")
+        return ns
+
 
 def _words(parser, prog):
     """'ct-admin action' for the parser of `ct-admin action` (the root parser is created with prog=, so this is exact)."""
@@ -110,7 +121,7 @@ def usage_problem(err, prog, known=()):
     usage = _usage_of(prog, sub_cmd, parser)
     m = re.search(r"invalid choice: '([^']*)'.*?\(choose from (.*)\)", msg)
     if m:
-        bad, choices = m.group(1), [c.strip().strip("'") for c in m.group(2).split(",")]
+        bad, choices = m.group(1), sorted(c.strip().strip("'") for c in m.group(2).split(","))                  # listed alphabetically, like the help
         close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.5)
         top = not sub_cmd
         arg = re.match(r"argument ([A-Za-z_-]+):", msg)

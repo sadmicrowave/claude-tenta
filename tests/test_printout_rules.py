@@ -339,5 +339,47 @@ class SyntaxErrorsCarryTheCommandsSyntax(unittest.TestCase):
         self.assertIsNone(example)                                                          # no copied 'did you mean' with placeholders when nothing is close
 
 
+class HelpIsAlphabetical(unittest.TestCase):
+    """Standing rule: a help screen lists commands alphabetically by name (within each group where there are groups)."""
+
+    def commands_under_headings(self, main):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(out):
+            main(["help"])
+        heads, cur = {}, None
+        for line in re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue()).splitlines():
+            m = re.match(r"^[│┃]?\s{0,2}([A-Z][A-Z ]+)\s*│?$", line.rstrip())
+            if m and m.group(1).strip() in ("WORKER", "JOBS", "SECURITY", "REGISTRY", "RELEASE", "LOOK", "COMMANDS"):
+                cur = m.group(1).strip()
+                heads[cur] = []
+            elif cur and re.match(r"^[│┃]?\s{1,2}([a-z][a-z-]+)\s{2,}\S", line):
+                heads[cur].append(re.match(r"^[│┃]?\s{1,2}([a-z][a-z-]+)", line).group(1))
+        return heads
+
+    def test_ct_admin_and_ct_run_list_their_commands_alphabetically(self):
+        from ct.admin import cli as admin_cli
+        from ct.client import cli as run_cli
+        for main in (admin_cli.main, run_cli.main):
+            heads = self.commands_under_headings(main)
+            self.assertTrue(heads)
+            for head, names in heads.items():
+                self.assertEqual(names, sorted(names), f"{head}")
+
+    def test_leftover_words_are_reported_against_the_subcommand_they_followed(self):
+        from ct import clihelp
+        ap = clihelp.Parser(prog="ct-run", add_help=False)
+        sp = ap.add_subparsers(dest="cmd")
+        u = sp.add_parser("use", add_help=False)
+        u.add_argument("worker", nargs="?")
+        try:
+            ap.parse_args(["use", "w", "--bogus"])
+        except clihelp.UsageError as e:
+            title, why, steps, example, facts = clihelp.usage_problem(e, "ct-run")
+        self.assertIn(("Command", "ct-run use"), facts)
+        self.assertTrue(any("ct-run help use" in x for x in steps))
+
+
 if __name__ == "__main__":
     unittest.main()
