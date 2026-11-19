@@ -33,6 +33,7 @@ from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from .pkgspec import check_packages
 from .util import iso, now, parse_iso
 from .worker import Settings, Worker
+from .words import plural
 
 CT_HELP = (("status [--hours N]", "health, what it is doing, recent use, and the safety checks"),
            ("approve <job>", "approve a job that is waiting for you"),
@@ -73,7 +74,7 @@ def human_dur(sec):
         return f"{round(sec / 60)} min"
     if sec < 172800:
         return f"{sec // 3600} h {sec % 3600 // 60:02d} min"
-    return f"{sec // 86400} days {sec % 86400 // 3600} h"
+    return f"{plural(sec // 86400, 'day')} {sec % 86400 // 3600} h"
 
 
 class Context:
@@ -367,13 +368,13 @@ def cmd_output(ctx, jid=None):
     if jid:
         text = keeper.read(jid)
         if text is None:
-            emit(f"No kept output for {jid}", f"Only failed commands keep their full output, for {keeper.keep_days} days.", tag="NOTE", color=YELLOW)
+            emit(f"No kept output for {jid}", f"Only failed commands keep their full output, for {plural(keeper.keep_days, 'day')}.", tag="NOTE", color=YELLOW)
         else:
             _ui.document(f"Output of {jid}", text, tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
         return 0
     rows = keeper.listing()
     if not rows:
-        emit("No kept output", f"Failed commands keep their full output here, for {keeper.keep_days} days.", tag="OK", color=GREEN)
+        emit("No kept output", f"Failed commands keep their full output here, for {plural(keeper.keep_days, 'day')}.", tag="OK", color=GREEN)
         return 0
     _ui.table("Full output of failed commands", ["job", "size", "age"], [[name, f"{kb} KB", f"{human_dur(age)} ago"] for name, kb, age in rows], tag="KEPT", stream=sys.stdout,
               notes=("Newest first; only the error lines were published.",), run="ct-output <job>", run_label="Read one")
@@ -394,7 +395,7 @@ def cmd_wake(ctx):
     seen = w.fetch()
     record_pass(w.state, "fetch", True, idle=False, mode="active", took=time.monotonic() - t0)
     emit("Looked for jobs now", ("Took", f"{time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
-         ("From here", f"it checks every few seconds while there is work, and idles again after {w.s.idle_after_s // 60} quiet minutes"), tag="AWAKE", color=GREEN)
+         ("From here", f"it checks every few seconds while there is work, and idles again after {plural(w.s.idle_after_s // 60, 'quiet minute')}"), tag="AWAKE", color=GREEN)
     return 0
 
 
@@ -556,7 +557,8 @@ def cmd_status(ctx, hours=12):
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
     if getattr(w, "ledger", None) is not None and w.s.claude_command and (w.ledger.jobs_per_day or w.ledger.turns_per_day or w.ledger.today()["jobs"]):
         b = w.ledger.summary()
-        used = f"{b['jobs']}" + (f" of {b['limit_jobs']}" if b["limit_jobs"] else "") + f" job(s), {b['turns']}" + (f" of {b['limit_turns']}" if b["limit_turns"] else "") + f" turn(s) today (UTC)"
+        of = lambda n, limit, noun: f"{n} of {limit} {noun}s" if limit else plural(n, noun)         # noqa: E731  ("0 of 20 jobs", "1 job")
+        used = f"{of(b['jobs'], b['limit_jobs'], 'job')}, {of(b['turns'], b['limit_turns'], 'turn')} today (UTC)"
         line(not b["paused"], "Claude today", "PAUSED" if b["paused"] else "OK", (f"{b['reason']}: new Claude jobs wait, everything else runs. " if b["paused"] else "") + used
              + (f"; notional cost ${b['cost_usd']:.2f}" if b["cost_usd"] else ""))
     pf = publishdiag.load(w.state)
@@ -567,17 +569,17 @@ def cmd_status(ctx, hours=12):
              + (f" Fix: {fix} on your computer, then ct-admin wake." if fix else "") + (f" Git said: {pf['error'][-160:]}" if pf.get("error") else ""))
     if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
         gone = claudeupdate.token_state(ctx.token_days) == "expired"
-        line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {ctx.token_days} days old (it lasts about a year); "
+        line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {plural(ctx.token_days, 'day')} old (it lasts about a year); "
              + ("Claude jobs fail until it is renewed" if gone else "renew it soon") + ": run ct-setup install on your computer and choose account again")
     cu = claudeupdate.load(w.state)
     if cu:
-        when = f"{int((time.time() - cu['ts']) / 86400)} days ago" if time.time() - cu["ts"] > 86400 else "today"
+        when = f"{plural(int((time.time() - cu['ts']) / 86400), 'day')} ago" if time.time() - cu["ts"] > 86400 else "today"
         if cu["kind"] == "legacy":
             line(True, "Claude", f"OLDER {cu['after'] or '?'}", f"pinned older release, cannot be updated on this processor (newer ones need a newer machine)")      # expected on an old processor: information, not a problem
         elif not cu["ok"]:
             line(False, "Claude", "UPDATE FAILED", f"{cu['note'] or 'see the journal'}  (last tried {when})")
         elif time.time() - cu["ts"] > 21 * 86400:
-            line(False, "Claude", f"{cu['after']} STALE", f"not updated for {int((time.time() - cu['ts']) / 86400)} days; the update timer may have stopped")
+            line(False, "Claude", f"{cu['after']} STALE", f"not updated for {plural(int((time.time() - cu['ts']) / 86400), 'day')}; the update timer may have stopped")
         else:
             line(True, "Claude", cu["after"] or "OK", f"{cu['kind']} install, checked for updates {when}")
     total, avail = w.sensors.meminfo() if w.sensors else (0, None)

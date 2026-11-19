@@ -11,6 +11,7 @@ import difflib
 import os
 import re
 from pathlib import Path
+from .words import plural
 
 MAX_FILE_BYTES = 1_000_000        # one file bigger than this is left out of the record (and so of the patch), with a note
 MAX_FILES = 500
@@ -28,7 +29,7 @@ def snapshot(root):
             if p.is_symlink():
                 notes.append(f"{rel} is a symbolic link; a patch does not carry links")
             elif len(files) >= MAX_FILES:
-                notes.append(f"more than {MAX_FILES} files; the rest are not compared")
+                notes.append(f"more than {plural(MAX_FILES, 'file')}; the rest are not compared")
                 return files, notes
             else:
                 try:
@@ -71,7 +72,7 @@ def make(before, after, max_bytes):
             parts.append(piece)
     text = "".join(parts)
     if len(text.encode()) > max_bytes:
-        return "", changed, f"the patch is {len(text.encode()) // 1000} KB, over the class's limit of {max_bytes // 1000} KB, so it was not returned ({len(changed)} file(s) changed)"
+        return "", changed, f"the patch is {len(text.encode()) // 1000} KB, over the class's limit of {max_bytes // 1000} KB, so it was not returned ({plural(len(changed), 'file')} changed)"
     return text, changed, ""
 
 

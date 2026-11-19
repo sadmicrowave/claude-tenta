@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .runner import kill_group, run_group
+from .words import plural
 
 SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
 
@@ -218,7 +219,7 @@ class GitIO:
             r = self.results
             n = int((self.git(r, "rev-list", "--count", "HEAD").stdout.strip() or "0"))
             if not force and n <= threshold:
-                return f"{n} commits; no prune needed (threshold {threshold})"
+                return f"{plural(n, 'commit')}; no prune needed (threshold {threshold})"
             tree = self.git(r, "ls-tree", "-r", "-z", "HEAD").stdout
             keep, dropped = [], 0
             cutoff = time.time() - days * 86400
@@ -243,7 +244,7 @@ class GitIO:
                 subprocess.run(["git", "-C", str(r), "read-tree", "--empty"], env=env, check=True, timeout=t)
                 subprocess.run(["git", "-C", str(r), "update-index", "--add", "--index-info"], env=env, check=True, input="".join(keep).encode(), timeout=t)
                 new_tree = subprocess.run(["git", "-C", str(r), "write-tree"], env=env, check=True, capture_output=True, timeout=t).stdout.decode().strip()
-                commit = subprocess.run(["git", "-C", str(r), "commit-tree", new_tree, "-m", f"results: squashed history, keeping the last {days} days"],
+                commit = subprocess.run(["git", "-C", str(r), "commit-tree", new_tree, "-m", f"results: squashed history, keeping the last {plural(days, 'day')}"],
                                         env=env, check=True, capture_output=True, timeout=t).stdout.decode().strip()
             except (subprocess.SubprocessError, OSError) as e:
                 return f"prune failed while building the new commit: {e}"
@@ -255,4 +256,4 @@ class GitIO:
             if p.returncode != 0:
                 return "prune push refused (the remote changed underneath us); nothing was changed: " + p.stderr.strip()[:200]
             self.git(r, "reset", "-q", "--hard", commit)
-            return f"results history squashed: {n} commits -> 1, dropped {dropped} results older than {days} days"
+            return f"results history squashed: {plural(n, 'commit')} -> 1, dropped {plural(dropped, 'result')} older than {plural(days, 'day')}"

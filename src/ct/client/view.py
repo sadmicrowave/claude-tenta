@@ -12,6 +12,7 @@ from pathlib import Path
 from .. import cards, ui
 from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, chip, paint
 from .repo import PENDING
+from ..words import plural
 
 STATUS_COLOR = {"queued": CYAN, "running": CYAN, "ok": GREEN, "error": RED, "rejected": RED, "killed": RED, "quarantined": RED, "limit": YELLOW,
                 "cancelled": DIM, "awaiting_approval": YELLOW}
@@ -29,7 +30,7 @@ def human_age(when, now=None):
     if not when:
         return "-"
     sec = int(((now or datetime.now(timezone.utc)) - when).total_seconds())
-    return "just now" if sec < 60 else f"{sec // 60} min" if sec < 5400 else f"{sec // 3600} h {sec % 3600 // 60:02d} min" if sec < 172800 else f"{sec // 86400} days"
+    return "just now" if sec < 60 else f"{sec // 60} min" if sec < 5400 else f"{sec // 3600} h {sec % 3600 // 60:02d} min" if sec < 172800 else f"{plural(sec // 86400, 'day')}"
 
 
 def human_dur(sec):
@@ -44,7 +45,7 @@ def human_dur(sec):
     if h < 48:
         return f"{h} h {m:02d} min"
     days, h = divmod(h, 24)
-    return f"{days} days {h} h"
+    return f"{plural(days, 'day')} {h} h"
 
 
 def parse_when(text):
@@ -244,7 +245,7 @@ def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=No
     took = run_durations(results)
     table = []
     for when, status, jid, note, cls in shown:
-        table.append([when.astimezone().strftime("%Y-%m-%d %H:%M") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
+        table.append([when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
                       "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)])
     notes = [f"{jid}: {note}" for _, status, jid, note, _ in shown if note and status != "awaiting_approval"]
     ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"], table, tag="JOBS", stream=out,
@@ -259,7 +260,7 @@ def render_classes(info, pending=(), excluded=0, out=None, product="the worker")
         what = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
         rows.append([(name, "ok"), c["cost"], c["tier"], what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")])
     ui.table(f"What {product} can run for you today", ["class", "cost", "tier", "runs"], rows, tag="CLASSES", stream=out,
-             notes=(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {info['capacity']} capacity point(s).",
+             notes=(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {plural(info['capacity'], 'capacity point')}.",
                     f"COST is how heavy it is on {product}. TIER: auto runs as soon as you submit it; approve waits for your OK first.",
                     *([f"Proposed, NOT installed yet (apply them): {', '.join(sorted(pending))}"] if pending else []), *([f"Excluded after profiling: {excluded}"] if excluded else [])))
 

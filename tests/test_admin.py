@@ -309,7 +309,7 @@ class WorkersCommand(AdminBase):
     def test_every_worker_is_a_row_with_hardware_and_claude_state_side_by_side(self):
         code, out, err = self.admin("workers")
         self.assertEqual(code, 0, err)
-        for needle in ("TESTCT", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON", "┃"):
+        for needle in ("TESTCT", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON"):
             self.assertIn(needle, out)
 
     def test_claude_filter_keeps_only_workers_with_working_claude_access(self):
@@ -355,7 +355,7 @@ class WorkersCommand(AdminBase):
     def test_an_old_reading_is_marked_stale(self):
         self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
         _, out, _ = self.admin("workers")
-        self.assertIn(" STALE ", out)
+        self.assertIn("(STALE)", out)
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
         self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, True))]
@@ -376,18 +376,24 @@ class WorkersCommand(AdminBase):
         self.assertEqual(self.admin("workers", "remove", "ghost")[0], 2)
 
 
+ANSI_ = __import__("re").compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
 class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
            "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2}
 
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
-        lines = workers_mod.cards([self.ROW], width=80, color=False)
-        self.assertEqual(lines[0], "┃  TESTCT ")
+        lines = workers_mod.cards([self.ROW], width=80, color=False)                       # plain (a pipe): the name, then labelled rows
+        self.assertEqual(lines[0], "TESTCT")
         for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "INSTALLED"):
-            self.assertTrue(any(l.startswith("┃ " + label) for l in lines), label)
-        self.assertIn("┃ INSTALLED 2 classes, 1 package", lines)
-        values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("┃ ") and len(l) > 12}
+            self.assertTrue(any(l.startswith("  " + label) for l in lines), label)
+        self.assertTrue(any(l.startswith("  INSTALLED") and l.endswith("2 classes, 1 package") for l in lines))
+        values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("  ") and len(l) > 12}
         self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
+        framed = [ANSI_.sub("", x) for x in workers_mod.cards([self.ROW], width=80, color=True)]            # on a terminal: one framed card per worker
+        self.assertTrue(any(x.startswith("╭─ testct") for x in framed))
+        self.assertTrue(any(x.startswith("│ INSTALLED") for x in framed))
 
     def test_no_line_is_longer_than_the_card_width_so_nothing_wraps(self):
         long = dict(self.ROW, claude="account: " + "x" * 200)
@@ -399,13 +405,13 @@ class WorkerCards(unittest.TestCase):
         locked = dict(self.ROW, name="studio", locked=True)
         lines = workers_mod.cards([self.ROW, locked], width=80, color=False)
         self.assertIn("", lines)
-        self.assertIn("┃  STUDIO   LOCKED ", lines)
+        self.assertIn("STUDIO (LOCKED)", lines)
 
-    def test_colour_gives_the_rail_a_blue_or_red_or_dim_code(self):
+    def test_colour_gives_the_frame_the_colour_of_its_state(self):
         blue = "\n".join(workers_mod.cards([self.ROW], width=80, color=True))
         self.assertIn(theme.code("primary"), blue)
-        self.assertIn("38;5;203", "\n".join(workers_mod.cards([dict(self.ROW, locked=True)], width=80, color=True)))
-        self.assertIn("\x1b[2m┃ ", "\n".join(workers_mod.cards([dict(self.ROW, stale=True)], width=80, color=True)))
+        self.assertIn("38;5;203", "\n".join(workers_mod.cards([dict(self.ROW, locked=True)], width=80, color=True)))          # red while locked
+        self.assertIn(theme.code("warn"), "\n".join(workers_mod.cards([dict(self.ROW, stale=True)], width=80, color=True)))    # yellow while its reading is stale
 
 
 class UpdateCommand(AdminBase):

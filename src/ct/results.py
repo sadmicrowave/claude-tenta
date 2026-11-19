@@ -9,6 +9,7 @@ import json
 import re
 import time
 from pathlib import Path
+from .words import plural
 
 OUTPUT_KEEP_DAYS = 30
 OUTPUT_KEEP_CHARS = 2_000_000
@@ -28,7 +29,7 @@ def shape_output(cls, text, default_cap):
             dropped = [k for k in obj if k not in keys]
             text = json.dumps({k: obj[k] for k in keys if k in obj}, indent=2)
             if dropped:
-                note = f"{len(dropped)} undeclared output field(s) not published"
+                note = f"{plural(len(dropped), 'undeclared output field')} not published"
         except ValueError:
             return "", "output was not the declared JSON shape, so none of it was published"
     cap = int(cls.get("output_max_chars", default_cap))
@@ -50,7 +51,7 @@ def failure_summary(text, max_lines=8, max_len=300, where="on the worker"):
         keep = [l[:max_len] for l in (text or "").splitlines() if l.strip() and not l.startswith((" ", "\t"))][-5:]
     more = len(keep) - max_lines
     keep = keep[:max_lines]
-    return "\n".join(keep) + (f"\n[{more} more error line(s) {where}]" if more > 0 else "")
+    return "\n".join(keep) + (f"\n[{plural(more, 'more error line')} {where}]" if more > 0 else "")
 
 
 class OutputKeeper:

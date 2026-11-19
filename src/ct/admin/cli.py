@@ -29,6 +29,7 @@ from ..setup import tui
 from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workers
 from .proposals import Proposals
 from .ssh import Ssh
+from ..words import plural
 
 
 def emit(*a, **k):
@@ -160,12 +161,12 @@ def cmd_review(ctx, a):
         _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
-        emit("Showing the worker's own copy", f"{len(gone)} job(s) are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
+        emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
         if ctx.remote("review", *gone):
             raise ClientError("Could not show those jobs", "They were NOT marked as viewed.", example="ct-admin check")
         for jid in gone:
             ctx.viewed.mark(jid, "")
-    emit("Viewed", f"{len(todo)} job(s) noted as viewed.", tag="DONE", color=GREEN, run_label="Approve the ones you viewed", run="ct-admin approve --all")
+    emit("Viewed", f"{plural(len(todo), 'job')} noted as viewed.", tag="DONE", color=GREEN, run_label="Approve the ones you viewed", run="ct-admin approve --all")
     return 0
 
 
@@ -299,11 +300,11 @@ def approve_all(ctx, a):
               tag="APPROVE", stream=sys.stdout)
     if not ready:
         raise ClientError("None of the waiting jobs have been viewed", "Review them first; that is what lets them be approved together.", example="ct-admin review")
-    if not ctx.confirm(f"Approve these {len(ready)} job(s)?", a.yes):
+    if not ctx.confirm(f"Approve these {plural(len(ready), 'job')}?", a.yes):
         stop("Not approved", "You answered no. They stay waiting.")
     if use_signed(ctx, a):
         sign_and_publish(ctx, ready)
-        emit("Approved", f"{len(ready)} job(s), signed on this computer. No login to {ctx.name} was needed.", tag="APPROVED", color=GREEN)
+        emit("Approved", f"{plural(len(ready), 'job')}, signed on this computer. No login to {ctx.name} was needed.", tag="APPROVED", color=GREEN)
         rc = 0
     else:
         rc = ctx.remote("approve", "--many", *[f"{j}:{d}" for j, d in ready])
@@ -384,13 +385,13 @@ def cmd_clean(ctx, a):
             if (result and result.get("status") not in ("awaiting_approval", "running", "queued")) or rec.get("expires", 0) < now:
                 old.append((name, "job finished or approval expired"))
     if not old:
-        emit("Nothing to tidy", f"{len(names)} file(s) on {ctx.store}, none finished or stale.", tag="OK", color=GREEN)
+        emit("Nothing to tidy", f"{plural(len(names), 'file')} on {ctx.store}, none finished or stale.", tag="OK", color=GREEN)
         return 0
-    emit(f"{len(old)} file(s) can go", *[f"{n}  ({why})" for n, why in old[:12]], tag="TIDY", color=CYAN)
+    emit(f"{plural(len(old), 'file')} can go", *[f"{n}  ({why})" for n, why in old[:12]], tag="TIDY", color=CYAN)
     if not ctx.confirm(f"Remove them from {ctx.store}?", a.yes):
         stop("Nothing removed", "You answered no.")
     ctx.repos.push_files(approvals.BRANCH, {}, f"tidy: remove {len(old)} finished approvals and orders", remove=[n for n, _ in old])
-    emit("Tidied", f"{len(old)} file(s) removed.", tag="DONE", color=GREEN)
+    emit("Tidied", f"{plural(len(old), 'file')} removed.", tag="DONE", color=GREEN)
     return 0
 
 
@@ -524,7 +525,7 @@ def release_card(ctx, stream=None):
     odd = [n for n, _, rel in rows if rel == "unpublished"]
     steps = ["ct-admin apply (every worker in turn, each shown what changes first)"] if any(rel == "behind" for _, _, rel in rows) else []
     if odd:
-        steps.append(f"{', '.join(odd)} runs a commit the release source does not have: publish it (merge it into the release branch) and then apply, or replace it with the published release: ct-admin apply --force --worker {odd[0]}")
+        steps.append(f"{', '.join(odd)} runs a commit the release source does not have: publish it (merge it into the release branch and push it) and then apply, or replace it with the published release: ct-admin apply --force --worker {odd[0]}")
     emit("The workers do not all run the same release", *[(n, f"{r[:9] or '?'}  {RELATION_TEXT[rel]}") for n, r, rel in rows],
          "Mixed releases mean a worker may lack a fix or a class the others have, and a job may behave differently depending on where it lands.",
          steps=steps or None, steps_label="How to bring them together", tag="RELEASES", color=YELLOW, stream=stream or sys.stdout)
@@ -850,7 +851,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
         if problems:
             raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."])
     subject_line, _, rest = msg.partition("\n")
-    emit(f"Merge {branch} into main", ("Adds", f"{len(p.commits(branch))} commit(s), squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
+    emit(f"Merge {branch} into main", ("Adds", f"{plural(len(p.commits(branch)), 'commit')}, squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", diffview.counts(path, add, gone)) for path, add, gone in p.files(branch)], ("Becomes", subject_line),
          *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=_ui.PRIMARY)
     if not ctx.confirm(f"Squash-merge {branch} into main and delete the branch?", yes):
@@ -982,7 +983,7 @@ def cmd_retire(ctx, a):
 
 
 # ---- release ----
-def show_diff(ctx, sha, full=False):
+def show_diff(ctx, sha, full=False, quiet=False):
     """Print what installing `sha` changes. Returns True if anything differs from what is installed."""
     now = release.installed_rev(ctx.ssh, ctx.name)
     out = sys.stdout
@@ -990,7 +991,8 @@ def show_diff(ctx, sha, full=False):
         emit("The installed version is unknown", "Showing the target only; everything counts as new.", tag="NOTE", color=YELLOW)
         return True
     if now == sha:
-        emit("Nothing to change", f"{ctx.name} is already at {release.short(sha)}.", tag="OK", color=GREEN)
+        if not quiet:
+            emit("Nothing to change", f"{ctx.name} is already at {release.short(sha)}.", tag="OK", color=GREEN)
         return False
     files = ctx.source.changed_files(now, sha)
     if files is None:
@@ -1000,7 +1002,7 @@ def show_diff(ctx, sha, full=False):
     _ui.table(f"{release.short(now)} to {release.short(sha)}", ["", "change", "file"],
               [[("ROOT", "bad") if release.is_root_run(path) else "", diffview.status_cell(status, status), diffview.status_cell(path, status)] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
               tag="CHANGES", color=_ui.YELLOW if root else _ui.PRIMARY, stream=out,
-              notes=(f"{len(files)} file(s) change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
+              notes=(f"{plural(len(files), 'file')} change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
     text = ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN)
     if text.strip():                                         # no root-run file changed: the table above already says so, and an empty box says nothing
         _ui.document("The change itself", text, tag="DIFF", stream=out, as_diff=True)
@@ -1012,16 +1014,34 @@ def cmd_diff(ctx, a):
     return 0
 
 
+def fleet_apply_summary(outcomes, rev):
+    """One card after `apply` has visited several workers: who was already current, who was updated, who was left alone and why."""
+    by = {}
+    for name, what in outcomes:
+        by.setdefault(what, []).append(name)
+    rows = [(label, ", ".join(by[key])) for key, label in (("installed", "Updated"), ("current", "Already current"), ("left", "Left alone"), ("failed", "Not installed (failed or declined)")) if key in by]
+    bad = "failed" in by or "left" in by
+    emit(f"apply finished: {plural(len(outcomes), 'worker')}", *rows, ("Release", release.short(rev) if rev else "?"),
+         *(["A worker left alone runs a commit the release source does not have (see above): nothing was replaced."] if "left" in by else []),
+         tag="APPLY", color=YELLOW if bad else GREEN, stream=sys.stdout)
+
+
 def apply(ctx, a):
     sha = ctx.source.resolve(a.rev)
+    outcomes = getattr(a, "outcomes", None)
     now = release.installed_rev(ctx.ssh, ctx.name)
     if now and now != sha and ctx.source.relation(now) == "unpublished" and not a.force:
         emit(f"{ctx.name} runs a commit the release source does not have", ("It runs", release.short(now)), ("Apply would install", release.short(sha)),
              "That commit was never published to the release branch, so installing the published release would REPLACE it (and may be older). It is left as it is.",
-             steps=["Publish it: merge it into the release branch, then run ct-admin apply again.", f"Or replace it with the published release anyway: ct-admin apply --force --worker {ctx.name}"],
+             steps=["Publish it: merge it into the release branch and push it to the release source, then run ct-admin apply again.", f"Or replace it with the published release anyway: ct-admin apply --force --worker {ctx.name}"],
              steps_label="Your choice", tag="NOT CHANGED", color=YELLOW)
+        if outcomes is not None:
+            outcomes.append((ctx.name, "left"))
         return 1
-    changed = show_diff(ctx, sha, a.full)
+    changed = show_diff(ctx, sha, a.full, quiet=outcomes is not None)
+    if not changed and not a.force and outcomes is not None:         # already current, in a fleet run: said in the summary, not in two more cards
+        outcomes.append((ctx.name, "current"))
+        return 0
     if not changed and not a.force:                      # show_diff has already said "Nothing to change"; this adds only how to install anyway, for THIS worker (a bare --force would force every one)
         emit("Install anyway?", f"Only if you want {ctx.name} reinstalled at the same version.", tag="NEXT", color=CYAN, run_label="Run the install again anyway", run=f"ct-admin apply --force --worker {ctx.name}")
         return 0
@@ -1033,6 +1053,8 @@ def apply(ctx, a):
         raise ClientError(f"The install failed on {ctx.ssh.host} (exit {rc})", "The update tool restores what it changed when it can. Read the messages above.", ["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."])
     if not a.no_verify and not verify(ctx, sha, prev, a.yes):
         return 1
+    if outcomes is not None:
+        outcomes.append((ctx.name, "installed"))
     if not getattr(a, "quiet_done", False):
         emit(f"Installed on {ctx.name}", "It publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="See what it can run now", run="ct-run classes")
     return 0
@@ -1214,12 +1236,15 @@ def run_command(ctx, a):
         if a.cmd == "apply" and len(targets) > 1 and not getattr(a, "rev", None):
             a = copy.copy(a)                                              # ONE release for the whole fleet, decided once (each worker keeps its own copy of the release source, fetched at its own time)
             a.rev = ctx.source.resolve(None)
+        if a.cmd == "apply" and len(targets) > 1:
+            a = copy.copy(a)
+            a.outcomes = []                                               # what happened to each worker, said once at the end: a worker that is already current needs no card of its own
         if len(targets) == 1:
             return DISPATCH[a.cmd](targets[0][1], a)
         rc = 0
         with _ui.collecting_related() as footer:                      # what to do next is the same for every worker: said once, after the last one
             for name, c in targets:
-                emit(f"{a.cmd}: {name}", tag="WORKER", color=_ui.PRIMARY, stream=sys.stdout)
+                _ui.show([cards.rule(f"{a.cmd}: {name}", "WORKER", _ui.PRIMARY)], stream=sys.stdout)          # one line, not an empty frame
                 try:
                     r = DISPATCH[a.cmd](c, a)
                 except ClientError as e:
@@ -1227,7 +1252,11 @@ def run_command(ctx, a):
                     r = 2
                 except SystemExit as e:                               # a declined question or a stop() on one worker: carry on with the next
                     r = e.code if isinstance(e.code, int) else 1
+                if getattr(a, "outcomes", None) is not None and not any(n == name for n, _ in a.outcomes):
+                    a.outcomes.append((name, "failed" if r else "current"))        # raised or declined before it could say what it did
                 rc = max(rc, r or 0)
+        if a.cmd == "apply" and getattr(a, "outcomes", None):
+            fleet_apply_summary(a.outcomes, a.rev)
         if a.cmd in ("status", "check"):                              # the pulse: who runs what, once, with the fix
             try:
                 release_card(ctx)

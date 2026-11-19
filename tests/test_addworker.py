@@ -442,7 +442,7 @@ class Interactive(Base):
         (c,) = self.calls
         self.assertEqual((c["host"], c["user"], c["name"]), ("198.51.100.194", "agent", "tenta2"))
         t = self.text()
-        self.assertIn("2 device(s)", t)
+        self.assertIn("2 devices", t)
         self.assertIn("1 look like Linux servers", t)
 
     def test_a_worker_you_have_by_name_is_recognised_by_its_address_in_the_scan(self):

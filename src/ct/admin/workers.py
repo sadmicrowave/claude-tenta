@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import theme
+from ..words import plural
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 STALE_S = 7200
@@ -85,8 +86,8 @@ def claude_summary(doc):
     older = " (older release, pinned)" if kind == "legacy" else ""
     days = c.get("token_days")
     if days is not None and days >= 365:
-        return False, f"{auth}: {version}{older}, TOKEN EXPIRED ({days} days old)"
-    token = "" if days is None else f", token {days} days old" + (" (renew soon)" if days >= 335 else "")
+        return False, f"{auth}: {version}{older}, TOKEN EXPIRED ({plural(days, 'day')} old)"
+    token = "" if days is None else f", token {plural(days, 'day')} old" + (" (renew soon)" if days >= 335 else "")
     return True, f"{auth}: {version}{older}{token}"
 
 
@@ -111,7 +112,7 @@ def row_for(name, doc, now=None):
     today = obs.get("claude_today") or {}
     spend = ("PAUSED: " if today.get("paused") else "") + f"{today.get('jobs', 0)}" + (f"/{today['limit_jobs']}" if today.get("limit_jobs") else "") + f" jobs, {today.get('turns', 0)}" + (f"/{today['limit_turns']}" if today.get("limit_turns") else "") + " turns" if today else ""
     return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(), "spend": spend, "paused": bool(today.get("paused")),
-            "cpu": f"{hw.get('cores', '?')} cores" + ("" if hw.get("native_claude", True) else ", old CPU"),
+            "cpu": f"{plural(hw.get('cores', '?'), 'core')}" + ("" if hw.get("native_claude", True) else ", old CPU"),
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
             "claude": text, "state": "LOCKED" if doc.get("locked") else ("jail ON" if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
@@ -128,26 +129,25 @@ HANG = 10
 
 
 def cards(rows, width=80, color=True):
-    """One boxed card per worker, stacked, in the wizard's own style: a rail down the left (blue; red while the worker is locked; dim when its reading is
-    stale), a chip with the worker's name, then labelled rows. Plain text when `color` is false."""
-    sgr = theme.sgr if color else (lambda text, *codes: text)
-    room = max(20, min(width, 100) - 4 - HANG)
+    """One framed card per worker, stacked, in the same outline as every other card: its name as the title, a tag for its state (LOCKED red, STALE yellow, otherwise WORKER), then labelled rows.
+    Plain text when `color` is false (a pipe)."""
+    if not color:
+        room = max(20, min(width, 100) - 2 - HANG)
+        out = []
+        for r in rows:
+            out += [f"{r['name'].upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
+            facts = [(label, str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-"))) for label, key in ROWS]
+            if r.get("packages") is not None and not r["stale"]:
+                facts.append(("INSTALLED", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+            out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" for label, value in facts]
+            out.append("")
+        return out
+    from .. import cards as card_mod, ui as ui_mod
     out = []
     for r in rows:
-        rail_code = RED if r["locked"] else DIM if r["stale"] else BLUE
-        rail = lambda text="": sgr("┃ ", rail_code) + text                    # noqa: E731
-        chip = sgr(f" {r['name'].upper()} ", RED_CHIP if r["locked"] else BLUE_CHIP)
-        badge = (" " + sgr(" LOCKED ", RED_CHIP)) if r["locked"] else (" " + sgr(" STALE ", AMBER_CHIP)) if r["stale"] else ""
-        out += [rail(chip + badge), rail()]
-        for label, key in ROWS:
-            value = str(r.get(key, "-"))
-            if key == "age":
-                value = value.replace(" STALE", "")
-            if len(value) > room:
-                value = value[:room - 1] + "…"
-            code = AMBER if (key == "claude" and not r["has_claude"] and r["claude"] not in ("none", "-")) else BLUE
-            out.append(rail(sgr(label.ljust(HANG), code, BOLD) + value))
+        facts = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
         if r.get("packages") is not None and not r["stale"]:
-            out.append(rail(sgr("INSTALLED".ljust(HANG), "label", BOLD) + f"{r['classes']} class{'' if r['classes'] == 1 else 'es'}, {r['packages']} package{'' if r['packages'] == 1 else 's'}"))
-        out.append("")
+            facts.append(("Installed", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+        tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
+        out += [""] + card_mod.card(r["name"], facts, tag=tag, color=colour, cols=width)
     return out

@@ -267,7 +267,7 @@ class Prune(RepoFixture):
         for n, st in (("old-done", "ok"), ("old-waiting", "awaiting_approval"), ("new-done", "ok")):
             self.w.io.publish({"id": n, "status": st})
         msg = self.repos.prune_jobs(days=14, force=True)
-        self.assertIn("1 commits -> 1, dropped 1 jobs", msg)
+        self.assertIn("1 commit -> 1, dropped 1 job", msg)
         names = sh("git", "ls-tree", "--name-only", "-r", "jobs", cwd=self.tmp / "queue.git").splitlines()
         self.assertEqual(sorted(names), ["jobs/new-done.json", "jobs/old-waiting.json"])          # the unfinished job is never dropped
 

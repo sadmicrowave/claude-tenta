@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..jobs import FILE_NAME_RE
 from .repo import ClientError
+from ..words import plural
 
 SKIP_DIRS = {"node_modules", "__pycache__", "venv", "dist", "build", "target"}
 ID_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"            # no 0/o or 1/l: easy to read out and to type
@@ -74,16 +75,16 @@ def plan_batches(files, batchable, limits):
     total = sum(len(v) for v in files.values())
     if total > max_total:
         raise ClientError("These files do not fit in one job",
-                          f"{len(files)} files / {total // 1000} KB is over the {max_total // 1000} KB limit for one job, and a bigger tree is never split. "
+                          f"{plural(len(files), 'file')} / {total // 1000} KB is over the {max_total // 1000} KB limit for one job, and a bigger tree is never split. "
                           "Attach only the files the command needs (--include 'src/**/*.js').")
     if len(files) <= max_files:
         return [files]
     n = -(-len(files) // max_files)
     if not batchable:
-        raise ClientError("These files do not fit in one job", f"{len(files)} files is over the {max_files}-file limit, and this class needs its files "
+        raise ClientError("These files do not fit in one job", f"{plural(len(files), 'file')} is over the {max_files}-file limit, and this class needs its files "
                           "together so it cannot be split. Attach only the files it needs (--include), or run it yourself.")
     if n > limits["max_batches"]:
-        raise ClientError("These files do not fit in one job", f"{len(files)} files would need {n} jobs (limit {limits['max_batches']}). Attach fewer files (--include).")
+        raise ClientError("These files do not fit in one job", f"{plural(len(files), 'file')} would need {plural(n, 'job')} (limit {limits['max_batches']}). Attach fewer files (--include).")
     names = sorted(files)
     size = -(-len(names) // n)
     return [{k: files[k] for k in names[i:i + size]} for i in range(0, len(names), size)]

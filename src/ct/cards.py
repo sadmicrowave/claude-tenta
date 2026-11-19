@@ -248,6 +248,15 @@ def wrap(text, room):
     return textwrap.wrap(code_spans(text), max(10, room), break_long_words=True, break_on_hyphens=False) or [""]
 
 
+def rule(title, tag="", color=None, cols=None):
+    """One line that opens a section ('status: tenta2 ──────── WORKER'): for a heading with nothing under it, which must not be drawn as an empty frame."""
+    role = role_for(color) if color is not None else "primary"
+    w = width(cols=cols)
+    tail = f" {tag.upper()}" if tag else ""
+    fill = "─" * max(2, w - len(title) - len(tail) - 5)
+    return "\n" + theme.sgr("── ", role) + theme.sgr(title, role, "strong") + theme.sgr(" " + fill + tail, role)
+
+
 def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=None, framed=None, lifted=None):
     """The lines of one message card (a list of strings, colour codes included). A command too long to stay on one line is drawn alone below the card; `lifted` (a list) takes those
     commands instead, for a caller that draws its own commands block."""
@@ -272,6 +281,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
         body += [("blank", None), ("fact", (steps_label, None))] + [("step", s) for s in steps]
+    if not rows and not steps:                                          # nothing to put in a frame: a heading, drawn as one line
+        return [rule(title, tag, color, cols)]
     framed = True if framed is None else framed                         # every card has the same outline, in the colour of its kind (green, purple, yellow, red): one look, not two
     inner = w - 4 if framed else w - 2
 

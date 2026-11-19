@@ -25,6 +25,7 @@ from ..client.view import Busy
 from ..ui import GREEN, PRIMARY, RED, YELLOW
 from . import assess as assess_mod, discover, toml_out
 from .server import SetupError
+from ..words import plural
 
 NAME_MAX = 24
 
@@ -162,7 +163,7 @@ def found_card(devices, notes, nets, card=None):
     real, soft = [d for d in devices if not d.virtual], [d for d in devices if d.virtual]
     where = (f"{len(real)} on your real network, {len(soft)} on virtual networks inside this computer (VMs and containers; other computers on your network cannot reach those)"
              if soft else "all on your real network")
-    rows.append(("Found", f"{len(devices)} device(s) answering on the SSH port: {where}. {len(servers)} look like Linux servers"
+    rows.append(("Found", f"{plural(len(devices), 'device')} answering on the SSH port: {where}. {len(servers)} look like Linux servers"
                  + (f", {len(devices) - len(mine)} already yours" if len(devices) != len(mine) else "")))
     for d in devices:
         what = d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + f" · {d.latency_ms:g} ms" + (f" · on {d.iface}, virtual" if d.virtual else f" · on {d.iface}" if d.iface else "")

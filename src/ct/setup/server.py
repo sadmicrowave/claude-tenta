@@ -16,6 +16,7 @@ from . import assess as assess_mod
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
 from .report import sink as _sink
+from ..words import plural
 
 
 class SetupError(Exception):
@@ -250,12 +251,12 @@ class ServerSetup:
         where = f"release {rev[:9]} into {cfg.paths.code}"
         if self.dry_run:
             files = update.desired_files(self.source, cfg)
-            self.note("code, units and wrappers", "planned", f"{len(files)} files, {where}")
+            self.note("code, units and wrappers", "planned", f"{plural(len(files), 'file')}, {where}")
             return
         report = self.install(self.source, cfg, rev, prefix=str(self.host.root), sandbox=self.sandbox, systemctl=self.systemctl, sysctl=self.sysctl, out=self.say)
         if not report.ok:
             raise SetupError("The install was refused", "; ".join(report.errors))
-        self.note("code, units and wrappers", "installed", f"{len(report.updated)} files, {where}")
+        self.note("code, units and wrappers", "installed", f"{plural(len(report.updated), 'file')}, {where}")
 
     def mailbox(self):
         """Direct transport: the mailbox account, the worker's two bare repositories, and the one key that may use them. Nothing here reaches GitHub or any other machine."""

@@ -23,7 +23,7 @@ class Shaping(unittest.TestCase):
         cls = {"output_keys": ["ok", "load"]}
         text, note = results.shape_output(cls, json.dumps({"ok": 1, "load": 0.2, "secret": "x"}), 100_000)
         self.assertEqual(json.loads(text), {"ok": 1, "load": 0.2})
-        self.assertIn("1 undeclared output field(s) not published", note)
+        self.assertIn("1 undeclared output field not published", note)
         text, note = results.shape_output(cls, "not json", 100_000)
         self.assertEqual((text, "declared JSON shape" in note), ("", True))
         text, note = results.shape_output(cls, "[1, 2]", 100_000)                              # valid JSON, but not an object
@@ -60,7 +60,7 @@ class FailureSummary(unittest.TestCase):
         text = "\n".join(f"ValueError: problem number {i}" for i in range(12))
         out = results.failure_summary(text, max_lines=8, where="in the kept output")
         self.assertEqual(len(out.splitlines()), 9)
-        self.assertTrue(out.endswith("[4 more error line(s) in the kept output]"))
+        self.assertTrue(out.endswith("[4 more error lines in the kept output]"))
 
     def test_lines_are_capped_and_repeats_dropped(self):
         out = results.failure_summary("ValueError: " + "x" * 500 + "\nValueError: same\nValueError: same\n", max_len=40)

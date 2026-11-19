@@ -7,6 +7,7 @@ The answer is a verdict with a reason for every problem and what to do about it.
 import re
 import subprocess
 from dataclasses import dataclass, field
+from ..words import plural
 
 SCRIPT = r"""
 . /etc/os-release 2>/dev/null
@@ -120,7 +121,7 @@ def verdict(facts, user="the account"):
     else:
         add("FAIL", "Release", f"{name or 'an unknown system'}: only Ubuntu 24.04 or newer and Debian 12 or newer are supported", "Install Ubuntu Server 24.04 or 26.04, or Debian 12 or 13, on it.")
     arch = facts.get("ARCH", "")
-    add("OK" if arch in ("x86_64", "aarch64") else "FAIL", "Processor", f"{arch or 'unknown'}, {facts.get('CORES', '?')} core(s)",
+    add("OK" if arch in ("x86_64", "aarch64") else "FAIL", "Processor", f"{arch or 'unknown'}, {plural(facts.get('CORES', '?'), 'core')}",
         f"A {arch} processor is not supported; use an x86-64 or 64-bit ARM machine." if arch not in ("x86_64", "aarch64") else None)
     try:
         mem = int(facts.get("MEM_MB") or 0)

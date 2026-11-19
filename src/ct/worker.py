@@ -28,6 +28,7 @@ from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
 from .jail import Unshare
 from .runner import MAX_TIMEOUT, class_network, kill_group, run_command
 from .util import SAFE_PATH, iso, now
+from .words import plural
 
 
 @dataclass
@@ -445,7 +446,7 @@ class Worker:
                     pv["entry"]["packages"] = self.pkgs.resolve(env_dir, meta["packages"])      # pinned to what was just fetched
                     if any(p.startswith("pip:") for p in meta["packages"]):
                         pv["entry"]["env"] = {"PYTHONPATH": str(self.s.tools_root / "pip")}
-                    pv["packages_note"] = (f"the packages are in a throwaway folder on {self.s.product} (deleted after {PKG_KEEP_DAYS} days); "
+                    pv["packages_note"] = (f"the packages are in a throwaway folder on {self.s.product} (deleted after {plural(PKG_KEEP_DAYS, 'day')}); "
                                            "applying the registry entry installs them for real")
                 else:
                     self.pkgs.drop_env(jid)
@@ -565,7 +566,7 @@ class Worker:
                     break                                    # strict FIFO so a big job cannot be starved by a stream of small ones
                 cap = cls.get("max_running") or (1 if cls.get("kind") == "claude" else None)     # a Claude class runs one job at a time unless it says otherwise: usage is spent one job at a time
                 if cap and sum(1 for mk in markers.values() if mk.get("class") == job.get("class")) >= cap:
-                    self.log(f"waiting: {jid}: {cap} {job.get('class')} job(s) already running")
+                    self.log(f"waiting: {jid}: {cap} {plural(job.get('class'), 'job')} already running")
                     continue
                 if cls.get("kind") == "claude":
                     spent = self.ledger.exceeded()

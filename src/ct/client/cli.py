@@ -32,6 +32,7 @@ from . import offload as off
 from . import submit as sub
 from . import place, view
 from .repo import PENDING, ClientError, ClientRepos
+from ..words import plural
 
 
 def emit(*a, **k):
@@ -135,7 +136,7 @@ def cmd_submit(ctx, a):
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
     ids = sub.job_ids(base, len(batches))
     if len(batches) > 1:
-        emit(f"{len(files)} files split into {len(batches)} independent jobs", *ids, tag="NOTE", color=YELLOW)
+        emit(f"{plural(len(files), 'file')} split into {plural(len(batches), 'independent job')}", *ids, tag="NOTE", color=YELLOW)
     for jid, chunk in zip(ids, batches):
         with view.Busy(f"sending: the job to {ctx.product}"):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
@@ -227,7 +228,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             if waited >= view.late_after() and not late_told and (not res or res["status"] in (None, "queued")):
                 late_told = True
                 prog.clear()
-                emit(f"{ctx.product} has not picked {jid} up after {waited // 60} minutes", f"Expected: {view.pace_text()}. This is longer than any of those, so the worker may be stopped, locked, or failing.",
+                emit(f"{ctx.product} has not picked {jid} up after {plural(waited // 60, 'minute')}", f"Expected: {view.pace_text()}. This is longer than any of those, so the worker may be stopped, locked, or failing.",
                      tag="SLOW", color=RED, run_label="Wake it so it looks now (then see what it is doing with status)", run=f"{ctx.admin} wake", stream=sys.stderr)
             text, color = view.phase_of(res, jid, ctx.admin, approved, ctx.product, waited)
             for _ in range(10):                               # redraw ~5 times a second; ask GitHub again every ~2 s (the connection is shared, so each ask is cheap)
@@ -324,7 +325,7 @@ def cmd_patch(ctx, a):
     bad = patch_mod.problems(text)
     if a.out:
         Path(a.out).expanduser().write_text(text)
-        emit("Patch saved", f"{len(p.get('files') or [])} file(s) in {a.out}. Read it before you apply it.", tag="DONE", color=GREEN, run=f"git apply --check {a.out}")
+        emit("Patch saved", f"{plural(len(p.get('files') or []), 'file')} in {a.out}. Read it before you apply it.", tag="DONE", color=GREEN, run=f"git apply --check {a.out}")
         return 0
     _ui.document(f"Patch from {a.id}", text, tag="PATCH", as_diff=True, stream=sys.stdout,
                  notes=[("Files", ", ".join(p.get("files") or []) or "none")] + [("Note", n) for n in notes] + [("Refused", b) for b in bad])
@@ -340,13 +341,13 @@ def cmd_patch(ctx, a):
     if check.returncode:
         raise ClientError("The patch does not fit this folder", check.stderr.strip()[-300:] or "git apply --check refused it.",
                           ["Go to the folder the job was sent from (the files must be where they were), then run this again."])
-    if not (a.yes or (ctx.is_tty() and ctx.ask(_ui.confirm_prompt(f"Apply {len(p.get('files') or [])} file(s) of changes to {Path.cwd()}?")).strip().lower() == "y")):
+    if not (a.yes or (ctx.is_tty() and ctx.ask(_ui.confirm_prompt(f"Apply {plural(len(p.get('files') or []), 'file')} of changes to {Path.cwd()}?")).strip().lower() == "y")):
         emit("Not applied", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
         return 1
     done = subprocess.run(["git", "apply", "-"], input=text, text=True, capture_output=True)
     if done.returncode:
         raise ClientError("git could not apply the patch", done.stderr.strip()[-300:])
-    emit("Applied", f"{len(p.get('files') or [])} file(s) changed in {Path.cwd()}. Nothing was committed.", tag="DONE", color=GREEN, run="git diff")
+    emit("Applied", f"{plural(len(p.get('files') or []), 'file')} changed in {Path.cwd()}. Nothing was committed.", tag="DONE", color=GREEN, run="git diff")
     return 0
 
 
@@ -409,10 +410,10 @@ def cmd_history(ctx, a):
         v = r.get("verdict", "?")
         what = r.get("class") or r.get("command", "")
         extra = r["command"][:80] if r.get("class") else (r["reasons"][:100] if r.get("reasons") else "")
-        table.append([time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?", (v, {"registered": "ok", "excluded": "bad", "retry": "warn", "unknown": "warn"}.get(v, "muted")),
+        table.append([time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(ts)) if ts else "?", (v, {"registered": "ok", "excluded": "bad", "retry": "warn", "unknown": "warn"}.get(v, "muted")),
                       r.get("by", "?"), what + (f"   {extra}" if extra else "")])
     _ui.table(f"Offload history: every check of whether a command suits {ctx.product}", ["when", "verdict", "by", "class / command"], table, tag="HISTORY", stream=out,
-              notes=(f"Kept on this computer only; trimmed to the last {off.FIT_KEEP_DAYS} days or {off.FIT_KEEP_MAX} checks.", f"{len(rows)} checks {span}  ({', '.join(parts)})",
+              notes=(f"Kept on this computer only; trimmed to the last {plural(off.FIT_KEEP_DAYS, 'day')} or {off.FIT_KEEP_MAX} checks.", f"{len(rows)} checks {span}  ({', '.join(parts)})",
                      *([f"Worth a look, checked more than once and still unknown: " + "; ".join(f"{n}x {c[:50]}" for n, c in repeated)] if repeated else []),
                      f"Showing {len(shown)} of {len(rows)}, newest first."))
     return 0
@@ -467,7 +468,7 @@ def cmd_profile(ctx, a):
     if a.dir:
         files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit(f"Skipped {n}", cards.Why(why), tag="NOTE", color=YELLOW)))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
-        raise ClientError("Too many input files", f"One job can carry at most {limits['max_count']} files and {limits['max_total_kb']} KB of text.",
+        raise ClientError("Too many input files", f"One job can carry at most {plural(limits['max_count'], 'file')} and {limits['max_total_kb']} KB of text.",
                           ["Attach only the files the command needs: --include 'src/**/*.js'"])
     if name:
         bad = off.class_name_problem(name, off.taken_names(r))

@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from .util import iso, now
+from .words import plural
 
 KEEP_DAYS = 35
 
@@ -78,9 +79,9 @@ class Ledger:
         """A plain sentence saying which daily limit stops new Claude jobs, or None."""
         t = self.today()
         if self.jobs_per_day and t["jobs"] >= self.jobs_per_day:
-            return f"the daily limit of {self.jobs_per_day} Claude job(s) is reached ({t['jobs']} started today, UTC)"
+            return f"the daily limit of {plural(self.jobs_per_day, 'Claude job')} is reached ({t['jobs']} started today, UTC)"
         if self.turns_per_day and t["turns"] >= self.turns_per_day:
-            return f"the daily limit of {self.turns_per_day} Claude turn(s) is reached ({t['turns']} used today, UTC)"
+            return f"the daily limit of {plural(self.turns_per_day, 'Claude turn')} is reached ({t['turns']} used today, UTC)"
         return None
 
     def summary(self):

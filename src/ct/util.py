@@ -1,5 +1,6 @@
 """Small helpers shared by every module: UTC time in one format, and plain-words durations."""
 from datetime import datetime, timezone
+from .words import plural
 
 SAFE_PATH = "/usr/local/bin:/usr/bin:/bin"       # the only program search path a job gets (a throwaway tools folder may be put in front)
 
@@ -23,4 +24,4 @@ def parse_iso(text):
 
 
 def human_hours(h):
-    return f"{h * 60:.0f} min" if h < 1 else (f"{h:.0f} h" if h < 48 else f"{h / 24:.0f} days")
+    return f"{h * 60:.0f} min" if h < 1 else (f"{h:.0f} h" if h < 48 else plural(round(h / 24), "day"))

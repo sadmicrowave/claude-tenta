@@ -201,7 +201,7 @@ class Pruning(Repos):
     def test_history_is_squashed_old_results_dropped_and_other_files_kept(self):
         self.publish_old_and_new()
         msg = self.io.prune_results(days=14, force=True)
-        self.assertIn("4 commits -> 1, dropped 1 results older than 14 days", msg)
+        self.assertIn("4 commits -> 1, dropped 1 result older than 14 days", msg)
         self.assertEqual(len(self.results_log()), 1)
         files = sh("git", "ls-tree", "-r", "--name-only", "main", cwd=self.tmp / "results.git").splitlines()
         self.assertEqual(sorted(files), ["registry.json", "results/job-new1.json", "results/job-nodate.json"])   # undated is kept

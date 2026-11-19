@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import time
 from datetime import datetime
 from pathlib import Path
+from ..words import plural
 
 REFSPEC = "+refs/heads/*:refs/remotes/origin/*"
 CLIENT_IDENTITY = {"GIT_AUTHOR_NAME": "ct-client", "GIT_AUTHOR_EMAIL": "ct-client@localhost", "GIT_COMMITTER_NAME": "ct-client", "GIT_COMMITTER_EMAIL": "ct-client@localhost"}
@@ -231,7 +232,7 @@ class ClientRepos:
             return "no jobs branch yet"
         n = int(self.git(self.queue, "rev-list", "--count", f"origin/{b}").stdout.strip() or 0)
         if not force and n <= self.keep_commits:
-            return f"{n} commits on the jobs branch; no prune needed (threshold {self.keep_commits})"
+            return f"{plural(n, 'commit')} on the jobs branch; no prune needed (threshold {self.keep_commits})"
         cutoff, finished, keep, dropped = now() - days * 86400, self.finished_ids(), {}, 0
         for path in filter(None, self.git(self.queue, "ls-tree", "-r", "--name-only", f"origin/{b}").stdout.split("\n")):
             txt = self.show_file(f"origin/{b}", path) or ""
@@ -251,10 +252,10 @@ class ClientRepos:
             self._plumb(env, "read-tree", "--empty")
             for path, text in keep.items():
                 self._plumb(env, "update-index", "--add", "--cacheinfo", f"100644,{self._plumb(env, 'hash-object', '-w', '--stdin', input=text)},{path}")
-            commit = self._plumb(env, "commit-tree", self._plumb(env, "write-tree"), "-m", f"jobs: squashed history, keeping the last {days} days")
+            commit = self._plumb(env, "commit-tree", self._plumb(env, "write-tree"), "-m", f"jobs: squashed history, keeping the last {plural(days, 'day')}")
         finally:
             idx.unlink(missing_ok=True)
         if self.git(self.queue, "push", f"--force-with-lease=refs/heads/{b}:{head}", "origin", f"{commit}:refs/heads/{b}", check=False).returncode:
             return "prune push refused (someone pushed a job meanwhile); nothing changed. Try again."
         self.fetch_queue()
-        return f"jobs branch squashed: {n} commits -> 1, dropped {dropped} jobs older than {days} days"
+        return f"jobs branch squashed: {plural(n, 'commit')} -> 1, dropped {plural(dropped, 'job')} older than {plural(days, 'day')}"

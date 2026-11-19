@@ -11,6 +11,7 @@ import shutil
 
 from .runner import MAX_TIMEOUT, run_group
 from .util import SAFE_PATH
+from .words import plural
 
 # Commands whose arguments ARE the program: what they will do cannot be judged from the command name.
 INTERPRETERS = {"python", "python3", "bash", "sh", "dash", "zsh", "node", "perl", "ruby", "php", "env", "xargs",
@@ -69,7 +70,7 @@ def glance(job, rules, limits, snapshot, timeout_s, facts=None, product="the wor
         ("Memory", est("est_mem_mb", " MB"),
          f"{n(limits['max_rss_mb'])} MB ({rules['mem_ceiling_frac']:.0%} of RAM)" if limits.get("max_rss_mb") else "-",
          f"{n(snap['mem_available_mb'])} MB free of {n(snap['mem_total_mb'])} MB" if snap["mem_available_mb"] is not None else "-"),
-        ("CPU", est("est_cpu_cores", " core"), f"none ({snap['cores']} cores)", f"load {snap['load_1m']}"),
+        ("CPU", est("est_cpu_cores", " core"), f"none ({plural(snap['cores'], 'core')})", f"load {snap['load_1m']}"),
         ("Disk written", est("est_disk_mb", " MB"), f"{n(limits['max_disk_mb'])} MB",
          f"{snap['disk_free_gb']} GB free" if snap["disk_free_gb"] is not None else "-"),
         ("Heat", "not estimated", f"stops at {n(limits['max_temp_c'])}C",
@@ -129,5 +130,5 @@ def profile_verdict(status, rc, note, m, argv, files, rules, product="the worker
     if files:
         entry["accepts_files"] = True
     return {"verdict": "fits", "cost": c, "limiting": [], "entry": entry,
-            "reasons": [f"{wall:.1f}s, {peak} MB peak ({frac:.0%} of RAM), " + (f"{cores} cores busy, " if cores is not None else "")
+            "reasons": [f"{wall:.1f}s, {peak} MB peak ({frac:.0%} of RAM), " + (f"{plural(cores, 'core')} busy, " if cores is not None else "")
                         + f"{str(temp) + 'C' if temp is not None else 'temp unknown'}: cost {c}"]}
