@@ -1,4 +1,5 @@
 """ct-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
+import argparse
 import io
 import json
 import os
@@ -1163,6 +1164,83 @@ class HelpTests(unittest.TestCase):
         err = io.StringIO()
         with redirect_stderr(err):
             self.assertEqual(cli.main(["login"]), 2)
+
+
+class ReleaseMismatch(AdminBase):
+    """Workers that run different releases are a fleet fact: said by `ct-admin workers`, `status` and `check`, by the watch, and apply never silently replaces a commit the release source does not have."""
+
+    def rows(self, **revs):
+        return [(n, r, rel) for n, (r, rel) in revs.items()]
+
+    def card(self, rows):
+        out = io.StringIO()
+        with mock.patch.object(cli, "fleet_releases", return_value=rows):
+            shown = cli.release_card(self.ctx, out)
+        return shown, out.getvalue()
+
+    def test_matching_current_workers_say_nothing(self):
+        self.assertFalse(self.card(self.rows(a=("f4c9ae7aa", "current"), b=("f4c9ae7aa", "current")))[0])
+        self.assertFalse(self.card(self.rows(a=("f4c9ae7aa", "unknown")))[0])
+
+    def test_workers_on_different_releases_get_one_card_naming_who_runs_what_and_the_command(self):
+        shown, text = self.card(self.rows(main=("f4c9ae7aa", "behind"), tenta2=("f4c9ae7aa", "behind"), tenta3=("13a3aa960", "unpublished")))
+        self.assertTrue(shown)
+        for needle in ("do not all run the same release", "f4c9ae7", "13a3aa9", "behind the release apply would install", "not in the release source", "ct-admin apply"):
+            self.assertIn(needle, text)
+        self.assertIn("ct-admin apply --force --worker tenta3", text)
+
+    def test_a_worker_behind_on_its_own_is_still_said(self):
+        shown, text = self.card(self.rows(a=("aaa1111aa", "behind")))
+        self.assertTrue(shown)
+
+    def test_the_watch_says_it_once_and_again_only_when_it_changes(self):
+        from ct.admin import watch
+        mem, sent, calls = {}, [], []
+
+        class Mem:
+            def load(self):
+                return dict(mem)
+
+            def save(self, data):
+                mem.clear()
+                mem.update(data)
+
+        class N:
+            def send(self, title, text, **kw):
+                sent.append(title)
+        sig = ["a:x:behind,b:y:current"]
+        for _ in range(3):
+            watch.one_pass([], Mem(), N(), releases=lambda: (sig[0], "a runs x"))
+        self.assertEqual(sent, ["Workers run different releases"])                           # three passes, one alert
+        sig[0] = ""
+        watch.one_pass([], Mem(), N(), releases=lambda: None)                                 # fixed: quiet
+        sig[0] = "a:x:behind,b:z:current"
+        watch.one_pass([], Mem(), N(), releases=lambda: (sig[0], "again"))
+        self.assertEqual(len(sent), 2)                                                        # a new mismatch is said again
+
+    def test_apply_does_not_silently_replace_a_commit_the_release_source_does_not_have(self):
+        ctx = mock.Mock()
+        ctx.name, ctx.ssh.host = "tenta3", "h"
+        ctx.source.resolve.return_value = "f" * 40
+        ctx.source.relation.return_value = "unpublished"
+        with mock.patch.object(cli.release, "installed_rev", return_value="1" * 40), mock.patch.object(cli, "emit") as e, mock.patch.object(cli, "show_diff") as diff:
+            rc = cli.apply(ctx, argparse.Namespace(rev=None, yes=True, force=False, no_verify=False, full=False))
+        self.assertEqual(rc, 1)
+        diff.assert_not_called()                                                              # nothing was shown as "the change" and nothing installed
+        ctx.ssh.interactive.assert_not_called()
+        self.assertIn("release source does not have", e.call_args[0][0])
+
+    def test_apply_for_the_fleet_decides_the_release_once(self):
+        a, b = mock.Mock(), mock.Mock()
+        a.name, b.name = "first", "second"
+        seen = []
+        self.ctx.source = mock.Mock()
+        self.ctx.source.resolve.return_value = "c" * 40
+        with mock.patch.object(self.ctx, "targets", return_value=[("first", a), ("second", b)]), mock.patch.dict(cli.DISPATCH, {"apply": lambda c, args: seen.append(args.rev) or 0}):
+            self.admin("apply")
+        self.assertEqual(seen, ["c" * 40, "c" * 40])
+
+
 
 
 if __name__ == "__main__":

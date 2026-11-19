@@ -171,7 +171,7 @@ class Context:
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json",
-                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None, store=transport.store_for(cfg))
+                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None, store=transport.store_for(cfg), hardware={"profile": cfg.hardware.profile})
 
 
 def _log(msg):
@@ -473,7 +473,9 @@ def cmd_status(ctx, hours=12):
     kv("Up for", human_dur(up) if up else "unknown")
     load = os.getloadavg()
     kv("Load", f"{load[0]:.2f} now, {load[1]:.2f} over 5 min, {load[2]:.2f} over 15 min")
-    kv("Capacity", f"{w.s.capacity} capacity points (a heavy job takes 4)")
+    profile = (ctx.hardware or {}).get("profile")
+    fits = is_virtual_machine() and profile not in (None, "virtual-machine", "custom")       # a virtual machine set up before that profile existed keeps its old limits until it is told
+    kv("Capacity", f"{w.s.capacity} capacity points (a heavy job takes 4)" + (f". This is a virtual machine; the `virtual-machine` hardware profile fits it better (set profile in [hardware] of its ct.toml, or run ct-setup install --worker {ctx.product} again)" if fits else ""))
     try:
         kv("Installed", f"{ctx.installed_rev.read_text().split()[0][:7]}  ({len(w.load_registry().get('classes') or {})} job classes)")
     except (OSError, IndexError, ValueError, AttributeError):

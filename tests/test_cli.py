@@ -300,6 +300,14 @@ class Status(CliBase):
         self.assertIn("unreadable", out)
         self.assertRegex(out, r"(?i)needs attention[^\n]*Heat")                  # a card that says ATTENTION says which rows
 
+    def test_a_virtual_machine_on_another_profile_is_told_the_virtual_machine_profile_fits_it_better(self):
+        with mock.patch.object(cli, "is_virtual_machine", return_value=True), mock.patch.dict(self.ctx.hardware, {"profile": "small-server"}):
+            code, out = self.run_cli("status")
+        self.assertIn("virtual-machine", out)
+        with mock.patch.object(cli, "is_virtual_machine", return_value=False):
+            code, out = self.run_cli("status")
+        self.assertNotIn("fits it better", out)
+
     def test_it_shows_work_in_progress_and_what_waits_for_you(self):
         self.job("job-0001")
         self.job("job-0002", "careful")

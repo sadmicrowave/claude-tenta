@@ -811,5 +811,48 @@ class Command(InstallBase):
         self.assertIn("install", out.getvalue())
 
 
+class TheCheckoutIsTheReleaseTheOthersGet(unittest.TestCase):
+    """The step where the workers diverged: ct-setup installs the checkout's HEAD, ct-admin apply installs only published commits. Said before anything is sent."""
+
+    def run_notice(self, rev, tip, has_tip=True, rev_in_tip=False):
+        def run(argv, **kw):
+            if argv[:2] == ["git", "ls-remote"]:
+                return subprocess.CompletedProcess(argv, 0, f"{tip}\trefs/heads/main\n" if tip else "", "")
+            if "cat-file" in argv:
+                return subprocess.CompletedProcess(argv, 0 if has_tip else 1, b"", b"")
+            return subprocess.CompletedProcess(argv, 0 if rev_in_tip else 1, b"", b"")                      # merge-base --is-ancestor
+        return install.release_notice("/checkout", rev, "https://example.invalid/p.git", run=run)
+
+    def test_the_published_release_says_nothing(self):
+        self.assertIsNone(self.run_notice("a" * 40, "a" * 40))
+
+    def test_no_network_says_nothing(self):
+        self.assertIsNone(self.run_notice("a" * 40, ""))
+
+    def test_a_checkout_older_than_the_published_release_is_called_older(self):
+        kind, rows, why, steps = self.run_notice("a" * 40, "b" * 40, rev_in_tip=True)
+        self.assertEqual(kind, "older")
+        self.assertIn("behind", why)
+
+    def test_a_commit_that_is_not_on_the_release_branch_is_called_unpublished_and_the_fix_is_named(self):
+        kind, rows, why, steps = self.run_notice("a" * 40, "b" * 40)
+        self.assertEqual(kind, "unpublished")
+        self.assertIn("ct-admin apply cannot compare", why)
+        self.assertTrue(any("ct-admin apply --force" in s for s in steps))
+
+    def test_deliver_says_so_before_it_sends_anything(self):
+        said = []
+        ssh = mock.Mock()
+        ssh.capture.return_value = subprocess.CompletedProcess([], 0, "/tmp/ct-install.abc123\n", "")
+        ssh.send.return_value = subprocess.CompletedProcess([], 0, b"", b"")
+        with mock.patch.object(install, "release_notice", return_value=("unpublished", [("This checkout", "aaaaaaaaa")], "why", ["step"])), \
+                mock.patch.object(install.ui_mod, "say", side_effect=lambda *a, **k: said.append(a[0])):
+            install.deliver_source(ssh, "/x", archive=lambda s: (b"tar", "a" * 40, False), published="https://example.invalid/p.git")
+        self.assertEqual(said, ["This is not the release the other workers get"])
+        self.assertTrue(ssh.send.called)                                                          # said, and then carried on: a test machine may want exactly this
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

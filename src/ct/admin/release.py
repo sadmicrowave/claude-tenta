@@ -42,6 +42,22 @@ class Source:
         else:
             self.git("fetch", "--quiet", "--prune", "--force", "--tags", self.url, "+refs/heads/*:refs/heads/*")
 
+    def relation(self, rev):
+        """How a worker's release stands against the one `ct-admin apply` would install (the tip of the release branch): 'current'; 'behind' (an earlier commit of that branch); 'unpublished' (a commit
+        the release source does not have: it was never published there, so apply can neither compare it nor safely replace it); or 'unknown' (nothing published to compare)."""
+        if not rev or rev in ("?", "-"):
+            return "unknown"
+        tip = self.git("rev-parse", "--verify", "-q", f"refs/heads/{self.branch}", check=False)
+        full = self.git("rev-parse", "--verify", "-q", f"{rev}^{{commit}}", check=False)
+        if tip.returncode:
+            return "unknown"
+        if full.returncode:
+            return "unpublished"
+        sha, top = full.stdout.strip(), tip.stdout.strip()
+        if sha == top:
+            return "current"
+        return "behind" if self.git("merge-base", "--is-ancestor", sha, top, check=False).returncode == 0 else "unpublished"
+
     def resolve(self, rev=None):
         """Full commit id of `rev` (default: the tip of the branch), which must be on the branch: the worker refuses anything else."""
         self.update()

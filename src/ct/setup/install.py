@@ -22,7 +22,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from .. import config, transport
+from .. import cards, config, transport
 from .. import ui as ui_mod
 from ..admin.ssh import Ssh
 from ..client.repo import ClientError
@@ -77,10 +77,40 @@ def remote_dir(ssh):
     return d
 
 
-def deliver_source(ssh, source, archive=archive_source, say=None):
-    """Send the committed files of the checkout to a fresh working folder on the server. Returns (folder, revision)."""
+def published_tip(url, branch="main", run=subprocess.run):
+    """The commit at the tip of the release branch of the release source, or None when it cannot be asked (no network)."""
+    try:
+        r = run(["git", "ls-remote", url, f"refs/heads/{branch}"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = (r.stdout or "").split()
+    return out[0] if r.returncode == 0 and out else None
+
+
+def release_notice(source, rev, url, run=subprocess.run):
+    """What `ct-admin apply` would NOT do for a worker installed from this checkout: the card text (rows, why, steps) when the checkout's commit is not the release the other workers get, else None.
+    (Seen: a third worker was installed from an unmerged branch; apply, which only installs published commits, could neither compare nor safely replace it.)"""
+    tip = published_tip(url, run=run) if url else None
+    if not tip or not rev or tip == rev:
+        return None
+    has = lambda sha: run(["git", "-C", str(source), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0      # noqa: E731
+    anc = lambda a, b: run(["git", "-C", str(source), "merge-base", "--is-ancestor", a, b], capture_output=True).returncode == 0       # noqa: E731
+    if has(tip) and anc(rev, tip):
+        return ("older", [("This checkout", rev[:9]), ("Published release", tip[:9])], "This checkout is older than the published release, so this worker will be behind the ones that were updated.",
+                ["Update the checkout first (git pull), then run this again.", "Or install this one now and bring every worker up later: ct-admin apply"])
+    return ("unpublished", [("This checkout", rev[:9]), ("Published release", tip[:9])],
+            "This checkout's commit is not on the release branch of the release source. A worker installed from it runs something ct-admin apply cannot compare or safely replace, and it will differ from the workers that run the published release.",
+            ["Publish it first: merge it into the release branch, then install.", "Or carry on for a test machine, then replace it later: ct-admin apply --force --worker <its name>"])
+
+
+def deliver_source(ssh, source, archive=archive_source, say=None, published=None):
+    """Send the committed files of the checkout to a fresh working folder on the server. Returns (folder, revision, size). `published`: the release source's address; when given, a checkout that is
+    not the release `ct-admin apply` would install is said so before anything is sent."""
     say = say or _sink()
     data, rev, dirty = archive(source)
+    note = release_notice(source, rev, published) if published else None
+    if note:
+        ui_mod.say("This is not the release the other workers get", *note[1], cards.Why(note[2]), tag="NOTICE", color=ui_mod.YELLOW, steps=note[3], steps_label="What to do", stream=sys.stderr)
     if dirty:
         ui_mod.say("You have uncommitted changes", ("The server gets", f"the last commit, {rev[:9]}"), "The changes you have not committed are not included.",
                    tag="NOTE", color=ui_mod.YELLOW, stream=sys.stderr)
@@ -385,7 +415,7 @@ class Installer:
 
     # ---- 4. the server ----
     def deliver(self, nested):
-        d, rev, size = deliver_source(self.ssh, self.source, self.archive, self.say)
+        d, rev, size = deliver_source(self.ssh, self.source, self.archive, self.say, published=getattr(getattr(self.cfg, "updates", None), "source", None))
         self.ssh.send(f"cat > {d}/answers.toml", toml_out.dump(nested, full=True).encode())
         pub = self.machine.read(str(self.home / "approval" / "key.pub"))
         self.approver_sent = bool(pub and pub.strip())

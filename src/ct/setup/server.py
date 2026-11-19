@@ -236,9 +236,9 @@ class ServerSetup:
         gone = [p for p in (f"/usr/local/bin/{n}", f"/usr/local/sbin/{n}-update")
                 if p not in (f"{render.BIN_DIR}/{render.WORKER_CMD}", f"{render.SBIN_DIR}/{render.UPDATE_CMD}") and self.host.exists(p)]
         for p in gone:
-            self.say(f"    (remove the old command {p})")
             if not self.dry_run:
                 self.host.remove(p)
+            self.note("old command", "planned" if self.dry_run else "removed", p)
         if gone:
             self.note("old command names", "planned" if self.dry_run else "removed", ", ".join(gone))
 
@@ -394,8 +394,7 @@ class ServerSetup:
     def registry_step(self):
         """Install the job registry the worker will trust (the queue repository's, validated; the core pack on a brand-new install)."""
         if self.dry_run:
-            self.say("    install the job registry from the queue repository (validated first), or the core pack on a fresh install")
-            self.note("job registry", "planned")
+            self.note("job registry", "planned", "installed from the queue repository (validated first), or the core pack on a fresh install")
             return
         try:
             result = self.registry_installer(self.cfg, self.source, run=lambda argv: (lambda r: (r.rc, r.out))(self.host.run(argv)), prefix=str(self.host.root),

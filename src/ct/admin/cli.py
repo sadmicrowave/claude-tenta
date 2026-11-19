@@ -13,6 +13,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import copy
 import sys
 import textwrap
 import time
@@ -483,6 +484,53 @@ def cmd_locate(ctx, a):
     return 0
 
 
+RELATION_TEXT = {"current": "the release apply would install", "behind": "behind the release apply would install", "unpublished": "a commit that is not in the release source",
+                 "unknown": "cannot be compared"}
+
+
+def fleet_releases(ctx):
+    """[(worker, release, relation)] from what each worker last published (no login to any of them), compared with the release `ct-admin apply` would install."""
+    try:
+        ctx.source.update()                                          # best effort: with no network the comparison is made against what was last fetched
+    except Exception:
+        pass
+    out = []
+    for name, repos in ctx.fleet():
+        doc = workers.read_state(repos.results) or {}
+        rev = (doc.get("release") or "")[:40]
+        try:
+            rel = ctx.source.relation(rev) if rev else "unknown"
+        except Exception:
+            rel = "unknown"
+        out.append((name, rev, rel))
+    return out
+
+
+def release_signature(ctx):
+    """(signature, plain text) when the workers do not all run the release apply would install, else None. The signature changes only when who-runs-what changes (so the alert is not repeated)."""
+    rows = fleet_releases(ctx)
+    revs = {r for _, r, _ in rows if r}
+    if not rows or (len(revs) <= 1 and all(rel in ("current", "unknown") for _, _, rel in rows)):
+        return None
+    return ",".join(f"{n}:{r[:9]}:{rel}" for n, r, rel in rows), "; ".join(f"{n} runs {r[:9] or '?'} ({RELATION_TEXT[rel]})" for n, r, rel in rows) + ". ct-admin apply brings them together."
+
+
+def release_card(ctx, stream=None):
+    """One card when the workers do not all run the release `ct-admin apply` would install (or each other's): who runs what, and the one command that brings them together. Returns True if shown."""
+    rows = fleet_releases(ctx)
+    revs = {r for _, r, _ in rows if r}
+    if not rows or (len(revs) <= 1 and all(rel in ("current", "unknown") for _, _, rel in rows)):
+        return False
+    odd = [n for n, _, rel in rows if rel == "unpublished"]
+    steps = ["ct-admin apply (every worker in turn, each shown what changes first)"] if any(rel == "behind" for _, _, rel in rows) else []
+    if odd:
+        steps.append(f"{', '.join(odd)} runs a commit the release source does not have: publish it (merge it into the release branch) and then apply, or replace it with the published release: ct-admin apply --force --worker {odd[0]}")
+    emit("The workers do not all run the same release", *[(n, f"{r[:9] or '?'}  {RELATION_TEXT[rel]}") for n, r, rel in rows],
+         "Mixed releases mean a worker may lack a fix or a class the others have, and a job may behave differently depending on where it lands.",
+         steps=steps or None, steps_label="How to bring them together", tag="RELEASES", color=YELLOW, stream=stream or sys.stdout)
+    return True
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -525,6 +573,7 @@ def cmd_workers(ctx, a):
     _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
     if problems:
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
+    release_card(ctx, out)
     _ui.related(("Only workers whose Claude access works", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add <name> --config <file>"),
                 ("Stop listing a worker", "ct-admin workers remove <name>"), ("Look at one worker's health", "ct-admin status"))
     return 0
@@ -727,7 +776,7 @@ def cmd_watch(ctx, a):
         m, rung, _ = rediscover.ladder(*hosts[name][:1], hosts[name][1], name, ctx.home, full=False)             # the cheap rungs only: a monitoring pass never waits for a scan
         return f"It answers at {m.addresses[0]} (found by {rung}): ct-admin locate --worker {name}." if m.kind == "one" else f"If its address changed, ct-admin locate --worker {name} looks for it."
     while True:
-        raised = watch_mod.one_pass(ctx.fleet(), memory, notifier, say=say, force=not a.loop, on_ok=on_ok, on_fail=on_fail)
+        raised = watch_mod.one_pass(ctx.fleet(), memory, notifier, say=say, force=not a.loop, on_ok=on_ok, on_fail=on_fail, releases=lambda: release_signature(ctx))
         if not a.loop:
             break
         time.sleep(watch_mod.BASE_S)
@@ -965,6 +1014,13 @@ def cmd_diff(ctx, a):
 
 def apply(ctx, a):
     sha = ctx.source.resolve(a.rev)
+    now = release.installed_rev(ctx.ssh, ctx.name)
+    if now and now != sha and ctx.source.relation(now) == "unpublished" and not a.force:
+        emit(f"{ctx.name} runs a commit the release source does not have", ("It runs", release.short(now)), ("Apply would install", release.short(sha)),
+             "That commit was never published to the release branch, so installing the published release would REPLACE it (and may be older). It is left as it is.",
+             steps=["Publish it: merge it into the release branch, then run ct-admin apply again.", f"Or replace it with the published release anyway: ct-admin apply --force --worker {ctx.name}"],
+             steps_label="Your choice", tag="NOT CHANGED", color=YELLOW)
+        return 1
     changed = show_diff(ctx, sha, a.full)
     if not changed and not a.force:                      # show_diff has already said "Nothing to change"; this adds only how to install anyway, for THIS worker (a bare --force would force every one)
         emit("Install anyway?", f"Only if you want {ctx.name} reinstalled at the same version.", tag="NEXT", color=CYAN, run_label="Run the install again anyway", run=f"ct-admin apply --force --worker {ctx.name}")
@@ -1155,6 +1211,9 @@ def run_command(ctx, a):
     `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
     if a.cmd in FLEET_COMMANDS:
         targets = ctx.targets(getattr(a, "worker", None))
+        if a.cmd == "apply" and len(targets) > 1 and not getattr(a, "rev", None):
+            a = copy.copy(a)                                              # ONE release for the whole fleet, decided once (each worker keeps its own copy of the release source, fetched at its own time)
+            a.rev = ctx.source.resolve(None)
         if len(targets) == 1:
             return DISPATCH[a.cmd](targets[0][1], a)
         rc = 0
@@ -1169,6 +1228,11 @@ def run_command(ctx, a):
                 except SystemExit as e:                               # a declined question or a stop() on one worker: carry on with the next
                     r = e.code if isinstance(e.code, int) else 1
                 rc = max(rc, r or 0)
+        if a.cmd in ("status", "check"):                              # the pulse: who runs what, once, with the fix
+            try:
+                release_card(ctx)
+            except Exception:                                         # never able to break the command it follows
+                pass
         footer.flush()
         return rc
     if a.cmd in PICK_COMMANDS and getattr(a, "worker", None):

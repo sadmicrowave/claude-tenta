@@ -62,6 +62,7 @@ def width(stream=None, cols=None):
 PROGRAMS = ("ct-setup", "ct-admin", "ct-run", "ct-worker", "ct-update")
 NESTED = {"add", "remove", "list", "pre", "post", "profile", "log", "hook", "direct", "github", "help"}       # words that follow a command word: ct-admin action add, ct-run offload log hook pre, ct-setup transport direct
 _SUBS = []
+VALUE_FLAGS = {"--worker", "--rev", "--config", "--user", "--to", "--set", "--out", "--hours", "--name", "--port", "--answers", "--source", "--timeout", "--worker-name"}      # flags that take the next word
 
 
 def subcommands():
@@ -181,6 +182,9 @@ def code_spans(text):
     def one(m):
         keep, words = [], m.group("rest").split(" ")[1:] if m.group("rest") else []
         for w in words:
+            if keep and keep[-1] in VALUE_FLAGS:                          # the word after --worker is its value, whatever it looks like
+                keep.append(w)
+                continue
             if (w[:1].isalpha() and w.islower() and w not in subs and not re.fullmatch(_ARG, w)) or (w in ("again", "and", "to", "on", "for")):
                 break
             keep.append(w)

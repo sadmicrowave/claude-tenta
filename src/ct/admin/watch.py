@@ -89,7 +89,7 @@ class Memory:
         tmp.replace(self.path)
 
 
-def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=False, on_ok=None, on_fail=None):
+def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=False, on_ok=None, on_fail=None, releases=None):
     """Ask every worker that is due, alert on changes, and remember. Returns [(worker, kind)] of what was raised. `fetch(repos)` refreshes the results clone (default: pull_results)."""
     now = time.time() if now is None else now
     fetch = fetch or (lambda repos: repos.pull_results())
@@ -122,5 +122,17 @@ def one_pass(fleet, memory, notifier, now=None, fetch=None, say=None, force=Fals
             raised.append((name, kind))
             if say:
                 say(name, kind, text)
+    if releases:                                                  # the fleet as a whole: workers on different releases are said once when it starts, and again only when it changes
+        try:
+            sig, text = releases() or ("", "")
+        except Exception:
+            sig, text = (data.get("__releases__") or {}).get("sig", ""), ""
+        if sig != (data.get("__releases__") or {}).get("sig", ""):
+            data["__releases__"] = {"sig": sig}
+            if sig:
+                notifier.send("Workers run different releases", text, fields=[("What", text)], tags="hourglass", priority="default")
+                raised.append(("fleet", "releases"))
+                if say:
+                    say("fleet", "releases", text)
     memory.save(data)
     return raised
