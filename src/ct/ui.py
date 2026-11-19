@@ -79,9 +79,11 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
     then commands to copy, each alone on its own line (nothing before or after it)."""
     stream = stream or sys.stderr
     if _color_on(stream):                                      # a person at a terminal: the wizard's card (see ct.cards)
-        out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label, framed=framed)
-        if run:
-            out += cards.commands(run, run_label) + offer_copy(run, stream)
+        lifted = []                                         # commands too long for a line of the card: drawn alone below it, with the ones to run
+        out = [""] + cards.card(title, details, tag=tag, color=color, steps=steps, steps_label=steps_label, framed=framed, lifted=lifted)
+        cmds = lifted + ([run] if isinstance(run, str) else list(run or []))
+        if cmds:
+            out += cards.commands(cmds, run_label if run else "Command") + offer_copy(cmds, stream)
         print("\n".join(out) + "\n", file=stream)
         return
     out = ["", f"{paint(tag, BOLD, color, stream=stream)}  {paint(title, BOLD, stream=stream)}"]

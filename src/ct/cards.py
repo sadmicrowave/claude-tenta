@@ -188,6 +188,17 @@ def code_spans(text):
     return "".join(p if p.startswith("`") else _plain(p) for p in parts2)
 
 
+def lift(text, room, found):
+    """A command that would be cut over two lines is taken out of the sentence: it is added to `found` (to be drawn alone below the card, unframed, where a drag-select picks up the command
+    and nothing else) and the sentence says it is below. A command that fits on one line stays where it is."""
+    text = code_spans(text)
+    for span in re.findall(r"`[^`]+`", text):
+        if not any(span in line for line in textwrap.wrap(text, max(10, room), break_long_words=True, break_on_hyphens=False)):
+            found.append(span[1:-1])
+            text = text.replace(": " + span, " (command below)", 1) if (": " + span) in text else text.replace(span, "(command below)", 1)
+    return text
+
+
 def wrap_text(text, width, **kw):
     """The one way text is wrapped for the screen: commands in it are marked as code first (they are chips wherever the lines are drawn with `inline`). A span may be cut over two lines."""
     return textwrap.wrap(code_spans(text), max(10, width), **kw) or [""]
@@ -226,8 +237,10 @@ def wrap(text, room):
     return textwrap.wrap(code_spans(text), max(10, room), break_long_words=True, break_on_hyphens=False) or [""]
 
 
-def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=None, framed=None):
-    """The lines of one message card (a list of strings, colour codes included)."""
+def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=None, framed=None, lifted=None):
+    """The lines of one message card (a list of strings, colour codes included). A command too long to stay on one line is drawn alone below the card; `lifted` (a list) takes those
+    commands instead, for a caller that draws its own commands block."""
+    found = []
     role = role_for(color)
     p = lambda text, *codes: theme.sgr(text, *codes)                    # noqa: E731
     w = width(cols=cols)
@@ -275,7 +288,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         if kind == "blank":
             out.append(row())
         elif kind == "note":
-            out += [row(t) for t in inline(wrap(code_spans(item), inner), "muted")]
+            out += [row(t) for t in inline(wrap(lift(item, inner, found), inner), "muted")]
         elif kind == "head":
             out.append(row(p(item.upper(), role if framed else "label")))
         elif kind == "raw":
@@ -287,14 +300,18 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "fact":
-            first, *rest = inline(wrap(code_spans(item[1]), fact_room))
+            first, *rest = inline(wrap(lift(item[1], fact_room, found), fact_room))
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "step":
-            first, *rest = inline(wrap(code_spans(item), inner - 4))
+            first, *rest = inline(wrap(lift(item, inner - 4, found), inner - 4))
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
         out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]
+    if found and lifted is not None:
+        lifted.extend(found)
+    elif found:
+        out += commands(found, "Command")
     return out
 
 

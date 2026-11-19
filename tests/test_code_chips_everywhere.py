@@ -123,8 +123,9 @@ class EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip(unittest.TestCase)
             tree = ast.parse(f.read_text())
             docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)) and n.body
                     and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+            parts = {id(v) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr) for v in n.values}              # the pieces of an f-string are not messages; the whole f-string is
             for n in ast.walk(tree):
-                if id(n) in docs:
+                if id(n) in docs or id(n) in parts:
                     continue
                 if isinstance(n, ast.Constant) and isinstance(n.value, str):
                     yield f, n.lineno, n.value
@@ -143,6 +144,60 @@ class EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip(unittest.TestCase)
                     missed.append(f"{f.relative_to(SRC)}:{line}: {s[:80]!r}")
         self.assertGreater(seen, 20, "the inventory found nothing: the scan is broken")
         self.assertEqual(missed, [], f"{len(missed)} of {seen} commands in messages are not chipped")
+
+
+class ACommandIsNeverCutOverTwoLinesInsideAFrame(unittest.TestCase):
+    """Copying a command that wraps inside a card picks up the frame bars and the line breaks. A command too long to stay on one line is drawn alone below the card instead."""
+    LONG = "su -c 'apt-get install sudo && usermod -aG sudo agent'"
+
+    def plain(self, lines):
+        return [ANSI.sub("", ln) for ln in lines]
+
+    def test_a_command_that_would_wrap_is_drawn_alone_below_the_card_with_no_frame_beside_it(self):
+        for framed in (True, False):
+            lines = self.plain(cards.card("T", [], tag="NOT YET", color=ui.RED, steps=[f"Install sudo and add the account to the sudo group: {self.LONG}"], framed=framed))
+            bar = "│" if framed else "┃"
+            inside = [ln for ln in lines if ln.startswith(bar)]
+            below = [ln for ln in lines if ln.strip() and not ln.startswith((bar, "╭", "╰"))]
+            self.assertTrue(any("(command below)" in ln for ln in inside), framed)
+            self.assertTrue(all("su -c" not in ln for ln in inside), "the command is still inside the frame")
+            self.assertTrue(any(ln.strip() == self.LONG for ln in below), (framed, below))           # one whole line, nothing before or after it
+            self.assertFalse(any(bar in ln for ln in below))
+
+    def test_a_short_command_stays_in_the_sentence(self):
+        lines = self.plain(cards.card("T", [], tag="NOT YET", color=ui.RED, steps=["Put the key on it: ssh-copy-id agent@192.0.2.5 (it asks once)"], framed=True))
+        self.assertTrue(any("`ssh-copy-id agent@192.0.2.5`" in ln for ln in lines))
+        self.assertFalse(any("command below" in ln for ln in lines))
+
+    def test_the_commands_below_join_the_ones_to_run_in_one_block_and_are_what_gets_copied(self):
+        out = io.StringIO()
+        out.isatty = lambda: True
+        with mock.patch.dict(os.environ, {"CT_COLOR": "always", "CT_COPY": "never"}):
+            ui.say("T", steps=[f"Install sudo and add the account to the sudo group on that machine: {self.LONG}"], run="ct-admin status", tag="ERROR", color=ui.RED, stream=out)
+        text = ANSI.sub("", out.getvalue())
+        self.assertEqual(text.count("RUN THIS"), 1)
+        self.assertIn(self.LONG, text.split("RUN THIS")[1])
+        self.assertIn("ct-admin status", text.split("RUN THIS")[1])
+
+    def test_in_the_setup_output_too_a_long_command_is_alone_without_the_rail(self):
+        st = report.Styler(styled=True, stream=Tty())
+        with mock.patch.object(report.Styler, "columns", lambda self: 70):
+            lines = [ANSI.sub("", x) for x in st.wrapped("", f"Install sudo and add the account to the sudo group: {self.LONG}", 0)]
+        self.assertTrue(any(ln.strip() == self.LONG for ln in lines), lines)
+        self.assertTrue(all(not ln.startswith("┃") or self.LONG not in ln for ln in lines))
+
+    def test_no_message_in_the_source_puts_a_cut_command_inside_a_card(self):
+        """Every message that holds a command, drawn as a step in a narrow and a wide card: no line inside the frame holds half a code span."""
+        bad = []
+        for f, line, msg in EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip().messages():
+            if len(msg.split()) < 4 or "^" in msg or "(?" in msg or msg.endswith(" ") or not re.search(EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip.EXEC, msg):
+                continue
+            for cols in (60, 100):
+                lines = self.plain(cards.card("T", [], tag="X", color=ui.RED, steps=[msg], framed=True, cols=cols, lifted=[]))
+                for ln in lines:
+                    if ln.startswith("│") and ln.count("`") % 2:
+                        bad.append(f"{f.relative_to(SRC)}:{line} at {cols}: {ln.strip()[:60]!r}")
+        self.assertEqual(bad, [])
 
 
 if __name__ == "__main__":

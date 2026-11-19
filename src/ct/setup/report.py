@@ -55,10 +55,12 @@ class Styler:
         """`lead` (already coloured, `hang` visible columns wide) then `text`; a long text continues on following lines under the first word, never past the right edge, and
         every line carries the rail. Lengths are counted on the visible text, never on colour codes."""
         cols = self.columns()
+        found = []
         room = max(20, cols - hang - 2)
         from .. import cards
         if self.styled and text:                                                       # commands in the text are code chips, however the line is cut
-            pieces = cards.wrap_text(text, room, break_long_words=True, break_on_hyphens=False) if cols else [cards.code_spans(text)]
+            found = []
+            pieces = cards.wrap_text(cards.lift(text, room, found), room, break_long_words=True, break_on_hyphens=False) if cols else [cards.code_spans(text)]
             role = {DIM: "muted", BOLD: "strong", RED: "bad", GREEN: "ok", YELLOW: "warn", CYAN: "info"}.get((code or (DIM,))[0]) if (dim or code) else None
             pieces = cards.inline(pieces, role)
         else:
@@ -66,7 +68,10 @@ class Styler:
             pieces = pieces or [""]
             paint = (lambda t: self.p(t, *(code or (DIM,)))) if (dim or code) else (lambda t: t)
             pieces = [paint(x) for x in pieces]
-        return [self.rail(lead + pieces[0])] + [self.rail(" " * hang + x) for x in pieces[1:]]
+        lines = [self.rail(lead + pieces[0])] + [self.rail(" " * hang + x) for x in pieces[1:]]
+        if self.styled and text and found:                                      # a command too long for one line: alone below, no rail beside it, so selecting it copies only the command
+            lines += [""] + [self.command(c) for c in found]
+        return lines
 
     def head(self, text):
         if not self.styled:
