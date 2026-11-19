@@ -31,7 +31,7 @@ QUESTIONS = [
        "Jobs and results travel through two private git repositories. The choice is where those live and who connects to whom. It changes how fast a job is picked up and how much of your network is exposed.",
        risk="You can move an existing install to another method later (ct-setup transport). Nothing is exposed until the install finishes.", half="both"),
     _Q("github.owner", "What is your GitHub username?",
-       "Two private repositories are created under it: one for the jobs you send and one for the results. They are the mailbox between your computer and the server. An organisation name works too.",
+       "This is your GitHub account, not the login on the server. Two private repositories are created under it: one for the jobs you send and one for the results. They are the mailbox between your computer and the server. An organisation name works too.",
        risk="Both are created private and nothing is ever pushed publicly. It needs your signed-in `gh` command; without it you create the repositories by hand.",
        examples=["your-username", "your-organisation"], half="both", required=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("hardware.profile", "What kind of computer is the server?",

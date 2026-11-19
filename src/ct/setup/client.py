@@ -132,7 +132,25 @@ class ClientSetup:
         c = self.cfg.github
         return f"{c.owner}/{c.queue_repo if which == 'queue' else c.results_repo}"
 
+    def check_owner(self):
+        """The account the repositories are created under must be the one `gh` is signed in as, or an organisation it belongs to. Said BEFORE anything is created, with the account it IS signed in as
+        (seen: the wizard was answered with the server's login name, and the first `gh repo create` died with a permissions error from GraphQL, after the configuration was already written)."""
+        if not self.gh or self.dry_run:
+            return
+        me = self.host.run(["gh", "api", "user", "--jq", ".login"])
+        if not me.ok or not me.out.strip():
+            return                                                                      # not signed in or offline: the create step will say so
+        login = me.out.strip()
+        orgs = self.host.run(["gh", "api", "user/orgs", "--jq", ".[].login"])
+        allowed = {login.lower()} | {o.strip().lower() for o in (orgs.out.splitlines() if orgs.ok else []) if o.strip()}
+        if self.cfg.github.owner.lower() not in allowed:
+            raise SetupError("That GitHub account is not yours", f"You are signed in to GitHub as {login}, but the repositories would be created under {self.cfg.github.owner}, which is neither your account nor an organisation you belong to.",
+                             [f"Run ct-setup install again and answer {login} to the GitHub account question (it is your GitHub username, not the login on the server).",
+                              "Or sign in as that account first: gh auth login"])
+        self.note("GitHub account", "ok", f"signed in as {login}; repositories go under {self.cfg.github.owner}")
+
     def create_repos(self):
+        self.check_owner()
         for which in ("queue", "results"):
             slug = self.repo_slug(which)
             if self.gh and self.host.run(["gh", "repo", "view", slug]).ok:

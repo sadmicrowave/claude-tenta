@@ -652,6 +652,34 @@ class ClientTests(RepoFixture):
                         repos_factory=lambda cfg: self.repos, **kw)
         return h, c
 
+    def test_a_github_account_that_is_not_the_signed_in_one_is_refused_before_anything_is_created(self):
+        """Seen on a real run: the wizard was answered with the server's login name; the first gh repo create died with a GraphQL permissions error after the configuration was written."""
+        h, c = self.make(dry_run=False, given={"github.owner": "agent"})
+        h.replies["gh api user/orgs"] = Result(0, "an-org\n")
+        h.replies["gh api user"] = Result(0, "someone\n")
+        with self.assertRaises(server.SetupError) as e:
+            c.run_all()
+        self.assertEqual(h.ran("gh repo create"), [])
+        self.assertIn("not yours", e.exception.title)
+        self.assertIn("signed in to GitHub as someone", e.exception.why)
+        self.assertTrue(any("answer someone" in st for st in e.exception.steps))
+
+    def test_the_signed_in_account_or_one_of_its_organisations_is_accepted(self):
+        for owner in ("someone", "Someone", "an-org"):
+            h, c = self.make(dry_run=True, given={"github.owner": owner})
+            h.replies["gh api user/orgs"] = Result(0, "an-org\n")
+            h.replies["gh api user"] = Result(0, "someone\n")
+            c.run_all()                                                              # no refusal
+            c.dry_run = False
+            c.check_owner()
+
+    def test_when_the_signed_in_account_cannot_be_read_nothing_is_blocked(self):
+        h, c = self.make(dry_run=False, given={"github.owner": "agent"})
+        h.replies["gh api user"] = Result(1, "")
+        c.prerequisites()
+        c.configure()
+        c.check_owner()
+
     def test_dry_run_prints_the_steps_and_writes_nothing(self):
         h, c = self.make(dry_run=True)
         c.run_all()

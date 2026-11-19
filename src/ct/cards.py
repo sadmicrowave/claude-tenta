@@ -199,7 +199,10 @@ def lift(text, room, found):
     for span in re.findall(r"`[^`]+`", text):
         if not any(span in line for line in textwrap.wrap(text, max(10, room), break_long_words=True, break_on_hyphens=False)):
             found.append(span[1:-1])
-            text = text.replace(": " + span, " (command below)", 1) if (": " + span) in text else text.replace(span, "(command below)", 1)
+            if (": " + span) in text:
+                text = text.replace(": " + span, " (command below)", 1)
+            else:                                                                    # the command was the subject of the sentence: "The command below said: ..."
+                text = text.replace(span, "The command below" if text.startswith(span) else "the command below", 1)
     return text
 
 

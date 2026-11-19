@@ -247,6 +247,16 @@ class TheReasonOfAnErrorIsAWhyBlock(unittest.TestCase):
         self.assertEqual(bad, [], "wrap the reason: cards.Why(why)")
 
 
+class ALiftedCommandKeepsTheSentenceReadable(unittest.TestCase):
+    def test_a_command_that_was_the_subject_becomes_the_command_below_not_a_bracket(self):
+        found = []
+        text = cards.lift("`gh repo create agent/x --private --description 'claude-tenta queue (private)'` said: GraphQL: you do not have the correct permissions to execute CreateRepository", 40, found)
+        self.assertTrue(text.startswith("The command below said:"), text)
+        self.assertEqual(len(found), 1)
+        found = []
+        self.assertIn("(command below)", cards.lift("Do this now: su - -c 'apt-get install -y sudo && usermod -aG sudo agent'", 30, found))
+
+
 if __name__ == "__main__":
     unittest.main()
 
