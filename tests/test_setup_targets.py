@@ -77,5 +77,31 @@ class InstallGivesTheInstallerTheComputerYouMeant(unittest.TestCase):
         self.assertEqual(given.get("server.host"), "other.example")
 
 
+class ANewComputerIsAskedHowItPassesJobs(InstallGivesTheInstallerTheComputerYouMeant):
+    """Seen on a real run: a new computer silently took the first install's transport (GitHub after that was changed), so it asked for a GitHub account the earlier Direct installs never needed, and the answer
+    given there (the server's login name) made the repository step fail. The first install's choice is the DEFAULT, never an answer given on the person's behalf."""
+
+    def test_the_new_computers_installer_is_not_given_the_transport_it_is_only_suggested_the_first_ones(self):
+        import sys as _sys
+        from ct.setup import addworker, assess
+        seen = {}
+
+        class Fake:
+            def __init__(inner, *a, **kw):
+                seen["given"], seen["suggest"], inner.conf = dict(kw["given"]), dict(kw["suggest"]), kw["config_path"]
+
+            def run_all(inner):
+                Path(inner.conf).write_text('[identity]\nname = "box"\n[server]\nhost = "192.0.2.77"\n')
+                return [("a job went through the whole loop", "ok", "")]
+        good = assess.verdict({"OS_ID": "debian", "OS_LIKE": "", "OS_VERSION": "13", "OS_NAME": "Debian 13", "ARCH": "x86_64", "CORES": "2", "MEM_MB": "4000", "DISK_MB": "20000", "PYTHON": "3.13", "SYSTEMD": "yes",
+                               "SUDO": "yes", "SUDO_GROUP": "yes", "VIRT": "vmware", "INSTALLS": "", "WHO": "agent", "HOSTNAME": "box"}, "agent")
+        self.conf.write_text(self.conf.read_text() + '[transport]\nkind = "github"\n')
+        with mock.patch("ct.setup.cli.Installer", Fake), mock.patch("ct.setup.cli.emit"), mock.patch.object(addworker.assess_mod, "assess", lambda h, u, p=22: good), \
+                mock.patch("ct.setup.addworker.notice", create=True):
+            cli.main(["add-worker", "192.0.2.77", "--yes"])
+        self.assertNotIn("transport.kind", seen["given"])                         # so the wizard asks (or, with --yes, takes the default)
+        self.assertEqual(seen["suggest"]["transport.kind"], "github")             # and the first install's is what it offers
+
+
 if __name__ == "__main__":
     unittest.main()
