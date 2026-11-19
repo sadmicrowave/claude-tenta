@@ -71,7 +71,7 @@ def offer_copy(run, stream):
         stream.flush()
     except (OSError, ValueError):
         return []
-    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream), paint("paste it at the prompt", DIM, stream=stream), paint("(CT_COPY=never turns this off)", DIM, stream=stream)]
+    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream), paint("(CT_COPY=never turns this off)", DIM, stream=stream)]
 
 
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
@@ -183,7 +183,7 @@ class collecting_related:
         return related(*self.got["pairs"], force=self.got["force"], **kw)
 
 
-def related(*pairs, title="From here", stream=None, force=False):
+def related(*pairs, title="From here you can", stream=None, force=False):
     """The commands that usually come next after what was just shown, in the one shape every command uses: a bold line saying what it does, the command to copy on
     its own line beneath it. Printed to stderr and only for a person at a terminal, so a pipe, a script or `--json` never sees it (CT_HINTS=never turns it off).
     pairs are (what it does, command); a pair whose command is None is left out, so callers can offer things conditionally."""

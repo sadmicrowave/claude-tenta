@@ -42,7 +42,7 @@ accent = "38;5;99"       # any role, as terminal colour numbers
 
 ## Copying the recommended command
 
-When a card at a terminal ends with a "Run this" command, the first command (the recommended one) is also put on the clipboard with the OSC 52 escape sequence, and the card says so: paste it at the prompt. Nothing is typed or run for the person. Terminals that do not support OSC 52 ignore it. It is skipped when output is piped, captured or plain, and `CT_COPY=never` turns it off. See `ui.offer_copy`.
+When a card at a terminal ends with a "Run this" command, the first command (the recommended one) is also put on the clipboard with the OSC 52 escape sequence, and the card says so. Nothing is typed or run for the person. Terminals that do not support OSC 52 ignore it. It is skipped when output is piped, captured or plain, and `CT_COPY=never` turns it off. See `ui.offer_copy`.
 
 ## The header and light or dark terminals
 

@@ -180,7 +180,7 @@ class TheClipboardIsReallyUsed(unittest.TestCase):
         self.assertEqual(calls, [(["pbcopy"], "ct-admin workers")])
         lines = [theme_strip(x) for x in out.getvalue().splitlines()]
         self.assertIn("copied to your clipboard: ct-admin workers", lines)
-        self.assertIn("paste it at the prompt", lines)
+        self.assertNotIn("paste it at the prompt", lines)
         self.assertIn("(CT_COPY=never turns this off)", lines)
 
     def test_over_ssh_no_program_is_used_and_off_means_off(self):

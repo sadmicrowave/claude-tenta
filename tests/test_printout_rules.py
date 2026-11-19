@@ -123,5 +123,20 @@ class AFleetCommandSaysWhatHappenedOnce(unittest.TestCase):
             self.assertIn(needle, text)
 
 
+class FooterWords(unittest.TestCase):
+    """Standing rules on the command footer: it says 'From here you can' (one definition), and the clipboard note does not tell the person to paste (the line above already says it was copied)."""
+
+    def test_the_footer_title_is_defined_once_and_says_you_can(self):
+        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        hits = [f"{f.relative_to(root)}:{n}" for f in root.rglob("*.py") for n, l in enumerate(f.read_text().splitlines(), 1) if '"From here"' in l and "title=" in l]
+        self.assertEqual(hits, [], "the footer's words live in ui.related only")
+        self.assertIn('title="From here you can"', (root / "ui.py").read_text())
+
+    def test_nothing_tells_the_person_to_paste_it_at_the_prompt(self):
+        root = Path(__file__).resolve().parents[1]
+        bad = [str(f.relative_to(root)) for d in ("src", "docs") for f in (root / d).rglob("*") if f.is_file() and f.suffix in (".py", ".md") and "paste it at the prompt" in f.read_text()]
+        self.assertEqual(bad, [])
+
+
 if __name__ == "__main__":
     unittest.main()

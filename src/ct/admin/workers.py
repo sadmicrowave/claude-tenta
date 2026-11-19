@@ -137,21 +137,24 @@ def cards(rows, width=80, color=True):
         for r in rows:
             out += [f"{r['name'].upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
             facts = [(label, str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-"))) for label, key in ROWS]
+            extra = []                                                    # what is set up here, apart from the measurements above it
             if r.get("packages") is not None and not r["stale"]:
-                facts.append(("INSTALLED", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+                extra.append(("INSTALLED", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
             if r.get("dedicated"):
-                facts.append(("DEDICATED", r["dedicated"]))
-            out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" for label, value in facts]
+                extra.append(("DEDICATED", r["dedicated"]))
+            out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" if label else "" for label, value in facts + ([("", "")] if extra else []) + extra]
             out.append("")
         return out
     from .. import cards as card_mod, ui as ui_mod
     out = []
     for r in rows:
         facts = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
+        extra = []                                                        # what is set up here: a blank line apart from the measurements, and bold
         if r.get("packages") is not None and not r["stale"]:
-            facts.append(("Installed", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+            extra.append(("Installed", card_mod.Styled([(f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}", "strong")])))
         if r.get("dedicated"):
-            facts.append(("Dedicated", r["dedicated"]))
+            extra.append(("Dedicated", card_mod.Styled([(r["dedicated"], "strong")])))
+        facts += (["\n"] if extra else []) + extra
         tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
         out += [""] + card_mod.card(r["name"], facts, tag=tag, color=colour, cols=width)
     return out
