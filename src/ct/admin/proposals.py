@@ -8,7 +8,9 @@ import subprocess
 
 from ..client.repo import ClientError
 
-RESERVED = ("main", "jobs", "data", "HEAD")
+from .. import approvals
+
+RESERVED = ("main", "jobs", "data", "HEAD", approvals.BRANCH)        # the system's own branches: never a change to review (the signed approvals live on one)
 BRANCH_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*$")
 
 

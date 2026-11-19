@@ -1,6 +1,7 @@
 """ct-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
 import argparse
 import io
+from types import SimpleNamespace
 import re
 import json
 import os
@@ -944,6 +945,20 @@ class JobTests(AdminBase):
             self.ssh.calls.clear()
             self.assertEqual(self.admin(*args)[0], 0)
             self.assertEqual(self.ssh.calls, [expect])
+
+
+class SystemBranchesAreNotProposals(unittest.TestCase):
+    """Seen on the real fleet: the branch that holds the signed approvals was listed as '9 to review', and `merge --all` or `tidy` would have treated it as a change."""
+
+    def test_the_approvals_branch_is_reserved_like_main_and_jobs(self):
+        from ct import approvals
+        from ct.admin import proposals
+        self.assertIn(approvals.BRANCH, proposals.RESERVED)
+        p = proposals.Proposals(SimpleNamespace(git=lambda repo, *a, **k: SimpleNamespace(stdout="main jobs approvals feature-x registry/ssh-version\n")))
+        p.repos.queue = "q"
+        self.assertEqual(p.branches(), ["feature-x", "registry/ssh-version"])
+        with self.assertRaises(ClientError):
+            p.check_name("approvals")
 
 
 class ProposalTests(AdminBase):

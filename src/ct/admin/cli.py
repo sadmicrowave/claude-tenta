@@ -1116,7 +1116,7 @@ def cmd_class(ctx, a):
             rows += jobs.tool_check_rows(((state.get("tool_check") or {}).get(name)), tools)
         else:
             rows += [("Tool folders", "none")]
-        change = [] if from_pack else ([f"ct-admin class set {name} --tier approve"] if tier == "auto" else []) + [f"ct-admin class set {name} --network {'off' if network else 'on'}", f"ct-admin class set {name} --tools <folder> [<folder> ...]"]
+        change = [] if from_pack else ([f"ct-admin class set {name} --tier approve"] if tier == "auto" else []) + ([f"ct-admin class set {name} --network off"] if network else []) + [f"ct-admin class set {name} --tools <folder> [<folder> ...]"]      # only changes that tighten, or add tool folders: never a suggestion that loosens, and never one copied first
         emit("What a class may do", *rows, tag="CLASS", color=CYAN, **({"run": change, "run_label": "Change it"} if change else {}))          # the safer change first (a copy of the first command goes to the clipboard); nothing for a pack's class
         return 0
     changes, notes = {}, []
