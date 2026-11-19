@@ -69,6 +69,16 @@ def show(real):
     return f"{alias}  ({real})" if show_real else alias
 
 
+def next_default(real_names):
+    """The next unused 'arm' name for the ct- commands: arm1, arm2, arm3 ... (skipping any that is already an alias or a real name)."""
+    aliases, _ = load()
+    taken = set(aliases.values()) | set(real_names or [])
+    n = 1
+    while f"arm{n}" in taken:
+        n += 1
+    return f"arm{n}"
+
+
 def check(alias, real, real_names):
     """None when `alias` can be given to `real`, otherwise what is wrong, in a sentence."""
     aliases, _ = load()

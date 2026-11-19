@@ -126,5 +126,39 @@ class UseEverywhere(Setup):
             t.t.cleanup()
 
 
+class NewWorkerNames(unittest.TestCase):
+    def tearDown(self):
+        alias.path().unlink(missing_ok=True)
+
+    def test_the_next_default_is_the_first_unused_arm_number(self):
+        self.assertEqual(alias.next_default(["tenta2"]), "arm1")
+        alias.save({"tenta2": "arm1", "tenta3": "arm2"})
+        self.assertEqual(alias.next_default(["tenta4"]), "arm3")
+        self.assertEqual(alias.next_default(["tenta4", "arm3"]), "arm4")                 # a real name that looks like one is taken too
+
+    def offer(self, answer, names=("tenta4", "tenta2")):
+        from ct.setup import addworker
+        said, asked = [], []
+        addworker.offer_alias("tenta4", lambda p: asked.append(p) or answer, lambda *a, **k: said.append((a, k)), list(names))
+        return said, asked
+
+    def test_enter_accepts_the_default_a_name_replaces_it_and_dash_skips(self):
+        said, asked = self.offer("")
+        self.assertEqual(alias.load()[0], {"tenta4": "arm1"})
+        self.assertIn("[arm1;", asked[0])
+        alias.path().unlink()
+        self.offer("lab-vm")
+        self.assertEqual(alias.load()[0], {"tenta4": "lab-vm"})
+        alias.path().unlink()
+        said, _ = self.offer("-")
+        self.assertEqual(alias.load()[0], {})
+        self.assertEqual(said, [])
+
+    def test_a_name_that_cannot_be_used_names_nothing_and_says_how_to_do_it_later(self):
+        said, _ = self.offer("tenta2")                                                     # the real name of another worker
+        self.assertEqual(alias.load()[0], {})
+        self.assertIn("ct-admin workers rename tenta4", str(said))
+
+
 if __name__ == "__main__":
     unittest.main()

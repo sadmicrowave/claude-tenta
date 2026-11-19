@@ -436,7 +436,7 @@ class Interactive(Base):
     def test_scan_pick_check_confirm_then_install_with_the_address_filled_in(self):
         asked = []
         scan = lambda nets, known=(): (self.DEV, [])                                              # noqa: E731
-        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", "", "n"], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", "", "-", "n"], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
         self.assertEqual(rc, 0, self.text())
         self.assertEqual(asked, [("198.51.100.194", "agent")])
         (c,) = self.calls

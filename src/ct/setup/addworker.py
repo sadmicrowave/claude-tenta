@@ -424,10 +424,28 @@ def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, 
         notice("A worker was set up but its first job did not come back", ("Worker", alias.show(name)), "Run ct-admin check and ct-admin status for it.", tag="WARNING", color=YELLOW, stream=sys.stderr)
     workers_mod.add(wfile, name, str(conf))
     if interactive and not again and ask:
+        offer_alias(name, ask, notice, [name, *workers_mod.load_list(wfile)])
         offer_dedication(name, ask, notice)
     notice("The worker is set up again" if again else "A new worker is ready", ("Worker", alias.show(name)), ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
            tag="DONE", color=GREEN, run_label="See all your workers", run=["ct-admin workers", "ct-admin watch"], stream=sys.stderr)
     return 1 if touched else 0
+
+
+def offer_alias(name, ask, notice, names):
+    """A new worker can be given a short name for the ct- commands right away (kept on this computer only): the next arm1, arm2, ... Enter accepts it, a name of your own replaces it, - skips."""
+    default = alias.next_default(names)
+    answer = ask(f"  Name for {name} in the ct- commands (kept on this computer only) [{default}; Enter accepts, - skips]: ").strip()
+    if answer == "-":
+        return
+    chosen = answer or default
+    problem = alias.check(chosen, name, names)
+    if problem:
+        notice("That name cannot be used", ("Name", chosen), problem, "Nothing was named. Later: ct-admin workers rename " + name + " <name>", tag="NOTE", color=_ui.YELLOW, stream=sys.stderr)
+        return
+    aliases, show_real = alias.load()
+    aliases[name] = chosen
+    alias.save(aliases, show_real)
+    notice("The new worker has a name here", ("Worker", alias.show(name)), ("File", str(alias.path())), "Only this computer knows the name; the worker and its hostname are unchanged.", tag="DONE", color=_ui.GREEN, stream=sys.stderr)
 
 
 def offer_dedication(name, ask, notice):
