@@ -119,9 +119,10 @@ def pinned_worker(cfg, cls):
 
 
 def cmd_use(ctx, cfg, a):
-    """Show, set or clear which worker this folder's jobs go to (the .tenta.toml in the folder, or the nearest one above it)."""
-    existing = here.find()
-    pins = here.read(existing) if existing else here.Pins(Path.cwd().resolve() / here.FILE)
+    """Show, set or clear which worker this folder's jobs go to (the .tenta.toml in the folder, or the nearest one above it; --global: the one for this computer, ~/.tenta.toml)."""
+    existing = here.global_path() if a.glob else here.find()
+    pins = here.read(existing) if existing and existing.is_file() else here.Pins(here.global_path() if a.glob else Path.cwd().resolve() / here.FILE)
+    scope = "this computer" if a.glob else "this folder"
     if a.clear and not a.worker:
         if a.command:
             if a.command not in pins.commands:
@@ -129,34 +130,55 @@ def cmd_use(ctx, cfg, a):
                 return 0
             del pins.commands[a.command]
         else:
-            pins.worker, pins.commands = None, {}
+            pins.worker, pins.commands, pins.reserved = None, {}, []
         here.save(pins)
         emit("Cleared", ("File", str(pins.path) if not pins.empty() else f"{pins.path} (removed, nothing left in it)"), tag="DONE", color=GREEN)
         return 0
     if a.worker:
-        names = [e[0] for e in place.entries(cfg)] if cfg is not None else []
-        if names and a.worker not in names:
-            raise ClientError(f"There is no worker called {a.worker!r}", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"])
-        here.check_name("worker", a.worker)
-        if a.command:
-            here.check_name("command", a.command)
-            pins.commands[a.command] = a.worker
-        else:
-            pins.worker = a.worker
-        here.save(pins)
-        emit(f"{a.command + ' jobs' if a.command else 'Jobs from this folder'} go to {a.worker}", *use_rows(pins), tag="PINNED", color=GREEN, run=["ct-run use"], run_label="See it again")
-        return 0
+        return use_set(cfg, a, pins, scope)
     if pins.empty():
-        emit("Nothing is set for this folder", "Jobs are placed by the scheduler, on whichever worker fits best.", tag="NOTE", color=YELLOW,
+        emit(f"Nothing is set for {scope}", "Jobs are placed by the scheduler, on whichever worker fits best.", tag="NOTE", color=YELLOW,
              run=["ct-run use <worker>", "ct-run use <worker> --command <class>"], run_label="Send this folder's jobs to one worker")
         return 0
-    emit("Where this folder's jobs go", *use_rows(pins), tag="PINNED", color=CYAN, run=["ct-run use <worker>", "ct-run use --clear"], run_label="Change it")
+    emit("Where jobs from this computer go" if a.glob else "Where this folder's jobs go", *use_rows(pins), tag="PINNED", color=CYAN, run=["ct-run use <worker>", "ct-run use --clear"], run_label="Change it")
+    return 0
+
+
+def use_set(cfg, a, pins, scope):
+    names = [e[0] for e in place.entries(cfg)] if cfg is not None else []
+    if names and a.worker not in names:
+        raise ClientError(f"There is no worker called {a.worker!r}", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"])
+    here.check_name("worker", a.worker)
+    if a.command:
+        here.check_name("command", a.command)
+        if pins.worker == a.worker and not a.force:                 # it would only repeat what the folder already says
+            emit(f"Not added: {a.command} already goes to {a.worker}", ("File", str(pins.path)),
+                 f"This {'computer' if a.glob else 'folder'} already sends everything to {a.worker}, so naming {a.command} would change nothing today. It would only keep {a.command} on {a.worker} if you later send the rest elsewhere.",
+                 tag="NOTE", color=YELLOW, run=[f"ct-run use {a.worker} --command {a.command} --force"], run_label="Add it anyway")
+            return 0
+        pins.commands[a.command] = a.worker
+    else:
+        differ = {c: w for c, w in sorted(pins.commands.items()) if w != a.worker}
+        override = a.override
+        if differ and not a.override and not a.retain:
+            emit(f"Some commands in {pins.path.name} go to a different worker", *[(c, w) for c, w in differ.items()], f"You are sending the rest of {scope} to {a.worker}.", tag="NOTICE", color=YELLOW)
+            if sys.stdin.isatty():
+                override = input(_ui.confirm_prompt(f"Send them to {a.worker} too? Answer n to keep each on its own worker.")).strip().lower() in ("y", "yes")
+            else:
+                emit("Kept where they are", "Nobody was there to answer; ct-run use --override replaces them.", tag="NOTE", color=YELLOW)
+        if override:
+            pins.commands = {c: w for c, w in pins.commands.items() if c not in differ and w != a.worker}
+        pins.worker = a.worker
+    here.save(pins)
+    emit(f"{'Only ' + a.command if a.command else 'Everything from ' + scope} goes to {a.worker}", *use_rows(pins), *(["A command set to its own worker still goes there: it is more specific than the folder's worker."] if pins.commands and not a.command else []),
+         tag="PINNED", color=GREEN, run=["ct-run use"], run_label="See it again")
     return 0
 
 
 def use_rows(pins):
     rows = [("File", str(pins.path)), ("Every job", pins.worker or "placed by the scheduler")]
     rows += [(f"Only {c}", w) for c, w in sorted(pins.commands.items())]
+    rows += [("Takes only its own commands", ", ".join(sorted(pins.reserved)))] if pins.reserved else []
     return rows
 
 
@@ -171,7 +193,7 @@ def cmd_where(ctx, cfg, a):
         emit("There is only one worker", f"Everything goes to {ctx.product}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
         return 0
     views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
-    ch = place.decide(a.cls, views)
+    ch = place.decide(a.cls, views, here.prefs())
     explain(ch, a.cls)
     return 0 if ch.worker else 1
 
@@ -360,7 +382,12 @@ def cmd_classes(ctx):
     if not info:
         emit(f"{ctx.product} has not published its class list yet", "It does this about a minute after an install. Try again shortly.", tag="ERROR", color=RED)
         return 1
-    view.render_classes(info, pending=[n for n in off.proposed_names(r) if n not in info["classes"]], excluded=len(off.read_exclusions(r).get("excluded", [])), product=ctx.product)
+    goes = {}
+    for n in info["classes"]:
+        w, why = here.pin_for(n)
+        if w:
+            goes[n] = w + (" (every folder)" if str(here.global_path()) in why else " (this folder)")
+    view.render_classes(info, pending=[n for n in off.proposed_names(r) if n not in info["classes"]], excluded=len(off.read_exclusions(r).get("excluded", [])), product=ctx.product, goes=goes)
     _ui.related(("Run one", "ct-run submit <class>"),
                 ("Add a class from a command you have tested", f"{ctx.admin} adopt <profile-job>"),
                 ("Add a command that must run as root", f"{ctx.admin} action add <definition file or pack folder>"),
@@ -677,6 +704,10 @@ def build_parser():
     us.add_argument("worker", nargs="?", metavar="worker", help="the worker this folder's jobs go to (names: ct-admin workers); without it, show what is set")
     us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the scheduler")
     us.add_argument("--clear", action="store_true", help="remove the setting (with --command: just that one)")
+    us.add_argument("--global", dest="glob", action="store_true", help="set it for this whole computer (~/.tenta.toml) instead of this folder")
+    us.add_argument("--force", action="store_true", help="with --command: add it even when the folder's worker already covers it")
+    us.add_argument("--override", action="store_true", help="with a worker: also send the commands that were set to other workers to this one")
+    us.add_argument("--retain", action="store_true", help="with a worker: keep the commands that were set to other workers where they are")
     r = sp.add_parser("result", add_help=False)
     r.add_argument("id", help="the job id")
     r.add_argument("--wait", action="store_true", help="keep checking until it finishes")

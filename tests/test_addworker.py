@@ -436,7 +436,7 @@ class Interactive(Base):
     def test_scan_pick_check_confirm_then_install_with_the_address_filled_in(self):
         asked = []
         scan = lambda nets, known=(): (self.DEV, [])                                              # noqa: E731
-        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", ""], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", "", "n"], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
         self.assertEqual(rc, 0, self.text())
         self.assertEqual(asked, [("198.51.100.194", "agent")])
         (c,) = self.calls
@@ -504,6 +504,31 @@ class TheRealInstaller(unittest.TestCase):
         for rc in (".zshrc", ".bashrc", ".profile"):
             self.assertFalse(m.exists(f"{home}/{rc}"), rc)                                              # no shell startup file was touched
         self.assertIn("tenta2", str(inst.state_file), "its progress is kept in its own folder")
+
+
+class OfferDedication(unittest.TestCase):
+    """Right after a worker is added the person is asked whether it is for particular commands; no is the default and writes nothing."""
+
+    def run_offer(self, answers):
+        from ct.client import here
+        here.global_path().unlink(missing_ok=True)
+        it, said = iter(answers), []
+        addworker.offer_dedication("pentest", lambda p: next(it), lambda *a, **k: said.append((a, k)))
+        return here.global_pins(), said
+
+    def test_no_writes_nothing(self):
+        pins, _ = self.run_offer([""])
+        self.assertTrue(pins.empty())
+
+    def test_commands_and_only_are_written_to_the_computers_file(self):
+        pins, said = self.run_offer(["y", "nmap, sqlmap", "y"])
+        self.assertEqual((pins.commands, pins.reserved), ({"nmap": "pentest", "sqlmap": "pentest"}, ["pentest"]))
+        self.assertIn("ct-admin workers use", str(said))
+
+    def test_no_command_named_says_how_to_do_it_later(self):
+        pins, said = self.run_offer(["y", " "])
+        self.assertTrue(pins.empty())
+        self.assertIn("ct-admin workers use pentest --command", str(said))
 
 
 if __name__ == "__main__":

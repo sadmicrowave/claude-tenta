@@ -532,6 +532,39 @@ def release_card(ctx, stream=None):
     return True
 
 
+def workers_use(ctx, a):
+    """`ct-admin workers use WORKER --command CLASS`: dedicate a command to a worker for every folder on this computer (it is written to ~/.tenta.toml; ct-run use does the same for one folder)."""
+    import argparse as ap
+    here = client_cli.here
+    pins = here.global_pins()
+    if a.clear:
+        if a.command:
+            if pins.commands.pop(a.command, None) is None:
+                emit(f"{a.command} was not dedicated to a worker", ("File", str(pins.path)), tag="NOTE", color=YELLOW)
+                return 0
+        elif a.name:
+            pins.commands = {c: w for c, w in pins.commands.items() if w != a.name}
+            pins.reserved = [w for w in pins.reserved if w != a.name]
+            pins.worker = None if pins.worker == a.name else pins.worker
+        else:
+            pins.worker, pins.commands, pins.reserved = None, {}, []
+        here.save(pins)
+        emit("Released" if a.name else "Cleared", ("File", str(pins.path) if not pins.empty() else f"{pins.path} (removed, nothing left in it)"), tag="DONE", color=GREEN, run="ct-admin workers use", run_label="See what is left")
+        return 0
+    if not a.name:
+        return client_cli.cmd_use(ctx, ctx.cfg, ap.Namespace(worker=None, command=None, clear=False, glob=True, force=False, override=False, retain=False))
+    if a.only and not a.command and not any(w == a.name for w in pins.commands.values()):
+        raise ClientError("Say which command is dedicated to it", "A worker that takes only its own commands needs at least one.", [f"ct-admin workers use {a.name} --command <class> --only"])
+    rc = client_cli.cmd_use(ctx, ctx.cfg, ap.Namespace(worker=a.name, command=a.command, clear=False, glob=True, force=a.force, override=False, retain=True))
+    if a.only and rc == 0:
+        pins = here.global_pins()
+        if a.name not in pins.reserved:
+            pins.reserved.append(a.name)
+            here.save(pins)
+        emit(f"{a.name} takes only its own commands", ("File", str(pins.path)), "Other jobs go to the other workers.", tag="PINNED", color=GREEN)
+    return rc
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -550,6 +583,8 @@ def cmd_workers(ctx, a):
             raise ClientError(f"There is no worker called {a.name!r} in the list", "The worker in your main configuration is always listed and is not removed here.", example="ct-admin workers")
         emit(f"Removed {a.name}", "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
         return 0
+    if action == "use":
+        return workers_use(ctx, a)
     rows, problems = [], []
     for name, repos in ctx.fleet():
         try:
@@ -559,6 +594,9 @@ def cmd_workers(ctx, a):
             problems.append(f"{name}: could not refresh ({str(e).strip()[:80]})")
         rows.append((name, workers.read_state(repos.results)))
     cells = [workers.row_for(n, d) for n, d in rows]
+    mine = client_cli.here.global_pins()
+    for c in cells:
+        c["dedicated"] = workers.dedicated_text(mine, c["name"])
     if a.claude:
         cells = [c for c in cells if c["has_claude"] and not c["locked"]]
     if a.json:
@@ -576,7 +614,7 @@ def cmd_workers(ctx, a):
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
     _ui.related(("Only workers whose Claude access works", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add <name> --config <file>"),
-                ("Stop listing a worker", "ct-admin workers remove <name>"), ("Look at one worker's health", "ct-admin status"))
+                ("Stop listing a worker", "ct-admin workers remove <name>"), ("Dedicate a command to a worker", "ct-admin workers use <name> --command <class>"), ("Look at one worker's health", "ct-admin status"))
     return 0
 
 
@@ -1174,9 +1212,13 @@ def build_parser():
     s.add_argument("--check", action="store_true", help="only say whether a newer release exists; change nothing")
     yes(s)
     s = sp.add_parser("workers", add_help=False)
-    s.add_argument("action", nargs="?", choices=["list", "add", "remove"], help="list (default): compare the workers; add or remove one")
+    s.add_argument("action", nargs="?", choices=["list", "add", "remove", "use"], help="list (default): compare the workers; add or remove one; use: dedicate a command to a worker")
     s.add_argument("name", nargs="?", help="with add or remove: the worker's name")
     s.add_argument("--config", help="with add: the worker's configuration file")
+    s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")
+    s.add_argument("--only", action="store_true", help="with use: that worker takes nothing except the commands dedicated to it")
+    s.add_argument("--clear", action="store_true", help="with use: undo it (a worker: release it; with --command: just that command; neither: everything in ~/.tenta.toml)")
+    s.add_argument("--force", action="store_true", help="with use: add the command even if the computer's worker already covers it")
     s.add_argument("--claude", action="store_true", help="only workers whose Claude access works and that are not locked")
     s.add_argument("--json", action="store_true", help="print the comparison as JSON")
     s.add_argument("--no-refresh", action="store_true", help="use what was last downloaded; do not pull first")

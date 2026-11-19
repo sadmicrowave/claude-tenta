@@ -68,6 +68,25 @@ class Setup(unittest.TestCase):
         return r, main, made
 
 
+class Dedicated(Setup):
+    """The computer's ~/.tenta.toml reaches the scheduler: a worker reserved for its commands gets nothing else, and its command goes only there."""
+
+    def tearDown(self):
+        from ct.client import here
+        here.global_path().unlink(missing_ok=True)
+
+    def test_a_reserved_worker_takes_only_its_command_and_that_command_goes_only_there(self):
+        from ct.client import here
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, classes=("sys-status", "nmap"))
+        self.add("vmx", classes=("sys-status", "nmap"), running=4)             # the dedicated one is the busiest: it still gets nmap, and nothing else
+        here.save(here.Pins(here.global_path(), commands={"nmap": "vmx"}, reserved=["vmx"]))
+        (_, ch), _, _ = self.route(cls="sys-status")
+        self.assertNotEqual(ch.worker, "vmx")
+        self.assertIn("reserved for nmap", dict((n, r) for n, _, r in ch.lines)["vmx"])
+        self.assertEqual(here.pin_for("nmap")[0], "vmx")                       # sending nmap is forced there (cli.route_submit), however busy the others are
+
+
 class Routing(Setup):
     def test_with_one_worker_nothing_is_read_and_the_given_context_is_used(self):
         main = Ctx("mini", self.tmp)

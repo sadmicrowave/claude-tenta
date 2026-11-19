@@ -253,14 +253,14 @@ def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=No
     ui.say("What the status words mean", *[(word, meaning) for word, meaning in STATUS_MEANING], "See one job in full:  ct-run result <job>", tag="LEGEND", color=ui.PRIMARY, stream=out)
 
 
-def render_classes(info, pending=(), excluded=0, out=None, product="the worker"):
+def render_classes(info, pending=(), excluded=0, out=None, product="the worker", goes=None):
     out = out or sys.stdout
     rows = []
     for name, c in sorted(info["classes"].items()):
         what = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
-        rows.append([(name, "ok"), c["cost"], c["tier"], what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")])
-    ui.table(f"What {product} can run for you today", ["class", "cost", "tier", "runs"], rows, tag="CLASSES", stream=out,
-             notes=(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {plural(info['capacity'], 'capacity point')}.",
+        rows.append([(name, "ok"), c["cost"], c["tier"], *([(goes or {}).get(name, "any")] if goes else []), what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")])
+    ui.table(f"What {product} can run for you today", ["class", "cost", "tier", *(["goes to"] if goes else []), "runs"], rows, tag="CLASSES", stream=out,
+             notes=(*(["GOES TO is the worker a command is set to (ct-run use, ct-admin workers use); the others go to whichever worker fits best."] if goes else []), f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {plural(info['capacity'], 'capacity point')}.",
                     f"COST is how heavy it is on {product}. TIER: auto runs as soon as you submit it; approve waits for your OK first.",
                     *([f"Proposed, NOT installed yet (apply them): {', '.join(sorted(pending))}"] if pending else []), *([f"Excluded after profiling: {excluded}"] if excluded else [])))
 

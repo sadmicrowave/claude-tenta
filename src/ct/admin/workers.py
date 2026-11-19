@@ -139,6 +139,8 @@ def cards(rows, width=80, color=True):
             facts = [(label, str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-"))) for label, key in ROWS]
             if r.get("packages") is not None and not r["stale"]:
                 facts.append(("INSTALLED", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+            if r.get("dedicated"):
+                facts.append(("DEDICATED", r["dedicated"]))
             out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" for label, value in facts]
             out.append("")
         return out
@@ -148,6 +150,16 @@ def cards(rows, width=80, color=True):
         facts = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
         if r.get("packages") is not None and not r["stale"]:
             facts.append(("Installed", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
+        if r.get("dedicated"):
+            facts.append(("Dedicated", r["dedicated"]))
         tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
         out += [""] + card_mod.card(r["name"], facts, tag=tag, color=colour, cols=width)
     return out
+
+
+def dedicated_text(pins, name):
+    """What the computer's ~/.tenta.toml dedicates to this worker, in words ('nmap, sqlmap (takes only these)'), or '' when nothing."""
+    cmds = sorted(c for c, w in pins.commands.items() if w == name)
+    if not cmds and name not in pins.reserved:
+        return ""
+    return ", ".join(cmds) + (" (takes only these)" if name in pins.reserved else "") if cmds else "takes only its own commands (none set yet)"

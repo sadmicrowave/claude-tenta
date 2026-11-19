@@ -391,10 +391,10 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if taken(name):
         raise SetupError("That worker name cannot be used", taken(name), [f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"])
     conf, home = paths_for(cfg, name)
-    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user)
+    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, ask=ask, interactive=interactive)
 
 
-def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None):
+def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None, ask=None, interactive=False):
     """Run the installer for ONE worker with its own configuration and folder, prove nothing of the others changed, and register it. `again`: the worker already exists and is being set up again
     (its own files are of course allowed to change; everything else is not)."""
     before = fingerprint(protected_files(cfg, wfile, leave=name if again else None))
@@ -421,9 +421,31 @@ def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, 
     if any(r[1] == "failed" for r in report):
         notice(f"{name} was set up but its first job did not come back", "Run ct-admin check and ct-admin status for it.", tag="WARNING", color=YELLOW, stream=sys.stderr)
     workers_mod.add(wfile, name, str(conf))
+    if interactive and not again and ask:
+        offer_dedication(name, ask, notice)
     notice(f"{name} is set up again" if again else f"{name} is now a worker", ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
            tag="DONE", color=GREEN, run_label="See all your workers", run=["ct-admin workers", "ct-admin watch"], stream=sys.stderr)
     return 1 if touched else 0
+
+
+def offer_dedication(name, ask, notice):
+    """Right after a new worker exists is when the person knows what it is for: offer to dedicate commands to it (the same setting `ct-admin workers use` writes to ~/.tenta.toml). Default no."""
+    from ..client import here
+    if ask(_ui.confirm_prompt(f"Is {name} for particular commands, so they always go to it?")).strip().lower() not in ("y", "yes"):
+        return
+    raw = ask("  Which commands (job class names, separated by spaces or commas)? ").replace(",", " ").split()
+    names = [c for c in raw if here.NAME.match(c)]
+    if not names:
+        notice("No commands were named", f"Nothing was dedicated. Later: ct-admin workers use {name} --command <class>", tag="NOTE", color=_ui.YELLOW, stream=sys.stderr)
+        return
+    only = ask(_ui.confirm_prompt(f"Should {name} take only those, and no other work?")).strip().lower() in ("y", "yes")
+    pins = here.global_pins()
+    pins.commands.update({c: name for c in names})
+    if only and name not in pins.reserved:
+        pins.reserved.append(name)
+    here.save(pins)
+    notice(f"{', '.join(names)} always go{'es' if len(names) == 1 else ''} to {name}", ("File", str(pins.path)), *([("It takes", "only those")] if only else []), tag="PINNED", color=_ui.GREEN,
+           run_label="See or change it", run=["ct-admin workers use"], stream=sys.stderr)
 
 
 class _nullcontext:

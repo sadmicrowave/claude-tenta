@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import config, sched, transport
+from . import here
 from .repo import ClientError, ClientRepos
 
 
@@ -229,7 +230,7 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
         views = gather_shared(ents, repos_of, fetch, home=ctx.home)
-        ch = decide(cls, views, prefs)
+        ch = decide(cls, views, prefs or here.prefs())
         if ch.worker is None:
             raise ClientError(f"No worker can take a {cls} job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."])
         token = reserve(ctx.home, ch.worker, cls)
