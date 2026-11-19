@@ -34,6 +34,7 @@ PROFILES = {
     "old-laptop": {"capacity": 2, "max_load": 1.5, "max_temp_c": 70},
     "small-server": {"capacity": 4, "max_load": 3.0, "max_temp_c": 75},
     "workstation": {"capacity": 8, "max_load": 8.0, "max_temp_c": 80},
+    "virtual-machine": {"capacity": 4, "max_load": 4.0, "max_temp_c": 90},      # a machine of its own made for one project's tasks: nobody else uses it, and a virtual machine reports no temperature
     "custom": {"capacity": 4, "max_load": 3.0, "max_temp_c": 75},
 }
 

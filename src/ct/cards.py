@@ -158,7 +158,7 @@ def _plain(piece):
             ok = False
         if ok:
             e = _command_end(piece, b)
-            led_in = any(lead.endswith(w) for w in CONTEXT) or lead.endswith(("`", "("))              # a lone command word is a command only when a word like 'run' leads into it ('sudo is not installed' is a sentence)
+            led_in = any(lead.endswith(w) for w in ("run", "try", "type", "enter", "paste", "$", "then")) or lead.endswith(("`", "("))              # a lone command word is a command only when a word like 'run' leads into it ('sudo is not installed' is a sentence)
             if e > b + len(word) or (word in SURE and led_in):
                 out.append((b, e))
                 i = e

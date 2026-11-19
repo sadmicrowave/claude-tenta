@@ -54,7 +54,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `profile` | `small-server` | `old-laptop` , `small-server` , `workstation` , `custom` | picks sensible limits for the machine; the values below override it |
+| `profile` | `small-server` | `old-laptop` , `small-server` , `workstation` , `virtual-machine` , `custom` | picks sensible limits for the machine; the values below override it |
 | `capacity` | *(not set)* | int | capacity points the running jobs may add up to (a heavy job takes 4) |
 | `max_load` | *(not set)* | float | do not start a job above this 1-minute load average |
 | `max_temp_c` | *(not set)* | int | do not start a job when the hottest core is above this |

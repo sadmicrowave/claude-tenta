@@ -47,7 +47,7 @@ class TheDetector(unittest.TestCase):
 
     def test_ordinary_sentences_are_left_alone(self):
         for text in ("The sudo group needs the account. sudo is not installed.", "It may find your files, and it does not cat anything.", "Install sudo and reboot the machine when asked.",
-                     "sudo is not installed", "Why not: sudo is not installed", "Note: git is needed.", "Nothing was changed on that computer.", "Claude can read the files you attach."):
+                     "agent may use sudo (the install will ask for its password there)", "sudo is not installed", "Why not: sudo is not installed", "Note: git is needed.", "Nothing was changed on that computer.", "Claude can read the files you attach."):
             self.assertEqual(cards.code_spans(text), text)
 
     def test_it_is_idempotent_and_leaves_written_backticks_alone(self):

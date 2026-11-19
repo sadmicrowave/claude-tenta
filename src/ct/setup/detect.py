@@ -9,7 +9,7 @@ class Facts:
     def __init__(self, **kw):
         self.os_id = self.os_version = self.sudo = ""
         self.ram_mb = self.cores = 0
-        self.systemd = self.laptop = False
+        self.systemd = self.laptop = self.virtual = False
         self.claude_native = True
         self.thermal = "none"
         self.__dict__.update(kw)
@@ -32,7 +32,9 @@ class Facts:
     def suggestions(self):
         """{'section.key': value} to use as defaults in the questions."""
         s = {}
-        if self.laptop or (0 < self.ram_mb < 4096):
+        if self.virtual:                                                      # a virtual machine is its own kind of machine, whatever its size
+            s["hardware.profile"] = "virtual-machine"
+        elif self.laptop or (0 < self.ram_mb < 4096):
             s["hardware.profile"] = "old-laptop"
         elif self.ram_mb >= 16384 and self.cores >= 8:
             s["hardware.profile"] = "workstation"
@@ -60,7 +62,11 @@ def detect(host):
     f.claude_native = flags is None or "sse4_2" in flags.group(1).split()
     f.systemd = host.exists("/run/systemd/system")
     f.laptop = host.exists("/sys/class/power_supply/BAT0") or host.exists("/sys/class/power_supply/BAT1")
+    vm = host.run(["systemd-detect-virt", "--vm"])
+    f.virtual = vm.ok and vm.out.strip() not in ("", "none")
     out = host.run(["sudo", "--version"]).out.lower()
     f.sudo = "sudo-rs" if "sudo-rs" in out else "sudo" if "sudo" in out else ""
     f.thermal = "apple-smc" if host.exists("/sys/devices/platform/applesmc.768") else "lm-sensors" if host.exists("/sys/class/hwmon/hwmon0") else "none"
+    if f.virtual:
+        f.thermal = "none"                                                    # a virtual machine's sensors, if it shows any, are not its processor's: heat is the host's business
     return f

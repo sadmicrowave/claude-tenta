@@ -118,10 +118,11 @@ class Scrollback(unittest.TestCase):
 class Progress(unittest.TestCase):
     def test_the_bar_fills_with_the_position(self):
         p, _ = prompter()
-        self.assertNotIn("━", tui.strip(p.progress(0, 4)))
-        self.assertEqual(tui.strip(p.progress(2, 4)).count("━") + tui.strip(p.progress(2, 4)).count("╸"), 12)
+        self.assertEqual(tui.strip(p.progress(2, 4)).count("━") + tui.strip(p.progress(2, 4)).count("╸"), 18)          # the question being asked is the third: three quarters
         self.assertEqual(tui.strip(p.progress(4, 4)).count("─"), 0)
-        self.assertIn("2 of 4 done", p.progress(2, 4))
+        self.assertIn("3 of 4", p.progress(2, 4))                  # the same number as the chip beside the question's label (pos + 1) ...
+        self.assertNotIn("done", p.progress(2, 4))                 # ... and nothing is "done" while a question is still being asked
+        self.assertIn("4 of 4 done", p.progress(4, 4))             # done is said once everything has been answered
 
     def test_the_progress_line_is_as_wide_as_the_screen(self):
         p, _ = prompter(width=76)
@@ -663,15 +664,20 @@ class WrappedLines(unittest.TestCase):
             p.ask(self.Q, "", [], problem=problem, shown=shown, view=self.VIEW)
         return p, out
 
+    @staticmethod
+    def bars(out):
+        """How many progress lines are on the screen (the question's own chip says '6 of 7' too, so count the lines that hold the bar)."""
+        return sum(1 for ln in out.screen.text().splitlines() if "6 of 7" in ln and ("━" in ln or "╸" in ln))
+
     def test_pressing_enter_on_an_error_again_and_again_leaves_exactly_one_progress_bar(self):
         for times in (1, 2, 3, 6):
             p, out = self.ask_again(times)
-            self.assertEqual(out.screen.text().count("5 of 7 done"), 1, f"{times} presses:\n" + out.screen.text())
+            self.assertEqual(self.bars(out), 1, f"{times} presses:\n" + out.screen.text())
 
     def test_the_same_holds_at_any_terminal_width(self):
         for cols in (61, 80, 100, 130):
             p, out = self.ask_again(4, cols=cols)
-            self.assertEqual(out.screen.text().count("5 of 7 done"), 1, cols)
+            self.assertEqual(self.bars(out), 1, cols)
             self.assertEqual(out.screen.text().count("What is the alert address?"), 1, cols)
 
     def test_a_line_longer_than_the_terminal_counts_as_the_rows_it_takes(self):

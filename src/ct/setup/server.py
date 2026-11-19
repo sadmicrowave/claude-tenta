@@ -198,10 +198,10 @@ class ServerSetup:
             self.run(["install", "-d", "-m", mode, "-o", owner, "-g", group, path], step="create folders")
         secrets = cfg.path("secrets")
         if not self.host.exists(secrets):
-            self.say(f"    (create {secrets}, empty, owner root, group {w}, mode 640)")
             if not self.dry_run:
                 self.host.write(secrets, "# Secrets only (API keys, alert tokens). Never put these in ct.toml.\n", 0o640)
                 self.host.run(["chown", f"root:{w}", secrets])
+            self.note("secrets file", "planned" if self.dry_run else "created", f"{secrets} (empty; owner root, group {w}, mode 640)")
         self.store_alert_address(secrets)
         self.note("folders", "ok")
 
@@ -247,15 +247,15 @@ class ServerSetup:
         rev = self.rev or self.host.run(["git", "-C", str(self.source), "rev-parse", "HEAD"]).out.strip()
         if not update.REV_RE.match(rev):
             raise SetupError("Cannot tell which release this is", f"{self.source} is not a git checkout; pass --rev <commit> if you know it.")
-        self.say(f"    install release {rev[:9]} from {self.source} into {cfg.paths.code}")
+        where = f"release {rev[:9]} into {cfg.paths.code}"
         if self.dry_run:
             files = update.desired_files(self.source, cfg)
-            self.note("code, units and wrappers", "planned", f"{len(files)} files")
+            self.note("code, units and wrappers", "planned", f"{len(files)} files, {where}")
             return
         report = self.install(self.source, cfg, rev, prefix=str(self.host.root), sandbox=self.sandbox, systemctl=self.systemctl, sysctl=self.sysctl, out=self.say)
         if not report.ok:
             raise SetupError("The install was refused", "; ".join(report.errors))
-        self.note("code, units and wrappers", "installed", f"{len(report.updated)} files")
+        self.note("code, units and wrappers", "installed", f"{len(report.updated)} files, {where}")
 
     def mailbox(self):
         """Direct transport: the mailbox account, the worker's two bare repositories, and the one key that may use them. Nothing here reaches GitHub or any other machine."""

@@ -9,7 +9,7 @@ from unittest import mock
 from pathlib import Path
 
 from support import RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
-from test_setup import OS_RELEASE, FakeHost  # noqa: E402
+from test_setup import OS_RELEASE, FakeHost, cfg_of  # noqa: E402
 
 from ct import config
 from ct.admin.ssh import Ssh
@@ -293,12 +293,19 @@ class FirstJobRetries(unittest.TestCase):
             client_cli.LAST_RESULT.update(last)
             return rc
         saved = (client_cli.main, admin_cli.main)
-        client_cli.main, admin_cli.main = fake_main, lambda argv: 0
+        admin_calls = self.admin_calls = []
+        client_cli.main, admin_cli.main = fake_main, lambda argv: admin_calls.append(argv) or 0
         try:
-            ok = install.default_verify(None, say=said.append, sleep=lambda s: None, attempts=8)
+            ok = install.default_verify(cfg_of(), say=said.append, sleep=lambda s: None, attempts=8)
         finally:
             client_cli.main, admin_cli.main = saved
         return ok, len(calls), said
+
+    def test_the_final_check_is_about_this_worker_only_not_every_worker_you_have(self):
+        """Seen on a real install of a third worker: the check that closes the install also went and checked the other two."""
+        ok, tries, said = self.run_verify([(0, {})])
+        self.assertTrue(ok)
+        self.assertEqual(self.admin_calls, [["check", "--worker", cfg_of().identity.name]])
 
     def test_a_worker_that_is_locked_is_not_retried(self):
         ok, tries, said = self.run_verify([(3, {"locked": True})] * 8)

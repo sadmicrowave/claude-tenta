@@ -593,4 +593,4 @@ def default_verify(cfg, say=None, sleep=time.sleep, attempts=8, wait_s=15):
             return False
         say(f"  (the worker is still starting; trying again, {i + 1} of {attempts})")
         sleep(wait_s)
-    return ok and admin_cli.main(["check"]) == 0
+    return ok and admin_cli.main(["check", "--worker", cfg.identity.name]) == 0       # this worker only: the install of one computer does not go and check the others

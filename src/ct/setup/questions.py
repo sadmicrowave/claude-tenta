@@ -96,6 +96,8 @@ CHOICES = {
     "hardware.profile": [("old-laptop", "An older or low-power computer: a laptop from around 2015 or earlier, a Raspberry Pi, or anything with 2 or 4 processor cores and 4 GB of memory or less. It takes on one or two jobs at a time and eases off early so it stays cool."),
                          ("small-server", "A mini PC, a small home server or a recent laptop: roughly 2018 to today, a 4 to 8 core processor (an Intel Core i3 or i5, a Ryzen 3 or 5, an Apple M1 Mac mini) and 8 to 16 GB of memory. A good middle choice."),
                          ("workstation", "A desktop or workstation from about 2018 or newer, built for heavy work: a 6 or more core processor (a Core i7 or i9, a Ryzen 7 or 9, a Xeon) and 16 GB of memory or more, with proper cooling. It takes on several jobs at once."),
+                         ("virtual-machine", "A virtual machine of its own, made to offload one project's tests and builds: today's project gets one environment, tomorrow's gets another, each on its own machine so nothing is shared between them. "
+                                             "It is yours alone, so it may run busier than a computer someone also uses, and it reports no temperature, so heat is left to the machine it runs on."),
                          ("custom", "Not sure, or none of these fit. Starts like small-server; you then set the exact limits yourself in ct.toml.")],
     "network.ipv6": [("enabled", "Keep IPv6. The firewall blocks the private (unique-local) range so jobs cannot reach your devices that way."),
                      ("disabled", "Turn IPv6 off on the server. Less to attack and nothing extra to firewall. Choose this if nothing needs IPv6 to reach it.")],

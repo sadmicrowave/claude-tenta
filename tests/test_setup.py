@@ -58,6 +58,37 @@ def cfg_of(**over):
     return config.Config(clean)
 
 
+class VirtualMachineProfile(unittest.TestCase):
+    """A virtual machine of its own, made to offload one project's tests and builds (today project A, tomorrow project B on another machine)."""
+
+    def test_it_is_the_fourth_choice_and_custom_moves_to_the_fifth(self):
+        names = [v for v, _ in questions.CHOICES["hardware.profile"]]
+        self.assertEqual(names, ["old-laptop", "small-server", "workstation", "virtual-machine", "custom"])
+
+    def test_it_is_a_valid_profile_with_its_own_limits(self):
+        self.assertIn("virtual-machine", config.PROFILES)
+        nested, problems = config.validate({"server": {"admin_user": "me", "host": "h.example"}, "github": {"owner": "someone"}, "hardware": {"profile": "virtual-machine"}})
+        self.assertEqual(problems, [])
+        self.assertEqual(config.Config(nested).hardware.profile, "virtual-machine")
+
+    def test_a_virtual_machine_is_suggested_for_a_virtual_machine_whatever_its_size_and_reports_no_heat(self):
+        for ram in (2048, 8000, 32000):
+            self.assertEqual(detect.Facts(ram_mb=ram, cores=2, virtual=True).suggestions()["hardware.profile"], "virtual-machine")
+        h = FakeHost()
+        h.replies["systemd-detect-virt --vm"] = Result(0, "vmware\n")
+        h.put("/sys/class/hwmon/hwmon0/name", "acpitz")                          # a virtual machine can show a sensor that is not its processor's
+        f = detect.detect(h)
+        self.assertTrue(f.virtual)
+        self.assertEqual(f.thermal, "none")
+        self.assertEqual(f.suggestions()["hardware.profile"], "virtual-machine")
+
+    def test_real_hardware_and_containers_are_not_called_a_virtual_machine(self):
+        h = FakeHost()
+        h.replies["systemd-detect-virt --vm"] = Result(1, "none\n")
+        self.assertFalse(detect.detect(h).virtual)
+        self.assertFalse(detect.detect(FakeHost()).virtual)                      # nothing said: not assumed
+
+
 class QuestionTests(unittest.TestCase):
     def test_defaults_alone_do_not_answer_required_questions(self):
         nested, missing = questions.collect("server", use_defaults=True)

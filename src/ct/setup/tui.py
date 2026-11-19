@@ -345,10 +345,11 @@ class TuiPrompter:
 
     # ---- the progress bar and the answered questions ----
     def progress(self, pos, total):
-        n = round(BAR * pos / total) if total else 0
+        shown = total if pos >= total else pos + 1                          # the question being asked, the same number as the chip beside its label; "done" only at the end
+        n = round(BAR * shown / total) if total else 0
         bar = (self.sgr("━" * (n - 1) + "╸", BLUE) if n else "") + self.sgr("─" * (BAR - n), DIM)
         left = " " + self.sgr(BRAND, BLUE, BOLD) + self.sgr("  " + self.title, DIM)
-        right = bar + self.sgr(f"  {min(pos, total)} of {total} done", DIM)
+        right = bar + self.sgr(f"  {shown} of {total}" + (" done" if pos >= total else ""), DIM)
         return left + " " * max(2, self.width - vlen(left) - vlen(right)) + right
 
     def answered_lines(self, items, everything=False, limit=None):
