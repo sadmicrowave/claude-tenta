@@ -1313,6 +1313,28 @@ class FleetWideCommands(AdminBase):
         self.assertIn("first", out + err)
         self.assertIn("second", out + err)
 
+    def test_the_next_steps_footer_is_said_once_after_the_last_worker_not_under_every_card(self):
+        """Seen on `ct-admin status` with three workers: 'From here' and its three commands under every card."""
+        from ct import ui as _ui
+
+        def inner(c, args):
+            print(f"card for {c.name}")
+            _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), force=True)
+            return 0
+        (code, out, err), calls, seen = self.run_diff(inner=inner)
+        text = out + err
+        self.assertEqual(code, 0)
+        self.assertEqual(text.count("From here"), 1, text)
+        self.assertEqual(text.count("ct-admin review"), 1, text)
+        self.assertEqual(text.count("card for"), 2)                                     # the content is still repeated for every worker
+        self.assertGreater(text.index("From here"), text.rindex("card for"))              # and the footer comes after the last of them
+
+    def test_a_single_worker_still_gets_its_footer_straight_after_its_card(self):
+        from ct import ui as _ui
+        a, b = self.two()
+        (code, out, err), calls, seen = self.run_diff(targets=[("first", a)], inner=lambda c, args: _ui.related(("Jobs waiting for you", "ct-admin review"), force=True) and 0)
+        self.assertEqual((out + err).count("From here"), 1)
+
     def test_worker_narrows_it_to_the_one_named(self):
         a, b = self.two()
         (code, out, err), calls, seen = self.run_diff("--worker", "second", targets=[("second", b)])

@@ -284,6 +284,22 @@ class Status(CliBase):
                        "Heat", "40 C", "NOT LOCKED"):
             self.assertIn(needle, out)
 
+    def test_the_time_is_always_utc_so_workers_in_different_zones_read_alike(self):
+        code, out = self.run_cli("status")
+        self.assertRegex(out, r"testct, \w{3} \d{4}-\d\d-\d\d \d\d:\d\d UTC")
+
+    def test_a_virtual_machine_without_a_temperature_sensor_is_not_an_attention_item(self):
+        """Seen on two real VMs: the card said ATTENTION for a heat sensor a virtual machine cannot have."""
+        self.w.sensors.temp = lambda: None
+        with mock.patch.object(cli, "is_virtual_machine", return_value=True):
+            code, out = self.run_cli("status")
+        self.assertIn("n/a", out)
+        self.assertNotRegex(out, r"(?i)needs attention[^\n]*Heat")                  # (this test machine has other open items; heat is not one of them)
+        with mock.patch.object(cli, "is_virtual_machine", return_value=False):
+            code, out = self.run_cli("status")
+        self.assertIn("unreadable", out)
+        self.assertRegex(out, r"(?i)needs attention[^\n]*Heat")                  # a card that says ATTENTION says which rows
+
     def test_it_shows_work_in_progress_and_what_waits_for_you(self):
         self.job("job-0001")
         self.job("job-0002", "careful")

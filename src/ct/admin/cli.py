@@ -114,7 +114,7 @@ def fail_from(e):
 # ---- worker ----
 def cmd_status(ctx, a):
     rc = ctx.remote("status", "--hours", str(a.hours))
-    _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), ("See what the worker can run", "ct-run classes"))
+    _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), ("See what a worker can run", "ct-run classes"))
     return rc
 
 
@@ -1158,16 +1158,18 @@ def run_command(ctx, a):
         if len(targets) == 1:
             return DISPATCH[a.cmd](targets[0][1], a)
         rc = 0
-        for name, c in targets:
-            emit(f"{a.cmd}: {name}", tag="WORKER", color=_ui.PRIMARY, stream=sys.stdout)
-            try:
-                r = DISPATCH[a.cmd](c, a)
-            except ClientError as e:
-                fail_from(e)
-                r = 2
-            except SystemExit as e:                                   # a declined question or a stop() on one worker: carry on with the next
-                r = e.code if isinstance(e.code, int) else 1
-            rc = max(rc, r or 0)
+        with _ui.collecting_related() as footer:                      # what to do next is the same for every worker: said once, after the last one
+            for name, c in targets:
+                emit(f"{a.cmd}: {name}", tag="WORKER", color=_ui.PRIMARY, stream=sys.stdout)
+                try:
+                    r = DISPATCH[a.cmd](c, a)
+                except ClientError as e:
+                    fail_from(e)
+                    r = 2
+                except SystemExit as e:                               # a declined question or a stop() on one worker: carry on with the next
+                    r = e.code if isinstance(e.code, int) else 1
+                rc = max(rc, r or 0)
+        footer.flush()
         return rc
     if a.cmd in PICK_COMMANDS and getattr(a, "worker", None):
         ctx = ctx.for_worker(a.worker)

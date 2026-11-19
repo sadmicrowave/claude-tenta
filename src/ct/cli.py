@@ -445,6 +445,15 @@ def job_seconds(r):
     return (b - a).total_seconds() if a and b else 0
 
 
+def is_virtual_machine():
+    """True on a virtual machine (it has no temperature sensor of its own)."""
+    try:
+        r = subprocess.run(["systemd-detect-virt", "--vm"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0 and r.stdout.strip() not in ("", "none")
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def cmd_status(ctx, hours=12):
     w, out, at = ctx.w, sys.stdout, now()
     D, problems, approve_cmd = [], [], None                      # the whole screen is one card: its facts, then its sections
@@ -523,7 +532,7 @@ def cmd_status(ctx, hours=12):
     line(ok, "Canary", "ON" if ok else "OFF", why)
     try:
         rs = json.loads((Path(w.s.registry_path).parent / "registry-sync.json").read_text())
-        line(bool(rs["ok"]), "Registry sync", "OK" if rs["ok"] else "REFUSED", f"{time.strftime('%H:%M', time.localtime(rs['ts']))}: {rs['status']}" if not rs["ok"]
+        line(bool(rs["ok"]), "Registry sync", "OK" if rs["ok"] else "REFUSED", f"{time.strftime('%H:%M', time.gmtime(rs['ts']))} UTC: {rs['status']}" if not rs["ok"]
              else f"last ran {human_dur(time.time() - rs['ts'])} ago: {rs['status']}")
     except (OSError, ValueError, KeyError, TypeError):
         pass                                                              # an install that never ran a registry sync has nothing to show
@@ -536,7 +545,7 @@ def cmd_status(ctx, hours=12):
         if not p:
             line(False, label, "NOT RUN YET", f"the timer has not run the {which} pass yet ({what})")
         elif not p["ok"]:
-            line(False, label, "FAILED", f"{time.strftime('%H:%M:%S', time.localtime(p['ts']))}: {p.get('error') or 'see the journal'}  (nothing is {what})")
+            line(False, label, "FAILED", f"{time.strftime('%H:%M:%S', time.gmtime(p['ts']))} UTC: {p.get('error') or 'see the journal'}  (nothing is {what})")
         elif time.time() - p["ts"] > 300:
             line(False, label, "STALLED", f"last ran {int((time.time() - p['ts']) / 60)} min ago; the timer may have stopped")
         else:
@@ -576,11 +585,14 @@ def cmd_status(ctx, hours=12):
     temp = w.sensors.temp() if w.sensors else None
     if temp is not None:
         line(temp < w.s.max_temp_c, "Heat", f"{temp:.0f} C", "normal" if temp < w.s.max_temp_c else f"hot; no job starts above {w.s.max_temp_c:.0f} C")
+    elif is_virtual_machine():
+        line(True, "Heat", "n/a", "a virtual machine has no temperature sensor of its own; heat is the host's business")
     else:
         line(False, "Heat", "unreadable", "no temperature sensor answered")
     try:
         du = shutil.disk_usage(w.state)
-        line(du.free / 1e9 > 5, "Disk", f"{du.free / 1e9:.0f} GB free of {du.total / 1e9:.0f} GB", "plenty of room" if du.free / 1e9 > 5 else "under 5 GB free")
+        gb = lambda n: f"{n / 1e9:.1f}" if n < 10e9 else f"{n / 1e9:.0f}"                  # one decimal while it is small, so "5 GB free" never sits beside "under 5 GB free"
+        line(du.free / 1e9 > 5, "Disk", f"{gb(du.free)} GB free of {gb(du.total)} GB", "plenty of room" if du.free / 1e9 > 5 else "under 5 GB free")
     except OSError:
         pass
     state = w.lock.locked()
@@ -588,7 +600,9 @@ def cmd_status(ctx, hours=12):
         line(False, "Security", "LOCKED", f"{ctx.product} runs nothing until you review and unlock it")
     else:
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
-    _ui.say(f"{ctx.product}, " + time.strftime("%a %Y-%m-%d %H:%M %Z"), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
+    if problems:                                                     # a card that says ATTENTION says which rows
+        D.insert(0, ("Needs attention", ", ".join(problems)))
+    _ui.say(f"{ctx.product}, " + time.strftime("%a %Y-%m-%d %H:%M UTC", time.gmtime()), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
             run=approve_cmd, run_label="Approve the first waiting job")
     if state:
         emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,

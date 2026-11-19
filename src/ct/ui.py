@@ -161,12 +161,38 @@ def table(title, header, rows, *, tag="LIST", color=None, stream=None, notes=(),
     print("\n".join([title, *[str(n) for n in notes], "", *lines, *tail]) + "\n", file=stream)       # output: plain text for a pipe
 
 
+_COLLECT = None                          # while a command visits several workers, the "From here" lines are kept here instead of printed after each one
+
+
+class collecting_related:
+    """Around a loop over workers: every `related` call adds its commands here (each command once, in the order first seen) instead of printing, so the footer comes ONCE, after the last worker.
+    `.flush()` prints it. (Seen on `ct-admin status` with three workers: the same three commands under every card.)"""
+
+    def __enter__(self):
+        global _COLLECT
+        self._saved, _COLLECT = _COLLECT, {"pairs": [], "force": False}
+        self.got = _COLLECT
+        return self
+
+    def __exit__(self, *exc):
+        global _COLLECT
+        _COLLECT = self._saved
+        return False
+
+    def flush(self, **kw):
+        return related(*self.got["pairs"], force=self.got["force"], **kw)
+
+
 def related(*pairs, title="From here", stream=None, force=False):
     """The commands that usually come next after what was just shown, in the one shape every command uses: a bold line saying what it does, the command to copy on
     its own line beneath it. Printed to stderr and only for a person at a terminal, so a pipe, a script or `--json` never sees it (CT_HINTS=never turns it off).
     pairs are (what it does, command); a pair whose command is None is left out, so callers can offer things conditionally."""
     stream = stream or sys.stderr
     pairs = [p for p in pairs if p and p[1]]
+    if _COLLECT is not None:                                                         # a loop over workers is running: keep them for one footer at the end
+        _COLLECT["pairs"] += [p for p in pairs if p[1] not in [q[1] for q in _COLLECT["pairs"]]]
+        _COLLECT["force"] = _COLLECT["force"] or force
+        return True
     watching = force or (sys.stdout.isatty() and stream.isatty() and os.environ.get("CT_HINTS") != "never")
     if not pairs or not watching:
         return False
