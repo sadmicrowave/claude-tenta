@@ -357,7 +357,7 @@ class PlanCard(Installed):
             rename.render_plan(r.plan_lines(), OLD, NEW, where="on worker.example")
         import re
         text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
-        for needle in (f"Rename {OLD} to {NEW} on worker.example", "PREVIEW", "MOVE THE FOLDERS", f"mv /opt/{OLD} /opt/{NEW}", "KEPT", "job history"):
+        for needle in ("Rename the install", OLD, NEW, "worker.example", "PREVIEW", "MOVE THE FOLDERS", f"mv /opt/{OLD} /opt/{NEW}", "KEPT", "job history"):
             self.assertIn(needle, text.upper() if needle.isupper() else text)
 
 

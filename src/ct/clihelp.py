@@ -53,7 +53,7 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=
         return False
     out = sys.stdout
     if want and want not in details:
-        say(f"No command called {want}", tag="ERROR", color=RED, stream=out, run_label="See the commands", run=f"{prog} help")
+        say("No such command", ("Command", want), tag="ERROR", color=RED, stream=out, run_label="See the commands", run=f"{prog} help")
         return True
     cmds = lambda rows: [(cards.Cmd(c), d) for c, d in rows]          # noqa: E731  (a command is shown as typed, in the command colour)
     if want:
@@ -103,7 +103,7 @@ def _words(parser, prog):
 
 
 def usage_problem(err, prog, known=()):
-    """(title, why, steps, example) for a UsageError: what was wrong in plain words, the real choices, and the closest one as a command to copy."""
+    """(title, why, steps, example, facts) for a UsageError: a fixed title, what was wrong in plain words, the real choices, the closest one as a command to copy, and what the person typed as labelled rows."""
     parser, msg = err.parser, err.message
     here = _words(parser, prog)
     sub_cmd = here[len(prog):].strip()
@@ -115,12 +115,12 @@ def usage_problem(err, prog, known=()):
         top = not sub_cmd
         what = "command" if top else "option"
         steps = [f"Choose one of: {', '.join(choices)}"] + ([] if not top else [f"Every command, with examples: {prog} help"])
-        return (f"{bad!r} is not a {what} of {here}", f"{here} accepts: {', '.join(choices)}.", steps,
-                f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else (None if top else usage))
+        return ("That is not a command" if top else "That is not an option", f"The choices are: {', '.join(choices)}.", steps,
+                f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else (None if top else usage), [(what.capitalize(), bad), ("In", here)])
     m = re.search(r"required: (.*)", msg)
     if m:
-        return (f"{here} needs {m.group(1)}", "Something it must be told is missing.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None)
+        return ("A required argument is missing", "Something it must be told is missing.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None, [("Command", here), ("Needs", m.group(1))])
     m = re.search(r"unrecognized arguments: (.*)", msg)
     if m:
-        return (f"{here} does not know {m.group(1)}", "That option or word is not part of this command.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None)
-    return (f"{here} was given something it cannot use", re.sub(r"^argument [^:]+: ", "", msg), [f"Usage: {usage}"], None)
+        return ("That command does not know that argument", "That option or word is not part of this command.", [f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"], None, [("Command", here), ("Argument", m.group(1))])
+    return ("A command was given something it cannot use", re.sub(r"^argument [^:]+: ", "", msg), [f"Usage: {usage}"], None, [("Command", here)])

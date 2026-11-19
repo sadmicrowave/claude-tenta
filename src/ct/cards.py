@@ -29,10 +29,12 @@ class Styled(list):
     """A fact's value made of differently coloured pieces: [(text, role or None), ...]. Kept on one line (cut with a mark at the card's edge)."""
 
     def plain(self):
-        return "".join(t for t, _ in self)
+        return ("  " if any(r and str(r).endswith("_chip") for _, r in self) else "").join(t for t, _ in self)
 
     def lines(self, room):
         """The value as one or more lines: the pieces before the last stay on the first line, and the last (the long explanation) wraps under itself, so nothing is cut off."""
+        if any(r and str(r).endswith("_chip") for _, r in self):            # a value that ends in chips (a worker name and its DEDICATED chip): one line, the chips drawn as chips
+            return ["  ".join(chip_piece(t, r) for t, r in self)]
         *head, (last, last_role) = list(self)
         lead = "".join(t for t, _ in head)
         text = [theme.sgr(t, r) if r and t else t for t, r in head]
@@ -42,8 +44,33 @@ class Styled(list):
         return [first] + [(" " * (len(lead) + 2)) + (theme.sgr(p, last_role) if last_role else p) for p in pieces[1:]]
 
 
+def chip_piece(text, role):
+    """One piece of a value: a chip when its role ends in _chip, otherwise coloured (or plain) text."""
+    if role and str(role).endswith("_chip"):
+        return theme.sgr(f" {text} ", role)
+    return theme.sgr(text, role) if role and text else text
+
+
 class Cmd(str):
     """A fact's label that is a command (or any name written exactly as typed): shown as it is, in the command colour, not turned into capitals."""
+
+
+class Chip(str):
+    """A fact's label drawn as a coloured chip (CHOSEN in green): a short word from a fixed vocabulary, never something a person named."""
+
+    def __new__(cls, text, role="ok"):
+        o = str.__new__(cls, text)
+        o.role = role
+        return o
+
+
+def named(pairs, key="WORKER"):
+    """Rows for things a person named (a worker, a host, a command): the label is a fixed word, the name is the value, and what is said about it is on the line below, so a long name can never
+    widen the label column or squeeze the others. `pairs` is [(name, text)]; each pair is set apart by a blank line."""
+    out = []
+    for i, (name, text) in enumerate(pairs):
+        out += (["\n"] if i else []) + [(key, name)] + ([("", text)] if text else [])
+    return out
 
 
 class Block(list):
@@ -185,7 +212,7 @@ def code_spans(text):
             if keep and keep[-1] in VALUE_FLAGS:                          # the word after --worker is its value, whatever it looks like
                 keep.append(w)
                 continue
-            if (w[:1].isalpha() and w.islower() and w not in subs and not re.fullmatch(_ARG, w)) or (w in ("again", "and", "to", "on", "for")):
+            if (w[:1].isalpha() and w.islower() and w not in subs and not re.fullmatch(_ARG, w)) or (w in ("again", "and", "to", "on", "for")) or (w.endswith(":") and w[:1].isalpha()):         # a word that ends in a colon is prose ("ct-run accepts: setup, ..."), not an argument
                 break
             keep.append(w)
         cmd = " ".join([m.group(1).split(" ")[0]] + keep)
@@ -208,6 +235,16 @@ def lift(text, room, found):
             else:                                                                    # the command was the subject of the sentence: "The command below said: ..."
                 text = text.replace(span, "The command below" if text.startswith(span) else "the command below", 1)
     return text
+
+
+def reflow(line, room):
+    """One line of prose as lines that fit `room`, cut at spaces. A continuation is indented under the line's own text: after its leading spaces, or after a 'name  description' gap (so a list of
+    commands with descriptions keeps its description column)."""
+    if len(line) <= room:
+        return [line]
+    m = re.match(r"^(\s*\S+\s{2,})(?=\S)", line) or re.match(r"^(\s*)", line)
+    indent = " " * len(m.group(1))
+    return textwrap.wrap(line, room, subsequent_indent=indent, break_long_words=False, break_on_hyphens=False, drop_whitespace=True) or [line]
 
 
 def wrap_text(text, width, **kw):
@@ -253,6 +290,8 @@ def rule(title, tag="", color=None, cols=None):
     role = role_for(color) if color is not None else "primary"
     w = width(cols=cols)
     tail = f" {tag.upper()}" if tag else ""
+    if len(title) + len(tail) + 7 > w:                                  # a long name in the title: the title on its own wrapped lines, then the line that carries the tag
+        return "\n".join(["", *[theme.sgr(t, role, "strong") for t in wrap(title, w)], theme.sgr("─" * max(2, w - len(tail) - 1) + tail, role)])
     fill = "─" * max(2, w - len(title) - len(tail) - 5)
     return "\n" + theme.sgr("── ", role) + theme.sgr(title, role, "strong") + theme.sgr(" " + fill + tail, role)
 
@@ -266,7 +305,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     w = width(cols=cols)
     rows = [d for d in details if d]
     labelled = [d for d in rows if isinstance(d, tuple)]
-    lw = max([len(d[0]) + (2 if isinstance(d[0], Cmd) else 0) for d in labelled] or [0])
+    llen = lambda d: len(d[0]) + (2 if isinstance(d[0], (Cmd, Chip)) else 0)                          # noqa: E731
+    lw = max([llen(d) for d in labelled if llen(d) <= LABEL_MAX] or [0])                         # a label longer than LABEL_MAX (a long example command) stands alone, so one cannot squeeze every value
     body = []                                                           # (kind, payload) so the two frames can place them
     for d in rows:
         if isinstance(d, tuple):
@@ -278,6 +318,8 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         elif isinstance(d, Why):
             body += [("blank", None), ("why", str(d))]
         else:
+            if d != "\n" and body and body[-1][0] in ("fact", "why", "raw"):       # a note (the muted description) after labelled rows is always set apart by a blank line: one rule for every card
+                body.append(("blank", None))
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
         body += [("blank", None), ("fact", (steps_label, None))] + [("step", s) for s in steps]
@@ -289,17 +331,31 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     def label(text):
         if isinstance(text, Cmd):
             return chip(str(text)) + " " * max(0, lw - len(text) - 2)                       # the chip's two padding spaces count
+        if isinstance(text, Chip):
+            chip_text = p(f" {text} ", CHIP.get(text.role, "ok_chip"))
+            if "\x1b" not in chip_text:                                      # no colour (a pipe): the word as an ordinary label, so the values still line up
+                return str(text).upper().ljust(lw)
+            return chip_text + " " * max(0, lw - len(text) - 2)
         return p(text.upper().ljust(lw if lw else 0), role if framed else "label")
 
     out = []
     if framed:
         edge = lambda t: p(t, role)                                       # noqa: E731
         top_tag = tag.upper()
-        out.append(edge("╭─ ") + p(title, role, "strong") + edge(" " + "─" * max(1, inner - vlen(title) - len(top_tag) - 4) + " ") + p(top_tag, role) + edge(" ─╮"))
+        if vlen(title) <= inner - len(top_tag) - 6:
+            out.append(edge("╭─ ") + p(title, role, "strong") + edge(" " + "─" * max(1, inner - vlen(title) - len(top_tag) - 4) + " ") + p(top_tag, role) + edge(" ─╮"))
+            long_title = []
+        else:                                                              # a title with a long name in it would break the frame: the top line keeps the tag, the title is set inside, wrapped
+            out.append(edge("╭" + "─" * max(1, inner - len(top_tag) - 1) + " ") + p(top_tag, role) + edge(" ─╮"))
+            long_title = wrap(title, inner)
 
         def row(text=""):
             return edge("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + edge("│")
-        if body and body[0][0] != "blank":                                 # a section that starts with its own blank line does not get a second one
+        if body and body[0][0] != "blank" or long_title:                   # a section that starts with its own blank line does not get a second one
+            out.append(row())
+        for t in long_title:
+            out.append(row(p(t, role, "strong")))
+        if long_title and body and body[0][0] != "blank":
             out.append(row())
     else:
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731
@@ -323,6 +379,10 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out += [row(item)] if vlen(item) <= inner else [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
             out.append(row(p(item[0].upper(), role if framed else "label")))
+        elif kind == "fact" and item[1] is not None and (len(item[0]) + (2 if isinstance(item[0], (Cmd, Chip)) else 0)) > lw and lw and not isinstance(item[1], Styled):
+            out.append(row(label(item[0])))                                       # the long label on its own line, the value under it where the values start
+            first, *rest = inline(wrap(lift(item[1], fact_room, found), fact_room))
+            out += [row(" " * (lw + 2) + line) for line in [first, *rest]]
         elif kind == "fact" and isinstance(item[1], Styled):
             first, *rest = item[1].lines(fact_room)
             out.append(row(label(item[0]) + "  " + first))
@@ -343,12 +403,17 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     return out
 
 
+CELL_MAX = 32
+LABEL_MAX = 34
+
+
 def table_lines(header, rows, room, color=True):
     """A table as lines for a card's body: coloured capital column labels, then the rows, columns lined up. A cell is text or (text, role). The widest column gives way
     when the table is wider than `room`; a cut cell ends with a mark."""
     plain = lambda c: c[0] if isinstance(c, tuple) else str(c)           # noqa: E731
     n = len(header)
     widths = [max([len(header[i])] + [len(plain(r[i])) for r in rows if i < len(r)]) for i in range(n)]
+    widths = [w if i == n - 1 else min(w, CELL_MAX) for i, w in enumerate(widths)]          # one long name in a middle column must not push every column after it: only the last column is free to be long
     over = sum(widths) + 2 * (n - 1) - room
     if over > 0:
         widest = max(range(n), key=lambda i: widths[i])

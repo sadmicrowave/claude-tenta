@@ -5,8 +5,7 @@ one command that reads and writes it, so a person, a script or Claude can set it
 project's file covers its sub-folders. An explicit `--worker` on the command line always wins over the file.
 
 `~/.tenta.toml` is the same file for the whole computer (like `~/.claude/CLAUDE.md` for folders): `ct-admin workers use WORKER --command CLASS` writes it. Where a job goes, most specific first:
-this folder's [commands], then the computer's [commands] (a command dedicated to one worker everywhere), then this folder's `worker`, then the computer's `worker`. `reserved` (computer file
-only) lists workers that take nothing except the commands dedicated to them.
+this folder's [commands], then the computer's [commands] (a command dedicated to one worker everywhere), then this folder's `worker`, then the computer's `worker`. A command dedicated to a worker goes only there; the worker stays free for everything else (it is the command that is dedicated, never the machine).
 """
 import os
 import re
@@ -20,7 +19,7 @@ FILE = ".tenta.toml"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 HEADER = ("# claude-tenta: which worker jobs go to. Written by `ct-run use` (a folder) or `ct-admin workers use` (this computer, ~/.tenta.toml); edit it freely.\n"
           "# worker = the worker every job from here goes to. [commands] = single job classes that go to a particular worker.\n"
-          "# reserved = workers that take nothing except the commands dedicated to them (the computer's file only).\n")
+          "# A command listed under [commands] goes only to that worker; the worker still takes other work.\n")
 
 
 @dataclass
@@ -28,7 +27,6 @@ class Pins:
     path: Path
     worker: str = None
     commands: dict = field(default_factory=dict)             # job class -> worker
-    reserved: list = field(default_factory=list)             # the computer's file only: workers that take nothing but the commands dedicated to them
 
     def command_for(self, cls):
         if cls in self.commands:
@@ -43,7 +41,7 @@ class Pins:
         return self.command_for(cls) if cls in self.commands else self.worker_for()
 
     def empty(self):
-        return not self.worker and not self.commands and not self.reserved
+        return not self.worker and not self.commands
 
 
 def global_path():
@@ -73,16 +71,13 @@ def read(path):
     try:
         raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as e:
-        raise ClientError(f"{path} cannot be read", str(e), [f"Open it and fix the line named above, or run ct-run use --clear to start again."])
+        raise ClientError("A .tenta.toml file cannot be read", str(e), [f"Open it and fix the line named above, or run ct-run use --clear to start again."], facts=[("File", str(path))])
     cmds = raw.get("commands") or {}
     worker = raw.get("worker")
     bad = [k for k, v in {"worker": worker, **cmds}.items() if v is not None and not (isinstance(v, str) and NAME.match(v))]
     if bad or not isinstance(cmds, dict):
-        raise ClientError(f"{path} has a value that is not a worker name", f"Check: {', '.join(bad) or 'commands'}. A worker name is letters, digits, dot, dash or underscore.", ["Open the file and fix it, or run ct-run use --clear to start again."])
-    reserved = raw.get("reserved") or []
-    if not isinstance(reserved, list) or not all(isinstance(r, str) and NAME.match(r) for r in reserved):
-        raise ClientError(f"{path} has a reserved list that is not worker names", "It is a list of worker names, for example reserved = [\"pentest\"].", ["Open the file and fix it."])
-    return Pins(Path(path), worker, dict(cmds), list(reserved))
+        raise ClientError("A .tenta.toml file has a value that is not a worker name", f"Check: {', '.join(bad) or 'commands'}. A worker name is letters, digits, dot, dash or underscore.", ["Open the file and fix it, or run ct-run use --clear to start again."], facts=[("File", str(path))])
+    return Pins(Path(path), worker, dict(cmds))                    # an old `reserved = [...]` line (a first idea, dropped) is ignored and disappears the next time the file is written
 
 
 def pins_for(start=None):
@@ -105,11 +100,13 @@ def pin_for(cls, start=None):
     return None, None
 
 
-def prefs():
-    """What the computer's file says to the scheduler: a reserved worker takes only the commands dedicated to it (sched.Prefs.dedicated)."""
-    from .. import sched
-    mine = global_pins()
-    return sched.Prefs(dedicated={w: sorted(c for c, ww in mine.commands.items() if ww == w) for w in mine.reserved})
+def command_pin(cls, start=None):
+    """The worker a COMMAND (not the folder as a whole) is dedicated to, from the folder's file or else the computer's, or (None, None): what `ct-run classes` shows."""
+    for pins in (pins_for(start), global_pins()):
+        w, why = pins.command_for(cls) if pins else (None, None)
+        if w:
+            return w, why
+    return None, None
 
 
 def _q(s):
@@ -124,8 +121,6 @@ def save(pins):
     lines = [HEADER]
     if pins.worker:
         lines.append(f"worker = {_q(pins.worker)}\n")
-    if pins.reserved:
-        lines.append("reserved = [" + ", ".join(_q(w) for w in sorted(pins.reserved)) + "]\n")
     if pins.commands:
         lines.append("\n[commands]\n")
         lines += [f"{k} = {_q(v)}\n" if NAME.match(k) else f"{_q(k)} = {_q(v)}\n" for k, v in sorted(pins.commands.items())]
@@ -134,4 +129,4 @@ def save(pins):
 
 def check_name(kind, value):
     if not NAME.match(value or ""):
-        raise ClientError(f"{value!r} is not a valid {kind} name", "Letters, digits, dot, dash and underscore only.", [])
+        raise ClientError("Not a valid name", "Letters, digits, dot, dash and underscore only.", [], facts=[(kind.capitalize(), repr(value))])

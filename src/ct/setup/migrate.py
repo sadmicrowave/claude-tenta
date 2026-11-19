@@ -64,22 +64,22 @@ class Migrate:
     # ---- checks, before anything is touched ----
     def check(self):
         if self.to not in transport.TRANSPORTS:
-            raise SetupError(f"{self.to} is not a connection method", f"Choose one of: {', '.join(transport.TRANSPORTS)}.")
+            raise SetupError("That is not a connection method", f"Choose one of: {', '.join(transport.TRANSPORTS)}.", facts=[("Method", str(self.to))])
         if self.to == self.old:
-            raise SetupError(f"The install already uses {self.old}", "There is nothing to move.")
+            raise SetupError("The install already uses that method", "There is nothing to move.", facts=[("Method", str(self.old))])
         if self.to != "direct":
             raise SetupError("Moving back to GitHub is not done by this command yet", "Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.",
                              ["Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again."])
         w = self.cfg.server.worker_user
         if not self.host.run(["id", w]).ok:
-            raise SetupError(f"The worker account {w} does not exist on this machine", "Nothing was changed.",
-                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."])
+            raise SetupError("The worker account does not exist on this machine", "Nothing was changed.",
+                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."], facts=[("Account", str(w))])
         for which in ("queue", "results"):
             if self.dry_run:
                 break                       # the preview runs as the administrator, who cannot see the worker's private folders (found on a real machine); the real run is root and checks
             if not self.host.exists(self.cfg.path(f"{which}_clone") + "/.git"):
-                raise SetupError(f"The worker has no {which} clone", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
-                                 ["Run ct-setup install again; it makes the clones."])
+                raise SetupError("The worker has no clone of that repository", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
+                                 ["Run ct-setup install again; it makes the clones."], facts=[("Repository", str(which))])
         running = self.host.run(["sh", "-c", f"ls {self.cfg.path('state')}/running 2>/dev/null | head -1"]).out.strip()
         if running:
             raise SetupError("A job is running", f"{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.")
@@ -152,9 +152,9 @@ class Migrate:
                     continue
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "start")):
-                    raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
+                    raise SetupError("A migration step failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
                                      ["Run the failing command by hand to see its full error and clear the cause, then run the same ct-setup transport command again: it carries on and skips what is already done.",
-                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."])
+                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."], facts=[("Step", title)])
             self.say(STYLER.note("done", title))
         self.report.append(("transport", "done", f"{self.old} -> {self.to}"))
         return self.report
@@ -202,7 +202,7 @@ def transport_command(a, host, ask, ssh_factory, say, verify=None):
         emit("Say which connection to use", f"One of: {', '.join(transport.TRANSPORTS)}. The install uses {old} now.", tag="ERROR", color=RED, run="ct-setup transport direct")
         return 2
     if new == old:
-        emit(f"The install already uses {old}", ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
+        emit("The install already uses that name", ("Name", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
         return 0
     if new != "direct":
         emit("Moving back to GitHub is not done by this command yet", "Nothing was changed. Your GitHub repositories were never touched.",

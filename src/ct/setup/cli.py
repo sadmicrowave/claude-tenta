@@ -1,23 +1,19 @@
 """ct-setup install | add-worker | uninstall | rename | transport | demo | client | server | audit | tripwire-test
 
-  client    set up your own computer: your config, SSH key login, the two private repositories, the registry
-  server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
-  add-worker find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
-  transport move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
-  rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
-  audit     read-only: check a server against its configuration and report anything that drifted
-  tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
-  uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
-  demo      try the question and protection screens with sample questions; nothing is saved or changed
-  install   everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again
-            (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server
-            half there, adds the deploy keys to GitHub for you, and sends a first job
+  client          set up your own computer: your config, SSH key login, the two private repositories, the registry
+  server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  add-worker      find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
+  transport       move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
+  rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
+  audit           read-only: check a server against its configuration and report anything that drifted
+  tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
+  uninstall       remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
+  demo            try the question and protection screens with sample questions; nothing is saved or changed
+  install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
 
-Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address;
-          client, server, audit, tripwire-test, demo: the computer they run on.
+Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address; client, server, audit, tripwire-test, demo: the computer they run on.
 
-Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
-          --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
+Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing) --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
 """
 import argparse
 import contextlib
@@ -117,7 +113,7 @@ def aim_at_worker(key):
     found = addworker.find_worker(cfg, Path(cfg.source).parent / "workers.toml", key)
     if found is None:
         names, _ = addworker.known_workers(cfg, Path(cfg.source).parent / "workers.toml")
-        emit(f"{key} is not one of your workers", f"Your workers: {', '.join(sorted(names))}.", tag="ERROR", color=RED, run="ct-admin workers")
+        emit("That is not one of your workers", ("Name", key), f"Your workers: {', '.join(sorted(names))}.", tag="ERROR", color=RED, run="ct-admin workers")
         return 2
     if found[0] is not addworker.MAIN:
         os.environ["CT_CONFIG"] = str(found[1][1])
@@ -206,7 +202,7 @@ def finish(a, report, dry):
 def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, screen=None, **overrides):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("help", "-h", "--help"):
-        _ui.document("ct-setup", __doc__ or "", tag="HELP", stream=sys.stdout)
+        _ui.document("ct-setup", __doc__ or "", tag="HELP", stream=sys.stdout, reflow=True)
         return 0
     try:
         a = build_parser().parse_args(argv)
@@ -219,7 +215,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     host = host or Host()
     say = report_mod.sink(sys.stderr)
     if a.worker and a.cmd in LOCAL_COMMANDS + NEW_COMMANDS:
-        emit(f"ct-setup {a.cmd} has no --worker", "It acts on the computer it runs on." if a.cmd in LOCAL_COMMANDS else "It sets up a computer that is not a worker yet; give its address instead.", tag="ERROR", color=RED)
+        emit("That command has no --worker", ("Command", f"ct-setup {a.cmd}"), "It acts on the computer it runs on." if a.cmd in LOCAL_COMMANDS else "It sets up a computer that is not a worker yet; give its address instead.", tag="ERROR", color=RED)
         return 2
     if a.worker and a.cmd in PICK_COMMANDS:
         rc = aim_at_worker(a.worker)
@@ -371,7 +367,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
     except SetupError as e:
         for _s in live:
             _s is not None and _s.erase()
-        emit(e.title, cards.Why(e.why or ""), tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
+        emit(e.title, *e.facts, cards.Why(e.why or ""), tag="STOPPED", color=RED, steps=e.steps or None, steps_label="What to do")
         return 1
     except ClientError as e:                    # a failed SSH connection or git step on this side: said in plain words, never a traceback
         for _s in live:

@@ -118,7 +118,7 @@ def row_for(name, doc, now=None):
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" STALE" if age is None or age > STALE_S else ""),
             "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S,
-            "packages": len(doc.get("packages") or []), "classes": len(doc.get("classes") or [])}
+            "packages": len(doc.get("packages") or []), "classes": len(doc.get("classes") or []), "class_names": sorted(doc.get("classes") or [])}
 
 
 # ---- the cards: the wizard's question-card look (a coloured rail down the left, a chip, labelled rows) ----------------------------------------------
@@ -128,6 +128,41 @@ ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude")
 HANG = 10
 
 
+def installed_rows(r, plain=False):
+    """What is installed on a worker, apart from the measurements: its classes BY NAME, each with a brief muted description beside it (so the count can be checked against `ct-run classes --worker NAME`),
+    the commands dedicated to it (each on its own line), then a blank line and its package count. Names are values, never labels."""
+    if r.get("packages") is None or r["stale"]:
+        return []
+    from .. import cards as card_mod
+    desc = r.get("class_desc") or {}
+
+    def one(text):
+        return text if plain else card_mod_styled(text)
+
+    names = r.get("class_names") or []
+    width = min(max([len(n) for n in names] or [0]), 24)           # the description starts in one column; a name longer than that gets its description on the line below, so it moves nothing
+
+    def klass(n):
+        d = desc.get(n)
+        if plain:
+            return [f"{n.ljust(width)}  {d}" if d and len(n) <= width else n] + ([d] if d and len(n) > width else [])
+        if not d:
+            return [card_mod.Styled([(n, "strong")])]
+        if len(n) <= width:
+            return [card_mod.Styled([(n.ljust(width), "strong"), (d, "muted")])]
+        return [card_mod.Styled([(n, "strong")]), card_mod.Styled([(d, "muted")])]
+    dedicated = [x.strip() for x in (r.get("dedicated") or "").split(",") if x.strip()]
+    lines = [v for n in names for v in klass(n)]
+    rows = [("CLASSES" if i == 0 else "", v) for i, v in enumerate(lines)] or [("CLASSES", one("none"))]
+    rows += [("DEDICATED" if i == 0 else "", one(n)) for i, n in enumerate(dedicated)]
+    return rows + [("", "") if plain else "\n", ("PACKAGES", one(plural(r["packages"], "package")))]
+
+
+def card_mod_styled(text):
+    from .. import cards as card_mod
+    return card_mod.Styled([(text, "strong")])
+
+
 def cards(rows, width=80, color=True):
     """One framed card per worker, stacked, in the same outline as every other card: its name as the title, a tag for its state (LOCKED red, STALE yellow, otherwise WORKER), then labelled rows.
     Plain text when `color` is false (a pipe)."""
@@ -135,34 +170,30 @@ def cards(rows, width=80, color=True):
         room = max(20, min(width, 100) - 2 - HANG)
         out = []
         for r in rows:
-            out += [f"{r['name'].upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
+            from .. import alias
+            out += [f"{alias.show(r['name']).upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
             facts = [(label, str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-"))) for label, key in ROWS]
-            extra = []                                                    # what is set up here, apart from the measurements above it
-            if r.get("packages") is not None and not r["stale"]:
-                extra.append(("INSTALLED", f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}"))
-            if r.get("dedicated"):
-                extra.append(("DEDICATED", r["dedicated"]))
-            out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" if label else "" for label, value in facts + ([("", "")] if extra else []) + extra]
+            extra = installed_rows(r, plain=True)                          # what is set up here, apart from the measurements above it
+            out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" if (label or value) else "" for label, value in facts + ([("", "")] if extra else []) + extra]
             out.append("")
         return out
-    from .. import cards as card_mod, ui as ui_mod
+    from .. import alias, cards as card_mod, ui as ui_mod
     out = []
     for r in rows:
         facts = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
-        extra = []                                                        # what is set up here: a blank line apart from the measurements, and bold
-        if r.get("packages") is not None and not r["stale"]:
-            extra.append(("Installed", card_mod.Styled([(f"{plural(r['classes'], 'class')}, {plural(r['packages'], 'package')}", "strong")])))
-        if r.get("dedicated"):
-            extra.append(("Dedicated", card_mod.Styled([(r["dedicated"], "strong")])))
+        extra = installed_rows(r)                                         # what is set up here: a blank line apart from the measurements, and bold
         facts += (["\n"] if extra else []) + extra
         tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
-        out += [""] + card_mod.card(r["name"], facts, tag=tag, color=colour, cols=width)
+        out += [""] + card_mod.card(alias.show(r["name"]), facts, tag=tag, color=colour, cols=width)
     return out
 
 
 def dedicated_text(pins, name):
-    """What the computer's ~/.tenta.toml dedicates to this worker, in words ('nmap, sqlmap (takes only these)'), or '' when nothing."""
-    cmds = sorted(c for c, w in pins.commands.items() if w == name)
-    if not cmds and name not in pins.reserved:
-        return ""
-    return ", ".join(cmds) + (" (takes only these)" if name in pins.reserved else "") if cmds else "takes only its own commands (none set yet)"
+    """The commands the computer's ~/.tenta.toml dedicates to this worker, as a comma separated list ('nmap, sqlmap'), or '' when none. A command goes only to its worker; the worker still takes other work."""
+    return ", ".join(sorted(c for c, w in pins.commands.items() if w == name))
+
+
+def brief(c, room=44):
+    """A class in a few words, for beside its name: what it runs (or what kind of job it is), cut with a mark when long."""
+    text = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c.get("kind") == "claude" else "profile one exact command" if c.get("kind") == "profile" else c.get("kind", ""))
+    return text if len(text) <= room else text[:room - 1] + "…"

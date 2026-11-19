@@ -520,10 +520,11 @@ class OfferDedication(unittest.TestCase):
         pins, _ = self.run_offer([""])
         self.assertTrue(pins.empty())
 
-    def test_commands_and_only_are_written_to_the_computers_file(self):
-        pins, said = self.run_offer(["y", "nmap, sqlmap", "y"])
-        self.assertEqual((pins.commands, pins.reserved), ({"nmap": "pentest", "sqlmap": "pentest"}, ["pentest"]))
+    def test_commands_are_written_to_the_computers_file_and_the_worker_is_not_reserved(self):
+        pins, said = self.run_offer(["y", "nmap, sqlmap"])
+        self.assertEqual(pins.commands, {"nmap": "pentest", "sqlmap": "pentest"})
         self.assertIn("ct-admin workers use", str(said))
+        self.assertIn("still takes other work", str(said))
 
     def test_no_command_named_says_how_to_do_it_later(self):
         pins, said = self.run_offer(["y", " "])

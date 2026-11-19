@@ -243,7 +243,7 @@ class CheckCommand(unittest.TestCase):
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(packs.main(["check", str(good / "mine")]), 0)
             self.assertEqual(packs.main(["check", str(good / "mine"), str(bad / "mine")]), 1)
-        self.assertRegex(out.getvalue(), r"OK +mine 1\.0")
+        self.assertRegex(out.getvalue(), r"Pack +mine 1\.0")
         self.assertIn("unknown key 'colour'", err.getvalue())
         with redirect_stderr(io.StringIO()):
             self.assertEqual(packs.main([]), 2)

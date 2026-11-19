@@ -229,7 +229,7 @@ def describe_job(ctx, raw):
 def cmd_show(ctx, jid):
     raw = ctx.w.io.job_bytes(jid) if jobs.ID_RE.match(jid or "") else None
     if raw is None:
-        stop(f"No job called {jid}", "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
+        stop("No such job", ("Job", jid), "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
     _ui.document(jid, raw.decode("utf-8", "replace"), tag="JOB FILE", stream=sys.stdout)
     return 0
 
@@ -253,7 +253,7 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
     ctx.w.io.sync()
     raw = ctx.w.io.job_bytes(jid)
     if raw is None:
-        stop(f"No job called {jid}", "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
+        stop("No such job", ("Job", jid), "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
     digest = hashlib.sha256(raw).hexdigest()
     if sha and not yes and digest != sha.lower():
         stop("NOT approved: the job changed", f"{ctx.product}'s copy has digest {digest[:12]}..., not the {sha[:12]}... you reviewed.",
@@ -305,7 +305,7 @@ def cmd_action_hash(ctx, path, as_json=False):
 def cmd_cancel(ctx, jid):
     ok, why = ctx.w.cancel(jid)
     if not ok:
-        stop(f"Cannot cancel {jid}", cards.Why(why.capitalize() + "."), tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
+        stop("Cannot cancel the job", ("Job", jid), cards.Why(why.capitalize() + "."), tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
     emit("Cancelled", f"Job {jid} will not run.", tag="DONE", color=GREEN)
     return 0
 
@@ -314,7 +314,7 @@ def cmd_kill(ctx, jid, hard=False):
     if not jobs.ID_RE.match(jid or ""):
         stop("That is not a job id", tag="ERROR", color=RED, code=2)
     if not ctx.w.kill_job(jid, hard=hard):
-        stop(f"{jid} is not running", "It may have finished, or it was never started.", tag="NOTE", color=YELLOW)
+        stop("The job is not running", ("Job", jid), "It may have finished, or it was never started.", tag="NOTE", color=YELLOW)
     emit("Stopping" if not hard else "Killed", f"Job {jid}", "It publishes a 'killed' result." if not hard else "The whole process tree was killed.", tag="DONE", color=GREEN)
     return 0
 
@@ -326,13 +326,13 @@ def cmd_quarantine(ctx, jid=None):
     if jid:
         f = qd / f"{jid}.json"
         if f.exists() and jobs.ID_RE.match(jid):
-            _ui.document(f"Quarantined result {jid}", f.read_text(), tag="WITHHELD", color=_ui.RED, stream=sys.stdout)
+            _ui.document("A quarantined result", f.read_text(), notes=(f"Job {jid}",), tag="WITHHELD", color=_ui.RED, stream=sys.stdout)
         else:
-            emit(f"No quarantined result {jid}", tag="NOTE", color=YELLOW)
+            emit("No quarantined result", ("Job", jid), tag="NOTE", color=YELLOW)
         return 0
     state = ctx.w.lock.locked()
     if state:
-        emit(f"{ctx.product} is LOCKED", ("What happened", state.get("kind")), ("Job", state.get("job")),
+        emit("This worker is LOCKED", ("Worker", ctx.product), ("What happened", state.get("kind")), ("Job", state.get("job")),
              ("Rules", ", ".join(state.get("rules") or []) or "n/a"), tag="LOCKED", color=RED)
     else:
         emit("Not locked", tag="OK", color=GREEN)
@@ -368,9 +368,9 @@ def cmd_output(ctx, jid=None):
     if jid:
         text = keeper.read(jid)
         if text is None:
-            emit(f"No kept output for {jid}", f"Only failed commands keep their full output, for {plural(keeper.keep_days, 'day')}.", tag="NOTE", color=YELLOW)
+            emit("No kept output", ("Job", jid), f"Only failed commands keep their full output, for {plural(keeper.keep_days, 'day')}.", tag="NOTE", color=YELLOW)
         else:
-            _ui.document(f"Output of {jid}", text, tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
+            _ui.document("Output of a failed job", text, notes=(f"Job {jid}",), tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
         return 0
     rows = keeper.listing()
     if not rows:
@@ -392,10 +392,16 @@ def cmd_wake(ctx):
     (w.state / "last-sync.stamp").unlink(missing_ok=True)                  # so this pass is not skipped as "too soon"
     (w.state / "activity.stamp").touch()                                    # and the worker is active again, so the quick pace resumes
     t0 = time.monotonic()
-    seen = w.fetch()
+    events, original = [], w.log
+    w.log = events.append                                                  # what the pass says it did (queued, started ...) goes into the card, not between cards as bare lines
+    try:
+        seen = w.fetch()
+    finally:
+        w.log = original
     record_pass(w.state, "fetch", True, idle=False, mode="active", took=time.monotonic() - t0)
     emit("Looked for jobs now", ("Took", f"{time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
-         ("From here", f"it checks every few seconds while there is work, and idles again after {plural(w.s.idle_after_s // 60, 'quiet minute')}"), tag="AWAKE", color=GREEN)
+         *[("Saw" if i == 0 else "", e) for i, e in enumerate(events)],
+         ("Afterwards", f"it checks every few seconds while there is work, and idles again after {plural(w.s.idle_after_s // 60, 'quiet minute')}"), tag="AWAKE", color=GREEN)
     return 0
 
 
@@ -606,7 +612,7 @@ def cmd_status(ctx, hours=12):
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
     if problems:                                                     # a card that says ATTENTION says which rows
         D.insert(0, ("Needs attention", ", ".join(problems)))
-    _ui.say(f"{ctx.product}, " + time.strftime("%a %Y-%m-%d %H:%M UTC", time.gmtime()), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
+    _ui.say("Status, " + time.strftime("%a %Y-%m-%d %H:%M UTC", time.gmtime()), ("Worker", ctx.product), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
             run=approve_cmd, run_label="Approve the first waiting job")
     if state:
         emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,
@@ -693,7 +699,7 @@ def _value(args, name, default, cast):
         try:
             v = cast(args[i + 1])
         except (IndexError, ValueError):
-            stop(f"{name} needs a number", tag="ERROR", color=RED, code=2)
+            stop("That setting needs a number", ("Setting", name), tag="ERROR", color=RED, code=2)
         del args[i:i + 2]
         return v
     return default
@@ -759,7 +765,7 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_test_alert(ctx)
         if cmd == "canary-alarm" and len(args) == 1:
             return cmd_canary_alarm(ctx, args[0])
-        emit(f"Unknown or incomplete command: {cmd}", "Run it with no arguments to see the commands.", tag="ERROR", color=RED)
+        emit("Unknown or incomplete command", ("Command", cmd), "Run it with no arguments to see the commands.", tag="ERROR", color=RED)
         return 2
     except Stop as s:
         return s.code

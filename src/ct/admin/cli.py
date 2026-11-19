@@ -19,7 +19,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from .. import cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
+from .. import alias, cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import cli as client_cli
@@ -81,11 +81,13 @@ class Context:
 
     def for_worker(self, name):
         """The same commands aimed at one named worker: its address, account and repositories come from its own configuration, listed once in workers.toml."""
+        from .. import alias
+        name = alias.resolve(name, [self.name, "main", *workers.load_list(self.workers_file)])             # an alias means its worker
         if name in (self.name, "main"):
             return self
         path = workers.load_list(self.workers_file).get(name)
         if not path:
-            raise ClientError(f"There is no worker called {name!r}", "Workers are named once, in ct-admin workers add.", example="ct-admin workers")
+            raise ClientError("There is no such worker", "Workers are named once, in ct-admin workers add.", example="ct-admin workers", facts=[("Name", name)])
         c = Context.from_config(config.load(path, env={"CT_CONFIG": ""}))
         c.ask, c.sleep, c.is_tty = self.ask, self.sleep, self.is_tty
         return c
@@ -109,7 +111,7 @@ class Context:
 
 
 def fail_from(e):
-    emit(e.title, cards.Why(e.why or ""), tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
+    emit(e.title, *e.facts, cards.Why(e.why or ""), tag="ERROR", color=RED, steps=e.steps or None, steps_label="How to fix it", run=e.example.split("\n") if e.example else None)
     return 2
 
 
@@ -132,9 +134,9 @@ def cmd_check(ctx, a):
     rows = [("Key login", "works without a password")]
     r = ctx.ssh._run(ctx.ssh.argv(f"{render.WORKER_CMD} status", batch=True), capture_output=True, text=True)
     if r.returncode:
-        emit(f"Connected to {ctx.ssh.host}", *rows, ("Read-only commands", f"`{render.WORKER_CMD} status` asked for a password or failed; they normally need none (access.sudo)"), tag="NOTE", color=YELLOW)
+        emit("Connected", ("Host", ctx.ssh.host), *rows, ("Read-only commands", f"`{render.WORKER_CMD} status` asked for a password or failed; they normally need none (access.sudo)"), tag="NOTE", color=YELLOW)
     else:
-        emit(f"Connected to {ctx.ssh.host}", *rows, ("Read-only commands", f"`{render.WORKER_CMD}` works without a password"), tag="OK", color=GREEN)
+        emit("Connected", ("Host", ctx.ssh.host), *rows, ("Read-only commands", f"`{render.WORKER_CMD}` works without a password"), tag="OK", color=GREEN)
     return 0
 
 
@@ -198,9 +200,9 @@ def use_signed(ctx, a):
     pub = Path(str(approval_key(ctx)) + ".pub")
     mine = approvals.fingerprint(pub.read_text()) if pub.exists() else None
     if mine not in info["approvers"]:
-        raise ClientError(f"{ctx.name} does not trust your approval key yet",
+        raise ClientError("A worker does not trust your approval key yet",
                           "Approvals are signed here and checked on the worker against a key it was set up with. This worker has " + ("a different one" if info["approvers"] else "none") + ".",
-                          ["Run the install again; it gives the worker your key: ct-setup install", "Or approve this one by logging in to the worker: add --ssh"], example="ct-setup install")
+                          ["Run the install again; it gives the worker your key: ct-setup install", "Or approve this one by logging in to the worker: add --ssh"], example="ct-setup install", facts=[("Worker", alias.show(ctx.name))])
     return True
 
 
@@ -324,7 +326,7 @@ def approve_one(ctx, a):
     digest, job = jobs.digest_of(raw), json.loads(raw)
     banner = ctx.repos.pull_results()
     if banner:
-        emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
+        emit("A worker is LOCKED", ("Worker", alias.show(ctx.name)), ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
              run=["ct-admin quarantine", "ct-admin unlock"])
     card = jobs.review_card(job, ctx.repos.read_result(jid), ctx.name, info=class_info(ctx, job), digest=digest)
     _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
@@ -344,7 +346,7 @@ def approve_on_worker(ctx, a, jid):
     """The file is gone from GitHub but the worker kept its own first-seen copy: review and approve it THERE, so what you read is what runs."""
     pub = ctx.repos.read_result(jid)
     if not pub or pub.get("status") != "awaiting_approval":
-        raise ClientError(f"No job called {jid}", f"Its file is not on the jobs branch, and {ctx.name} does not show it waiting for approval.", example="ct-run jobs")
+        raise ClientError("No such job", f"Its file is not on the jobs branch, and {ctx.name} does not show it waiting for approval.", example="ct-run jobs", facts=[("Job", jid)])
     emit(f"The job file is no longer on {ctx.store}", f"{ctx.name} kept its own copy, so you review and approve it there.", tag="NOTE", color=YELLOW)
     rc = ctx.remote("approve", jid, *(["--yes"] if a.yes else []))
     ctx.viewed.mark(jid, "")
@@ -411,7 +413,7 @@ def cmd_update(ctx, a):
     if not info:
         emit("Up to date", f"This computer is on {__version__} and the latest release is {tag}.", tag="OK", color=GREEN)
         return 0
-    emit(f"{tag} is available", ("This computer", __version__), ("The worker", (state.get("release") or "unknown")[:9]), ("Latest release", f"{tag} ({entry['commit'][:9]})"), tag="UPDATE", color=CYAN)
+    emit("A new release is available", ("Latest release", f"{tag} ({entry['commit'][:9]})"), ("This computer", __version__), ("The worker", (state.get("release") or "unknown")[:9]), tag="UPDATE", color=CYAN)
     try:
         ctx.source.update()
         notes = ctx.source.git("tag", "-l", "--format=%(contents)", tag, check=False).stdout.strip()
@@ -454,7 +456,7 @@ def cmd_locate(ctx, a):
     m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda: discover.scan(real) if real else ([], []), scan_virtual=lambda: discover.scan(virtual) if virtual else ([], []))
     if m.kind == "one" and rung == "the configured address":
         rediscover.remember(ctx.home, name, host, port)
-        emit(f"{name} is where its configuration says", ("Address", host), "Its SSH host key is the one this computer recorded.", tag="OK", color=GREEN, stream=sys.stdout)
+        emit("A worker is where its configuration says", ("Worker", alias.show(name)), ("Address", host), "Its SSH host key is the one this computer recorded.", tag="OK", color=GREEN, stream=sys.stdout)
         return 0
     by_ip = {d.ip: d for d in devices}
     if m.kind != "one":
@@ -465,7 +467,7 @@ def cmd_locate(ctx, a):
         return 1
     ip = m.addresses[0]
     d = by_ip.get(ip)
-    emit(f"{name} is at {ip}", ("Address", ip), ("Name it announces", (d.name if d and d.name else "none")), ("Proof", "it shows the SSH host key this computer recorded for the worker"), ("Found by", rung), tag="FOUND", color=GREEN, stream=sys.stdout)
+    emit("A worker was found", ("Worker", alias.show(name)), ("Address", ip), ("Name it announces", (d.name if d and d.name else "none")), ("Proof", "it shows the SSH host key this computer recorded for the worker"), ("Found by", rung), tag="FOUND", color=GREEN, stream=sys.stdout)
     path = getattr(c.cfg, "source", None) if c.cfg is not None else None
     if not path:
         emit("Set the new address by hand", "There is no configuration file to change for this worker.", tag="NEXT", color=YELLOW, run=f"ct-setup install --set server.host={ip}", stream=sys.stdout)
@@ -481,7 +483,7 @@ def cmd_locate(ctx, a):
         ClientRepos.from_config(new).clone_all(Path(new.paths.client_home).expanduser())
     except Exception as e:                                              # the address is saved; pointing the local clones at it is what `ct-run setup` does
         note.append(f"Point this computer's copies at it with `ct-run setup` ({' '.join(str(e).split())[:120]}).")
-    emit(f"{name} is now at {ip}", ("Was", was), ("Configuration", str(path)), *note, tag="DONE", color=GREEN, run="ct-admin check", stream=sys.stdout)
+    emit("A worker's address was updated", ("Worker", alias.show(name)), ("Now", ip), ("Was", was), ("Configuration", str(path)), *note, tag="DONE", color=GREEN, run="ct-admin check", stream=sys.stdout)
     return 0
 
 
@@ -526,10 +528,71 @@ def release_card(ctx, stream=None):
     steps = ["ct-admin apply (every worker in turn, each shown what changes first)"] if any(rel == "behind" for _, _, rel in rows) else []
     if odd:
         steps.append(f"{', '.join(odd)} runs a commit the release source does not have: publish it (merge it into the release branch and push it) and then apply, or replace it with the published release: ct-admin apply --force --worker {odd[0]}")
-    emit("The workers do not all run the same release", *[(n, f"{r[:9] or '?'}  {RELATION_TEXT[rel]}") for n, r, rel in rows],
+    emit("The workers do not all run the same release", *cards.named([(alias.show(n), f"{r[:9] or '?'}  {RELATION_TEXT[rel]}") for n, r, rel in rows]),
          "Mixed releases mean a worker may lack a fix or a class the others have, and a job may behave differently depending on where it lands.",
          steps=steps or None, steps_label="How to bring them together", tag="RELEASES", color=YELLOW, stream=stream or sys.stdout)
     return True
+
+
+def real_names(ctx):
+    return [n for n, _ in ctx.fleet()]
+
+
+def workers_rename(ctx, a):
+    """`ct-admin workers rename WORKER NEW`: give a worker a name for the ct- commands (an alias, kept on this computer only; the worker, its hostname and its install are not touched).
+    `ct-admin workers rename` with nothing else asks about every worker in turn. `--clear` removes an alias; `--mask` / `--show-real` choose whether the real name is shown beside it."""
+    names = real_names(ctx)
+    aliases, show_real = alias.load()
+    if a.mask or a.show_real:
+        alias.save(aliases, show_real=not a.mask)
+        emit("Worker names are masked" if a.mask else "Worker names show the real name beside the alias", ("File", str(alias.path())), tag="DONE", color=GREEN)
+        return 0
+    if a.name:
+        real = alias.resolve(a.name, names)
+        if real not in names:
+            raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"], facts=[("Name", a.name)])
+        if a.clear:
+            aliases.pop(real, None)
+        else:
+            if not a.new:
+                raise ClientError("Say the new name", "ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.", facts=[("Worker", alias.show(real))], example=f"ct-admin workers rename {real} <name>")
+            problem = alias.check(a.new, real, names)
+            if problem:
+                raise ClientError("That name cannot be used", problem, facts=[("Name", a.new)])
+            aliases[real] = a.new
+        alias.save(aliases, show_real)
+        emit("The name was cleared" if a.clear else "The worker has a new name", ("Worker", alias.show(real)), ("File", str(alias.path())), "Only this computer knows the name; the worker and its hostname are unchanged.", tag="DONE", color=GREEN,
+             run="ct-admin workers", run_label="See them")
+        return 0
+    return workers_rename_all(ctx, names, aliases, show_real)
+
+
+def workers_rename_all(ctx, names, aliases, show_real):
+    """The fleet wizard: each worker in turn, its current name beside the question. Enter keeps it, `-` removes it, anything else is the new name."""
+    if not ctx.is_tty:
+        raise ClientError("Naming every worker needs a terminal", "It asks about each one in turn.", ["Name one worker without a terminal: ct-admin workers rename WORKER NAME"])
+    emit("Name your workers", "Each worker is asked about in turn. Enter keeps its name, - removes the name, anything else is the new name.",
+         "The names live on this computer only: the workers and their hostnames are not touched.", tag="RENAME", color=CYAN)
+    changed = 0
+    for real in names:
+        while True:
+            now = aliases.get(real)
+            answer = ctx.ask(f"  {real}   [{now or 'no name yet'}]  new name: ").strip()
+            if not answer:
+                break
+            if answer == "-":
+                changed += aliases.pop(real, None) is not None
+                break
+            problem = alias.check(answer, real, names)
+            if problem:
+                emit("That name cannot be used", ("Name", answer), problem, tag="NOTE", color=YELLOW)
+                continue
+            aliases[real] = answer
+            changed += 1
+            break
+    alias.save(aliases, show_real)
+    emit(f"{plural(changed, 'name')} changed", ("File", str(alias.path())), tag="DONE", color=GREEN, run="ct-admin workers", run_label="See them")
+    return 0
 
 
 def workers_use(ctx, a):
@@ -540,28 +603,19 @@ def workers_use(ctx, a):
     if a.clear:
         if a.command:
             if pins.commands.pop(a.command, None) is None:
-                emit(f"{a.command} was not dedicated to a worker", ("File", str(pins.path)), tag="NOTE", color=YELLOW)
+                emit("That command was not dedicated to a worker", ("Command", a.command), ("File", str(pins.path)), tag="NOTE", color=YELLOW)
                 return 0
         elif a.name:
             pins.commands = {c: w for c, w in pins.commands.items() if w != a.name}
-            pins.reserved = [w for w in pins.reserved if w != a.name]
             pins.worker = None if pins.worker == a.name else pins.worker
         else:
-            pins.worker, pins.commands, pins.reserved = None, {}, []
+            pins.worker, pins.commands = None, {}
         here.save(pins)
         emit("Released" if a.name else "Cleared", ("File", str(pins.path) if not pins.empty() else f"{pins.path} (removed, nothing left in it)"), tag="DONE", color=GREEN, run="ct-admin workers use", run_label="See what is left")
         return 0
     if not a.name:
         return client_cli.cmd_use(ctx, ctx.cfg, ap.Namespace(worker=None, command=None, clear=False, glob=True, force=False, override=False, retain=False))
-    if a.only and not a.command and not any(w == a.name for w in pins.commands.values()):
-        raise ClientError("Say which command is dedicated to it", "A worker that takes only its own commands needs at least one.", [f"ct-admin workers use {a.name} --command <class> --only"])
     rc = client_cli.cmd_use(ctx, ctx.cfg, ap.Namespace(worker=a.name, command=a.command, clear=False, glob=True, force=a.force, override=False, retain=True))
-    if a.only and rc == 0:
-        pins = here.global_pins()
-        if a.name not in pins.reserved:
-            pins.reserved.append(a.name)
-            here.save(pins)
-        emit(f"{a.name} takes only its own commands", ("File", str(pins.path)), "Other jobs go to the other workers.", tag="PINNED", color=GREEN)
     return rc
 
 
@@ -576,16 +630,18 @@ def cmd_workers(ctx, a):
             workers.add(wfile, a.name, a.config)
         except ValueError as e:
             raise ClientError("Could not add that worker", str(e))
-        emit(f"Added {a.name}", f"Listed in {wfile}.", tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
+        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
         return 0
     if action == "remove":
         if not a.name or not workers.remove(wfile, a.name):
-            raise ClientError(f"There is no worker called {a.name!r} in the list", "The worker in your main configuration is always listed and is not removed here.", example="ct-admin workers")
-        emit(f"Removed {a.name}", "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
+            raise ClientError("There is no such worker in the list", "The worker in your main configuration is always listed and is not removed here.", example="ct-admin workers", facts=[("Name", a.name)])
+        emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
         return 0
     if action == "use":
         return workers_use(ctx, a)
-    rows, problems = [], []
+    if action == "rename":
+        return workers_rename(ctx, a)
+    rows, problems, regs = [], [], {}
     for name, repos in ctx.fleet():
         try:
             if not a.no_refresh:
@@ -593,10 +649,12 @@ def cmd_workers(ctx, a):
         except Exception as e:                                         # a worker that cannot be reached is a row, not a failure
             problems.append(f"{name}: could not refresh ({str(e).strip()[:80]})")
         rows.append((name, workers.read_state(repos.results)))
+        regs[name] = repos.registry_info()
     cells = [workers.row_for(n, d) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
         c["dedicated"] = workers.dedicated_text(mine, c["name"])
+        c["class_desc"] = {n: workers.brief(i) for n, i in ((regs.get(c["name"]) or {}).get("classes") or {}).items()}
     if a.claude:
         cells = [c for c in cells if c["has_claude"] and not c["locked"]]
     if a.json:
@@ -614,7 +672,7 @@ def cmd_workers(ctx, a):
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
     _ui.related(("Only workers whose Claude access works", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add <name> --config <file>"),
-                ("Stop listing a worker", "ct-admin workers remove <name>"), ("Dedicate a command to a worker", "ct-admin workers use <name> --command <class>"), ("Look at one worker's health", "ct-admin status"))
+                ("Stop listing a worker", "ct-admin workers remove <name>"), ("Dedicate a command to a worker", "ct-admin workers use <name> --command <class>"), ("Give a worker a name here", "ct-admin workers rename <name> <new name>"), ("Look at one worker's health", "ct-admin status"))
     return 0
 
 
@@ -628,7 +686,7 @@ def cmd_action(ctx, a):
     if a.verb == "list":
         return action_list(ctx)
     if not a.source:
-        raise ClientError(f"ct-admin action {a.verb} needs " + ("a definition file or a pack folder" if a.verb == "add" else "the name of an action, or the pack folder it came from"),
+        raise ClientError("That command needs an argument", "It needs " + ("a definition file or a pack folder" if a.verb == "add" else "the name of an action, or the pack folder it came from") + ".", facts=[("Command", f"ct-admin action {a.verb}")],
                           example="ct-admin action add packs/fan-control" if a.verb == "add" else "ct-admin action remove fan-profile")
     return action_add(ctx, a) if a.verb == "add" else action_remove(ctx, a)
 
@@ -669,8 +727,8 @@ def action_add(ctx, a):
     for name, action in defn["actions"].items():
         twin = next((n for n, x in have.items() if n != name and (x.get("run") or [None])[0] == actionadd.program_of(action)), None)
         if twin:
-            raise ClientError(f"{actionadd.program_of(action)} is already registered, as {twin!r}", "The same program under a second name would be two ways to run it as root.",
-                              [f"Use the existing one, or remove it first: ct-admin action remove {twin}"], example=f"ct-admin action remove {twin}")
+            raise ClientError("That program is already registered", "The same program under a second name would be two ways to run it as root.",
+                              [f"Use the existing one, or remove it first: ct-admin action remove {twin}"], example=f"ct-admin action remove {twin}", facts=[("Program", actionadd.program_of(action)), ("Registered as", str(twin))])
     plan, pins = [], {}
     screen = None if a.yes else tui.make()
     for name, action in defn["actions"].items():
@@ -678,14 +736,14 @@ def action_add(ctx, a):
         pins[name] = info["sha256"]
         again = name in have_actions
         if again and (have.get(name) or {}).get("sha256") == info["sha256"] and all(c in have_classes for c in defn["classes"]):
-            emit(f"{name} is already registered", ("Program", info["path"]), ("Pinned to", info["sha256"]), "\n", "The program on the worker is the one it is pinned to, and its class exists. Nothing to change.",
+            emit("Already registered", ("Action", name), ("Program", info["path"]), ("Pinned to", info["sha256"]), "\n", "The program on the worker is the one it is pinned to, and its class exists. Nothing to change.",
                  tag="OK", color=GREEN, run_label="See what is registered", run="ct-admin action list")
             return 0
         if screen is not None:                                              # a real terminal: the wizard's own card, with its buttons
             if not screen.protection(actionadd.card_info(ctx.ssh.target, name, action, info, again)):
                 stop("Not registered", "You answered no. Nothing was changed.")
         else:
-            emit(f"{'Pin again' if again else 'Register'} the root-level action {name}", *actionadd.summary(name, action, info),
+            emit("Pin the root-level action again" if again else "Register a root-level action", ("Action", name), *actionadd.summary(name, action, info),
                  "\n", f"Read the program before you say yes:  ssh {ctx.ssh.target} cat {info['path']}", tag="RUNS AS ROOT", color=_ui.ROOT)
         plan.append((name, action, info, again))
     new_classes = {n: b for n, b in defn["classes"].items() if n not in have_classes}
@@ -719,8 +777,8 @@ def action_remove(ctx, a):
     if missing:
         import difflib
         close = difflib.get_close_matches(missing[0], known, n=1, cutoff=0.5)
-        raise ClientError(f"There is no root-level action called {missing[0]!r}", "Registered: " + (", ".join(known) or "none") + ".",
-                          example=f"ct-admin action remove {close[0]}" if close else "ct-admin action list")
+        raise ClientError("There is no such root-level action", "Registered: " + (", ".join(known) or "none") + ".",
+                          example=f"ct-admin action remove {close[0]}" if close else "ct-admin action list", facts=[("Action", str(missing[0]))])
     removed_classes = []
     have = (registry.parse(text) or {}).get("actions") or {}
     screen = None if a.yes else tui.make()
@@ -731,7 +789,7 @@ def action_remove(ctx, a):
             if not screen.protection(actionadd.card_remove_info(ctx.ssh.target, name, have.get(name) or {}, classes)):
                 stop("Not removed", "You answered no. Nothing was changed.")
         else:
-            emit(f"Remove the root-level action {name}", ("Program", " ".join((have.get(name) or {}).get("run") or [])), ("Class removed", ", ".join(classes) or "none"),
+            emit("Remove a root-level action", ("Action", name), ("Program", " ".join((have.get(name) or {}).get("run") or [])), ("Class removed", ", ".join(classes) or "none"),
                  ("Queued jobs", "any still waiting for it are rejected"), ("The program", "stays on the worker, untouched"), tag="REMOVE", color=RED)
     if screen is None and not ctx.confirm(f"Remove {', '.join(names)} and install the new registry on {ctx.ssh.host} now?", a.yes):
         stop("Not removed", "You answered no. Nothing was changed.")
@@ -801,7 +859,7 @@ def cmd_watch(ctx, a):
 
     def say(name, kind, text):
         said.append(name)
-        emit(f"{name}: {kind}", text, tag="ALERT" if kind in ("locked", "unreachable", "silent") else "NOTE", color=RED if kind in ("locked", "unreachable", "silent") else YELLOW, stream=sys.stdout)
+        emit("Fleet alert" if kind in ("locked", "unreachable", "silent") else "Fleet note", ("Worker", alias.show(name)), ("Kind", kind), text, tag="ALERT" if kind in ("locked", "unreachable", "silent") else "NOTE", color=RED if kind in ("locked", "unreachable", "silent") else YELLOW, stream=sys.stdout)
     from .. import rediscover
     hosts = {n: (c.ssh.host, c.ssh.port) for n, c in ctx.targets() if c.cfg is not None and transport.for_config(c.cfg).kind == "direct"}      # only a worker reached by address can have moved
 
@@ -828,7 +886,7 @@ def cmd_wake(ctx, a):
     """Tell the worker (or every worker) to stop idling and look for jobs now, over the same SSH login ct-admin check uses. No password: it changes only when the next check happens."""
     rc = 0
     for name, c in ctx.targets(a.worker):
-        emit(f"Waking {name}", tag="WAKE", color=CYAN, stream=sys.stdout)
+        emit("Waking a worker", ("Worker", alias.show(name)), tag="WAKE", color=CYAN, stream=sys.stdout)
         rc = c.remote("wake") or rc
     return rc
 
@@ -837,7 +895,7 @@ def cmd_audit(ctx, a):
     """Read-only check that each worker still matches its configuration. It runs as root through the update entry point, so the worker's sudo asks for your password."""
     rc = 0
     for name, c in ctx.targets(a.worker):
-        emit(f"Auditing {name}", tag="AUDIT", color=CYAN, stream=sys.stdout)
+        emit("Auditing a worker", ("Worker", alias.show(name)), tag="AUDIT", color=CYAN, stream=sys.stdout)
         rc = c.ssh.interactive(f"sudo {render.UPDATE_CMD} --audit") or rc
     return rc
 
@@ -846,7 +904,7 @@ def cmd_tripwire_test(ctx, a):
     """On the worker, as root (asks for the worker's sudo password): read a decoy credential, prove the worker locks itself down, then unlock it. Needs a machine with a kernel audit."""
     rc = 0
     for name, c in ctx.targets(a.worker):
-        emit(f"Testing the tripwire on {name}", tag="TRIPWIRE", color=CYAN, stream=sys.stdout)
+        emit("Testing the tripwire", ("Worker", alias.show(name)), tag="TRIPWIRE", color=CYAN, stream=sys.stdout)
         rc = c.ssh.interactive(f"sudo {render.UPDATE_CMD} --tripwire-test") or rc
     return rc
 
@@ -858,7 +916,7 @@ def cmd_unlock(ctx, a):
     if not banner:
         emit("Not locked", f"{ctx.name} reports no lockdown.", tag="OK", color=GREEN)
         return 0
-    emit(f"{ctx.name} is LOCKED", ("What happened", banner.get("kind")), ("Job", banner.get("job")), ("Since", banner.get("since")), tag="LOCKED", color=RED,
+    emit("A worker is LOCKED", ("Worker", alias.show(ctx.name)), ("What happened", banner.get("kind")), ("Job", banner.get("job")), ("Since", banner.get("since")), tag="LOCKED", color=RED,
          run_label="Look at the details first (read-only, no password)", run="ct-admin quarantine")
     if not ctx.confirm("Unlock it? Only do this once you have looked at what happened.", getattr(a, "yes", False)):
         stop("Not unlocked", "You answered no. It stays locked.")
@@ -876,7 +934,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     p.check_name(branch)
     p.fetch()
     if p.contained(branch):
-        emit(f"{branch} is already merged into main", "Nothing to merge.", tag="OK", color=GREEN)
+        emit("Already merged into main", ("Branch", branch), "Nothing to merge.", tag="OK", color=GREEN)
         return p.git("rev-parse", p.base).stdout.strip()
     sha, msg, tree = p.squash(branch, subject)
     reg = p.tree_file(tree, "registry.yaml")
@@ -887,9 +945,9 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
             problems = [f"not valid YAML: {e}"]
         problems = [x for x in problems if "tools" not in x]
         if problems:
-            raise ClientError(f"{branch} would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."])
+            raise ClientError("A branch would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."], facts=[("Branch", branch)])
     subject_line, _, rest = msg.partition("\n")
-    emit(f"Merge {branch} into main", ("Adds", f"{plural(len(p.commits(branch)), 'commit')}, squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
+    emit("Merge a branch into main", ("Branch", branch), ("Adds", f"{plural(len(p.commits(branch)), 'commit')}, squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", diffview.counts(path, add, gone)) for path, add, gone in p.files(branch)], ("Becomes", subject_line),
          *([("Message", line) for line in rest.strip().splitlines() if line.strip()][:6]), tag="MERGE", color=_ui.PRIMARY)
     if not ctx.confirm(f"Squash-merge {branch} into main and delete the branch?", yes):
@@ -897,7 +955,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
     p.push_main(sha)
     gone = p.delete(branch)
     p.fetch()
-    emit(f"Merged {branch} into main as {release.short(sha)}", "The branch was deleted." if gone else f"The branch is still on {ctx.store}; `ct-admin proposals tidy` removes it.",
+    emit("A branch was merged into main", ("Branch", branch), ("Release", release.short(sha)), "The branch was deleted." if gone else f"The branch is still on {ctx.store}; `ct-admin proposals tidy` removes it.",
          tag="MERGED", color=GREEN)
     return sha
 
@@ -934,7 +992,7 @@ def cmd_proposals(ctx, a):
         gone = [b for b in done if p.delete(b)]
         emit(f"Deleted {len(gone)} branch(es)", tag="DONE", color=GREEN)
         return 0 if len(gone) == len(done) else 1
-    raise ClientError(f"Unknown action {act!r}", "Use list, merge or tidy.", example="ct-admin help proposals")
+    raise ClientError("Unknown action", "Use list, merge or tidy.", example="ct-admin help proposals", facts=[("Action", str(act))])
 
 
 def after_merge(ctx, a):
@@ -977,21 +1035,21 @@ def cmd_adopt(ctx, a):
     jobs.require_id(a.id)
     res = r.read_result(a.id)
     if not res:
-        raise ClientError(f"No result for {a.id} yet", "Profile it first, then adopt it.", example=f"ct-run result {a.id} --wait")
+        raise ClientError("No result yet", "Profile it first, then adopt it.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
     names = off.NameBook(ctx.home)
     preview = off.propose(r, a.id, res, name=a.name, tier=a.tier, dry_run=True, names=names) if res.get("profile", {}).get("verdict") != "does-not-fit" else None
     if preview is None:
         out = off.propose(r, a.id, res, names=names)
         emit("It does not fit the worker", "It was recorded as an exclusion; nothing was added to the registry.", *out["reasons"], tag="EXCLUDED", color=YELLOW)
         return 0
-    emit(f"Adopt {preview['name']}", ("Tier", preview["tier"]), ("Cost", preview["entry"]["cost"]), ("Branch", preview["branch"]), tag="PREVIEW", color=CYAN)
+    emit("Adopt a class", ("Class", preview["name"]), ("Tier", preview["tier"]), ("Cost", preview["entry"]["cost"]), ("Branch", preview["branch"]), tag="PREVIEW", color=CYAN)
     if not ctx.confirm(f"Add {preview['name']} to the registry and install it on {ctx.ssh.host}?", a.yes):
         stop("Not adopted", "You answered no. Nothing was changed.")
     out = off.propose(r, a.id, res, name=preview["name"], tier=a.tier, names=names)
     merge_branch(ctx, out["branch"], yes=True)
     rc = install_registry_change(ctx, a, name=preview["name"], present=True)
     if rc == 0:
-        emit(f"{preview['name']} is adopted", f"{ctx.name} publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="Check the list", run="ct-run classes")
+        emit("A class was adopted", ("Class", preview["name"]), f"{ctx.name} publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="Check the list", run="ct-run classes")
     return rc
 
 
@@ -1002,11 +1060,11 @@ def cmd_retire(ctx, a):
     text = r.show_file(p.base, "registry.yaml") or ""
     where = regedit.class_block(text, a.cls)
     if not where:
-        raise ClientError(f"There is no class called {a.cls!r} on main", "Nothing to retire.", [f"Classes: {', '.join(regedit.class_names(text))}"] if regedit.class_names(text) else None, example="ct-run classes")
+        raise ClientError("There is no such class on main", "Nothing to retire.", [f"Classes: {', '.join(regedit.class_names(text))}"] if regedit.class_names(text) else None, example="ct-run classes", facts=[("Class", a.cls)])
     if regedit.is_profile_kind(text, a.cls):
-        raise ClientError(f"{a.cls} cannot be retired", "It is what profiling runs on; without it nothing new can be tested on the worker.")
+        raise ClientError("That class cannot be retired", "It is what profiling runs on; without it nothing new can be tested on the worker.", facts=[("Class", a.cls)])
     block = text.splitlines()[where[0]:where[1]]
-    emit(f"Retire the class {a.cls}", *[("Removes", line.strip()) for line in block if line.strip() and not line.strip().startswith("#")], tag="RETIRE", color=RED)
+    emit("Retire a class", ("Class", a.cls), *[("Removes", line.strip()) for line in block if line.strip() and not line.strip().startswith("#")], tag="RETIRE", color=RED)
     emit("What happens", ("Registry", "the class is removed; the worker refuses new jobs of this class"), ("Queued jobs", "any still waiting for it are rejected"),
          ("Software", "packages it needed stay installed"), ("Profile history", "kept, so `ct-run offload fit` still remembers it was measured"), tag="NOTE", color=YELLOW)
     if not ctx.confirm(f"Remove {a.cls} and install the new registry on {ctx.ssh.host} now?", a.yes):
@@ -1016,7 +1074,7 @@ def cmd_retire(ctx, a):
     merge_branch(ctx, branch, yes=True)
     rc = install_registry_change(ctx, a, name=a.cls, present=False)
     if rc == 0:
-        emit(f"{a.cls} is retired", tag="DONE", color=GREEN, run_label="Check the list", run="ct-run classes")
+        emit("A class was retired", ("Class", a.cls), tag="DONE", color=GREEN, run_label="Check the list", run="ct-run classes")
     return rc
 
 
@@ -1037,10 +1095,10 @@ def show_diff(ctx, sha, full=False, quiet=False):
         emit("Cannot compare the two versions", f"{release.short(now)} is not in the release source.", tag="NOTE", color=YELLOW)
         return True
     root = [f for f in files if release.is_root_run(f[1])]
-    _ui.table(f"{release.short(now)} to {release.short(sha)}", ["", "change", "file"],
+    _ui.table("What will change", ["", "change", "file"],
               [[("ROOT", "bad") if release.is_root_run(path) else "", diffview.status_cell(status, status), diffview.status_cell(path, status)] for status, path in sorted(files, key=lambda f: (not release.is_root_run(f[1]), f[1]))],
               tag="CHANGES", color=_ui.YELLOW if root else _ui.PRIMARY, stream=out,
-              notes=(f"{plural(len(files), 'file')} change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
+              notes=(f"From release {release.short(now)} to release {release.short(sha)}.", f"{plural(len(files), 'file')} change; {len(root)} of them run as root or set the sandbox.",) + (() if full or root else ("No root-run files change; --full shows all the code.",)))
     text = ctx.source.diff_text(now, sha, () if full else release.ROOT_RUN)
     if text.strip():                                         # no root-run file changed: the table above already says so, and an empty box says nothing
         _ui.document("The change itself", text, tag="DIFF", stream=out, as_diff=True)
@@ -1057,7 +1115,7 @@ def fleet_apply_summary(outcomes, rev):
     by = {}
     for name, what in outcomes:
         by.setdefault(what, []).append(name)
-    rows = [(label, ", ".join(by[key])) for key, label in (("installed", "Updated"), ("current", "Already current"), ("left", "Left alone"), ("failed", "Not installed (failed or declined)")) if key in by]
+    rows = [(label, ", ".join(alias.show(n) for n in by[key])) for key, label in (("installed", "Updated"), ("current", "Already current"), ("left", "Left alone"), ("failed", "Not installed (failed or declined)")) if key in by]
     bad = "failed" in by or "left" in by
     emit(f"apply finished: {plural(len(outcomes), 'worker')}", *rows, ("Release", release.short(rev) if rev else "?"),
          *(["A worker left alone runs a commit the release source does not have (see above): nothing was replaced."] if "left" in by else []),
@@ -1069,7 +1127,7 @@ def apply(ctx, a):
     outcomes = getattr(a, "outcomes", None)
     now = release.installed_rev(ctx.ssh, ctx.name)
     if now and now != sha and ctx.source.relation(now) == "unpublished" and not a.force:
-        emit(f"{ctx.name} runs a commit the release source does not have", ("It runs", release.short(now)), ("Apply would install", release.short(sha)),
+        emit("A worker runs a commit the release source does not have", ("Worker", alias.show(ctx.name)), ("It runs", release.short(now)), ("Apply would install", release.short(sha)),
              "That commit was never published to the release branch, so installing the published release would REPLACE it (and may be older). It is left as it is.",
              steps=["Publish it: merge it into the release branch and push it to the release source, then run ct-admin apply again.", f"Or replace it with the published release anyway: ct-admin apply --force --worker {ctx.name}"],
              steps_label="Your choice", tag="NOT CHANGED", color=YELLOW)
@@ -1088,13 +1146,13 @@ def apply(ctx, a):
     prev = release.installed_rev(ctx.ssh, ctx.name)
     rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {sha}")
     if rc:
-        raise ClientError(f"The install failed on {ctx.ssh.host} (exit {rc})", "The update tool restores what it changed when it can. Read the messages above.", ["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."])
+        raise ClientError("The install failed", "The update tool restores what it changed when it can. Read the messages above.", ["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."], facts=[("Host", ctx.ssh.host), ("Exit code", str(rc))])
     if not a.no_verify and not verify(ctx, sha, prev, a.yes):
         return 1
     if outcomes is not None:
         outcomes.append((ctx.name, "installed"))
     if not getattr(a, "quiet_done", False):
-        emit(f"Installed on {ctx.name}", "It publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="See what it can run now", run="ct-run classes")
+        emit("Installed", ("Worker", alias.show(ctx.name)), "It publishes its new class list within a minute.", tag="DONE", color=GREEN, run_label="See what it can run now", run="ct-run classes")
     return 0
 
 
@@ -1127,7 +1185,7 @@ def verify(ctx, sha, prev, yes):
     rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {prev}")
     after = release.health_checks(ctx.ssh, release.health_command(ctx.name, ctx.config_dir, ctx.code_dir), prev) if rc == 0 else []
     ok = bool(after) and all(x[1] for x in after)
-    emit(f"Rolled back to {release.short(prev)}" if rc == 0 else "The rollback failed", "The worker passes its checks again." if ok else "It still fails some checks; read the list above and the worker's journal.",
+    emit("Rolled back" if rc == 0 else "The rollback failed", *([("Release", release.short(prev))] if rc == 0 else []), "The worker passes its checks again." if ok else "It still fails some checks; read the list above and the worker's journal.",
          tag="ROLLED BACK" if ok else "WARNING", color=GREEN if ok else RED)
     return False
 
@@ -1148,7 +1206,7 @@ GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "work
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
-    "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")]),
+    "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml"), ("Give a worker a name here", "ct-admin workers rename tenta3 lab-vm"), ("Name every worker in turn", "ct-admin workers rename")]),
     "locate": ("find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address", [("Look for the main worker", "ct-admin locate"), ("Look for another one", "ct-admin locate --worker studio")]),
     "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
     "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
@@ -1212,12 +1270,14 @@ def build_parser():
     s.add_argument("--check", action="store_true", help="only say whether a newer release exists; change nothing")
     yes(s)
     s = sp.add_parser("workers", add_help=False)
-    s.add_argument("action", nargs="?", choices=["list", "add", "remove", "use"], help="list (default): compare the workers; add or remove one; use: dedicate a command to a worker")
+    s.add_argument("action", nargs="?", choices=["list", "add", "remove", "use", "rename"], help="list (default): compare the workers; add or remove one; use: dedicate a command to a worker; rename: give a worker a name here (an alias)")
     s.add_argument("name", nargs="?", help="with add or remove: the worker's name")
+    s.add_argument("new", nargs="?", help="with rename: the new name (an alias, kept on this computer only)")
     s.add_argument("--config", help="with add: the worker's configuration file")
+    s.add_argument("--mask", action="store_true", help="with rename: show only aliases, never the real names")
+    s.add_argument("--show-real", action="store_true", help="with rename: show an alias with the real name beside it (the default)")
     s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")
-    s.add_argument("--only", action="store_true", help="with use: that worker takes nothing except the commands dedicated to it")
-    s.add_argument("--clear", action="store_true", help="with use: undo it (a worker: release it; with --command: just that command; neither: everything in ~/.tenta.toml)")
+    s.add_argument("--clear", action="store_true", help="with use: undo it (a worker: release it; with --command: just that command; neither: everything in ~/.tenta.toml); with rename: remove the worker's name")
     s.add_argument("--force", action="store_true", help="with use: add the command even if the computer's worker already covers it")
     s.add_argument("--claude", action="store_true", help="only workers whose Claude access works and that are not locked")
     s.add_argument("--json", action="store_true", help="print the comparison as JSON")
@@ -1286,7 +1346,7 @@ def run_command(ctx, a):
         rc = 0
         with _ui.collecting_related() as footer:                      # what to do next is the same for every worker: said once, after the last one
             for name, c in targets:
-                _ui.show([cards.rule(f"{a.cmd}: {name}", "WORKER", _ui.PRIMARY)], stream=sys.stdout)          # one line, not an empty frame
+                _ui.show([cards.rule(f"{a.cmd}: {alias.show(name)}", "WORKER", _ui.PRIMARY)], stream=sys.stdout)          # one line, not an empty frame
                 try:
                     r = DISPATCH[a.cmd](c, a)
                 except ClientError as e:
@@ -1325,8 +1385,8 @@ def main(argv=None, ctx=None, cfg=None):
     try:
         a = ap.parse_args(argv)
     except (clihelp.UsageError, SystemExit) as e:
-        title, why, steps, example = clihelp.usage_problem(e, "ct-admin") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-admin understands", "ct-admin has no command by that name.", ["Run ct-admin help to see the commands."], None)
-        emit(title, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
+        title, why, steps, example, facts = clihelp.usage_problem(e, "ct-admin") if isinstance(e, clihelp.UsageError) else ("That is not a command ct-admin understands", "ct-admin has no command by that name.", ["Run ct-admin help to see the commands."], None, [])
+        emit(title, *facts, cards.Why(why or ""), tag="ERROR", color=RED, steps=steps, steps_label="Try", run=example, run_label="Did you mean")
         return 2
     if not a.cmd:
         emit("No command given", "Run ct-admin help to see the commands.", tag="ERROR", color=RED)

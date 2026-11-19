@@ -20,9 +20,10 @@ from ..words import plural
 
 
 class SetupError(Exception):
-    def __init__(self, title, why=None, steps=None):
+    def __init__(self, title, why=None, steps=None, facts=None):
+        """`title` is a fixed sentence; what a person named (a step, a unit, an account, a method) goes in `facts`, a list of (label, value) rows."""
         super().__init__(title)
-        self.title, self.why, self.steps = title, why, steps or []
+        self.title, self.why, self.steps, self.facts = title, why, steps or [], list(facts or [])
 
 
 def missing_steps(missing):

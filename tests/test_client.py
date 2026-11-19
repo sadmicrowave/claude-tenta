@@ -143,7 +143,7 @@ class Human(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
             view.render_classes(info, pending=["newclass"], excluded=2, out=out, product="tct")
         text = out.getvalue()
-        for needle in ("What tct can run for you today", "echo", "/bin/echo {word}", "params: word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
+        for needle in ("What this worker can run for you today", "tct", "echo", "/bin/echo {word}", "word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
             self.assertIn(needle, text)
 
     def test_result_formatting_for_a_profile_run_shows_verdict_and_estimate_comparison(self):
@@ -192,7 +192,8 @@ class Repo(RepoFixture):
         bad = ClientRepos(self.tmp / "x" / "queue", self.tmp / "x" / "results", str(self.tmp / "nope.git"), str(self.tmp / "nope2.git"))
         with self.assertRaises(ClientError) as cm:
             bad.clone_all(self.tmp / "x")
-        self.assertEqual(cm.exception.title, "Could not clone a repository from GitHub")
+        self.assertEqual(cm.exception.title, "Could not clone a repository")
+        self.assertIn("GitHub", str(cm.exception.facts))
         self.assertIn("ssh -T git@github.com", cm.exception.steps[0])
         with self.assertRaises(ClientError):
             bad.need_setup()
@@ -302,7 +303,8 @@ class EndToEnd(RepoFixture):
         jid = out.strip()
         self.assertEqual(code, 0)
         self.assertRegex(jid, r"^echo-[2-9a-hj-km-np-z]{6}$")
-        self.assertIn(f"Queued {jid}", out + err)
+        self.assertIn("Queued", out + err)
+        self.assertIn(jid, out + err)
         self.w.fetch()
         self.assertEqual(self.spawned, [jid])
         self.w.execute(jid)
@@ -350,7 +352,8 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         code, out, err = self.run_cli("classes")
         self.assertEqual(code, 0)
-        self.assertIn("What testct can run for you today", out)
+        self.assertIn("What this worker can run for you today", out)
+        self.assertIn("testct", out)
         self.assertIn("careful", out)
         code, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         jid = out.strip()
@@ -391,11 +394,12 @@ class EndToEnd(RepoFixture):
     def test_unknown_and_not_yet_picked_up_jobs(self):
         code, out, err = self.run_cli("result", "job-nosuch1")
         self.assertEqual(code, 1)
-        self.assertIn("No job called job-nosuch1", out + err)
+        self.assertIn("No such job", out + err)
+        self.assertIn("job-nosuch1", out + err)
         _, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         code, out2, err = self.run_cli("result", out.strip())
         self.assertEqual(code, 0)
-        self.assertIn("has no result yet", out2 + err)
+        self.assertIn("No result yet", out2 + err)
 
     def test_prune_and_help_and_bad_commands(self):
         code, out, err = self.run_cli("prune")
@@ -436,7 +440,8 @@ class Waiting(RepoFixture):
         _, out, _ = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         code, out, err = self.run_cli("result", out.strip(), "--wait", "--timeout", "3")
         self.assertEqual(code, 1)
-        self.assertIn("Stopped waiting after 3 s", out + err)
+        self.assertIn("Stopped waiting", out + err)
+        self.assertIn("3 s", out + err)
         self.assertIn("The job may still run", out + err)
 
     def test_waiting_stops_when_the_worker_locks_itself(self):

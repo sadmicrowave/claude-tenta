@@ -28,7 +28,7 @@ class Source:
     def git(self, *args, check=True):
         r = self._run(["git", "-C", str(self.path), *args], capture_output=True, text=True)
         if check and r.returncode:
-            raise ClientError(f"git {' '.join(args)} failed", (r.stderr or "").strip()[:300])
+            raise ClientError("A git command failed", (r.stderr or "").strip()[:300], facts=[("Command", "git " + " ".join(args))])
         return r
 
     def update(self):
@@ -64,11 +64,11 @@ class Source:
         target = f"{rev}^{{commit}}" if rev else f"refs/heads/{self.branch}"
         r = self.git("rev-parse", "--verify", "-q", target, check=False)
         if r.returncode:
-            raise ClientError(f"Commit {rev} was not found in the release source", "Has it been pushed?", example=f"git ls-remote {self.url}")
+            raise ClientError("A commit was not found in the release source", "Has it been pushed?", example=f"git ls-remote {self.url}", facts=[("Commit", str(rev))])
         sha = r.stdout.strip()
         if self.git("merge-base", "--is-ancestor", sha, f"refs/heads/{self.branch}", check=False).returncode:
-            raise ClientError(f"Commit {short(sha)} is not on {self.branch}", "The worker only installs commits that are on the release branch.",
-                              ["Merge it first, then try again."])
+            raise ClientError("A commit is not on the release branch", "The worker only installs commits that are on the release branch.",
+                              ["Merge it first, then try again."], facts=[("Commit", short(sha)), ("Branch", self.branch)])
         return sha
 
     def changed_files(self, old, new):

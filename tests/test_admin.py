@@ -137,7 +137,8 @@ class WakeAndAudit(AdminBase):
         self.ctx.workers_file = self.tmp / "workers.toml"
         code, out, err = self.admin("wake", "--worker", "nobody")
         self.assertEqual(code, 2)
-        self.assertIn("no worker called 'nobody'", out + err)
+        self.assertIn("There is no such worker", out + err)
+        self.assertIn("nobody", out + err)
         self.assertEqual(self.ssh.calls, [])
         self.assertIs(self.ctx.for_worker("testct"), self.ctx)                    # the main worker answers to its own name
 
@@ -286,6 +287,9 @@ class Fleet:
         if self.fail:
             raise RuntimeError("network down")
 
+    def registry_info(self):
+        return None                                   # the real ClientRepos reads registry.json from the results clone; a stand-in worker published none
+
 
 class WorkersCommand(AdminBase):
     NOW = datetime_now = None
@@ -381,19 +385,21 @@ ANSI_ = __import__("re").compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
-           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2}
+           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
 
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
         lines = workers_mod.cards([self.ROW], width=80, color=False)                       # plain (a pipe): the name, then labelled rows
         self.assertEqual(lines[0], "TESTCT")
-        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "INSTALLED"):
+        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "CLASSES", "PACKAGES"):
             self.assertTrue(any(l.startswith("  " + label) for l in lines), label)
-        self.assertTrue(any(l.startswith("  INSTALLED") and l.endswith("2 classes, 1 package") for l in lines))
+        self.assertTrue(any(l.startswith("  CLASSES") and l.endswith("alpha") for l in lines))                   # the classes by name, one per line
+        self.assertTrue(any(l.strip() == "beta" for l in lines))
+        self.assertTrue(any(l.startswith("  PACKAGES") and l.endswith("1 package") for l in lines))
         values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("  ") and len(l) > 12}
         self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
         framed = [ANSI_.sub("", x) for x in workers_mod.cards([self.ROW], width=80, color=True)]            # on a terminal: one framed card per worker
         self.assertTrue(any(x.startswith("╭─ testct") for x in framed))
-        self.assertTrue(any(x.startswith("│ INSTALLED") for x in framed))
+        self.assertTrue(any(x.startswith("│ CLASSES") for x in framed))
 
     def test_no_line_is_longer_than_the_card_width_so_nothing_wraps(self):
         long = dict(self.ROW, claude="account: " + "x" * 200)
@@ -447,7 +453,8 @@ class UpdateCommand(AdminBase):
         finally:
             cli.selfupdate.checkout_root = orig
         self.assertEqual(code, 0)
-        self.assertIn("release-9.9.9 is available", out + err)
+        self.assertIn("A new release is available", out + err)
+        self.assertIn("release-9.9.9", out + err)
         self.assertIn("Fixes others", out + err)
         self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), self.old)            # nothing was updated
         self.assertEqual(self.ssh.calls, [])
@@ -704,7 +711,7 @@ class ActionRemoveAndList(ActionBase):
         before = self.main_registry()
         code, _, err = self.admin("action", "add", str(self.pack), "--yes")
         self.assertEqual(code, 0, err)
-        self.assertIn("already registered", err)
+        self.assertIn("Already registered", err)
         self.assertEqual(self.main_registry(), before)
 
     def test_the_same_program_under_a_second_name_is_refused(self):
@@ -713,7 +720,8 @@ class ActionRemoveAndList(ActionBase):
                          "classes:\n  fan-two:\n    kind: privileged\n    action: fan-two\n")
         code, _, err = self.admin("action", "add", str(other), "--yes")
         self.assertEqual(code, 2)
-        self.assertIn("already registered, as 'fan-profile'", err)
+        self.assertIn("That program is already registered", err)
+        self.assertIn("fan-profile", err)
         self.assertNotIn("fan-two", self.main_registry())
 
     def test_list_shows_each_action_with_its_pin_and_class(self):
@@ -728,7 +736,8 @@ class ActionRemoveAndList(ActionBase):
         code, _, err = self.admin("action", "lst")
         self.assertEqual(code, 2)
         self.assertNotIn("usage:", err)
-        self.assertIn("accepts: add, remove, list", err)
+        self.assertIn("The choices are: add, remove, list", err)
+        self.assertIn("lst", err)
         self.assertIn("ct-admin action list", err)
         code, _, err = self.admin("statu")
         self.assertIn("ct-admin status", err)
@@ -910,7 +919,8 @@ class JobTests(AdminBase):
     def test_a_job_that_is_nowhere_is_an_error(self):
         code, _, err = self.admin("approve", "nothing-here")
         self.assertEqual(code, 2)
-        self.assertIn("No job called nothing-here", err)
+        self.assertIn("No such job", err)
+        self.assertIn("nothing-here", err)
 
     def test_bad_ids_are_refused_before_any_command_is_built(self):
         for cmd in (["approve", "A;rm"], ["cancel", "x y"], ["kill", "../x"]):

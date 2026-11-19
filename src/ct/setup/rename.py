@@ -32,7 +32,7 @@ def render_plan(steps, old, new, *, where):
     rows = []
     for title, lines in steps:
         rows += [cards.Heading(title), cards.Block([ln if len(ln) <= 78 else ln[:77] + "…" for ln in lines] or ["(nothing to do)"])]
-    ui.say(f"Rename {old} to {new} {where}", *rows, ("Kept", "your job history, secrets, deploy keys, the approver key and every setting. Only the name changes."),
+    ui.say("Rename the install", ("From", old), ("To", new), ("Where", where), *rows, ("Kept", "your job history, secrets, deploy keys, the approver key and every setting. Only the name changes."),
            tag="PREVIEW", color=ui.PRIMARY, stream=sys.stderr)
 
 
@@ -83,15 +83,15 @@ class Rename:
         if self.new == self.old:
             raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
         if not self.host.run(["id", self.cfg.server.worker_user]).ok:                  # before anything is touched: a plan written for an account that does not exist stops halfway
-            raise SetupError(f"The worker account {self.cfg.server.worker_user} does not exist on this machine", "Nothing was changed.",
-                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."])
+            raise SetupError("The worker account does not exist on this machine", "Nothing was changed.",
+                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."], facts=[("Account", str(self.cfg.server.worker_user))])
         self.cfg2 = load_new_config(self.text, self.new, self.old, self.legacy)
         for label, before, after in self.moves():
             if self.host.exists(after):
-                raise SetupError(f"{after} already exists", "Something else is using the new name's folder, so nothing was changed.")
+                raise SetupError("That name already exists", "Something else is using the new name's folder, so nothing was changed.", facts=[("Name", str(after))])
         for part in render.UNITS:
             if self.host.exists(f"/etc/systemd/system/{self.cfg2.unit(part)}"):
-                raise SetupError(f"A service named {self.cfg2.unit(part)} already exists", "Something else is using the new name, so nothing was changed.")
+                raise SetupError("A service with that name already exists", "Something else is using the new name, so nothing was changed.", facts=[("Service", str(self.cfg2.unit(part)))])
         running = self.host.run(["sh", "-c", f"ls {self.cfg.path('state')}/running 2>/dev/null | head -1"]).out.strip()
         if running:
             raise SetupError("A job is running", f"{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.")
@@ -188,10 +188,10 @@ class Rename:
             for a in actions:
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "disable")):
-                    raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
+                    raise SetupError("A rename step failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
                                      ["Run the failing command by hand to see its full error and clear the cause (the message above shows the command), then run the same ct-setup rename command again: it carries on from where it stopped and skips what is already done.",
                                       "The folders may already be under the new name; that is expected and the command copes with it.",
-                                      f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."])
+                                      f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."], facts=[("Step", title)])
             self.say(STYLER.note("done", title))
         self.report.append(("rename", "done", f"{self.old} -> {self.new}"))
         return self.report

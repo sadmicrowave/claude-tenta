@@ -54,9 +54,9 @@ class Proposals:
 
     def check_name(self, branch):
         if branch in RESERVED or not BRANCH_OK.match(branch):
-            raise ClientError(f"{branch!r} is not a branch you can merge", "main, jobs and data are managed by the system.", example="ct-admin proposals")
+            raise ClientError("That is not a branch you can merge", "main, jobs and data are managed by the system.", example="ct-admin proposals", facts=[("Branch", branch)])
         if not self.repos.remote_branch_exists(branch):
-            raise ClientError(f"No branch called {branch} on GitHub", example="ct-admin proposals")
+            raise ClientError("No such branch on GitHub", example="ct-admin proposals", facts=[("Branch", branch)])
 
     def files(self, branch):
         return self.git("diff", "--name-only", f"{self.base}...origin/{branch}").stdout.split()
@@ -82,11 +82,11 @@ class Proposals:
         ref = f"origin/{branch}"
         t = self.git("merge-tree", "--write-tree", self.base, ref, check=False)
         if t.returncode:
-            raise ClientError(f"{branch} does not merge cleanly into main", t.stdout.strip() or None, [f"In your copy of the queue repository: git fetch origin && git checkout {branch} && git rebase origin/main, resolve any conflict it stops at, then git push --force-with-lease.", "Then run this again."])
+            raise ClientError("A branch does not merge cleanly into main", t.stdout.strip() or None, [f"In your copy of the queue repository: git fetch origin && git checkout {branch} && git rebase origin/main, resolve any conflict it stops at, then git push --force-with-lease.", "Then run this again."], facts=[("Branch", branch)])
         tree = t.stdout.split()[0]
         subjects = self.git("log", "--reverse", "--format=%s", f"{self.base}..{ref}").stdout.strip().splitlines()
         if not subjects:
-            raise ClientError(f"{branch} has nothing that is not already in main")
+            raise ClientError("A branch has nothing that is not already in main", facts=[("Branch", branch)])
         body = self.git("log", "-1", "--format=%b", ref).stdout.strip() if len(subjects) == 1 else "\n".join(f"- {x}" for x in subjects)
         body = "\n".join(line for line in body.splitlines() if not line.lower().startswith("co-authored-by:")).strip()
         trailers = sorted({line for line in self.git("log", f"{self.base}..{ref}", "--format=%(trailers:key=Co-Authored-By,valueonly,separator=%x0a)").stdout.splitlines() if line.strip()})

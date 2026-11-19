@@ -663,11 +663,19 @@ class Worker:
                 "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"),
                 "packages": c.get("packages"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
-        info = {"updated": iso(self.clock()), "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
+        when, since_file = iso(self.clock()), self._p("registry.since")
+        try:
+            known = json.loads(since_file.read_text())
+        except (OSError, ValueError):
+            known = {}
+        for name in classes:                                      # when each class first appeared on this worker (a class that was already here when this was added gets that day)
+            classes[name]["installed"] = known.get(name) or when
+        info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
                 "profiling": registry.profiling_rules(reg), "limits": registry.limits_of(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
+            since_file.write_text(json.dumps({n: c["installed"] for n, c in classes.items()}))
             return True
         return False
 

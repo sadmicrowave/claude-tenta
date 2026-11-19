@@ -77,7 +77,8 @@ class Reading(CliBase):
         self.assertEqual((code, json.loads(out)["id"]), (0, "job-0001"))
         code, out = self.run_cli("show", "job-0009")
         self.assertEqual(code, 1)
-        self.assertIn("No job called job-0009", out)
+        self.assertIn("No such job", out)
+        self.assertIn("job-0009", out)
 
     def test_review_shows_the_approval_screen_for_a_profile_run_and_asks_nothing(self):
         self.job("profile-aaa111", "profile-run", argv=["ls", "-l"], what="lists files", expect="instant", est_time_s=1, est_mem_mb=10, flags={"-l": "long"})
@@ -151,7 +152,7 @@ class Approving(CliBase):
         self.assertEqual(self.run_cli("approve", "../x")[0], 2)
         code, out = self.run_cli("approve", "job-0009")
         self.assertEqual(code, 1)
-        self.assertIn("No job called", out)
+        self.assertIn("No such job", out)
 
 
 class Stopping(CliBase):
@@ -196,12 +197,15 @@ class Security(CliBase):
         self.assertIn("Nothing in quarantine", out)
         self.leak()
         code, out = self.run_cli("quarantine")
-        self.assertIn("testct is LOCKED", out)
+        self.assertIn("This worker is LOCKED", out)
+        self.assertIn("testct", out)
         self.assertIn("private_ip", out)
         self.assertIn("job-0001", out)
         code, out = self.run_cli("quarantine", "job-0001")
         self.assertIn(IP, out)                                                                  # the full text, which never left the machine
-        self.assertIn("No quarantined result job-0009", self.run_cli("quarantine", "job-0009")[1])
+        missing = self.run_cli("quarantine", "job-0009")[1]
+        self.assertIn("No quarantined result", missing)
+        self.assertIn("job-0009", missing)
         self.assertIn("No quarantined result", self.run_cli("quarantine", "../x")[1])
         code, out = self.run_cli("unlock")
         self.assertEqual(code, 0)
@@ -240,7 +244,9 @@ class Security(CliBase):
         self.assertIn("job-0001", out)
         self.assertIn("ct-output <job>", out)
         self.assertEqual(self.run_cli("output", "job-0001")[1].strip(), "full trace here")
-        self.assertIn("No kept output for job-0002", self.run_cli("output", "job-0002")[1])
+        kept = self.run_cli("output", "job-0002")[1]
+        self.assertIn("No kept output", kept)
+        self.assertIn("job-0002", kept)
 
     def test_prune_results_reports_what_it_did(self):
         self.job("job-0001")
@@ -286,7 +292,7 @@ class Status(CliBase):
 
     def test_the_time_is_always_utc_so_workers_in_different_zones_read_alike(self):
         code, out = self.run_cli("status")
-        self.assertRegex(out, r"testct, \w{3} \d{4}-\d\d-\d\d \d\d:\d\d UTC")
+        self.assertRegex(out, r"Status, \w{3} \d{4}-\d\d-\d\d \d\d:\d\d UTC")
 
     def test_a_virtual_machine_without_a_temperature_sensor_is_not_an_attention_item(self):
         """Seen on two real VMs: the card said ATTENTION for a heat sensor a virtual machine cannot have."""

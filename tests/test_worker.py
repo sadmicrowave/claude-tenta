@@ -950,6 +950,18 @@ class RegistryInfo(Base):
         self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
         self.assertIn("extra", json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["classes"])
 
+    def test_each_class_carries_the_day_it_was_first_installed_and_keeps_it_when_another_is_added(self):
+        shown = lambda: json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["classes"]          # noqa: E731
+        self.w.publish_registry_info(self.w.load_registry())
+        first = shown()["profile-run"]["installed"]
+        self.assertRegex(first, r"^\d{4}-\d\d-\d\dT")
+        self.w.clock = lambda: __import__("datetime").datetime(2100, 1, 1, tzinfo=__import__("datetime").timezone.utc)                                                  # a later day
+        self.registry_path.write_text(REGISTRY + "  extra:\n    tier: auto\n    run: [/bin/true]\n")
+        self.w.publish_registry_info(self.w.load_registry())
+        later = shown()
+        self.assertEqual(later["profile-run"]["installed"], first)                            # kept
+        self.assertGreater(later["extra"]["installed"], first)                                # the new one is dated when it appeared
+
     def test_the_trusted_registry_is_the_installed_file_never_the_repo(self):
         req = self.tmp / "requester"
         sh("git", "checkout", "-q", "-B", "jobs", "origin/main", cwd=req)

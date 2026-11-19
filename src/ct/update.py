@@ -452,7 +452,7 @@ def main(argv=None):
             return 0 if ok else 1
         if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):
             src, rev, label = fetch_release(cfg, verified=argv[0] == "--verified", rev=argv[1] if len(argv) == 2 else None)
-            _ui.say(f"Installing {label}", ("Release", rev[:9]), tag="INSTALL", color=_ui.PRIMARY, stream=sys.stdout)
+            _ui.say("Installing", ("What", label), ("Release", rev[:9]), tag="INSTALL", color=_ui.PRIMARY, stream=sys.stdout)
         elif len(argv) == 3 and argv[0] == "--local":
             src, rev = argv[1], argv[2]
         else:

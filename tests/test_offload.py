@@ -131,11 +131,11 @@ class Profile(unittest.TestCase):
         spec = off.load_spec("# a comment\ncommand: eslint . --max-warnings 0\nname: lint\nWhat: lints it\nest-time-s: 4\nflag --max-warnings: fail over N\npackage: npm:eslint@9.1.0, apt:jq\n")
         self.assertEqual((spec["command"], spec["name"], spec["what"], spec["est_time_s"]), ("eslint . --max-warnings 0", "lint", "lints it", "4"))
         self.assertEqual((spec["flags"], spec["packages"]), ({"--max-warnings": "fail over N"}, ["npm:eslint@9.1.0", "apt:jq"]))
-        for bad, needle in (("no colon here\n", "expected `key: value`"), ("bogus: 1\n", "unknown field 'bogus'")):
+        for bad, needle in (("no colon here\n", "A line is not `key: value`"), ("bogus: 1\n", "Unknown field")):
             with self.assertRaises(ClientError) as cm:
                 off.load_spec(bad, "my.spec")
             self.assertIn(needle, cm.exception.title)
-            self.assertIn("my.spec line 1", cm.exception.title)
+            self.assertIn("my.spec line 1", str(cm.exception.facts))                       # where it is is a labelled row, not part of the title
 
     def test_the_required_details_are_named_and_the_fix_is_a_command_to_copy(self):
         with self.assertRaises(ClientError) as cm:
@@ -241,7 +241,7 @@ class EndToEnd(RepoFixture):
         self.run_cli("offload", "fit", "--", "nosuchtool")
         code, out, err = self.run_cli("offload", "history")
         self.assertEqual(code, 0)
-        for needle in ("every check of whether a command suits testct", "3 checks", "(1 registered, 2 unknown)", "Worth a look", "2x nosuchtool", "echo", "nosuchtool"):
+        for needle in ("Every check of whether a command suits testct", "3 checks", "(1 registered, 2 unknown)", "Worth a look", "2x nosuchtool", "echo", "nosuchtool"):
             self.assertIn(needle, out)
         rows = json.loads(self.run_cli("offload", "history", "--json", "--verdict", "unknown")[1])
         self.assertEqual([r["command"] for r in rows], ["nosuchtool", "nosuchtool"])
@@ -258,12 +258,14 @@ class EndToEnd(RepoFixture):
         self.assertIn(f"tct-admin adopt {jid} --name my-ls", err)                                        # the remembered name is the suggestion
         code, out, err = self.run_cli("offload", "propose", jid, "--dry-run")
         self.assertEqual(code, 0)
-        self.assertIn("Would register the class 'my-ls'", out + err)
+        self.assertIn("Would register a class", out + err)
+        self.assertIn("my-ls", out + err)
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("registry/my-ls"))                         # a preview pushes nothing
         code, out, err = self.run_cli("offload", "propose", jid)
         self.assertEqual(code, 0)
-        self.assertIn("Proposed the class 'my-ls'", out + err)
+        self.assertIn("Proposed a class", out + err)
+        self.assertIn("my-ls", out + err)
         self.assertIn("tct-admin apply registry/my-ls", out + err)
         text = sh("git", "show", "registry/my-ls:registry.yaml", cwd=self.tmp / "queue.git")
         self.assertIn("my-ls:", text)
@@ -302,7 +304,8 @@ class EndToEnd(RepoFixture):
         self.assertIn("VERDICT  does-not-fit", err)
         code, out, err = self.run_cli("offload", "propose", jid)
         self.assertEqual(code, 0)
-        self.assertIn("Recorded: this command does not fit testct", out + err)
+        self.assertIn("Recorded: this command does not fit", out + err)
+        self.assertIn("testct", out + err)
         self.assertIn("Claude will not offload it again", out + err)
         data = json.loads(sh("git", "show", "data:exclusions.json", cwd=self.tmp / "queue.git"))
         (e,) = data["excluded"]
@@ -346,7 +349,7 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         code, out, err = self.run_cli("offload", "propose", jid)                                     # waiting for approval: no profile yet
         self.assertEqual(code, 2)
-        self.assertIn("has no profile result yet", out + err)
+        self.assertIn("No profile result yet", out + err)
 
     def test_missing_details_stop_the_request_before_anything_is_pushed(self):
         code, out, err = self.run_cli("offload", "profile", "--what", "lists", "--", "ls", "-l")

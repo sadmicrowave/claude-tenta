@@ -62,7 +62,7 @@ class ClientSetup:
             return Result(0)
         r = self.host.run(argv)
         if check and not r.ok:
-            raise SetupError(f"{step} failed", f"`{shlex.join(argv)}` said: {r.out.strip()[:300]}")
+            raise SetupError("A setup step failed", f"`{shlex.join(argv)}` said: {r.out.strip()[:300]}", facts=[("Step", step)])
         return r
 
     def prerequisites(self):

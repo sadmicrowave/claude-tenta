@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import config, sched, transport
-from . import here
 from .repo import ClientError, ClientRepos
 
 
@@ -153,8 +152,13 @@ def decide(cls, views, prefs=None):
 
 
 def rows(choice):
-    """The explanation as card rows: one per worker, in the same words the comparison command uses."""
-    return [(n, f"{v.upper() if v == 'CHOSEN' else v}: {r}") for n, v, r in choice.lines]
+    """The explanation as card rows: for each worker its verdict (a fixed word, CHOSEN in a green chip), the worker's name, and the reason on the line below."""
+    from .. import alias, cards
+    out = []
+    for i, (n, v, r) in enumerate(choice.lines):
+        reason, _, warning = r.partition(", WARNING: ")                       # a warning is a line of its own, in the warning colour, not the end of a sentence about capacity
+        out += (["\n"] if i else []) + [(cards.Chip("CHOSEN") if v == "CHOSEN" else v.upper(), alias.show(n)), ("", reason)] + ([("", cards.Styled([("WARNING: " + warning, "warn")]))] if warning else [])
+    return out
 
 
 @contextlib.contextmanager
@@ -223,16 +227,18 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
     repos_of = repos_of or (lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]))
     make_ctx = make_ctx or (lambda e: ctx if e[0] == ents[0][0] else type(ctx).from_config(e[1]))
     by_name = {e[0]: e for e in ents}
+    from .. import alias
+    forced = alias.resolve(forced, by_name)                            # an alias means its worker
     if forced:
         if forced not in by_name:
-            raise ClientError(f"There is no worker called {forced!r}", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(by_name)}"])
+            raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(by_name)}"], facts=[("Name", forced)])
         e = by_name[forced]
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
         views = gather_shared(ents, repos_of, fetch, home=ctx.home)
-        ch = decide(cls, views, prefs or here.prefs())
+        ch = decide(cls, views, prefs)
         if ch.worker is None:
-            raise ClientError(f"No worker can take a {cls} job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."])
+            raise ClientError("No worker can take this job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."], facts=[("Command", cls)])
         token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)

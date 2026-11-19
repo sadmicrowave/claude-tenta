@@ -51,7 +51,7 @@ class Say(unittest.TestCase):
 
     def test_layout(self):
         out = self.render("Installed", ("Version", "1.2"), ("Where", "here"), "a plain line", tag="DONE", steps=["one", "two"], run=["cmd one", "cmd two"])
-        self.assertEqual(out, "\nDONE  Installed\n\n  Version  1.2\n  Where    here\n  a plain line\n\nNext\n  - one\n  - two\n\nRun this\n\ncmd one\ncmd two\n\n")
+        self.assertEqual(out, "\nDONE  Installed\n\n  Version  1.2\n  Where    here\n\n  a plain line\n\nNext\n  - one\n  - two\n\nRun this\n\ncmd one\ncmd two\n\n")
 
     def test_each_command_is_alone_on_its_own_line(self):
         out = self.render("t", run=["git pull --ff-only", "ct-admin apply"])
@@ -145,7 +145,8 @@ class Help(unittest.TestCase):
         buf = io.StringIO()
         with clean_env(), redirect_stdout(buf):
             clihelp.show_cli_help(["tool", "help", "nope"], "tool", "s", self.sub, self.details, [])
-        self.assertIn("No command called nope", buf.getvalue())
+        self.assertIn("No such command", buf.getvalue())
+        self.assertIn("nope", buf.getvalue())
 
 
 if __name__ == "__main__":
@@ -181,7 +182,7 @@ class TheClipboardIsReallyUsed(unittest.TestCase):
         lines = [theme_strip(x) for x in out.getvalue().splitlines()]
         self.assertIn("copied to your clipboard: ct-admin workers", lines)
         self.assertNotIn("paste it at the prompt", lines)
-        self.assertIn("(CT_COPY=never turns this off)", lines)
+        self.assertNotIn("(CT_COPY=never turns this off)", lines)
 
     def test_over_ssh_no_program_is_used_and_off_means_off(self):
         self.assertIsNone(ui.clipboard_tool(env={"SSH_CONNECTION": "x"}, which=lambda n: "/usr/bin/" + n))

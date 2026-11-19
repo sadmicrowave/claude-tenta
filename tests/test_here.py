@@ -80,14 +80,14 @@ class FolderFile(unittest.TestCase):
         with in_dir(self.d):
             rc, out = run(["nope"], self.cfg)
             self.assertEqual(rc, 2)
-            self.assertIn("no worker called", out)
+            self.assertIn("There is no such worker", out)
             self.assertFalse((self.d / here.FILE).exists())
 
     def test_a_pin_to_a_worker_that_is_gone_names_the_file_and_the_fix(self):
         (self.d / here.FILE).write_text('worker = "gone"\n')
         with in_dir(self.d), self.assertRaises(ClientError) as c:
             cli.pinned_worker(self.cfg, "pytest")
-        self.assertIn(here.FILE, c.exception.title)
+        self.assertIn(here.FILE, str(c.exception.facts))
         self.assertIn("ct-run use --clear", c.exception.steps)
 
     def test_a_broken_file_is_reported_with_the_real_error(self):
@@ -113,7 +113,7 @@ class Warnings(FolderFile):
             rc, out = run(["pentest", "--command", "nmap"], self.cfg)
             self.assertEqual(rc, 0)
             self.assertIn("Not added", out)
-            self.assertIn("already goes to pentest", out)
+            self.assertIn("it would change nothing", out)
             self.assertEqual(here.pins_for().commands, {})
             run(["pentest", "--command", "nmap", "--force"], self.cfg)
             self.assertEqual(here.pins_for().commands, {"nmap": "pentest"})
@@ -175,28 +175,67 @@ class ComputerFile(FolderFile):
         self.admin(["pentest", "--command", "nmap"])
         self.assertIsNone(here.find(Path.home()))
 
-    def test_only_reserves_the_worker_for_the_scheduler_and_release_undoes_it(self):
-        self.admin(["pentest", "--command", "nmap", "--only"])
-        self.assertEqual(here.prefs().dedicated, {"pentest": ["nmap"]})
+    def test_a_dedicated_command_leaves_the_worker_free_for_other_work_and_release_undoes_it(self):
+        self.admin(["pentest", "--command", "nmap"])
+        self.assertNotIn("reserved", here.global_path().read_text())
         self.admin(["pentest", "--clear"])
-        self.assertEqual(here.prefs().dedicated, {})
         self.assertFalse(here.global_path().exists())
+
+    def test_an_old_reserved_line_is_ignored_and_dropped_on_the_next_write(self):
+        here.global_path().write_text('reserved = ["pentest"]\n[commands]\nnmap = "pentest"\n')
+        self.assertEqual(here.global_pins().commands, {"nmap": "pentest"})
+        self.admin(["pentest", "--command", "sqlmap"])
+        self.assertNotIn("reserved", here.global_path().read_text())
 
     def test_the_workers_card_and_the_classes_table_show_it(self):
         from ct.admin import workers
-        self.admin(["pentest", "--command", "nmap", "--only"])
+        self.admin(["pentest", "--command", "nmap"])
+        self.admin(["pentest", "--command", "sqlmap"])
         text = workers.dedicated_text(here.global_pins(), "pentest")
-        self.assertEqual(text, "nmap (takes only these)")
+        self.assertEqual(text, "nmap, sqlmap")                                  # a plain list that can grow, nothing about what the machine may not do
         self.assertEqual(workers.dedicated_text(here.global_pins(), "main"), "")
-        out = io.StringIO()
-        from ct.client import view
-        view.render_classes({"classes": {"nmap": {"cost": "light", "tier": "auto", "kind": "command", "run": ["nmap"]}}, "updated": "x", "mem_total_mb": 1, "capacity": 4}, out=out, goes={"nmap": "pentest (every folder)"})
-        self.assertIn("pentest (every folder)", out.getvalue())
 
-    def test_a_worker_with_only_may_not_be_named_without_a_command(self):
-        rc, out = self.admin(["pentest", "--only"])
-        self.assertEqual(rc, 2)
-        self.assertIn("Say which command", out)
+    def test_the_classes_view_says_which_workers_offer_each_class_and_flags_a_dedication_to_one_that_does_not(self):
+        import re
+        from ct.client import view
+        info = {"cost": "light", "tier": "auto", "kind": "command", "run": ["nmap"]}
+        classes = {"nmap": {"info": info, "offered_by": ["a", "b"], "dedicated": "b"},
+                   "sys": {"info": info, "offered_by": ["a"], "dedicated": None},
+                   "scan": {"info": info, "offered_by": ["a"], "dedicated": "b"}}
+        out = io.StringIO()
+        view.render_fleet_classes(classes, [("c", "timed out")], folder_worker="a", out=out)
+        text = re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
+        self.assertIn("b  DEDICATED", text)                                             # the worker's name and a DEDICATED chip on ONE line (no separate line for it)
+        self.assertNotIn("only this worker", text)
+        self.assertIn("DEDICATED  NOT OFFERED", text)                                   # a dedicated class its worker does not offer is flagged
+        self.assertNotIn("every folder", text)
+        self.assertIn("c could not be read (timed out)", text)
+        self.assertIn("ct-run classes --worker", text)
+
+
+class ClassesCarryTheirOwnInstallDate(unittest.TestCase):
+    def render(self, info):
+        import re
+        from ct.client import view
+        out = io.StringIO()
+        view.render_classes(info, out=out, product="w1")
+        return re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
+
+    def test_each_class_has_an_installed_row_and_the_worker_facts_come_first(self):
+        info = {"updated": "2026-11-19T04:39:32Z", "mem_total_mb": 1935, "capacity": 4,
+                "classes": {"a": {"cost": "light", "tier": "auto", "kind": "command", "run": ["x"], "installed": "2026-11-18T10:00:00Z"}, "b": {"cost": "heavy", "tier": "approve", "kind": "profile"}}}
+        text = self.render(info)
+        self.assertNotIn("Installed as of", text)                                       # one date for several classes said nothing about which
+        self.assertIn("INSTALLED  2026-11-18 10:00 UTC", text)
+        self.assertIn("not recorded (this worker runs an older release)", text)         # a worker that has not recorded it says so
+        self.assertLess(text.index("MEMORY"), text.index("CLASS "))
+        self.assertIn("REGISTRY   last changed 2026-11-19 04:39 UTC", text)
+
+    def test_where_puts_a_warning_on_a_line_of_its_own(self):
+        from ct import sched
+        from ct.client import place
+        rows = place.rows(sched.Choice("a", [("a", "CHOSEN", "4 of 4 free, WARNING: sends over github, but the worker listens on direct")]))
+        self.assertEqual([r[1] if not hasattr(r[1], "plain") else r[1].plain() for r in rows], ["a", "4 of 4 free", "WARNING: sends over github, but the worker listens on direct"])
 
 
 if __name__ == "__main__":

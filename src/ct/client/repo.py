@@ -24,9 +24,10 @@ PENDING = ("awaiting_approval", "running", "queued")        # a job in one of th
 class ClientError(Exception):
     """Something the person can act on; the message says what and how."""
 
-    def __init__(self, title, why=None, steps=None, example=None):
+    def __init__(self, title, why=None, steps=None, example=None, facts=None):
+        """`title` is a fixed sentence; what a person named (a worker, a job, a class, a file, a host) goes in `facts`, a list of (label, value) rows, never in the title."""
         super().__init__(title)
-        self.title, self.why, self.steps, self.example = title, why, steps or [], example
+        self.title, self.why, self.steps, self.example, self.facts = title, why, steps or [], example, list(facts or [])
 
 
 class ClientRepos:
@@ -59,7 +60,7 @@ class ClientRepos:
     def git(self, repo, *args, check=True, env=None, input=None):
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=self._net_env(env), input=input)
         if check and r.returncode:
-            raise ClientError(f"git {' '.join(args)} failed in {repo}", r.stderr.strip())
+            raise ClientError("A git command failed", r.stderr.strip(), facts=[("Command", "git " + " ".join(args)), ("Folder", str(repo))])
         return r
 
     def is_set_up(self):
@@ -86,7 +87,7 @@ class ClientRepos:
             if r.returncode:
                 from .. import clonediag
                 cause, meaning, steps = clonediag.classify(r.stderr, kind=self.kind, admin=self.admin_target, path=urlparse(url).path, host=urlparse(url).hostname or "")
-                raise ClientError(f"Could not clone a repository from {self.where}", f"{url}: {' '.join(r.stderr.split())[:400]}" + (f" ({meaning})" if meaning else ""), steps or self.unreachable_steps)
+                raise ClientError("Could not clone a repository", f"{url}: {' '.join(r.stderr.split())[:400]}" + (f" ({meaning})" if meaning else ""), steps or self.unreachable_steps, facts=[("From", self.where)])
             rows.append(("cloned", str(path)))
         return rows
 
@@ -135,7 +136,7 @@ class ClientRepos:
     def _plumb(self, env, *a, **kw):
         r = subprocess.run(["git", "-C", str(self.queue), *a], env=env, capture_output=True, text=True, **kw)
         if r.returncode:
-            raise ClientError(f"git {' '.join(a)} failed", r.stderr.strip())
+            raise ClientError("A git command failed", r.stderr.strip(), facts=[("Command", "git " + " ".join(a))])
         return r.stdout.strip()
 
     def push_files(self, branch, files, msg, base=None, retries=8, remove=()):
@@ -164,10 +165,10 @@ class ClientRepos:
                 self.fetch_queue()
                 missing = [p for p in files if self.git(self.queue, "cat-file", "-e", f"origin/{branch}:{p}", check=False).returncode]
                 if missing:                                          # a push that succeeded is not proof it is there: say so loudly rather than report a job sent that the worker will never see
-                    raise ClientError(f"{', '.join(missing)} did not arrive on {branch} of {self.where}", "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.")
+                    raise ClientError("A file did not arrive on the branch", "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.", facts=[("Files", ", ".join(missing)), ("Branch", branch), ("On", self.where)])
                 return commit
             self._sleep(random.uniform(0.2, 1.5) if self._sleep is time.sleep else 2)          # a rejected push means someone else pushed first: a short random pause so a burst does not retry in step
-        raise ClientError(f"Could not push to branch {branch} on {self.where}", "Check your connection and access, then try again.", self.unreachable_steps)
+        raise ClientError("Could not push to the branch", "Check your connection and access, then try again.", self.unreachable_steps, facts=[("Branch", branch), ("On", self.where)])
 
     # ---- the results repo ----
     def pull_results(self, max_age=0):

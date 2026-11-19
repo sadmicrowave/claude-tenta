@@ -71,7 +71,7 @@ def offer_copy(run, stream):
         stream.flush()
     except (OSError, ValueError):
         return []
-    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream), paint("(CT_COPY=never turns this off)", DIM, stream=stream)]
+    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream)]
 
 
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
@@ -91,6 +91,7 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
     width = max([len(d[0]) for d in lines if isinstance(d, tuple)] or [0])
     if lines:
         out.append("")
+        prev = None
         for d in lines:
             if isinstance(d, tuple):
                 out.append(f"  {paint(d[0].ljust(width), BOLD, stream=stream)}  {d[1].plain() if isinstance(d[1], cards.Styled) else d[1]}")
@@ -101,7 +102,10 @@ def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next"
             elif isinstance(d, cards.Heading):
                 out += ["", f"  {paint(str(d).upper(), BOLD, stream=stream)}"]
             else:
+                if d != "\n" and isinstance(prev, (tuple, cards.Block, cards.Why)):          # the same rule in plain text: a note after labelled rows follows a blank line
+                    out.append("")
                 out.append("" if d == "\n" else f"  {d}")
+            prev = d
     if steps:
         out += ["", paint(steps_label, BOLD, stream=stream)] + [f"  - {x}" for x in steps]
     if run:
@@ -127,12 +131,14 @@ def show(lines, stream=None):
     print("\n".join(lines), file=stream or sys.stdout)                                                   # output: pre-drawn lines
 
 
-def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), framed=True, as_diff=False):
+def document(title, text, *, tag="SHOW", color=None, stream=None, notes=(), framed=True, as_diff=False, reflow=False):
     """The text of something (a job file, a kept output) as a card with the text inside it, for a person at a terminal. Piped, only the text is printed, exactly as it
     is, so a script can read it."""
     stream = stream or sys.stdout
     if _color_on(stream):
         lines = diffview.lines(text, diffview.room(framed)) if as_diff else (str(text).rstrip("\n").split("\n") or [""])
+        if reflow and not as_diff:                                                                 # prose (a help text): a long line wraps at a word, its continuation under where its words began
+            lines = [piece for line in lines for piece in cards.reflow(line, diffview.room(framed))]
         if not str(text).strip():
             lines = [theme.sgr("(nothing to show)", "muted")]                          # never an empty box
         out = [""] + cards.card(title, [*notes, cards.Block(lines)], tag=tag, color=color or PRIMARY, framed=framed)

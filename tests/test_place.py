@@ -27,11 +27,14 @@ class FakeRepos:
         self.fail = fail
         (self.results / "worker-state.json").write_text(json.dumps({"updated": "2999-01-01T00:00:00Z", "name": "x", "hardware": {"cores": 4, "capacity": capacity}, "isolation": {"ready": True},
                                                                   "locked": locked, "classes": list(classes), "observed": {"running": running, "waiting": waiting, "load_1m": 0.1}}))
-        (self.results / "registry.json").write_text(json.dumps({"classes": {c: {"kind": "command", "cost": "light"} for c in classes}, "capacity": capacity}))
+        (self.results / "registry.json").write_text(json.dumps({"classes": {c: {"kind": "command", "cost": "light", "tier": "auto", "run": [c]} for c in classes}, "capacity": capacity}))
 
     def pull_results(self):
         if self.fail:
             raise OSError(self.fail)
+
+    def need_setup(self):
+        pass
 
     def registry_info(self):
         return json.loads((self.results / "registry.json").read_text())
@@ -69,22 +72,22 @@ class Setup(unittest.TestCase):
 
 
 class Dedicated(Setup):
-    """The computer's ~/.tenta.toml reaches the scheduler: a worker reserved for its commands gets nothing else, and its command goes only there."""
+    """A command dedicated to a worker in ~/.tenta.toml goes only there. The worker is NOT reserved: it stays in the running for every other command."""
 
     def tearDown(self):
         from ct.client import here
         here.global_path().unlink(missing_ok=True)
 
-    def test_a_reserved_worker_takes_only_its_command_and_that_command_goes_only_there(self):
+    def test_the_dedicated_command_goes_there_and_the_worker_still_takes_other_work(self):
         from ct.client import here
-        for n in ("mini", "vmx", "ghx"):
+        for n in ("vmx", "ghx"):
             self.add(n, classes=("sys-status", "nmap"))
-        self.add("vmx", classes=("sys-status", "nmap"), running=4)             # the dedicated one is the busiest: it still gets nmap, and nothing else
-        here.save(here.Pins(here.global_path(), commands={"nmap": "vmx"}, reserved=["vmx"]))
+        self.add("mini", classes=("sys-status", "nmap"), running=3)                      # the dedicated worker is the busiest: it is still not left out
+        here.save(here.Pins(here.global_path(), commands={"nmap": "mini"}))
+        self.assertEqual(here.pin_for("nmap")[0], "mini")                                # sending nmap is forced there (cli.route_submit), however busy it is
         (_, ch), _, _ = self.route(cls="sys-status")
-        self.assertNotEqual(ch.worker, "vmx")
-        self.assertIn("reserved for nmap", dict((n, r) for n, _, r in ch.lines)["vmx"])
-        self.assertEqual(here.pin_for("nmap")[0], "vmx")                       # sending nmap is forced there (cli.route_submit), however busy the others are
+        self.assertEqual(ch.worker, "vmx")
+        self.assertEqual(dict((n, v) for n, v, _ in ch.lines)["mini"], "not chosen")      # still eligible for the other command, not left out
 
 
 class Routing(Setup):
@@ -170,6 +173,36 @@ class TheWhereCommand(Setup):
         self.assertEqual(rc, 0)
         for word in ("vmx", "CHOSEN", "more capacity free", "down", "--worker vm"):
             self.assertIn(word, text)
+
+
+class TheClassesCommand(Setup):
+    def test_with_several_workers_each_class_says_which_workers_offer_it(self):
+        self.add("mini", classes=("sys-status", "nmap"))
+        self.add("vmx", classes=("sys-status",))
+        self.add("ghx", fail="down")
+        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="ct-admin")
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+                redirect_stdout(out), redirect_stderr(err):
+            rc = cli.main(["classes"], ctx=main, cfg=self.cfgs["mini"])
+        text = out.getvalue() + err.getvalue()
+        self.assertEqual(rc, 0, text)
+        import re
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        block = lambda c: re.split(rf"CLASS\s+{c}\n", plain)[1].split("COST")[0]           # noqa: E731  (the rows of one class)
+        self.assertRegex(block("sys-status"), r"RUNS ON\s+mini\n\s+vmx\n")                  # each worker on its own line under the value column
+        self.assertIn("mini", block("nmap"))
+        self.assertNotIn("vmx", block("nmap"))
+        self.assertIn("ghx could not be read", text)
+
+    def test_an_unknown_worker_name_is_refused_with_the_list(self):
+        self.add("mini")
+        main = mock.Mock(repos=self.repos["mini"], product="mini")
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("ct.client.place.entries", self.ents), redirect_stdout(out), redirect_stderr(err):
+            rc = cli.main(["classes", "--worker", "nope"], ctx=main, cfg=self.cfgs["mini"])
+        self.assertEqual(rc, 2)
+        self.assertIn("Yours: mini, vmx, ghx", out.getvalue() + err.getvalue())
 
 
 if __name__ == "__main__":

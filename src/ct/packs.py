@@ -340,12 +340,12 @@ def main(argv=None):
     for d in argv[1:]:
         try:
             p = load_pack(d)
-            _ui.say(f"{p.name} {p.version}", ("Classes", str(len(p.classes))),
+            _ui.say("A pack", ("Pack", f"{p.name} {p.version}"), ("Classes", str(len(p.classes))),
                     ("Rules", f"{len(p.policy.deny_commands)} programs and {len(p.policy.deny_params)} patterns refused, {len(p.policy.require_approval)} approval rules"),
                     ("sha256", p.digest[:12]), tag="OK", color=_ui.GREEN, stream=sys.stdout)
         except PackError as e:
             bad += 1
-            _ui.say(f"{d} is not a valid pack", *[("Problem", x) for x in e.problems], tag="FAIL", color=_ui.RED)
+            _ui.say("Not a valid pack", ("Pack", str(d)), *[("Problem", x) for x in e.problems], tag="FAIL", color=_ui.RED)
     return 1 if bad else 0
 
 

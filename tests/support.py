@@ -16,6 +16,7 @@ preflight.require()
 
 # Safety net: no test may ever touch the real home folder (~/.ct, ~/.config, ...). Importing this module points HOME at a throwaway folder.
 os.environ["HOME"] = tempfile.mkdtemp(prefix="ct-test-home-")
+os.chdir(os.environ["HOME"])      # and no test runs from a folder whose parents hold the developer's own .tenta.toml (a folder file is looked for upward from where you are)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ct import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
 from ct import jail as jail_mod  # noqa: E402
