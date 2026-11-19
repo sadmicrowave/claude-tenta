@@ -18,10 +18,20 @@ def _placeholder(act):
     return "<value>"
 
 
+def _subcommands_of(parser):
+    """[(name, one line)] alphabetically, for a command that has commands of its own (ct-run offload log ...)."""
+    out = []
+    for act in parser._actions:
+        if isinstance(act, argparse._SubParsersAction):
+            helps = {c.dest: c.help or "" for c in act._choices_actions}
+            out += [(n, helps.get(n, "")) for n in sorted(act.choices)]
+    return out
+
+
 def _options_of(parser):
     rows = []
     for act in parser._actions:
-        if act.dest == "help":
+        if act.dest == "help" or isinstance(act, argparse._SubParsersAction):
             continue
         if act.option_strings:
             name = ", ".join(act.option_strings) + (f" {_placeholder(act)}" if act.nargs != 0 else "")
@@ -62,6 +72,9 @@ def show_cli_help(argv, prog, summary, sub, details, examples, see=None, groups=
         parser = sub.choices.get(want) if sub is not None else None
         if parser is not None:
             rows += [cards.Heading("Usage"), cards.Block([_usage_of(prog, want, parser)])]
+            subs = _subcommands_of(parser)
+            if subs:
+                rows += [cards.Heading("Commands")] + cmds([(f"{prog} {want} {n}", d) for n, d in subs])
             opts = _options_of(parser)
             if opts:
                 rows += [cards.Heading("Options")] + cmds(opts)
@@ -122,12 +135,12 @@ def usage_problem(err, prog, known=()):
     m = re.search(r"invalid choice: '([^']*)'.*?\(choose from (.*)\)", msg)
     if m:
         bad, choices = m.group(1), sorted(c.strip().strip("'") for c in m.group(2).split(","))                  # listed alphabetically, like the help
-        close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.5)
+        close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.7)                    # only a real near miss is offered as "did you mean"
         top = not sub_cmd
         arg = re.match(r"argument ([A-Za-z_-]+):", msg)
         what = "command" if top else (arg.group(1) if arg and arg.group(1) not in ("cmd",) else "option")             # a positional's own name (verb), else 'option'
         steps = [f"Choose one of: {', '.join(choices)}"] + ([f"Usage: {usage}", f"All of its options: {prog} help {sub_cmd}"] if not top else [f"Every command, with examples: {prog} help"])         # a syntax error always carries the command's own syntax and where its full help is
-        return ("That is not a command" if top else "That is not one of the choices", f"The choices are: {', '.join(choices)}.", steps,
+        return ("That is not a command" if top or what == "command" else "That is not one of the choices", f"The choices are: {', '.join(choices)}.", steps,
                 f"{here} {close[0]}" if close and not top else f"{prog} {close[0]}" if close else None, [(what.capitalize(), bad), ("In", here)])
     m = re.search(r"required: (.*)", msg)
     if m:
