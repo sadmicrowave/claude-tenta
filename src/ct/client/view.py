@@ -231,7 +231,7 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
-def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None):
+def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None, where=None):
     """The job list as cards: the jobs waiting for you (with the commands that approve them), then the table of recent jobs, then what the status words mean."""
     out = out or sys.stdout
     waiting = [r for r in rows if r[1] == "awaiting_approval"]
@@ -246,9 +246,9 @@ def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=No
     table = []
     for when, status, jid, note, cls in shown:
         table.append([when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
-                      "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)])
+                      "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)] + ([where.get(jid, "")] if where is not None else []))
     notes = [f"{jid}: {note}" for _, status, jid, note, _ in shown if note and status != "awaiting_approval"]
-    ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"], table, tag="JOBS", stream=out,
+    ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"] + (["worker"] if where is not None else []), table, tag="JOBS", stream=out,
              notes=("WHEN is your local time, when the job finished (or was submitted, if it has not run). DURATION is how long the run took (so far, if it is still running).", *notes[:8]))
     ui.say("What the status words mean", *[(word, meaning) for word, meaning in STATUS_MEANING], "See one job in full:  ct-run result <job>", tag="LEGEND", color=ui.PRIMARY, stream=out)
 

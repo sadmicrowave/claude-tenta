@@ -16,6 +16,7 @@
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
 """
 import argparse
+from datetime import datetime, timezone
 import json
 import re
 import shlex
@@ -362,25 +363,52 @@ def cmd_result(ctx, a):
     return view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
 
 
-def cmd_jobs(ctx, n=15):
-    r = ctx.repos
-    r.need_setup()
-    r.fetch_queue()
-    r.pull_results()
-    ids = r.result_ids()
-    results = {jid: res for jid in ids if (res := r.read_result(jid))}
+def jobs_of(repos, admin):
+    """(results, rows) for one worker's repositories: its published results and the jobs still waiting on its jobs branch."""
+    repos.need_setup()
+    repos.fetch_queue()
+    repos.pull_results()
+    ids = repos.result_ids()
+    results = {jid: res for jid in ids if (res := repos.read_result(jid))}
     listing = []
-    out = r.git(r.queue, "ls-tree", "--name-only", f"origin/{r.jobs_branch}", "jobs/", check=False).stdout
+    out = repos.git(repos.queue, "ls-tree", "--name-only", f"origin/{repos.jobs_branch}", "jobs/", check=False).stdout
     for path in filter(None, out.split("\n")):
         try:
-            listing.append((Path(path).stem, json.loads(r.show_file(f"origin/{r.jobs_branch}", path) or "")))
+            listing.append((Path(path).stem, json.loads(repos.show_file(f"origin/{repos.jobs_branch}", path) or "")))
         except ValueError:
             pass
 
     def created_of(jid):
         return next((view.parse_when(j.get("created", "")) for i, j in listing if i == jid), None)
-    rows = view.status_rows(results, created_of, None, view.queued_rows(ids, listing, admin=ctx.admin))
-    view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n)
+    return results, view.status_rows(results, created_of, None, view.queued_rows(ids, listing, admin=admin))
+
+
+def cmd_jobs(ctx, n=15, cfg=None):
+    """Your recent jobs. With several workers: every worker's jobs together, newest first, each with the worker it went to (a worker that cannot be reached is named, not silently left out)."""
+    ents = place.entries(cfg) if cfg is not None else []
+    if len(ents) < 2:
+        results, rows = jobs_of(ctx.repos, ctx.admin)
+        where = None
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(e):
+            try:
+                return e[0], jobs_of(ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), ctx.admin), None
+            except Exception as ex:                                                  # one worker that cannot be read is a note, not the end of the list
+                return e[0], ({}, []), (str(getattr(ex, "title", "") or ex).strip().splitlines() or ["no answer"])[0][:100]
+        with ThreadPoolExecutor(max_workers=len(ents)) as pool:
+            got = list(pool.map(one, ents))
+        results, rows, where = {}, [], {}
+        for name, (res, rws), problem in got:
+            results.update(res)
+            rows += rws
+            where.update({r_[2]: alias.show(name) for r_ in rws})
+            if problem:
+                emit("A worker's jobs could not be read", ("Worker", alias.show(name)), ("Why", problem), tag="NOTE", color=YELLOW)
+        floor = datetime.min.replace(tzinfo=timezone.utc)
+        rows.sort(key=lambda r_: r_[0] or floor, reverse=True)
+    view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)
     _ui.related(("Read one result in full", "ct-run result <job>"), ("Send another job", "ct-run submit <class>"), ("Approve a job that is waiting", f"{ctx.admin} approve <job>"))
     return 0
 
@@ -877,7 +905,7 @@ def main(argv=None, ctx=None, cfg=None):
         if a.cmd == "result":
             return cmd_result(place.for_job(ctx, cfg, a.id), a)
         if a.cmd == "jobs":
-            return cmd_jobs(ctx, a.n)
+            return cmd_jobs(ctx, a.n, cfg)
         if a.cmd == "offload":
             return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":

@@ -1,6 +1,7 @@
 """Placing a job on one of several workers: the wiring around ct.sched (reading each worker over its own connection, explaining, remembering where a job went)."""
 import io
 import json
+import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -203,6 +204,48 @@ class TheClassesCommand(Setup):
             rc = cli.main(["classes", "--worker", "nope"], ctx=main, cfg=self.cfgs["mini"])
         self.assertEqual(rc, 2)
         self.assertIn("Yours: mini, vmx, ghx", out.getvalue() + err.getvalue())
+
+
+class TheJobsList(Setup):
+    """ct-run jobs with several workers: every worker's jobs together, newest first, each with its worker; one that cannot be read is named."""
+
+    def rows(self, when, jid):
+        from datetime import datetime, timezone
+        return {jid: {"id": jid, "status": "ok", "class": "sys-status"}}, [(datetime(2026, 11, 19, 12, when, tzinfo=timezone.utc), "ok", jid, "", "sys-status")]
+
+    def run_jobs(self, by_repo):
+        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="ct-admin", label_of=lambda jid, cls: cls, hints=[])
+        out, err = io.StringIO(), io.StringIO()
+
+        def jobs_of(repos, admin):
+            r = by_repo[next(n for n, x in self.repos.items() if x is repos)]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+                mock.patch("ct.client.cli.jobs_of", jobs_of), redirect_stdout(out), redirect_stderr(err):
+            rc = cli.main(["jobs"], ctx=main, cfg=self.cfgs["mini"])
+        return rc, re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue() + err.getvalue())
+
+    def test_jobs_of_every_worker_are_listed_newest_first_with_the_worker(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        rc, text = self.run_jobs({"mini": self.rows(5, "job-aaa111"), "vmx": self.rows(9, "job-bbb222"), "ghx": self.rows(7, "job-ccc333")})
+        self.assertEqual(rc, 0, text)
+        order = [text.index(j) for j in ("job-bbb222", "job-ccc333", "job-aaa111")]
+        self.assertEqual(order, sorted(order))
+        for pair in (("job-bbb222", "vmx"), ("job-ccc333", "ghx"), ("job-aaa111", "mini")):
+            line = [l for l in text.splitlines() if pair[0] in l][0]
+            self.assertIn(pair[1], line)
+
+    def test_a_worker_that_cannot_be_read_is_named_and_the_others_still_listed(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n)
+        rc, text = self.run_jobs({"mini": self.rows(5, "job-aaa111"), "vmx": ClientError("Could not fetch", "network down"), "ghx": self.rows(7, "job-ccc333")})
+        self.assertEqual(rc, 0, text)
+        self.assertIn("could not be read", text)
+        self.assertIn("vmx", text)
+        self.assertIn("job-ccc333", text)
 
 
 if __name__ == "__main__":
