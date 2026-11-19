@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from .. import approvals, claudeupdate, config, render, transport, update
+from . import assess as assess_mod
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
 from .report import sink as _sink
@@ -128,7 +129,7 @@ class ServerSetup:
         if problem:
             raise SetupError("This machine is not supported", problem)
         if not self.dry_run and not self.is_root():
-            raise SetupError("Run this as root", "It creates accounts and installs system files.", ["sudo python3 -m ct.setup server"])
+            raise SetupError("Run this as root", "It creates accounts and installs system files.", [assess_mod.as_admin("debian" if facts.os_id == "debian" else "ubuntu", "python3 -m ct.setup server")])
         self.note("checked the machine", "ok", f"{facts.os_id} {facts.os_version}")
         self.prerequisites()
         return facts
@@ -179,7 +180,7 @@ class ServerSetup:
     def accounts_and_folders(self):
         cfg = self.cfg
         if not self.host.run(["id", cfg.server.admin_user]).ok and not self.dry_run:
-            raise SetupError(f"The account {cfg.server.admin_user!r} does not exist", "It is the account you log in as; create it first.", [f"sudo adduser {cfg.server.admin_user}"])
+            raise SetupError(f"The account {cfg.server.admin_user!r} does not exist", "It is the account you log in as; create it first.", [f"adduser {cfg.server.admin_user}"])
         owner = self.host.run(["stat", "-c", "%U", cfg.path("queue_clone")])             # an install that already exists belongs to the account it was made for
         have = owner.out.strip() if owner.ok else ""
         if have and have not in ("root", "UNKNOWN", cfg.server.worker_user) and self.host.run(["id", have]).ok:

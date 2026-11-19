@@ -262,7 +262,7 @@ def scan_for(hosts, ui, ask, say, notice, interactive, scan=None, resolve=None, 
     if not [d for d in devices if not d.known] and not interactive:
         return None, 1
     if not devices:
-        notice("Nothing to pick from", "No computer on your networks answers on the SSH port.", steps=["Check that the machine is on, on the same network, and that its SSH server runs (sudo systemctl status ssh).",
+        notice("Nothing to pick from", "No computer on your networks answers on the SSH port.", steps=["Check that the machine is on, on the same network, and that its SSH server runs (systemctl status ssh).",
                f"Or give its address yourself: ct-setup {command} box.example"], steps_label="What to try", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return None, 1
     if not interactive:

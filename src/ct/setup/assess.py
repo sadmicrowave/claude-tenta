@@ -13,7 +13,7 @@ SCRIPT = r"""
 echo "OS_ID=$ID"; echo "OS_LIKE=$ID_LIKE"; echo "OS_VERSION=$VERSION_ID"; echo "OS_NAME=$PRETTY_NAME"
 echo "ARCH=$(uname -m)"; echo "KERNEL=$(uname -r)"; echo "CORES=$(nproc 2>/dev/null)"
 echo "MEM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null)"
-echo "DISK_MB=$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
+echo "DISK_MB=$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"; echo "ROOTDEV=$(df -P / 2>/dev/null | awk 'NR==2{print $1}')"
 echo "PYTHON=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
 echo "SYSTEMD=$([ -d /run/systemd/system ] && echo yes || echo no)"
 echo "SUDO=$(command -v sudo >/dev/null 2>&1 && echo yes || echo no)"
@@ -66,6 +66,36 @@ def _ver(text):
     return (int(m.group(1)), int(m.group(2) or 0)) if m else None
 
 
+def as_admin(family, command):
+    """`command` as an administrator types it on THAT system. Debian keeps the root account (with a password) and often has no sudo: `su - -c` (the dash gives root's own PATH, which has the
+    /usr/sbin tools; without it `usermod` is 'command not found', seen on a real Debian 13). Ubuntu locks root and uses sudo."""
+    return f"su - -c '{command}'" if family == "debian" else f"sudo {command}"
+
+
+def fix_no_sudo(family, user):
+    if family == "debian":
+        return f"Log in as root with its password and install sudo, then put the account in its group (this asks for root's password): {as_admin(family, f'apt-get install -y sudo && usermod -aG sudo {user}')}"
+    return f"Ubuntu keeps its root account locked, so do this at the machine's own console as root: apt-get install -y sudo && usermod -aG sudo {user}"
+
+
+def fix_not_in_sudo_group(family, user):
+    if family == "debian":
+        return f"Put the account in the sudo group with root's password (it asks for it), then log in again: {as_admin(family, f'usermod -aG sudo {user}')}"
+    return f"From another account on that machine that already has sudo, then log in again as {user}: sudo usermod -aG sudo {user}"
+
+
+def fix_python(family, installed):
+    if installed:
+        return "Its own release ships an older Python than 3.11. Use Ubuntu 24.04 or newer, or Debian 12 or newer."
+    return f"Install it from the system's own packages: {as_admin(family, 'apt-get install -y python3')}"
+
+
+def fix_disk(family, rootdev):
+    if family == "ubuntu" and (rootdev or "").startswith("/dev/mapper/ubuntu--vg"):
+        return f"Ubuntu's installer often leaves half the disk unused; give it all to the system: sudo lvextend -r -l +100%FREE {rootdev}"
+    return "Free some space on it (or use a bigger disk): the setup needs about 2 GB."
+
+
 def verdict(facts, user="the account"):
     """The verdict for what the script reported (an empty dict means it could not log in)."""
     rows, fixes = [], []
@@ -104,20 +134,21 @@ def verdict(facts, user="the account"):
         disk = int(facts.get("DISK_MB") or 0)
     except ValueError:
         disk = 0
-    add("FAIL" if disk < MIN_DISK_MB else "WARN" if disk < WARN_DISK_MB else "OK", "Disk", f"{disk // 1024} GB free" + (" (5 GB or more is comfortable; Ubuntu's installer often leaves half the disk unused: sudo lvextend -r -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv)" if MIN_DISK_MB <= disk < WARN_DISK_MB else ""),
+    disk_note = ("; " + fix_disk(family, facts.get("ROOTDEV"))) if MIN_DISK_MB <= disk < WARN_DISK_MB else ""
+    add("FAIL" if disk < MIN_DISK_MB else "WARN" if disk < WARN_DISK_MB else "OK", "Disk", f"{disk // 1024} GB free" + (" (5 GB or more is comfortable" + disk_note + ")" if MIN_DISK_MB <= disk < WARN_DISK_MB else ""),
         f"Only {disk // 1024} GB is free; free some space (2 GB is the least)." if disk < MIN_DISK_MB else None)
     py = _ver(facts.get("PYTHON"))
     if py and py >= MIN_PYTHON:
         add("OK", "Python", facts["PYTHON"])
     else:
         add("FAIL", "Python", f"{facts.get('PYTHON') or 'not installed'}: 3.11 or newer is needed",
-            "Install Python 3.11 or newer from the system's own packages (Ubuntu 24.04 and Debian 12 have it): sudo apt-get install python3")
+            fix_python(family, bool(facts.get("PYTHON"))))
     add("OK" if facts.get("SYSTEMD") == "yes" else "FAIL", "Init system", "systemd" if facts.get("SYSTEMD") == "yes" else "not systemd: the worker's timers and services need it",
         None if facts.get("SYSTEMD") == "yes" else "Use a machine that runs systemd (a full Ubuntu or Debian install does).")
     if facts.get("SUDO") != "yes":
-        add("FAIL", "Administrator rights", "sudo is not installed", "Install sudo and add the account to the sudo group: su -c 'apt-get install sudo && usermod -aG sudo " + user + "'")
+        add("FAIL", "Administrator rights", "sudo is not installed", fix_no_sudo(family, facts.get("WHO") or user))
     elif facts.get("SUDO_GROUP") != "yes":
-        add("FAIL", "Administrator rights", f"{facts.get('WHO') or user} is not in the sudo group", f"On the machine: su -c 'usermod -aG sudo {facts.get('WHO') or user}', then log in again.")
+        add("FAIL", "Administrator rights", f"{facts.get('WHO') or user} is not in the sudo group", fix_not_in_sudo_group(family, facts.get("WHO") or user))
     else:
         add("OK", "Administrator rights", f"{facts.get('WHO') or user} may use sudo (the install will ask for its password there; it is never sent anywhere)")
     virt = facts.get("VIRT", "none")

@@ -109,7 +109,7 @@ class Targeted(Base):
         self.assertEqual(self.calls, [])
         self.assertFalse((self.conf_dir / "workers.toml").exists())
         t = self.text()
-        for needle in ("cannot be a worker yet", "Ubuntu 24.04 or newer is needed", "3.10", "sudo apt-get install python3"):
+        for needle in ("cannot be a worker yet", "Ubuntu 24.04 or newer is needed", "3.10", "Use Ubuntu 24.04 or newer"):
             self.assertIn(needle, t)
         self.assertEqual([c[2].get("steps_label") for c in self.cards if c[2].get("steps")], ["How to fix it"])
 

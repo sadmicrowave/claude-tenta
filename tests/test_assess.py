@@ -37,8 +37,10 @@ class Verdict(unittest.TestCase):
     def test_old_python_is_a_failure_that_says_what_to_do(self):
         r = v(PYTHON="3.10")
         self.assertFalse(r.meets)
-        self.assertTrue(any("apt-get install python3" in f for f in r.fixes))
-        self.assertFalse(v(PYTHON="").meets)
+        self.assertTrue(any("newer" in f for f in r.fixes))                                      # its own release's Python is too old: installing python3 would change nothing
+        r = v(PYTHON="")
+        self.assertFalse(r.meets)
+        self.assertTrue(any("apt-get install -y python3" in f for f in r.fixes))
 
     def test_too_little_memory_or_disk_fails_and_a_small_amount_only_warns(self):
         self.assertFalse(v(MEM_MB="512").meets)
@@ -56,7 +58,7 @@ class Verdict(unittest.TestCase):
     def test_an_account_that_cannot_use_sudo_fails_with_the_command_to_fix_it(self):
         r = v(SUDO_GROUP="no")
         self.assertFalse(r.meets)
-        self.assertTrue(any("usermod -aG sudo agent" in f for f in r.fixes))
+        self.assertTrue(any("sudo usermod -aG sudo agent" in f for f in r.fixes))
         self.assertFalse(v(SUDO="no").meets)
 
     def test_a_container_warns_a_vm_and_hardware_do_not(self):
@@ -103,6 +105,38 @@ class Reading(unittest.TestCase):
     def test_an_unreachable_machine_says_to_check_it_is_on(self):
         r = assess.assess("h.example", "agent", 22, self.fake(err="ssh: connect to host h.example port 22: Connection timed out", rc=255))
         self.assertTrue(any("is on" in f for f in r.fixes))
+
+
+class FixesAreExactForTheSystem(unittest.TestCase):
+    """A fix the person types must be the one that works on THEIR system (verified in containers on every release by `scripts/probe --releases fixes`; the printed command there is the one built here).
+    Seen on a real Debian 13: su -c 'usermod ...' says 'usermod: command not found', because su without the dash keeps the account's own PATH, which has no /usr/sbin."""
+
+    def test_debian_uses_root_with_the_login_dash_and_never_sudo_which_it_may_not_have(self):
+        for fix in (assess.fix_no_sudo("debian", "agent"), assess.fix_not_in_sudo_group("debian", "agent"), assess.fix_python("debian", False)):
+            self.assertIn("su - -c '", fix)
+            self.assertNotIn("sudo apt", fix)
+        self.assertIn("su - -c 'usermod -aG sudo agent'", assess.fix_not_in_sudo_group("debian", "agent"))
+        self.assertIn("su - -c 'apt-get install -y sudo && usermod -aG sudo agent'", assess.fix_no_sudo("debian", "agent"))
+
+    def test_ubuntu_uses_sudo_because_its_root_account_is_locked(self):
+        self.assertIn("sudo usermod -aG sudo agent", assess.fix_not_in_sudo_group("ubuntu", "agent"))
+        self.assertNotIn("su ", assess.fix_not_in_sudo_group("ubuntu", "agent").replace("sudo", ""))
+        self.assertIn("sudo apt-get install -y python3", assess.fix_python("ubuntu", False))
+
+    def test_the_disk_advice_names_the_machines_own_volume_and_only_on_ubuntu_with_that_volume(self):
+        self.assertIn("sudo lvextend -r -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv", assess.fix_disk("ubuntu", "/dev/mapper/ubuntu--vg-ubuntu--lv"))
+        self.assertNotIn("lvextend", assess.fix_disk("debian", "/dev/sda1"))
+        self.assertNotIn("lvextend", assess.fix_disk("ubuntu", "/dev/sda2"))
+
+    def test_the_verdict_for_a_debian_machine_gives_the_debian_commands(self):
+        r = v(OS_ID="debian", OS_LIKE="", OS_VERSION="13", OS_NAME="Debian GNU/Linux 13 (trixie)", SUDO_GROUP="no")
+        self.assertTrue(any("su - -c 'usermod -aG sudo agent'" in f for f in r.fixes), r.fixes)
+
+    def test_no_instruction_in_the_source_uses_su_without_the_dash(self):
+        from pathlib import Path
+        import re
+        bad = [str(f) for f in (Path(__file__).resolve().parents[1] / "src" / "ct").rglob("*.py") if f.name != "cards.py" and re.search(r"\bsu -c ", f.read_text())]
+        self.assertEqual(bad, [], "use assess.as_admin")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ALL_ROUTES = ("install", "direct", "switch", "move", "rename", "uninstall")
-ALL_PROBES = ("ownership", "release", "kernel", "locate")
+ALL_PROBES = ("ownership", "release", "kernel", "locate", "fixes")
 
 # (glob on the path from the repository root, extra unit modules, probes, routes). First match that fits adds to the plan; every matching rule counts.
 RULES = [
@@ -19,7 +19,7 @@ RULES = [
     ("src/ct/render.py", ("test_render",), ("kernel",), ("install",)),
     ("templates/*", ("test_render",), ("kernel",), ("install", "direct")),
     ("src/ct/setup/hardening.py", ("test_install",), ("kernel", "release"), ("install", "direct")),
-    ("src/ct/setup/{discover,assess,addworker}.py", ("test_real_outputs",), ("release",), ("direct",)),
+    ("src/ct/setup/{discover,assess,addworker}.py", ("test_real_outputs", "test_assess"), ("release", "fixes"), ("direct",)),
     ("src/ct/setup/detect.py", ("test_real_outputs",), ("release",), ("install",)),
     ("src/ct/setup/*", (), (), ("install", "direct", "switch", "move", "rename", "uninstall")),
     ("src/ct/admin/*", (), (), ("switch", "move", "rename", "uninstall")),
