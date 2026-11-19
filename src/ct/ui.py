@@ -180,5 +180,8 @@ def confirm_prompt(question, stream=None):
     if not _color_on(stream):
         return f"\n  {question} [y/N] "
     cols = max(40, min(__import__("shutil").get_terminal_size((100, 24)).columns, 100))
-    text = __import__("textwrap").fill(question, cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False)
-    return "\n" + theme.sgr("  ❯ " + text + "  [y/N] ", "prompt", "strong")
+    from . import cards
+    import textwrap
+    lines = textwrap.wrap(cards.code_spans(question), cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False) or [""]     # a command in the question is a code chip
+    lines[0], lines[-1] = "  ❯ " + lines[0], lines[-1] + "  [y/N] "
+    return "\n" + "\n".join(cards.inline(lines, ("prompt", "strong")))

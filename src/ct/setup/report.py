@@ -56,10 +56,17 @@ class Styler:
         every line carries the rail. Lengths are counted on the visible text, never on colour codes."""
         cols = self.columns()
         room = max(20, cols - hang - 2)
-        pieces = textwrap.wrap(text, room, break_long_words=True, break_on_hyphens=False) if cols and text else [text]
-        pieces = pieces or [""]
-        paint = (lambda t: self.p(t, *(code or (DIM,)))) if (dim or code) else (lambda t: t)
-        return [self.rail(lead + paint(pieces[0]))] + [self.rail(" " * hang + paint(x)) for x in pieces[1:]]
+        from .. import cards
+        if self.styled and text:                                                       # commands in the text are code chips, however the line is cut
+            pieces = cards.wrap_text(text, room, break_long_words=True, break_on_hyphens=False) if cols else [cards.code_spans(text)]
+            role = {DIM: "muted", BOLD: "strong", RED: "bad", GREEN: "ok", YELLOW: "warn", CYAN: "info"}.get((code or (DIM,))[0]) if (dim or code) else None
+            pieces = cards.inline(pieces, role)
+        else:
+            pieces = textwrap.wrap(text, room, break_long_words=True, break_on_hyphens=False) if cols and text else [text]       # nochip: plain text, no colour to draw a chip in
+            pieces = pieces or [""]
+            paint = (lambda t: self.p(t, *(code or (DIM,)))) if (dim or code) else (lambda t: t)
+            pieces = [paint(x) for x in pieces]
+        return [self.rail(lead + pieces[0])] + [self.rail(" " * hang + x) for x in pieces[1:]]
 
     def head(self, text):
         if not self.styled:

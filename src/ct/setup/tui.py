@@ -16,7 +16,7 @@ import shutil
 import sys
 import textwrap
 
-from .. import theme
+from .. import cards, theme
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 # Roles, not colours: ct.theme decides what they look like (and the user's theme.toml can change them).
@@ -264,7 +264,7 @@ class TuiPrompter:
             return a("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + a("│")
         out = [a("╭─ ") + self.sgr(title, code, BOLD) + a(" " + "─" * max(1, inner - vlen(title) - vlen(tag) - 4) + " ") + self.sgr(tag, code) + a(" ─╮"), row()]
         for line in lines:
-            for t in (textwrap.wrap(line, inner - 2) or [""]):
+            for t in self.inline(cards.wrap_text(line, inner - 2)):
                 out.append(row(t))
         out += [row(), a("╰" + "─" * (inner + 2) + "╯")]
         self.write("\n".join(out) + "\n")
@@ -366,7 +366,7 @@ class TuiPrompter:
 
     def labelled(self, label, code, text, hang=10):
         """A row with a coloured label on the left and wrapped text beside it: RISK, CHOICES, EXAMPLES."""
-        lines = textwrap.wrap(text, max(20, self.width - 4 - hang)) or [""]
+        lines = self.inline(cards.wrap_text(text, max(20, self.width - 4 - hang)))
         return [self.rail(self.sgr(label.ljust(hang), code, BOLD) + lines[0])] + [self.rail(" " * hang + line) for line in lines[1:]]
 
     def controls(self, can_back, options):
@@ -380,9 +380,9 @@ class TuiPrompter:
         for n, (value, desc) in enumerate(rows[start:start + count] if count else rows, start + 1):
             on = value == current
             lead = "  " + self.sgr("▸ " if on else "  ", GREEN) + self.sgr(f"{n} ", DIM) + (self.sgr(value.ljust(name_w), BOLD) if on else value.ljust(name_w)) + "  "
-            lines = textwrap.wrap(desc, max(20, width - name_w - 10)) or [""]
-            out.append(self.rail(lead + self.sgr(lines[0], DIM)))
-            out += [self.rail(" " * (name_w + 8) + self.sgr(line, DIM)) for line in lines[1:]]
+            lines = self.inline(cards.wrap_text(desc, max(20, width - name_w - 10)), DIM)
+            out.append(self.rail(lead + lines[0]))
+            out += [self.rail(" " * (name_w + 8) + line) for line in lines[1:]]
         return out
 
     def select(self, q, default=""):
@@ -401,7 +401,7 @@ class TuiPrompter:
                 start = min(max(0, idx - room // 2), max(0, len(rows_all) - room))
                 above, below = start, max(0, len(rows_all) - start - room)
                 head = [self.rail(self.sgr(f" {section} ", BLUE_CHIP)), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
-                head += [self.rail(self.sgr(line, DIM)) for line in textwrap.wrap(q["why"], w)] + [self.rail()]
+                head += [self.rail(line) for line in self.inline(cards.wrap_text(q["why"], w), DIM)] + [self.rail()]
                 if above:
                     head.append(self.rail(self.sgr(f"  ▲ {above} more above", DIM)))
                 head += self.choice_lines(q, rows_all[idx][0], start, room)
@@ -441,7 +441,7 @@ class TuiPrompter:
         head = [] if bare else [self.progress(pos, total), ""]
         head += self.answered_lines(items) + ([self.rail()] if items else [])
         head += [self.rail(self.sgr(f" {section} ", BLUE_CHIP) + ("" if bare else self.sgr(f"  {pos + 1} of {total}", DIM))), self.rail(), self.rail(self.sgr(q["title"], BOLD))]
-        head += [self.rail(line) for line in self.inline(textwrap.wrap(q["why"], w), DIM)]
+        head += [self.rail(line) for line in self.inline(cards.wrap_text(q["why"], w), DIM)]
         if q.get("risk"):
             head += [self.rail()] + self.labelled("RISK", AMBER, q["risk"])
         if q.get("choices"):
@@ -449,7 +449,7 @@ class TuiPrompter:
         elif q.get("examples"):
             head += [self.rail()] + self.labelled("EXAMPLES", "label", "  ·  ".join(q["examples"]))
         if problem:
-            head += [self.rail()] + [self.rail(line) for line in self.inline(textwrap.wrap("That did not work: " + problem, w), RED)]
+            head += [self.rail()] + [self.rail(line) for line in self.inline(cards.wrap_text("That did not work: " + problem, w), RED)]
         head.append(self.rail())
         shown_fit = shown if len(shown) <= w - 16 else shown[:w - 17] + "…"          # a long default must not wrap the hint onto a second row
         hint = ("Enter keeps: " + shown_fit) if shown else ("this one needs an answer" if q.get("required") else "Enter leaves it empty")
@@ -571,21 +571,21 @@ class TuiPrompter:
         lines = [top]
         gap()
         lines.append(row(self.sgr(info["title"], BOLD)))
-        why = textwrap.wrap(info["why"], inner - 2)
+        why = self.inline(cards.wrap_text(info["why"], inner - 2), DIM)
         for t in (why[:1] if compact else why):
-            lines.append(row(self.sgr(t + ("…" if compact and len(why) > 1 else ""), DIM)))
+            lines.append(row(t + (self.sgr("…", DIM) if compact and len(why) > 1 else "")))
         gap()
         facts = info.get("rows") or []                                       # labelled facts: aligned labels, long values wrapped under themselves
         if facts:
             lw = max(len(k) for k, _ in facts)
             for k, v in facts:
-                for n, part in enumerate(textwrap.wrap(str(v), max(10, inner - lw - 4), break_long_words=True, break_on_hyphens=False) or [""]):
+                for n, part in enumerate(self.inline(cards.wrap_text(str(v), max(10, inner - lw - 4), break_long_words=True, break_on_hyphens=False))):
                     lines.append(row(self.sgr((k if n == 0 else "").ljust(lw), "label") + "  " + part))
             gap()
         for label, code, text in (("Risk  ", frame, info["risk"]), ("Now   ", DIM, info["now"])):
-            wrapped = textwrap.wrap(text, inner - 8) or [""]
+            wrapped = self.inline(cards.wrap_text(text, inner - 8), None if label.startswith("Risk") else DIM)
             for k, part in enumerate(wrapped):
-                lines.append(row(self.sgr(label if k == 0 else "      ", code, "label") + (part if label.startswith("Risk") else self.sgr(part, DIM))))
+                lines.append(row(self.sgr(label if k == 0 else "      ", code, "label") + part))
         gap()
         steps, room, hidden = info["steps"], inner - 6, False
         for s in steps[:max_steps]:
@@ -593,7 +593,7 @@ class TuiPrompter:
             for k, part in enumerate(parts[:max_parts]):
                 part = part.strip("\n")
                 if full:                                                     # everything, long lines wrapped under themselves
-                    pieces = textwrap.wrap(part, room, break_long_words=True, break_on_hyphens=False) or [""]
+                    pieces = textwrap.wrap(part, room, break_long_words=True, break_on_hyphens=False) or [""]      # nochip: these ARE commands (the steps to review), shown as written
                 else:                                                        # a long line is cut short, with a mark saying so
                     pieces = [part[:room - 1] + "…" if len(part) > room else part]
                     hidden = hidden or len(part) > room

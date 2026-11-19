@@ -38,7 +38,7 @@ def review_text(job, facts=None, package_text=None, glance=None, width=None, pro
         L.append("")
 
     def prose(text):
-        return textwrap.wrap(str(text), width) or [""]
+        return textwrap.wrap(str(text), width) or [""]      # nochip: the requester's own words about its job: data to read, never rewritten
     for label, key in (("What it does", "what"), ("Why now", "why"), ("What to expect", "expect"),
                        ("What it reads, writes and contacts", "side_effects"), ("Bad signs to watch for", "watch_for")):
         if job.get(key):
@@ -48,7 +48,7 @@ def review_text(job, facts=None, package_text=None, glance=None, width=None, pro
         fw = max(len(k) for k in flags)
         rows = []
         for k, v in flags.items():
-            wrapped = textwrap.wrap(str(v), max(30, width - fw - 4)) or [""]
+            wrapped = textwrap.wrap(str(v), max(30, width - fw - 4)) or [""]      # nochip: the requester's own words
             rows.append(f"{k:<{fw}}  {wrapped[0]}")
             rows += [" " * (fw + 2) + x for x in wrapped[1:]]
         section("Flags", rows, as_list=True)
