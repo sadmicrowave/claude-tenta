@@ -96,8 +96,12 @@ ct-setup install | add-worker | uninstall | rename | transport | demo | client |
   tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
   demo      try the question and protection screens with sample questions; nothing is saved or changed
-  install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
+  install   everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again
+            (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
+
+Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address;
+          client, server, audit, tripwire-test, demo: the computer they run on.
 
 Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)

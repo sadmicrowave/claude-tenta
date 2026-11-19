@@ -75,10 +75,10 @@ class Base(unittest.TestCase):
             return Inst()
         return make
 
-    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None):
+    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None, command="add-worker"):
         asks = iter(ask or [])
         return addworker.run(a, Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(mutate), interactive=interactive, networks=lambda: [],
-                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice)
+                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, command=command)
 
 
 class Targeted(Base):
@@ -352,6 +352,37 @@ class SettingAWorkerUpAgain(Base):
         self.assertEqual((rc, self.calls), (0, []))
         self.assertIn("already one of your workers", self.text())
 
+    def test_the_scan_waits_for_a_yes_after_a_card_saying_what_it_will_do_and_a_no_scans_nothing(self):
+        scanned = []
+        rc = self.run_flow(args(), ask=["n"], scan=lambda nets, known=(): scanned.append(1) or (self.DEV, []), interactive=True)
+        self.assertEqual((rc, scanned, self.calls), (1, [], []))
+        first = self.cards[0]
+        self.assertEqual((first[0], first[2].get("tag")), ("Scan your network?", "NOTICE"))
+        self.assertTrue(first[2].get("framed"))                                     # the full-border card
+        self.assertIn("Not scanned", self.text())
+
+    def test_the_header_is_drawn_before_the_scan_card_and_a_yellow_waiting_line_runs_only_while_it_scans(self):
+        order = []
+
+        class Ui:
+            def banner(inner, subtitle, unless_shown=False):
+                order.append("banner")
+
+        class Busy:
+            def __init__(inner, text, color=None, **kw):
+                inner.text, inner.color = text, color
+
+            def __enter__(inner):
+                order.append("busy:" + inner.text)
+
+            def __exit__(inner, *a):
+                order.append("done")
+        notice = lambda title, *r, **k: order.append(title)         # noqa: E731
+        addworker.scan_for(set(), Ui(), lambda p: "y", lambda m: None, notice, True, scan=lambda nets, known=(): (order.append("scan") or [], []),
+                           networks=lambda: [], banner="install", busy=Busy)
+        self.assertEqual(order[:2], ["banner", "Scan your network?"])
+        self.assertEqual(order[2:5], ["busy:SCANNING the SSH port on nothing", "scan", "done"])
+
     def test_saying_no_stops_before_anything_is_changed(self):
         rc = self.run_flow(args(name="worker2.example"), ask=["n"], interactive=True)
         self.assertEqual((rc, self.calls), (1, []))
@@ -364,7 +395,7 @@ class Interactive(Base):
     def test_scan_pick_check_confirm_then_install_with_the_address_filled_in(self):
         asked = []
         scan = lambda nets, known=(): (self.DEV, [])                                              # noqa: E731
-        rc = self.run_flow(args(), ask=["1", "agent", "y", "y", ""], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", ""], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
         self.assertEqual(rc, 0, self.text())
         self.assertEqual(asked, [("198.51.100.194", "agent")])
         (c,) = self.calls
@@ -382,15 +413,15 @@ class Interactive(Base):
 
     def test_saying_no_to_the_check_stops_before_anything_is_read(self):
         asked = []
-        rc = self.run_flow(args(), ask=["1", "agent", "n"], scan=lambda nets, known=(): (self.DEV, []), interactive=True, assess_fn=lambda h, u, p=22: asked.append(h) or GOOD)
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "n"], scan=lambda nets, known=(): (self.DEV, []), interactive=True, assess_fn=lambda h, u, p=22: asked.append(h) or GOOD)
         self.assertEqual((rc, asked, self.calls), (1, [], []))
 
     def test_saying_no_after_a_good_result_stops_before_the_install(self):
-        rc = self.run_flow(args(), ask=["1", "agent", "y", "n"], scan=lambda nets, known=(): (self.DEV, []), interactive=True)
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "n"], scan=lambda nets, known=(): (self.DEV, []), interactive=True)
         self.assertEqual((rc, self.calls), (0, []))
 
     def test_nothing_found_says_what_to_try_and_does_not_install(self):
-        rc = self.run_flow(args(), scan=lambda nets, known=(): ([], []), interactive=True)
+        rc = self.run_flow(args(), ask=["y"], scan=lambda nets, known=(): ([], []), interactive=True)
         self.assertEqual((rc, self.calls), (1, []))
         self.assertIn("ct-setup add-worker box.example", self.text())
 
@@ -436,3 +467,38 @@ class TheRealInstaller(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallChoosesTheComputer(SettingAWorkerUpAgain):
+    """`ct-setup install` does not assume a computer: it scans and you pick, or you name one with --worker or an address. The wrong machine's saved answers are never the default."""
+
+    def test_the_worker_named_is_set_up_again_with_its_own_files_without_a_scan(self):
+        scanned = []
+        rc = self.run_flow(args(worker="tenta2", yes=True), command="install", scan=lambda nets, known=(): scanned.append(1) or ([], []))
+        self.assertEqual((rc, scanned), (0, []), self.text())
+        (c,) = self.calls
+        self.assertEqual((c["name"], c["host"], c["conf"], c["home"]), ("tenta2", "worker2.example", self.w_conf, self.w_home))
+
+    def test_a_preview_of_setting_a_worker_up_again_connects_to_nothing_and_changes_nothing(self):
+        rc = self.run_flow(args(worker="tenta2", yes=True, dry_run=True), command="install")
+        self.assertEqual((rc, self.calls), (0, []))
+        self.assertIn("Nothing was connected to or changed", self.text())
+
+    def test_the_first_install_named_by_its_install_name_or_its_address_is_left_to_the_ordinary_install(self):
+        for key in ("claude-tenta", "mini.example"):
+            self.assertIs(self.run_flow(args(worker=key, yes=True), command="install"), addworker.MAIN, key)
+        self.assertIs(self.run_flow(args(name="mini.example", yes=True), command="install"), addworker.MAIN)
+        self.assertEqual(self.calls, [])
+
+    def test_a_name_that_is_nobodys_is_refused_and_the_workers_are_listed(self):
+        rc = self.run_flow(args(worker="nobody", yes=True), command="install")
+        self.assertEqual((rc, self.calls), (2, []))
+        self.assertIn("not one of your workers", self.text())
+        self.assertIn("tenta2", self.text())
+
+    def test_the_scan_is_offered_when_nothing_names_a_computer(self):
+        scanned = []
+        self.run_flow(args(), command="install", ask=["y"], interactive=True, scan=lambda nets, known=(): scanned.append(1) or ([], []))
+        self.assertEqual(scanned, [1])
+        self.assertIn("Nothing to pick from", self.text())
+        self.assertIn("ct-setup install box.example", self.text())

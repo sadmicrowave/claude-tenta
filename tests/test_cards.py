@@ -171,6 +171,29 @@ class InlineCode(unittest.TestCase):
         self.assertIn("code", theme.ROLES)
 
 
+class CommandsInSentencesAreCodeChips(unittest.TestCase):
+    """The standing rule: a command is a code chip wherever it is drawn. A command written in a sentence is found by the card itself, so no message has to remember the backticks."""
+
+    def test_a_command_in_a_sentence_becomes_a_code_span_and_ordinary_words_around_it_do_not(self):
+        for text, want in [("Run ct-setup install again once fixed.", "Run `ct-setup install` again once fixed."),
+                           ("Put it on it: ssh-copy-id agent@192.0.2.5 (it asks once)", "Put it on it: `ssh-copy-id agent@192.0.2.5` (it asks once)"),
+                           ("ct-admin workers lists them.", "`ct-admin workers` lists them."),
+                           ("Give it: ct-setup install box.example", "Give it: `ct-setup install box.example`"),
+                           ("Run ct-admin check and ct-admin status for it.", "Run `ct-admin check` and `ct-admin status` for it."),
+                           ("Fix: ct-setup install --set server.worker_user=abc.", "Fix: `ct-setup install --set server.worker_user=abc`."),
+                           ("Already `ct-run x` here", "Already `ct-run x` here"),
+                           ("No command in this sentence.", "No command in this sentence.")]:
+            self.assertEqual(cards.code_spans(text), want)
+
+    def test_every_place_a_card_shows_text_turns_them_into_chips(self):
+        code = theme.sgr("x", "code").split("x")[0]
+        lines = cards.card("T", ["see ct-admin status now", ("Fix", "run ct-setup install again")], tag="ERROR", color=ui.RED, steps=["Then run ct-admin check."], framed=True)
+        text = "\n".join(lines)
+        for cmd in ("`ct-admin status`", "`ct-setup install`", "`ct-admin check`"):
+            self.assertIn(cmd, re.sub(r"\x1b\[[0-9;]*m", "", text))
+        self.assertGreaterEqual(text.count(code), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
 

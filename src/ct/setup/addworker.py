@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .. import config, ui as _ui
 from ..admin import workers as workers_mod
+from ..client.view import Busy
 from ..ui import GREEN, PRIMARY, RED, YELLOW
 from . import assess as assess_mod, discover, toml_out
 from .server import SetupError
@@ -216,6 +217,60 @@ def existing_worker(target, wfile):
     return None
 
 
+MAIN = object()           # what run() returns when the computer you picked is the first install: the caller carries on with the ordinary install for it
+
+
+def find_worker(cfg, wfile, key):
+    """The worker you mean by `key` (its install name, its address, or the name its configuration is listed under): (MAIN, None) for the first install, ("extra", (name, file, settings)) for one in
+    workers.toml, or None."""
+    if key in (cfg.identity.name, cfg.server.host):
+        return MAIN, None
+    for entry, path in workers_mod.load_list(wfile).items():
+        try:
+            raw = tomllib.loads(Path(path).expanduser().read_text())
+        except (OSError, ValueError):
+            continue
+        if key in (entry, (raw.get("identity") or {}).get("name"), (raw.get("server") or {}).get("host")):
+            return "extra", ((raw.get("identity") or {}).get("name") or entry, Path(path).expanduser(), raw)
+    return None
+
+
+def scan_for(hosts, ui, ask, say, notice, interactive, scan=None, resolve=None, networks=None, command="add-worker", banner=None, busy=None):
+    """Look at the network and let the person pick a computer. Returns (address, None) or (None, exit code). `hosts`: the addresses of the workers you already have (listed as such)."""
+    nets = (networks or discover.local_networks)()
+    where = ", ".join(str(n.network) for _, n in nets) or "nothing"
+    if banner and ui is not None:                                                 # the header comes first: before anything else is asked (the old first question drew it)
+        ui.banner(banner)
+    notice("Scan your network?", ("Looks at", where), ("How", "tries the SSH port on each address there, and reads this computer's list of neighbours; it does not log in to anything"),
+           ("Changes", "nothing on this computer or on any other; no password is asked or sent"), ("Takes", "a few seconds, longer on a large network"),
+           f"It finds the computers you can pick from. If you would rather not scan, say no and give the address yourself: ct-setup {command} box.example",
+           tag="NOTICE", color=PRIMARY, framed=True, stream=sys.stderr)
+    if interactive and ask(_ui.confirm_prompt("Scan the networks above?")).strip().lower() not in ("y", "yes"):          # the person may not want it: nothing has happened yet
+        notice("Not scanned", f"Nothing was done. Give the address of the computer instead: ct-setup {command} box.example", tag="STOPPED", color=YELLOW, stream=sys.stderr)
+        return None, 1
+    lookup, known_addrs = resolve or socket.gethostbyname, set(hosts)
+    configured = {h: h for h in hosts}
+    for h in hosts:                                                                    # a worker you have by name is recognised by its address too
+        try:
+            configured[lookup(h)] = h
+            known_addrs.add(lookup(h))
+        except OSError:
+            pass
+    with (busy or Busy)(f"SCANNING the SSH port on {where}", YELLOW):                 # a yellow chip and a timer while it runs, like a waiting job
+        devices, notes = (scan or discover.scan)(nets, known=known_addrs)
+    found_card(devices, notes, nets, notice)
+    if not [d for d in devices if not d.known] and not interactive:
+        return None, 1
+    if not devices:
+        notice("Nothing to pick from", "No computer on your networks answers on the SSH port.", steps=["Check that the machine is on, on the same network, and that its SSH server runs (sudo systemctl status ssh).",
+               f"Or give its address yourself: ct-setup {command} box.example"], steps_label="What to try", tag="STOPPED", color=YELLOW, stream=sys.stderr)
+        return None, 1
+    if not interactive:
+        notice("Say which computer", "Pass its address to choose without questions.", tag="NEXT", color=YELLOW, run=f"ct-setup {command} <address> --yes", stream=sys.stderr)
+        return None, 1
+    return choose_device(ui, ask, say, devices, configured=configured), None
+
+
 def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive):
     """A worker you already added is set up AGAIN: the current release is sent to it, its protections and connection are checked and repaired, and a first job proves it works, using ITS OWN
     configuration and folder (the plain installer would read the first install's). Everything else stays as it is."""
@@ -225,6 +280,9 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
     notice(f"{name} is already a worker: set it up again", ("Machine", f"{user}@{target}"), ("Its configuration", str(conf)),
            "This sends it the current release, checks and repairs its protections and the connection, and sends a first job. Your other workers, your first install and the commands on your PATH are not touched.",
            tag="AGAIN", color=PRIMARY, stream=sys.stderr)
+    if getattr(a, "dry_run", False):                                      # a preview changes nothing: it said what would happen and stops (found on a real worker: --dry-run went on to connect and run the wizard)
+        notice("Preview only", f"{name} would be set up again as described above. Nothing was connected to or changed.", tag="PREVIEW", color=PRIMARY, run=f"ct-setup install --worker {name}", run_label="To do it", stream=sys.stderr)
+        return 0
     if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
         notice("Stopped", "Nothing was changed.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return 1
@@ -253,7 +311,7 @@ def choose_device(ui, ask, say, devices, user_given=None, configured=None):
     return pick
 
 
-def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan=None, assess=None, resolve=None, notice=None, interactive=None, networks=None):
+def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan=None, assess=None, resolve=None, notice=None, interactive=None, networks=None, command="add-worker"):
     """ct-setup add-worker [ADDRESS] [--user U] [--worker-name N] [--yes]. Returns the exit code."""
     notice = notice or (lambda *x, **k: _ui.say(*x, **k))
     cfg = config.load()
@@ -272,38 +330,25 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if interactive is None:
         interactive = not a.yes and (ui is not None or sys.stdin.isatty())
     target = a.name or None                                                           # the positional word: an address or name to skip the scan
+    if getattr(a, "worker", None):                                                    # named: no scan, no question about which
+        found = find_worker(cfg, wfile, a.worker)
+        if found is None:
+            notice(f"{a.worker} is not one of your workers", f"Your workers: {', '.join(sorted(names))}.", steps=["ct-admin workers lists them with their addresses."], steps_label="What to try", tag="ERROR", color=RED, stream=sys.stderr)
+            return 2
+        if found[0] is MAIN:
+            return MAIN
+        return rerun(a, cfg, wfile, found[1], found[1][2].get("server", {}).get("host") or a.worker, ui, ask, say, notice, installer_factory, interactive)
     if not target:
-        nets = (networks or discover.local_networks)()
-        notice("Scanning your network", f"Looking at {', '.join(str(n.network) for _, n in nets) or 'nothing'} for computers that answer on the SSH port. This takes a few seconds.", tag="SCAN", color=PRIMARY, stream=sys.stderr)
-        lookup, known_addrs = resolve or socket.gethostbyname, set(hosts)
-        for h in hosts:                                                                    # a worker you have by name is recognised by its address too
-            try:
-                known_addrs.add(lookup(h))
-            except OSError:
-                pass
-        configured = {h: h for h in hosts}
-        for h in hosts:
-            try:
-                configured[lookup(h)] = h
-            except OSError:
-                pass
-        devices, notes = (scan or discover.scan)(nets, known=known_addrs)
-        found_card(devices, notes, nets, notice)
-        if not [d for d in devices if not d.known] and not interactive:
-            return 1
-        if not devices:
-            notice("Nothing to pick from", "No computer on your networks answers on the SSH port.", steps=["Check that the machine is on, on the same network, and that its SSH server runs (sudo systemctl status ssh).",
-                   "Or give its address yourself: ct-setup add-worker box.example"], steps_label="What to try", tag="STOPPED", color=YELLOW, stream=sys.stderr)
-            return 1
-        if not interactive:
-            notice("Say which computer", "Pass its address to add one without questions.", tag="NEXT", color=YELLOW, run="ct-setup add-worker <address> --yes", stream=sys.stderr)
-            return 1
-        target = choose_device(ui, ask, say, devices, configured=configured)
+        target, code = scan_for(hosts, ui, ask, say, notice, interactive, scan=scan, resolve=resolve, networks=networks, command=command, banner="install" if command == "install" else "add worker")
+        if target is None:
+            return code
     if target in hosts:
         ex = existing_worker(target, wfile)
         if ex is not None:
             return rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive)
-        notice("That computer is already one of your workers", f"{target} is in your configuration. To change it use ct-setup install; to see it: ct-admin workers.", tag="NOTE", color=YELLOW, run="ct-admin workers", stream=sys.stderr)
+        if command == "install" and target == cfg.server.host:
+            return MAIN
+        notice("That computer is already one of your workers", f"{target} is in your configuration. To set it up again: ct-setup install --worker NAME; to see it: ct-admin workers.", tag="NOTE", color=YELLOW, run="ct-admin workers", stream=sys.stderr)
         return 0
     default_user = a.user or cfg.server.admin_user or os.environ.get("USER", "")
     user = a.user or (ask_one(ui, ask, say, {"key": "worker.user", "title": "Which account should it log in as on that computer?", "why": "The account with SSH key login and sudo rights that you would use to administer it.",
@@ -346,7 +391,7 @@ def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, 
         inst = installer_factory(conf, home, name, server_host, user, suggest)
         screen = ui
         if screen is not None:
-            screen.banner(f"add {name}")
+            screen.banner(f"add {name}", unless_shown=True)
         with (screen.session() if screen is not None else _nullcontext()):
             report = inst.run_all()
     finally:

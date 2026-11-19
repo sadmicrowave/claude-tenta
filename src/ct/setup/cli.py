@@ -9,14 +9,19 @@
   tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
   demo      try the question and protection screens with sample questions; nothing is saved or changed
-  install   everything, from your own computer, in one command: it asks the questions, sets up both sides, sends the release to the server, runs the server
+  install   everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again
+            (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server
             half there, adds the deploy keys to GitHub for you, and sends a first job
+
+Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address;
+          client, server, audit, tripwire-test, demo: the computer they run on.
 
 Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
           --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
 """
 import argparse
 import contextlib
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -59,6 +64,13 @@ def load_answers(path, sets):
     return given
 
 
+# Which computer each command acts on (the standing rule, checked in tests/test_setup_targets.py: a command added here must say which).
+PICKS = ("install",)                                  # one worker, chosen from the network scan (existing ones too) or named with --worker or by address
+PICK_COMMANDS = ("uninstall", "rename", "transport")   # one worker: your first install, or the one named with --worker
+NEW_COMMANDS = ("add-worker",)                        # a computer that is not a worker yet
+LOCAL_COMMANDS = ("client", "server", "audit", "demo", "tripwire-test")     # the computer it runs on; no --worker
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="ct-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
@@ -79,6 +91,7 @@ def build_parser():
         s.add_argument("--mailbox-key-file", help="the public key your computer uses for the Direct mailbox (server only)")
         s.add_argument("name", nargs="?", help="with rename: the new name")
         s.add_argument("--user", help="with add-worker: the account to log in as on the new computer (default: your admin account)")
+        s.add_argument("--worker", metavar="NAME", help="install, uninstall, rename, transport: act on this worker (its install name, address or listed name); without it, install scans and asks, the others act on your first install")
         s.add_argument("--worker-name", help="with add-worker: the new worker's install name (default: made from its hostname)")
         s.add_argument("--port", type=int, default=22, help="with add-worker: its SSH port")
         s.add_argument("--to", help="with rename --here (on the server): the new name")
@@ -92,6 +105,23 @@ def build_parser():
         s.add_argument("--keep-data", action="store_true")
         s.add_argument("--remove-account", action="store_true")
     return ap
+
+
+def aim_at_worker(key):
+    """--worker NAME for the commands that read the configuration: make the configuration that worker's own (the first install's needs nothing). Returns an exit code on a name that is nobody's."""
+    from . import addworker
+    cfg = config.load()
+    if not cfg.source:
+        emit("There is no install yet", "Nothing to point --worker at.", tag="ERROR", color=RED, run="ct-setup install")
+        return 2
+    found = addworker.find_worker(cfg, Path(cfg.source).parent / "workers.toml", key)
+    if found is None:
+        names, _ = addworker.known_workers(cfg, Path(cfg.source).parent / "workers.toml")
+        emit(f"{key} is not one of your workers", f"Your workers: {', '.join(sorted(names))}.", tag="ERROR", color=RED, run="ct-admin workers")
+        return 2
+    if found[0] is not addworker.MAIN:
+        os.environ["CT_CONFIG"] = str(found[1][1])
+    return 0
 
 
 def default_repos(cfg):
@@ -188,6 +218,13 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         return 2
     host = host or Host()
     say = report_mod.sink(sys.stderr)
+    if a.worker and a.cmd in LOCAL_COMMANDS + NEW_COMMANDS:
+        emit(f"ct-setup {a.cmd} has no --worker", "It acts on the computer it runs on." if a.cmd in LOCAL_COMMANDS else "It sets up a computer that is not a worker yet; give its address instead.", tag="ERROR", color=RED)
+        return 2
+    if a.worker and a.cmd in PICK_COMMANDS:
+        rc = aim_at_worker(a.worker)
+        if rc:
+            return rc
     live = []                                                  # the terminal screen in use, if any, so an error can clear it before it is printed
     try:
         if a.cmd == "audit":
@@ -234,7 +271,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                     emit("Moved on this machine", f"The worker now uses {run.to}.", tag="DONE", color=GREEN)
                 return 0
             return migrate.transport_command(a, host, ask, ssh_factory, say)
-        if a.cmd == "add-worker":
+        def worker_flow(command):
             from . import addworker
             from ..admin.ssh import Ssh, family_for
             interactive = not a.yes and sys.stdin.isatty()
@@ -250,7 +287,9 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                                  given={**load_answers(a.answers, a.set), "transport.kind": main.transport.kind, **suggest}, ui=screen_, advanced=False, use_defaults=not interactive, dry_run=False,
                                  repos_factory=repos_factory or default_repos, wait_for_keys=900, home=home, config_path=conf, targeted=True, suggest=flat_main,
                                  verify=verify or (lambda cfg: default_verify(cfg, say=say)))
-            return addworker.run(a, host, ask, ssh_factory, say, ui=screen_, installer_factory=installer_factory, interactive=interactive)
+            return addworker.run(a, host, ask, ssh_factory, say, ui=screen_, installer_factory=installer_factory, interactive=interactive, command=command)
+        if a.cmd == "add-worker":
+            return worker_flow("add-worker")
         if a.cmd == "tripwire-test":
             from . import tripwire
             cfg = config.load()
@@ -269,13 +308,29 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
         if a.cmd == "uninstall":
             return uninstall_command(a, host, ask, ssh_factory, say)
         given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}
+        if a.cmd == "install" and not a.here and "server.host" not in given and (a.worker or a.name or (not a.yes and sys.stdin.isatty())):
+            from . import addworker                                     # install does not assume a computer: it scans, and you pick one of yours (set up again) or a new one; --worker NAME or an address skips the scan
+            cfg0 = config.load()
+            if cfg0.source:
+                rc = worker_flow("install")
+                if rc is not addworker.MAIN:
+                    return rc
+                given["server.host"] = cfg0.server.host
+            else:                                                       # the very first install: nothing is configured, so the only question is which computer
+                target = a.name
+                if not target:
+                    ui0 = tui.make(interactive=True)
+                    target, code = addworker.scan_for(set(), ui0, ask, say, lambda *x, **k: _ui.say(*x, **k), True, command="install", banner="install")
+                    if target is None:
+                        return code
+                given["server.host"] = target
         if a.cmd == "install":
             from ..admin.ssh import Ssh, family_for
             interactive = not a.yes and sys.stdin.isatty()
             screen_ = tui.make(interactive=interactive)
             live.append(screen_)
             if screen_ is not None and not a.no_banner:
-                screen_.banner("install preview" if a.dry_run else "install")
+                screen_.banner("install preview" if a.dry_run else "install", unless_shown=True)
             inst = Installer(a.source, ssh_factory=ssh_factory or (lambda h, u, p: Ssh(h, u, p)), local=host, say=say, ask=ask if interactive else None, given=given,
                              ui=screen_, advanced=a.advanced, verbose=a.verbose,
                              use_defaults=not interactive, dry_run=a.dry_run, repos_factory=repos_factory or default_repos, wait_for_keys=a.wait_for_keys or 900,

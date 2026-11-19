@@ -55,6 +55,54 @@ def width(stream=None, cols=None):
     return max(50, min(cols, 100))
 
 
+PROGRAMS = ("ct-setup", "ct-admin", "ct-run", "ct-worker", "ct-update")
+NESTED = {"add", "remove", "list", "pre", "post", "profile", "log", "hook", "direct", "github", "help"}       # words that follow a command word: ct-admin action add, ct-run offload log hook pre, ct-setup transport direct
+_SUBS = []
+
+
+def subcommands():
+    """Every command word the three tools have, read from their own parsers once (so a new command is a command here too, with nothing to keep in step)."""
+    if not _SUBS:
+        found = set(NESTED)
+        for mod in ("client", "admin", "setup"):
+            try:
+                import importlib
+                parsed = importlib.import_module(f"ct.{mod}.cli").build_parser()
+                sp = parsed[1] if isinstance(parsed, tuple) else next(a for a in parsed._actions if hasattr(a, "choices") and a.choices)
+                found |= set(getattr(sp, "choices", None) or {})
+            except Exception:                                                  # a card must always be drawable
+                pass
+        _SUBS.append(found)
+    return _SUBS[0]
+
+
+_ARG = r"(?:--[\w-]+|<[^>\s]+>|\{\}|[A-Z]{3,}|[\w@:/=-]+(?:\.[\w@:/=-]+)+|[\w.-]*[@/:=][\w@:/=.-]*)"          # a flag, <placeholder>, {}, NAME, box.example, user@host, a path
+_BARE = re.compile(r"(?<![`\w/.-])((?:" + "|".join(PROGRAMS) + r")(?P<rest>(?: " + _ARG + r"| [a-z][\w-]*)*)|ssh-copy-id(?: -p \S+)? [\w@.:{}-]+|ssh-keygen -R [\w@.:{}-]+|sudo systemctl \w+ \w+)")
+
+
+def code_spans(text):
+    """A command written in a sentence, as typed (ct-admin check, ssh-copy-id user@host), becomes a `code` span, so it is a code chip wherever a card is drawn and nobody has to remember the
+    backticks. Spans already in backticks are left alone. Only real command words follow the program name, so 'ct-run jobs shows them' chips 'ct-run jobs'."""
+    text = str(text)
+    if not any(t in text for t in PROGRAMS + ("ssh-copy-id", "ssh-keygen", "sudo systemctl")):
+        return text
+    subs = subcommands()
+
+    def one(m):
+        if m.group(1).startswith(PROGRAMS):
+            keep, words = [], m.group("rest").split(" ")[1:] if m.group("rest") else []
+            for w in words:
+                if (w[:1].isalpha() and w.islower() and w not in subs and not re.fullmatch(_ARG, w)) or (w in ("again", "and", "to", "on", "for")):
+                    break
+                keep.append(w)
+            cmd = " ".join([m.group(1).split(" ")[0]] + keep)
+        else:
+            cmd = m.group(1)
+        return f"`{cmd}`" + code_spans(m.string[m.start() + len(cmd):m.end()])               # what was left over may hold a second command
+    parts = re.split(r"(`[^`]*`)", text)
+    return "".join(p if p.startswith("`") else _BARE.sub(one, p) for p in parts)
+
+
 def inline(lines, base=None):
     """Lines of one paragraph with every `code` span shown in the code role (a filled background) and the rest in `base`. A span may run over a line break. The backticks stay, inside the
     coloured span, so the same text still reads as code where colour is off."""
@@ -137,7 +185,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         if kind == "blank":
             out.append(row())
         elif kind == "note":
-            out += [row(t) for t in inline(wrap(item, inner), "muted")]
+            out += [row(t) for t in inline(wrap(code_spans(item), inner), "muted")]
         elif kind == "head":
             out.append(row(p(item.upper(), role if framed else "label")))
         elif kind == "raw":
@@ -149,11 +197,11 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "fact":
-            first, *rest = inline(wrap(item[1], fact_room))
+            first, *rest = inline(wrap(code_spans(item[1]), fact_room))
             out.append(row(label(item[0]) + "  " + first))
             out += [row(" " * (lw + 2) + line) for line in rest]
         elif kind == "step":
-            first, *rest = inline(wrap(item, inner - 4))
+            first, *rest = inline(wrap(code_spans(item), inner - 4))
             out += [row(p("  - ", "muted") + first)] + [row("    " + line) for line in rest]
     if framed:
         out += ([row()] if body else []) + [edge("╰" + "─" * (inner + 2) + "╯")]

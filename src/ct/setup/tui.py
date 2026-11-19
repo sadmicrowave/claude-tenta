@@ -44,6 +44,9 @@ def clean_paste(text):
     return re.sub(r"[\x00-\x1f\x7f]", "", ANSI.sub("", text)).strip()
 
 
+BANNER_SHOWN = False                       # this run has drawn the header already
+
+
 class Editor:
     """One line of text being edited. Pure logic: feed it key events, read `.text`. Events are the names Keyboard produces."""
 
@@ -276,8 +279,12 @@ class TuiPrompter:
     def sudo_prompt(self, user, host):
         return self.sgr(f"  ❯ password for {user}@{host}: ", AMBER, BOLD)
 
-    def banner(self, subtitle):
-        """The splash header, drawn once at the start (not part of the redrawn block)."""
+    def banner(self, subtitle, unless_shown=False):
+        """The splash header, drawn once at the start (not part of the redrawn block). `unless_shown`: skip it when this run already drew one (the scan that starts an install draws it first)."""
+        global BANNER_SHOWN
+        if unless_shown and BANNER_SHOWN:
+            return
+        BANNER_SHOWN = True
         from . import brand
         cols = self._width or shutil.get_terminal_size((80, 24)).columns
         self.write("\n".join(brand.banner(cols, brand.spaced(subtitle), color=self.color)) + "\n")
