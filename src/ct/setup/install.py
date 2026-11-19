@@ -462,7 +462,14 @@ class Installer:
         script = f"sudo -n true 2>/dev/null || sudo {ask}-v; sudo -n true && touch {marker} && sudo {base} --apply --wait-for-keys {self.wait_for_keys}"
         remote = f"sh -c {shlex.quote(script)}"
         proc = self.ssh.popen(remote, tty=True)
-        dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say, note=self.note)
+        quiet = []                                                       # keys already on GitHub: said once at the end, because the server is printing at that moment and a line from here would land in the middle of its own
+
+        def key_note(step, status, detail=""):
+            if status == "present":
+                quiet.append(f"{step.replace('deploy key for ', '')} ({detail})")
+            else:
+                self.note(step, status, detail)
+        dk = keys_mod.DeployKeys(self.cfg, self.machine.run, self.machine.which, say=self.say, note=key_note)
         shown = False
         authed = False
         while proc.poll() is None:
@@ -485,6 +492,9 @@ class Installer:
                         self.say("  " + row)
             self._sleep(self.poll_s)
         rc = proc.returncode
+        if quiet:
+            self._left_edge()
+            self.note("deploy keys", "present", "; ".join(quiet))
         if rc == EXIT_WAITING:
             raise SetupError("The server is still waiting for its deploy keys", "They were not added in time.",
                              [f"Add the queue key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.queue_repo}/settings/keys (leave write access OFF).",

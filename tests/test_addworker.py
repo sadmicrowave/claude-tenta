@@ -399,6 +399,31 @@ class SettingAWorkerUpAgain(Base):
         self.assertEqual(order[:2], ["banner", "Scan your network?"])
         self.assertEqual(order[2:5], ["busy:SCANNING the SSH port on nothing", "scan", "done"])
 
+    def test_the_header_comes_first_when_an_address_is_given_too(self):
+        """Seen on a real run: `ct-setup install ADDRESS` (no scan) drew its header only after the candidacy check."""
+        order = []
+
+        class Ui:
+            def banner(inner, subtitle, unless_shown=False):
+                order.append("banner")
+
+            def select(inner, q, default=""):
+                return "go", "yes"
+
+            def ask(inner, *a, **k):
+                return "go", "yes"
+
+            def erase(inner):
+                pass
+
+            def session(inner):
+                return addworker._nullcontext()
+        notice = lambda title, *r, **k: order.append(title)         # noqa: E731
+        addworker.run(args(name="192.0.2.9", yes=False, dry_run=True), Host(str(self.tmp / "root")), lambda p: "y", None, lambda m: None, ui=Ui(), installer_factory=self.factory(), interactive=True,
+                      networks=lambda: [], scan=lambda nets, known=(): ([], []), assess=lambda h, u, p=22: GOOD, resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=notice, command="install")
+        self.assertEqual(order[0], "banner")
+        self.assertEqual(order[1], "Candidacy check")
+
     def test_saying_no_stops_before_anything_is_changed(self):
         rc = self.run_flow(args(name="worker2.example"), ask=["n"], interactive=True)
         self.assertEqual((rc, self.calls), (1, []))

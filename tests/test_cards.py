@@ -183,6 +183,8 @@ class CommandsInSentencesAreCodeChips(unittest.TestCase):
                            ("Run ct-admin check and ct-admin status for it.", "Run `ct-admin check` and `ct-admin status` for it."),
                            ("Fix: ct-setup install --set server.worker_user=abc.", "Fix: `ct-setup install --set server.worker_user=abc`."),
                            ("Replace it: ct-admin apply --force --worker tenta3", "Replace it: `ct-admin apply --force --worker tenta3`"),
+                           ("Replace it: ct-admin apply --force --worker <its name>", "Replace it: `ct-admin apply --force --worker <its name>`"),         # a placeholder may hold a space
+                           ("Read it: ct-run result <job> and ct-admin status", "Read it: `ct-run result <job>` and `ct-admin status`"),
                            ("Already `ct-run x` here", "Already `ct-run x` here"),
                            ("No command in this sentence.", "No command in this sentence.")]:
             self.assertEqual(cards.code_spans(text), want)

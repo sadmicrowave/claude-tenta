@@ -177,7 +177,7 @@ def summary_card(host, user, card=None):
     rows = [("Machine", host), ("Logs in as", f"{user}, with your SSH key (no password is asked or sent)")]
     rows += [("Will check", c) for c in assess_mod.CHECKS]
     rows += ["It only reads. Nothing is installed, written or changed on that computer, and nothing on this one."]
-    card("Candidacy check", *rows, tag="BEFORE", color=PRIMARY, stream=sys.stderr)
+    card("Candidacy check", *rows, tag="NOTICE", color=PRIMARY, stream=sys.stderr)
 
 
 def verdict_card(host, v, card=None):
@@ -185,7 +185,7 @@ def verdict_card(host, v, card=None):
     icons = {"OK": "OK", "WARN": "WARN", "FAIL": "FAIL"}
     rows = [(f"{icons[s]:<4} {w}", d) for s, w, d in v.rows]
     if v.meets:
-        rows.append("It meets the requirements" + (f", with {len(v.warnings)} thing(s) to know about." if v.warnings else "."))
+        rows.append("It meets the requirements" + (f", with {len(v.warnings)} thing{'s' if len(v.warnings) != 1 else ''} to know about." if v.warnings else "."))
         card(f"{host} can be a worker", *rows, tag="MEETS", color=GREEN, stream=sys.stderr)
     else:
         rows += [_ui.cards.Why(why) for s, w, why in v.failures]
@@ -316,6 +316,8 @@ def choose_device(ui, ask, say, devices, user_given=None, configured=None):
 def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan=None, assess=None, resolve=None, notice=None, interactive=None, networks=None, command="add-worker"):
     """ct-setup add-worker [ADDRESS] [--user U] [--worker-name N] [--yes]. Returns the exit code."""
     notice = notice or (lambda *x, **k: _ui.say(*x, **k))
+    if ui is not None and interactive is not False and command in ("install", "add-worker"):         # the header comes before anything else, however the computer is chosen (an address skips the scan that used to draw it)
+        ui.banner("install" if command == "install" else "add worker", unless_shown=True)
     cfg = config.load()
     if not cfg.source:
         notice("Set up your first worker first", "add-worker adds ANOTHER worker, and there is no configuration on this computer yet.", tag="ERROR", color=RED, run="ct-setup install")

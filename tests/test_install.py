@@ -249,7 +249,10 @@ class HappyPath(InstallBase):
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 1)
         self.assertIn("someone/claude-tenta-results", adds[0])
-        self.assertTrue(any("PRESENT" in line for line in self.said))
+        present = [line for line in self.said if "PRESENT" in line]
+        self.assertEqual(len(present), 1, present)                                     # said once, at the end: while the server prints, a line from here would land in the middle of its own
+        self.assertIn("someone/claude-tenta-queue", present[0])
+        self.assertIn("read-only", present[0])
 
     def test_the_answers_sent_to_the_server_are_complete_and_valid(self):
         self.installer().run_all()

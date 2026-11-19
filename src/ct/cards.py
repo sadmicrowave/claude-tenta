@@ -81,7 +81,7 @@ def subcommands():
     return _SUBS[0]
 
 
-_ARG = r"(?:--[\w-]+|<[^>\s]+>|\{\}|[A-Z]{3,}|[\w@:/=-]+(?:\.[\w@:/=-]+)+|[\w.-]*[@/:=][\w@:/=.-]*)"          # a flag, <placeholder>, {}, NAME, box.example, user@host, a path
+_ARG = r"(?:--[\w-]+|<[^>]+>|\{\}|[A-Z]{3,}|[\w@:/=-]+(?:\.[\w@:/=-]+)+|[\w.-]*[@/:=][\w@:/=.-]*)"          # a flag, <placeholder>, {}, NAME, box.example, user@host, a path
 _BARE = re.compile(r"(?<![`\w/.-])((?:" + "|".join(PROGRAMS) + r")(?P<rest>(?: " + _ARG + r"| [a-z][\w-]*)*))")
 
 
@@ -180,7 +180,7 @@ def code_spans(text):
     subs = subcommands()
 
     def one(m):
-        keep, words = [], m.group("rest").split(" ")[1:] if m.group("rest") else []
+        keep, words = [], re.findall(r"<[^>]+>|\S+", m.group("rest")) if m.group("rest") else []
         for w in words:
             if keep and keep[-1] in VALUE_FLAGS:                          # the word after --worker is its value, whatever it looks like
                 keep.append(w)
