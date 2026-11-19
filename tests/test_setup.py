@@ -1,5 +1,6 @@
 """ct-setup: the questions, the config writer, hardening modules, and the client, server and audit halves, all against a fake machine."""
 import io
+import json
 import os
 import tempfile
 import tomllib
@@ -662,6 +663,31 @@ class ServerTests(unittest.TestCase):
             self.setup_obj(dry_run=True, given={"hardening.modules": "ssh-keys-only,made-up"}).run_all()
         self.assertIn("made-up", e.exception.why)
 
+    def test_a_shared_computer_offers_the_whole_machine_protections_and_yes_takes_none_of_them(self):
+        """Shared and special-use computers: the protections that change the machine for every user are offered one by one; --yes applies none, and the owner's decision is recorded."""
+        flat, problems = questions.collect("server", given={"isolation.purpose": "shared"}, use_defaults=True)
+        self.assertEqual(flat["hardening"]["modules"], ["job-isolation", "auditd-canaries"])
+        self.assertEqual(flat["hardening"]["offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
+        s = self.setup_obj(dry_run=False, given={"isolation.purpose": "shared"})
+        results = s.run_all()
+        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        for mid in ("ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"):
+            self.assertEqual(done[mid]["status"], "declined", mid)
+            self.assertIn("every user of this machine", done[mid]["detail"])
+        self.assertNotIn("ssh-keys-only", [m for m, r in done.items() if r["status"] == "applied"])
+
+    def test_an_offered_protection_the_person_accepts_is_applied_and_then_audited_like_the_others(self):
+        s = self.setup_obj(dry_run=False, given={"isolation.purpose": "shared"})
+        s.use_defaults = False                                              # a person is answering
+        s.confirm = lambda q: q.startswith("Apply unattended-upgrades")      # yes to one, no to the rest
+        s.run_all()
+        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        self.assertIn(done["unattended-upgrades"]["status"], ("applied", "satisfied"))
+        self.assertNotIn(done["ssh-keys-only"]["status"], ("applied", "satisfied"))      # said no (or the fake machine blocks it): not applied
+        from ct.setup import audit
+        self.assertIn("unattended-upgrades", audit.audited_modules(self.h, s.cfg))
+        self.assertNotIn("ssh-keys-only", audit.audited_modules(self.h, s.cfg))            # declined is not drift
+
     def test_modules_can_be_chosen_without_a_question(self):
         s = self.setup_obj(dry_run=True, given={"hardening.modules": "ssh-keys-only"})
         s.run_all()
@@ -895,6 +921,7 @@ class WhatTheComputerIsUsedFor(unittest.TestCase):
         from ct.setup import hardening, questions
         shared = questions.derive({"isolation.purpose": "shared"})
         self.assertEqual(shared["hardening.modules"], ["job-isolation", "auditd-canaries"])
+        self.assertEqual(shared["hardening.offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
         self.assertNotIn("isolation.mode", shared)                                       # shared keeps full isolation
         special = questions.derive({"isolation.purpose": "special-use"})
         self.assertEqual((special["hardening.modules"], special["isolation.mode"]), (["job-isolation", "auditd-canaries"], "relaxed"))

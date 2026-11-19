@@ -225,6 +225,7 @@ def derive(flat):
     purpose = flat.get("isolation.purpose")
     if purpose and purpose != "tenta-only":
         flat.setdefault("hardening.modules", list(TENTA_ONLY_MODULES))
+        flat.setdefault("hardening.offered", [m for m in config.SCHEMA["hardening"]["modules"][0] if m not in TENTA_ONLY_MODULES])        # the ones that change the whole machine: offered one by one, skipped by default
     if purpose == "special-use":
         flat.setdefault("isolation.mode", "relaxed")
     return flat

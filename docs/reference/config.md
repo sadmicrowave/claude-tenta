@@ -149,3 +149,4 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `modules` | `["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]` | list | hardening modules the wizard applies |
+| `offered` | `[]` | list | hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others |

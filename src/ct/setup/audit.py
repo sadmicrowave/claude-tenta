@@ -1,5 +1,6 @@
 """ct-setup audit: look at a server and say what drifted from the configuration. Read-only: it changes nothing, and runs without root
 (a check that needs root says so instead of guessing)."""
+import json
 import re
 
 from .. import config
@@ -9,6 +10,16 @@ from .report import sink as _sink
 
 PING = ("import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(15); s.connect(sys.argv[1]); s.sendall(b'{}'); s.shutdown(socket.SHUT_WR); "
         "print(s.recv(65536).decode())")           # a request the helper must refuse: any answer at all proves its service starts
+
+
+def audited_modules(host, cfg):
+    """The modules named in the configuration, and the offered ones the person accepted (recorded as applied or already satisfied when the server half ran): what the owner chose is checked, what was declined is not drift."""
+    chosen = list(cfg.hardening.modules)
+    try:
+        done = json.loads(host.read(f"{cfg.paths.config}/hardening.json") or "{}")
+    except ValueError:
+        done = {}
+    return chosen + [m for m in cfg.hardening.offered if m not in chosen and (done.get(m) or {}).get("status") in ("applied", "satisfied")]
 
 
 def run(host, cfg, say=None):
@@ -38,7 +49,7 @@ def run(host, cfg, say=None):
         rows.append(("the root-level helper answers", answered, "ok" if answered else "it did not start: " + ((ping.out or "").strip()[-160:] or "no answer") + f"  (see: journalctl -u {cfg.identity.name}-helper@*)"))
         rows.append(("the sandbox for root-level actions is enforced", enforced,
                      "ok" if enforced else "this machine's systemd ignores the sandbox settings (a container does), so the helper refuses every root-level action here"))
-    for mid, title, check in hardening.audit(host, cfg):
+    for mid, title, check in hardening.audit(host, cfg, ids=audited_modules(host, cfg)):
         rows.append((f"{mid}: {title}", check.ok, check.detail))
     unknown = [m for m in cfg.hardening.modules if m not in hardening.MODULES]
     if unknown:

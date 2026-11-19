@@ -276,6 +276,7 @@ SCHEMA = {
     "hardening": {
         "modules": (["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"],
                     _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard applies"),
+        "offered": ([], _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others"),
     },
 }
 CLAUDE_SECRET_KEYS = {"account": "CLAUDE_CODE_OAUTH_TOKEN", "api-key": "ANTHROPIC_API_KEY"}      # the name each sign-in route has in secrets.env

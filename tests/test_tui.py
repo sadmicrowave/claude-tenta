@@ -587,6 +587,14 @@ class Protection(unittest.TestCase):
             p, _ = prompter(keys)
             self.assertEqual(p.protection(info()), want, keys)
 
+    def test_an_offered_protection_starts_on_skip_and_says_your_choice(self):
+        """A whole-machine protection offered on a shared or special-use computer: Enter alone skips it, y applies it, and the card says it is the person's choice."""
+        for keys, want in ((["enter"], False), (["n"], False), (["y"], True), (["left", "enter"], True)):
+            p, _ = prompter(keys)
+            self.assertEqual(p.protection(info(default_skip=True)), want, keys)
+        p, _ = prompter()
+        self.assertIn("your choice", tui.strip(p.card(info(tag="your choice", default_skip=True, lockout=False), 1, False)[0]))
+
     def test_the_card_is_erased_when_you_decide_and_the_screen_stays_clean(self):
         p, out = prompter(["right", "enter"])
         before = out.screen.text()

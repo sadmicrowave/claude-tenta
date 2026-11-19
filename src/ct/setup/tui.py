@@ -525,7 +525,7 @@ class TuiPrompter:
     def protection(self, info):
         """Show the amber card and let the person choose Apply or Skip. Returns True to apply. Left/right choose, Enter confirms, y/n answer at once, s toggles the steps."""
         self.erase()
-        choice, full = 0, False
+        choice, full = (1 if info.get("default_skip") else 0), False                    # an offered whole-machine protection starts on Skip
         with self.listening():
             while True:
                 self.emit(self.card(info, choice, full))

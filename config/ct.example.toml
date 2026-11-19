@@ -96,3 +96,5 @@ packs = ["core"]                # off-limits rule packs to apply
 
 [hardening]
 modules = ["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]
+# offered = []                   # modules the wizard only OFFERS, one by one, each skipped unless you say yes (a shared or special-use computer gets the whole-machine protections here).
+                                 # --yes takes none of them. Those you accept are checked by ct-setup audit like the others.
