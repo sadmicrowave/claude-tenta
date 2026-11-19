@@ -139,7 +139,31 @@ def _param_ok(spec):
     return ok
 
 
-def validate(reg, tools_root, allow_empty=False):
+def inside(path, roots):
+    """True when `path` is one of `roots` or under one of them (compared as plain paths: no '..' is ever accepted before this is asked)."""
+    return any(path == r.rstrip("/") or path.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+def tools_problems(w, tools, kind, tool_roots):
+    """Problems with a class's `tools` (a list of folders of tools that already exist on the worker). Structural always; against the worker's own allowed folders when `tool_roots` is given
+    (a list, possibly empty: this worker allows none)."""
+    if kind != "command":
+        return [f"{w}: only a command class can name tool folders"]
+    if not isinstance(tools, list) or not tools or any(not isinstance(t, str) for t in tools):
+        return [f"{w}: tools must be a list of folders"]
+    errs = []
+    for t in tools:
+        if not t.startswith("/") or ".." in t.split("/") or "//" in t or len(t) > 200 or not re.fullmatch(r"/[A-Za-z0-9._/-]+", t):
+            errs.append(f"{w}: tool folder {t!r} must be an absolute path of letters, digits and . _ - / only (no spaces, no ..)")
+        elif tool_roots is not None and not inside(t, tool_roots):
+            errs.append(f"{w}: tool folder {t} is not inside a folder this worker allows (isolation.tool_roots"
+                        + (": " + ", ".join(tool_roots) if tool_roots else ": none; set isolation.mode = relaxed and list the folder") + ")")
+    if len(set(tools)) != len(tools):
+        errs.append(f"{w}: tools lists a folder twice")
+    return errs
+
+
+def validate(reg, tools_root, allow_empty=False, tool_roots=None):
     """Return a list of problems (empty = fine). `tools_root` is the folder a class's `env` paths must stay under. `allow_empty` accepts a
     registry with no classes of its own (your private layer: the packs provide the rest)."""
     if not isinstance(reg, dict):
@@ -192,6 +216,8 @@ def validate(reg, tools_root, allow_empty=False):
                                                not all(x.startswith(tools_root + "/") or x == tools_root for x in v.split(":"))
                                                for k, v in ev.items()):
                 errs.append(f"{w}: env may only set {', '.join(ENV_KEYS)} to folders under {tools_root}")
+        if "tools" in c:
+            errs += tools_problems(w, c["tools"], kind, tool_roots)
         if "batchable" in c and not isinstance(c["batchable"], bool):
             errs.append(f"{w}: batchable must be true or false")
         if "returns" in c and kind != "claude":

@@ -45,7 +45,7 @@ class Docs(unittest.TestCase):
     def test_documented_commands_exist(self):
         from ct.admin import cli as admin
         from ct.client import cli as client
-        current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md")]      # the design papers describe commands that were renamed or removed
+        current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md", "SPECIAL-USE-DEVICES.md")]      # the design papers describe commands that were renamed or removed, or are not built yet (ct-admin class set: slice 2 of special-use devices)
         text = "\n".join(p.read_text() for p in current)
         for name in re.findall(r"ct-admin ([a-z][a-z-]*)", text):
             self.assertTrue(name in admin.HELP or name in ("help",), f"ct-admin {name}")

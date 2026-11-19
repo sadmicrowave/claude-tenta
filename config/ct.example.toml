@@ -39,6 +39,10 @@ max_temp_c = 75                 # do not start a job when the hottest core is ab
 [isolation]
 require_netns = true            # refuse to run a no-network job if the machine cannot isolate it. Leave on.
 method = "unshare"              # unshare | systemd-run
+mode = "full"                    # full | relaxed. full: jobs see only the system folders and what this install fetched for them. relaxed: this computer is for special use (for example a tools box), so the
+                                 # folders in tool_roots may be shown to jobs, read-only, for the classes that name them. A relaxed worker says so in its status and is still scheduled.
+# tool_roots = ["/opt/tools"]    # folders of tools that already exist on this computer that a class may use (any number; needs mode = "relaxed"). A class names the folders it needs under
+                                 # `tools:` in the registry, each inside one of these, so nothing is reinstalled into the locked-down worker account.
 
 [alerts]
 kind = "none"                   # none | ntfy | webhook

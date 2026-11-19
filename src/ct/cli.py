@@ -108,7 +108,7 @@ class Context:
         problem = config.secrets_file_problem(secrets_path)
         state = Path(cfg.path("state"))
         direct = transport.for_config(cfg).kind == "direct"
-        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), capacity=cfg.hardware.capacity,
+        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
@@ -154,6 +154,7 @@ class Context:
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
                     "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
+                    "isolation_mode": cfg.isolation.mode, "tool_roots": list(cfg.isolation.tool_roots),
                     **workerstate.transport_facts(transport.for_config(cfg).kind, origin_of(cfg.path("queue_clone"))),          # what this worker really fetches over: the scheduler trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 

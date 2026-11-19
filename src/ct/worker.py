@@ -36,6 +36,8 @@ class Settings:
     state: Path
     registry_path: Path
     tools_root: Path
+    tool_roots: tuple = ()                  # folders of existing tools a class may name (isolation.tool_roots; only when isolation.mode is relaxed)
+    isolation_mode: str = "full"
     capacity: int = 4
     max_load: float = 3.0
     max_temp_c: float = 75.0
@@ -106,6 +108,23 @@ class Worker:
         self.limits = registry.limits_of(reg)
         self.policy = registry.policy_of(reg)
         return reg
+
+    def tool_folders(self, tools):
+        """([real folders], refusal or None) for a class's `tools`: each must exist here and, once symbolic links are followed, still be inside a folder the owner allowed (isolation.tool_roots). The jail then
+        shows them read-only and puts them first on the job's PATH. Checked at EVERY run, whatever the registry said when it was installed."""
+        if self.s.isolation_mode != "relaxed":
+            return [], ("this worker is in full isolation, so a class's tool folders are not shown to jobs. The owner can change that: isolation.mode = \"relaxed\" and the folder in isolation.tool_roots "
+                        "(see ct-worker status)")
+        roots = [os.path.realpath(r) for r in self.s.tool_roots]
+        real = []
+        for t in tools:
+            r = os.path.realpath(t)
+            if not os.path.isdir(r):
+                return [], f"the tool folder {t} does not exist on this worker, so the job was not run"
+            if not registry.inside(r, roots):
+                return [], f"the tool folder {t} leads outside the folders this worker allows (isolation.tool_roots), so the job was not run"
+            real.append(r)
+        return real, None
 
     def mem_total(self):
         return self.sensors.meminfo()[0] if self.sensors else 0
@@ -347,6 +366,10 @@ class Worker:
                 argv += ["--disallowedTools", ",".join(registry.HELPER_TOOLS)]       # and the helper-starting tools are named as forbidden, whatever the release does with --tools
             return (argv, None, limits, None)
         run_argv, extra, prep_fail = argv, cls.get("env"), None
+        if cls.get("tools") and kind == "command":
+            real, prep_fail = self.tool_folders(cls["tools"])
+            if real:
+                extra = {**(extra or {}), "PATH": ":".join(real + ([extra["PATH"]] if extra and extra.get("PATH") else []))}
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             limits = profiling.profile_limits(rules, self.mem_total())
@@ -661,7 +684,7 @@ class Worker:
                 "privileged": c.get("privileged"), "writable": c.get("writable"),
                 "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind in ("profile", "privileged") else c.get("tier", "approve"),
                 "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"),
-                "packages": c.get("packages"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
+                "packages": c.get("packages"), "tools": c.get("tools"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
         when, since_file = iso(self.clock()), self._p("registry.since")
         try:

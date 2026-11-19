@@ -229,7 +229,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=No
         reg, notes = packs.compose(loaded, cfg.registry.packs, cfg.policy.packs, user)
     except packs.PackError as e:
         raise InstallError("the registry was NOT installed: " + "; ".join(e.problems[:6]))
-    problems = registry.validate(reg, cfg.path("tools"))
+    problems = registry.validate(reg, cfg.path("tools"), tool_roots=list(cfg.isolation.tool_roots) if cfg.isolation.mode == "relaxed" else [])
     if problems:
         raise InstallError("the composed registry is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
     if check_exe is None and str(prefix) == "/":

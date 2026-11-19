@@ -46,7 +46,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         "hardware": {"cores": snapshot.get("cores"), "mem_total_mb": snapshot.get("mem_total_mb"), "cpu": extra.get("cpu") or "",
                      "native_claude": extra.get("native_claude"), "capacity": extra.get("capacity")},
         "claude": extra.get("claude") or {"auth": "none"},
-        "isolation": {"ready": bool(jail.ready()), "method": jail.name},
+        "isolation": {"ready": bool(jail.ready()), "method": jail.name, "mode": extra.get("isolation_mode") or "full", "tool_roots": list(extra.get("tool_roots") or [])},
         "classes": sorted(((registry or {}).get("classes") or {})),
         "packages": packages_of(registry),
         "approvers": list(extra.get("approvers") or []),

@@ -35,7 +35,7 @@ class Build(unittest.TestCase):
     def test_the_environment_and_the_observed_readings_are_kept_apart(self):
         env, doc = workerstate.build(snapshot=self.SNAP, registry={"classes": {"x": {}}}, extra=self.EXTRA, jail=Jail(), locked=False, now_iso="now")
         self.assertEqual(doc["claude"]["tool"]["version"], "2.1.112")
-        self.assertEqual((doc["hardware"]["cores"], doc["hardware"]["native_claude"], doc["isolation"]), (2, False, {"ready": True, "method": "bwrap"}))
+        self.assertEqual((doc["hardware"]["cores"], doc["hardware"]["native_claude"], doc["isolation"]), (2, False, {"ready": True, "method": "bwrap", "mode": "full", "tool_roots": []}))
         self.assertEqual(doc["classes"], ["x"])
         self.assertEqual(doc["observed"]["load_1m"], 0.2)
         self.assertNotIn("observed", env)

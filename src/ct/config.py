@@ -109,6 +109,13 @@ def _path(v):
     return v, None
 
 
+def _tool_root(v):
+    """A folder of tools that already exist on this machine and that jobs may use: an absolute path, nothing under ~, never a system folder."""
+    if isinstance(v, str) and v.startswith("~"):
+        return None, "must be an absolute path, not under ~ (a job does not run as you)"
+    return _path(v)
+
+
 def _url(v):
     if not isinstance(v, str) or not re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/%-]*)?", v):
         return None, "must start with https:// and have no spaces or ?query (for example https://ntfy.sh/your-private-topic)"
@@ -212,6 +219,8 @@ SCHEMA = {
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
+        "mode": ("full", _enum("full", "relaxed"), "full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled"),
+        "tool_roots": ([], _list_of(_tool_root), "folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these"),
         "method": ("bwrap", _enum("bwrap", "unshare"), "how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method)"),
     },
     "alerts": {
@@ -330,6 +339,9 @@ def validate(raw, require_alert_url=True):
     if not clean["isolation"]["require_netns"] and os.environ.get("CT_ALLOW_UNSAFE") != "1":
         problems.append("isolation.require_netns = false would let a no-network job run WITH network whenever isolation fails, so it is not "
                         "accepted (for a throwaway test only, set the environment variable CT_ALLOW_UNSAFE=1)")
+    iso_ = clean["isolation"]
+    if iso_["tool_roots"] and iso_["mode"] != "relaxed":
+        problems.append("isolation.tool_roots needs isolation.mode = \"relaxed\": a worker in full isolation shows jobs no tool folders")
     paths = clean["paths"]
     distinct = [paths["code"], paths["state_root"], paths["config"]]
     if len(set(distinct)) != 3:

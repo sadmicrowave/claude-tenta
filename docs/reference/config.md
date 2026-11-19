@@ -64,6 +64,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `require_netns` | `true` | bool | refuse to run a no-network job if the machine cannot isolate it (leave on) |
+| `mode` | `full` | `full` , `relaxed` | full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled |
+| `tool_roots` | `[]` | list | folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these |
 | `method` | `bwrap` | `bwrap` , `unshare` | how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method) |
 
 ## [alerts]
