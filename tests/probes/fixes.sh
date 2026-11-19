@@ -31,4 +31,4 @@ else
   check "the account is not in the group: the printed command, run by an account that has sudo, adds it" runuser -u admin -- bash -c "$CMD_GROUP && id -nG agent | tr ' ' '\n' | grep -qx sudo"
   check "no python: the printed command, run by an account that has sudo, installs one that is 3.11 or newer" runuser -u admin -- bash -c "sudo apt-get remove -y -qq python3 python3-minimal >/dev/null 2>&1; $CMD_PY && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'"
 fi
-echo "=== $PASS passed, $FAIL failed"; exit $FAIL
+echo "=== $PASS passed, $FAIL failed"; exit "$FAIL"
