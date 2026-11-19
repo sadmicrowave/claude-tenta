@@ -1,0 +1,95 @@
+"""The folder's own settings: `.tenta.toml`, the file `ct-run use` writes in a working folder (the way a CLAUDE.md holds what Claude should know about a folder).
+
+It says which worker this folder's jobs go to, and may name single commands (job classes) that go to a different worker. It is plain TOML you can open and edit by hand; `ct-run use` is the
+one command that reads and writes it, so a person, a script or Claude can set it again later in one line. The nearest file at or above the folder you are in wins (as with `.git`), so a
+project's file covers its sub-folders. An explicit `--worker` on the command line always wins over the file.
+"""
+import re
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .repo import ClientError
+
+FILE = ".tenta.toml"
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+HEADER = ("# claude-tenta: which worker this folder's jobs go to.\n"
+          "# Written by `ct-run use`; edit it freely. The nearest .tenta.toml at or above the folder you run ct-run in applies.\n"
+          "# worker = the worker every job from here goes to. [commands] = single job classes that go to a different worker.\n")
+
+
+@dataclass
+class Pins:
+    path: Path
+    worker: str = None
+    commands: dict = field(default_factory=dict)             # job class -> worker
+
+    def for_class(self, cls):
+        """(worker, what pinned it) for a job of this class, or (None, None)."""
+        if cls in self.commands:
+            return self.commands[cls], f"{cls} is set to this worker in {self.path}"
+        if self.worker:
+            return self.worker, f"{self.path} sends this folder's jobs here"
+        return None, None
+
+    def empty(self):
+        return not self.worker and not self.commands
+
+
+def find(start=None):
+    """The nearest .tenta.toml at or above `start` (the folder you are in), or None."""
+    here = Path(start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        p = d / FILE
+        if p.is_file():
+            return p
+    return None
+
+
+def read(path):
+    """The pins in a file. A file that cannot be read says so with the tool's own words and how to fix it."""
+    try:
+        raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ClientError(f"{path} cannot be read", str(e), [f"Open it and fix the line named above, or run ct-run use --clear to start again."])
+    cmds = raw.get("commands") or {}
+    worker = raw.get("worker")
+    bad = [k for k, v in {"worker": worker, **cmds}.items() if v is not None and not (isinstance(v, str) and NAME.match(v))]
+    if bad or not isinstance(cmds, dict):
+        raise ClientError(f"{path} has a value that is not a worker name", f"Check: {', '.join(bad) or 'commands'}. A worker name is letters, digits, dot, dash or underscore.", ["Open the file and fix it, or run ct-run use --clear to start again."])
+    return Pins(Path(path), worker, dict(cmds))
+
+
+def pins_for(start=None):
+    """The Pins that apply to the folder `start`, or None when no file is found."""
+    p = find(start)
+    return read(p) if p else None
+
+
+def pin_for(cls, start=None):
+    """(worker, why) a job of class `cls` run from `start` is pinned to, or (None, None)."""
+    pins = pins_for(start)
+    return pins.for_class(cls) if pins else (None, None)
+
+
+def _q(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def save(pins):
+    """Write the file (header, the worker, then the commands). Nothing left to say removes the file."""
+    if pins.empty():
+        Path(pins.path).unlink(missing_ok=True)
+        return
+    lines = [HEADER]
+    if pins.worker:
+        lines.append(f"worker = {_q(pins.worker)}\n")
+    if pins.commands:
+        lines.append("\n[commands]\n")
+        lines += [f"{k} = {_q(v)}\n" if NAME.match(k) else f"{_q(k)} = {_q(v)}\n" for k, v in sorted(pins.commands.items())]
+    Path(pins.path).write_text("".join(lines), encoding="utf-8")
+
+
+def check_name(kind, value):
+    if not NAME.match(value or ""):
+        raise ClientError(f"{value!r} is not a valid {kind} name", "Letters, digits, dot, dash and underscore only.", [])

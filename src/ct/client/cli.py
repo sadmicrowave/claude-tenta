@@ -30,7 +30,7 @@ from . import cap
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import place, view
+from . import here, place, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -99,12 +99,73 @@ def route_submit(ctx, cfg, a):
         return ctx
     def say(ch):
         emit(f"Sending to {ch.worker}", *place.rows(ch), *(["Every worker is busy; it queues on this one."] if ch.busy_all else []), tag="PLACED", color=CYAN)
-    ctx2, _ch = place.route(ctx, cfg, a.cls, getattr(a, "worker", None), say=say)
+    forced, why = getattr(a, "worker", None), None
+    if not forced:
+        forced, why = pinned_worker(cfg, a.cls)
+    if why:
+        emit(f"Sending to {forced}", ("Why", why), tag="PINNED", color=CYAN)
+    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say)
     return ctx2
+
+
+def pinned_worker(cfg, cls):
+    """(worker, why) the folder's .tenta.toml sends a job of this class to, or (None, None). A name that is not one of your workers any more is an error that names the file."""
+    worker, why = here.pin_for(cls)
+    if worker and cfg is not None:
+        names = [e[0] for e in place.entries(cfg)]
+        if worker not in names:
+            raise ClientError(f"{here.find()} sends this folder's jobs to {worker!r}, which is not one of your workers", f"Your workers: {', '.join(names)}.", [f"ct-run use {names[0]}", "ct-run use --clear"])
+    return worker, why
+
+
+def cmd_use(ctx, cfg, a):
+    """Show, set or clear which worker this folder's jobs go to (the .tenta.toml in the folder, or the nearest one above it)."""
+    existing = here.find()
+    pins = here.read(existing) if existing else here.Pins(Path.cwd().resolve() / here.FILE)
+    if a.clear and not a.worker:
+        if a.command:
+            if a.command not in pins.commands:
+                emit(f"{a.command} was not set to a worker here", ("File", str(pins.path)), tag="NOTE", color=YELLOW)
+                return 0
+            del pins.commands[a.command]
+        else:
+            pins.worker, pins.commands = None, {}
+        here.save(pins)
+        emit("Cleared", ("File", str(pins.path) if not pins.empty() else f"{pins.path} (removed, nothing left in it)"), tag="DONE", color=GREEN)
+        return 0
+    if a.worker:
+        names = [e[0] for e in place.entries(cfg)] if cfg is not None else []
+        if names and a.worker not in names:
+            raise ClientError(f"There is no worker called {a.worker!r}", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"])
+        here.check_name("worker", a.worker)
+        if a.command:
+            here.check_name("command", a.command)
+            pins.commands[a.command] = a.worker
+        else:
+            pins.worker = a.worker
+        here.save(pins)
+        emit(f"{a.command + ' jobs' if a.command else 'Jobs from this folder'} go to {a.worker}", *use_rows(pins), tag="PINNED", color=GREEN, run=["ct-run use"], run_label="See it again")
+        return 0
+    if pins.empty():
+        emit("Nothing is set for this folder", "Jobs are placed by the scheduler, on whichever worker fits best.", tag="NOTE", color=YELLOW,
+             run=["ct-run use <worker>", "ct-run use <worker> --command <class>"], run_label="Send this folder's jobs to one worker")
+        return 0
+    emit("Where this folder's jobs go", *use_rows(pins), tag="PINNED", color=CYAN, run=["ct-run use <worker>", "ct-run use --clear"], run_label="Change it")
+    return 0
+
+
+def use_rows(pins):
+    rows = [("File", str(pins.path)), ("Every job", pins.worker or "placed by the scheduler")]
+    rows += [(f"Only {c}", w) for c, w in sorted(pins.commands.items())]
+    return rows
 
 
 def cmd_where(ctx, cfg, a):
     """Say which worker a job of this class would go to, and why each of the others would not, without sending anything."""
+    worker, why = pinned_worker(cfg, a.cls)
+    if worker:
+        emit(f"{a.cls} jobs from this folder go to {worker}", ("Why", why), tag="WHERE", color=CYAN, run=["ct-run use"], run_label="See or change it")
+        return 0
     ents = place.entries(cfg) if cfg is not None else []
     if len(ents) < 2:
         emit("There is only one worker", f"Everything goes to {ctx.product}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
@@ -612,6 +673,10 @@ def build_parser():
     s.add_argument("--here", action="store_true", help="send it to the worker this configuration is for, without choosing (what the checks that are about one worker use)")
     wh = sp.add_parser("where", add_help=False)
     wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
+    us = sp.add_parser("use", add_help=False)
+    us.add_argument("worker", nargs="?", metavar="worker", help="the worker this folder's jobs go to (names: ct-admin workers); without it, show what is set")
+    us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the scheduler")
+    us.add_argument("--clear", action="store_true", help="remove the setting (with --command: just that one)")
     r = sp.add_parser("result", add_help=False)
     r.add_argument("id", help="the job id")
     r.add_argument("--wait", action="store_true", help="keep checking until it finishes")
@@ -682,6 +747,7 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
         "classes": ("what the worker can run today", [("List them", "ct-run classes")]),
         "where": ("which of your workers a job of this class would go to, and why each of the others would not (nothing is sent)", [("Explain the choice for a class", "ct-run where sys-status")]),
+        "use": ("send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit", [("See what is set", "ct-run use"), ("Send this folder to a worker", "ct-run use tenta2"), ("Only one command", "ct-run use tenta2 --command nmap"), ("Remove it", "ct-run use --clear")]),
         "patch": ("show the patch a write-capable job returned, and apply it here after a look", [("Look at it", "ct-run patch <job>"), ("Apply it to this folder", "ct-run patch <job> --apply"), ("Save it to a file", "ct-run patch <job> --out fix.diff")]),
         "prune": ("squash old job files out of the jobs branch", [("Tidy it", "ct-run prune")])}
 
@@ -717,6 +783,8 @@ def main(argv=None, ctx=None, cfg=None):
         if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
             import atexit
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
+        if a.cmd == "use":
+            return cmd_use(ctx, cfg, a)
         if a.cmd == "where":
             return cmd_where(ctx, cfg, a)
         if a.cmd == "submit":

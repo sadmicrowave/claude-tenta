@@ -79,6 +79,7 @@ Run on your computer. Sends work to the worker and reads the results.
 | `ct-run offload` | find out what is worth running on the worker |
 | `ct-run classes` | what the worker can run today |
 | `ct-run where` | which of your workers a job of this class would go to, and why each of the others would not (nothing is sent) |
+| `ct-run use` | send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit |
 | `ct-run patch` | show the patch a write-capable job returned, and apply it here after a look |
 | `ct-run prune` | squash old job files out of the jobs branch |
 
