@@ -883,6 +883,49 @@ class CliTests(unittest.TestCase):
         self.assertIn("not supported", err)
 
 
+class WhatTheComputerIsUsedFor(unittest.TestCase):
+    """Special Use and shared computers: one question chooses which protections are the default, each protection says who it affects, and tool folders are asked only for Special Use."""
+
+    def test_a_computer_only_for_tenta_changes_nothing(self):
+        from ct.setup import questions
+        flat = questions.derive({"isolation.purpose": "tenta-only"})
+        self.assertEqual(flat, {"isolation.purpose": "tenta-only"})
+
+    def test_shared_and_special_use_default_to_the_protections_that_affect_only_tenta(self):
+        from ct.setup import hardening, questions
+        shared = questions.derive({"isolation.purpose": "shared"})
+        self.assertEqual(shared["hardening.modules"], ["job-isolation", "auditd-canaries"])
+        self.assertNotIn("isolation.mode", shared)                                       # shared keeps full isolation
+        special = questions.derive({"isolation.purpose": "special-use"})
+        self.assertEqual((special["hardening.modules"], special["isolation.mode"]), (["job-isolation", "auditd-canaries"], "relaxed"))
+        mine = questions.derive({"isolation.purpose": "shared", "hardening.modules": ["job-isolation", "ssh-keys-only"]})
+        self.assertEqual(mine["hardening.modules"], ["job-isolation", "ssh-keys-only"])  # what the person chose is never replaced
+        for mid in questions.TENTA_ONLY_MODULES:                                         # the list in the questions is exactly the modules that say so
+            self.assertEqual(hardening.MODULES[mid].affects, hardening.TENTA_ONLY, mid)
+        self.assertEqual(sorted(mid for mid, m in hardening.MODULES.items() if m.affects == hardening.TENTA_ONLY and mid in config.SCHEMA["hardening"]["modules"][0]), sorted(questions.TENTA_ONLY_MODULES))
+
+    def test_every_protection_says_who_it_affects_in_the_text_and_on_the_screen(self):
+        from ct.setup import hardening
+        for mid, mod in hardening.MODULES.items():
+            self.assertIn(mod.affects, (hardening.TENTA_ONLY, hardening.EVERYONE), mid)
+        self.assertEqual(hardening.MODULES["ssh-keys-only"].affects, hardening.EVERYONE)
+        self.assertEqual(hardening.MODULES["ufw-lan-egress"].affects, hardening.EVERYONE)
+
+    def test_the_purpose_is_asked_and_tool_folders_only_for_special_use(self):
+        from ct.setup import questions
+        by = questions.BY_KEY
+        self.assertIn("isolation.purpose", by)
+        self.assertEqual([c[0] for c in questions.CHOICES["isolation.purpose"]], ["tenta-only", "shared", "special-use"])
+        self.assertIn("Special Use", questions.CHOICES["isolation.purpose"][2][1])
+        when = by["isolation.tool_roots"]["when"]
+        self.assertTrue(when({"isolation.purpose": "special-use"}))
+        self.assertFalse(when({"isolation.purpose": "shared"}))
+        self.assertFalse(when({}))
+        flat, problems = questions.collect("server", given={"isolation.purpose": "special-use", "isolation.tool_roots": "/opt/tools, /srv/pentest"}, use_defaults=True)
+        self.assertEqual(flat["isolation"]["tool_roots"], ["/opt/tools", "/srv/pentest"])             # any number
+        self.assertEqual(flat["isolation"]["mode"], "relaxed")
+
+
 if __name__ == "__main__":
     unittest.main()
 

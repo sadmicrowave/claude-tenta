@@ -219,6 +219,7 @@ SCHEMA = {
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
+        "purpose": ("tenta-only", _enum("tenta-only", "shared", "special-use"), "what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed)"),
         "mode": ("full", _enum("full", "relaxed"), "full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled"),
         "tool_roots": ([], _list_of(_tool_root), "folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these"),
         "method": ("bwrap", _enum("bwrap", "unshare"), "how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method)"),

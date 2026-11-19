@@ -37,6 +37,13 @@ QUESTIONS = [
     _Q("hardware.profile", "What kind of computer is the server?",
        "This decides how much work the server takes on at once, and when it makes new jobs wait because it is busy or running hot. The choice below was suggested from what the server reported about itself, so it is usually right: change it only if it does not describe the computer you are setting up as the server.",
        risk="Picking bigger than the machine really is makes jobs slow and the fans loud; picking smaller only makes jobs wait their turn. Either is easy to change later in ct.toml.", half="server"),
+    _Q("isolation.purpose", "What is this computer used for?",
+       "This chooses which protections are the default. A computer only for tenta gets every protection offered. A shared one (other people or services use it too) is offered only the protections that affect tenta's own jobs, because the others change the whole machine for everyone. A Special Use computer (for example a tools box) also lets jobs use tools that already exist on it.",
+       risk="You can change it later in ct.toml. Nothing here weakens the approval of jobs: it only decides which whole-machine protections are the default and whether tool folders may be shown to jobs.", half="server"),
+    _Q("isolation.tool_roots", "Which folders hold the tools jobs may use?",
+       "Folders of tools that already exist on this computer. A class names the ones it needs, each inside one of these, and they are shown to jobs read-only, so nothing is reinstalled into the locked-down worker account. You can list several, separated by commas.",
+       risk="Every folder listed is a place jobs of the classes that name it can read and run programs from. List only the folders you mean.",
+       examples=["/opt/tools", "/opt/tools, /srv/pentest"], half="server", when=lambda a: a.get("isolation.purpose") == "special-use"),
     _Q("network.ipv6", "Should the server use IPv6?",
        "IPv6 is the newer kind of network address. Many home networks never need it to reach the server, and switching it off leaves less to attack.",
        risk="Turning it off applies to the whole machine and lasts across restarts (a system settings file). If you reach the server over IPv6, choose enabled.", half="server"),
@@ -99,6 +106,9 @@ CHOICES = {
                          ("virtual-machine", "A virtual machine of its own, made to offload one project's tests and builds: today's project gets one environment, tomorrow's gets another, each on its own machine so nothing is shared between them. "
                                              "It is yours alone, so it may run busier than a computer someone also uses, and it reports no temperature, so heat is left to the machine it runs on."),
                          ("custom", "Not sure, or none of these fit. Starts like small-server; you then set the exact limits yourself in ct.toml.")],
+    "isolation.purpose": [("tenta-only", "Only for tenta. Every protection is offered, as before."),
+                          ("shared", "Shared with other uses: other people or services use this computer too. Only the protections that affect tenta's own jobs are the default; the ones that change the whole machine are left for you to add."),
+                          ("special-use", "Special Use, for example a penetration tester's tools box. Like shared, and jobs may use tool folders that already exist on it, shown read-only (isolation mode relaxed). Network access stays a choice of each class.")],
     "network.ipv6": [("enabled", "Keep IPv6. The firewall blocks the private (unique-local) range so jobs cannot reach your devices that way."),
                      ("disabled", "Turn IPv6 off on the server. Less to attack and nothing extra to firewall. Choose this if nothing needs IPv6 to reach it.")],
     "access.sudo": [("readonly-nopasswd", "status, show, review, quarantine and output work without a password."),
@@ -117,7 +127,7 @@ CHOICES = {
 }
 LABELS = {"transport.kind": "Connection", "identity.name": "Install name", "server.host": "Server address", "server.admin_user": "Admin account", "server.worker_user": "Worker account", "server.ssh_port": "SSH port",
           "github.owner": "GitHub account", "github.queue_repo": "Queue repository", "github.results_repo": "Results repository", "updates.source": "Release source",
-          "updates.mode": "Updates", "hardware.profile": "Machine", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
+          "updates.mode": "Updates", "hardware.profile": "Machine", "isolation.purpose": "Used for", "isolation.tool_roots": "Tool folders", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
           "network.lan_allow_out": "LAN exceptions", "network.dns_servers": "DNS servers", "network.ssh_from": "SSH allowed from", "access.sudo": "Passwordless commands",
           "alerts.kind": "Alerts", "alerts.url": "Alert address", "claude.auth": "Claude sign-in"}
 for _q in QUESTIONS:
@@ -207,7 +217,21 @@ def count_to_ask(halves, given=None, only=None, advanced=False):
 BACK = "back"        # returned in place of the answers when the person stepped back past the first question of a flow (only when allow_back is set)
 
 
+TENTA_ONLY_MODULES = ["job-isolation", "auditd-canaries"]       # the protections that change nothing for other users of the machine (hardening.Module.affects)
+
+
+def derive(flat):
+    """What a purpose decides, unless the person said otherwise: a shared or special-use computer defaults to the protections that affect only tenta's own jobs, and special use shows tool folders to jobs."""
+    purpose = flat.get("isolation.purpose")
+    if purpose and purpose != "tenta-only":
+        flat.setdefault("hardening.modules", list(TENTA_ONLY_MODULES))
+    if purpose == "special-use":
+        flat.setdefault("isolation.mode", "relaxed")
+    return flat
+
+
 def _nest(flat):
+    derive(flat)
     nested = {}
     for key, value in flat.items():
         section, _, name = key.partition(".")

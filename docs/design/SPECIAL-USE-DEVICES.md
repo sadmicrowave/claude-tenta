@@ -1,4 +1,4 @@
-# Special-use and shared devices (design, 2026-11-19; slice 1 built)
+# Special-use and shared devices (design, 2026-11-19; slices 1 to 3 built)
 
 ## The need
 
@@ -45,8 +45,8 @@ There is no command today that changes a class after it was created: `ct-admin a
 ## Slices
 
 1. **Built.** `isolation.mode`, `tool_roots` in the configuration, `tools` in the registry (validated), the jail shows the folders read-only and sets PATH; unit tests plus a probe on the four supported releases (a jail run that can read a tool folder and cannot read another).
-2. `ct-admin class set` and `class show`.
-3. The setup question and the per-protection labels; the review screen shows the consequences.
+2. **Built.** `ct-admin class set` and `class show`.
+3. **Built.** The setup question and the per-protection labels (see "Slice 3 as built").
 4. Status, workers cards and the scheduler know the relaxed state.
 5. A check before approval that shows which tool a class's program resolves to.
 6. Documentation and the test matrix rows (fresh install per purpose; an upgrade from a full-isolation worker that is switched to relaxed; a class naming a missing folder).
@@ -58,3 +58,10 @@ There is no command today that changes a class after it was created: `ct-admin a
 - The worker enforces it again at **every run** (`Worker.tool_folders`): full isolation refuses with how the owner changes it; a missing folder refuses; a folder that leads outside the roots once symbolic links are followed refuses. Otherwise the real folders go first on the job's PATH in the order given, and the jail (`extra_ro_paths`) shows them read-only.
 - The worker publishes `tools` per class in `registry.json` and `isolation.mode` / `tool_roots` in `worker-state.json`.
 - Proved on real kernels with `scripts/probe --on USER@HOST tooldirs`: on all three workers (Debian 13, Ubuntu 24.04, Ubuntu 26.04) a tool in a named folder runs inside the jail, the order of folders decides which tool wins, an unnamed folder is invisible and a named one is read-only. A container cannot build the jail, so there the probe reports a skip.
+
+## Slice 3 as built
+
+- **The question.** `isolation.purpose` (`tenta-only` default, `shared`, `special-use`) is asked after the machine question, with each choice's consequence in the card. `special-use` also asks `isolation.tool_roots` (any number of folders, separated by commas).
+- **What a purpose decides** (`questions.derive`, only when the person did not say otherwise): `shared` and `special-use` default `hardening.modules` to the protections that affect only tenta's own jobs (`job-isolation`, `auditd-canaries`); `special-use` also sets `isolation.mode = "relaxed"`. The whole-machine protections (`ssh-keys-only`, `ufw-lan-egress`, `no-root-equivalent-groups`, `unattended-upgrades`) are not in the default list there; they are added with `--set hardening.modules=...` or by editing `ct.toml`.
+- **Who a protection affects.** Every hardening module carries `affects`: "only tenta's own jobs" or "every user of this machine". It is printed with the protection and shown as an `AFFECTS` row on the protection screen, whatever the purpose.
+- Not yet: offering the whole-machine protections one by one inside the wizard for a shared or special-use computer (today they are left out of the default list and added by hand), and showing the purpose in `ct-admin status` and `ct-admin workers` (slice 4).
