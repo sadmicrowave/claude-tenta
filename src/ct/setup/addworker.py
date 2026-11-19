@@ -83,15 +83,17 @@ def paths_for(main_cfg, name):
 
 
 def broken_worker_configs(wfile):
-    """[(name, file, plain-words problem)] for every registered worker whose configuration file is missing or is not valid TOML."""
+    """[(name, file, plain-words problem, kind)] kind: missing | unreadable | invalid, for every registered worker whose configuration file is missing or is not valid TOML."""
     out = []
     for name, path in workers_mod.load_list(wfile).items():
         try:
             tomllib.loads(Path(path).expanduser().read_text())
+        except FileNotFoundError:
+            out.append((name, path, "is missing", "missing"))
         except OSError as e:
-            out.append((name, path, f"cannot be read ({e.strerror})"))
+            out.append((name, path, f"cannot be read ({e.strerror})", "unreadable"))
         except ValueError as e:
-            out.append((name, path, f"is not valid ({e})"))
+            out.append((name, path, f"is not valid ({e})", "invalid"))
     return out
 
 
@@ -320,12 +322,22 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         return 2
     wfile = Path(cfg.source).parent / "workers.toml"
     broken = broken_worker_configs(wfile)
-    if broken:                                                    # a worker whose file cannot be read cannot be compared with, or left alone: say which and why, do not guess (seen: a duplicated section made one invisible and the machine was treated as new)
-        notice("A worker's configuration file cannot be read", *[(n, f"{p}: {e}") for n, p, e in broken],
-               "Adding or setting up a worker must leave the others exactly as they are, and that cannot be checked while a file is unreadable.",
-               steps=[f"Open {broken[0][1]} and fix the line the message names (a section such as [network] may appear only once), or put back a copy you saved.", "Then run the same command again."],
+    named = getattr(a, "worker", None)
+    mine = [x for x in broken if x[0] == named] if named else broken          # naming a worker: only ITS file matters; another worker's broken file is no reason to refuse (seen: tenta3's file was gone and
+    others = [x for x in broken if x not in mine]                              # `ct-setup install --worker claude-tenta` refused, about tenta3)
+    if mine:                                                  # a worker whose file cannot be read cannot be compared with, or left alone: say which and why, do not guess (seen: a duplicated section made one invisible and the machine was treated as new)
+        gone = all(x[3] == "missing" for x in mine)
+        names_ = ", ".join(x[0] for x in mine)
+        notice("A worker's configuration file is missing" if gone else "A worker's configuration file cannot be read", *[(n, f"{p}: {e}") for n, p, e, _kind in mine],
+               "It is listed as one of your workers, but its file is gone (deleted or moved)." if gone else "Adding or setting up a worker must leave the others exactly as they are, and that cannot be checked while a file is unreadable.",
+               steps=([f"Put the file back if you have a copy, or stop listing {names_}: ct-admin workers remove {mine[0][0]} (the computer itself is not touched).",
+                       "Then set the computer up again: ct-setup install <its address>"] if gone else
+                      [f"Open {mine[0][1]} and fix the line the message names (a section such as [network] may appear only once), or put back a copy you saved.", "Then run the same command again."]),
                steps_label="How to fix it", tag="ERROR", color=RED, stream=sys.stderr)
         return 2
+    if others:                                                # not blocking: left out, and said so once
+        notice("A worker is left out", *[(n, f"{p}: {e}") for n, p, e, _kind in others], "Its configuration file cannot be read, so it is left out of this. Nothing about it is changed.",
+               steps=[f"ct-admin workers remove {others[0][0]} stops listing it, or put its file back."], steps_label="When you want it back", tag="NOTE", color=YELLOW, stream=sys.stderr)
     names, hosts = known_workers(cfg, wfile)
     if interactive is None:
         interactive = not a.yes and (ui is not None or sys.stdin.isatty())

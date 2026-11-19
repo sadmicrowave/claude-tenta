@@ -30,14 +30,15 @@ class WizardCards(unittest.TestCase):
     def test_ordinary_news_is_a_rail_with_a_chip_a_plain_subject_and_muted_context(self):
         raw = shown("Ready", "It is done.", tag="DONE", color=ui.GREEN)
         plain = ANSI.sub("", raw)
-        self.assertIn("┃  DONE ", plain)
-        self.assertIn(theme.sgr(" DONE ", "ok_chip"), raw)                      # a filled chip
-        self.assertIn(theme.sgr("Ready", "strong"), raw)                        # the subject
+        top = next(l for l in plain.split("\n") if l.startswith("╭─"))
+        self.assertTrue(top.startswith("╭─ Ready ") and top.rstrip().endswith("DONE ─╮"), top)      # every card is in an outline, the tag at its right edge
+        self.assertIn(theme.sgr("DONE", "ok"), raw)                             # in the colour of its kind
+        self.assertIn(theme.sgr("Ready", "ok", "strong"), raw)                  # the subject, bold in the card's colour
         self.assertIn(theme.sgr("It is done.", "muted"), raw)                   # the longer context is muted
 
     def test_labels_are_coloured_capitals_not_bold(self):
         raw = shown("Added", ("Program", "/x"), ("Pinned to", "ab"), tag="DONE", color=ui.GREEN)
-        self.assertIn(theme.sgr("PROGRAM  ", "label"), raw)
+        self.assertIn(theme.sgr("PROGRAM  ", "ok"), raw)                        # in the card's own colour (green here), as capitals
         self.assertNotIn(theme.sgr("PROGRAM  ", "strong"), raw)
 
     def test_a_warning_or_removal_is_drawn_inside_an_outline_in_its_own_colour(self):
@@ -83,7 +84,7 @@ class ResultCard(unittest.TestCase):
         raw = self.printed()
         lines = ANSI.sub("", raw).strip("\n").split("\n")
         top = next(i for i, l in enumerate(lines) if l.startswith("╭─ Output"))
-        bottom = next(i for i, l in enumerate(lines) if l.startswith("╰"))
+        bottom = next(i for i, l in enumerate(lines) if i > top and l.startswith("╰"))             # (the status card above it is a box too)
         self.assertIn("up 10:58,  0 users", "\n".join(lines[top:bottom]))                     # the output is inside the box
         meta = "\n".join(lines[bottom + 1:])
         for needle in ("MEASURED", "ROUND TRIP", "TOTAL", "COMING BACK"):
@@ -267,6 +268,6 @@ class StyledValues(unittest.TestCase):
             raw = shown("status", ("Fetch", cards.Styled([("OK", "ok"), ("  last pass 1 s ago, took 0 s (pulling new jobs from GitHub; asleep, so it asks GitHub every 300 s)", "muted")])), tag="STATUS")
         text = ANSI.sub("", raw)
         self.assertTrue(all(len(x) <= 70 for x in text.split("\n")))
-        flat = text.replace("┃", "").replace("\n", " ")
+        flat = text.replace("│", "").replace("\n", " ")
         for needle in ("pulling new jobs from GitHub", "asleep", "every 300 s"):
             self.assertIn(needle, " ".join(flat.split()))                                          # all of it is there, on more than one line

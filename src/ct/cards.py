@@ -268,7 +268,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             body.append(("blank", None) if d == "\n" else ("note", str(d)))
     if steps:
         body += [("blank", None), ("fact", (steps_label, None))] + [("step", s) for s in steps]
-    framed = (role in FRAMED) if framed is None else framed             # a result's output box is framed in green too, not only for warnings
+    framed = True if framed is None else framed                         # every card has the same outline, in the colour of its kind (green, purple, yellow, red): one look, not two
     inner = w - 4 if framed else w - 2
 
     def label(text):
@@ -284,7 +284,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
 
         def row(text=""):
             return edge("│") + " " + text + " " * max(0, inner - vlen(text)) + " " + edge("│")
-        if body:
+        if body and body[0][0] != "blank":                                 # a section that starts with its own blank line does not get a second one
             out.append(row())
     else:
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731

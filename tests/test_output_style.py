@@ -105,7 +105,7 @@ class Primitives(unittest.TestCase):
 
     def test_a_table_is_a_card_with_capital_column_labels_and_coloured_cells(self):
         text = self.shown(ui.table, "Things", ["name", "state"], [[("a", "ok"), "fine"], ["b", ("bad", "bad")]], tag="LIST")
-        self.assertIn("┃", text)
+        self.assertIn("╭─", text)                                                       # every card has the outline
         self.assertIn("NAME", text)
         self.assertIn("STATE", text)
 

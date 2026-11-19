@@ -344,7 +344,23 @@ class SettingAWorkerUpAgain(Base):
         self.w_conf.unlink()
         rc = self.run_flow(args(name="anywhere.example", yes=True))
         self.assertEqual((rc, self.calls), (2, []))
-        self.assertIn("cannot be read", self.text())
+        t = self.text()
+        self.assertIn("is missing", t)                                                                 # not "fix the line it names": there is no line, the file is gone
+        self.assertIn("ct-admin workers remove tenta2", t)
+        self.assertNotIn("may appear only once", t)
+
+    def test_another_workers_missing_file_does_not_stop_you_naming_a_healthy_one(self):
+        """Seen on a real machine: tenta3's file was gone and `ct-setup install --worker claude-tenta` refused, about tenta3."""
+        self.w_conf.unlink()
+        self.assertIs(self.run_flow(args(worker="claude-tenta", yes=True), command="install"), addworker.MAIN)
+        self.assertIn("A worker is left out", self.text())                                              # said once, not blocking
+        self.assertIn("ct-admin workers remove tenta2", self.text())
+
+    def test_naming_the_worker_whose_file_is_gone_is_refused_about_that_worker(self):
+        self.w_conf.unlink()
+        rc = self.run_flow(args(worker="tenta2", yes=True), command="install")
+        self.assertEqual((rc, self.calls), (2, []))
+        self.assertIn("is missing", self.text())
 
     def test_the_first_worker_is_not_set_up_again_by_this_command(self):
         self.calls.clear()
