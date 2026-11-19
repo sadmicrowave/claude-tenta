@@ -362,7 +362,7 @@ class EndToEnd(RepoFixture):
         self.assertIn("queued", out)
         self.w.fetch()
         self.w.execute(jid)
-        self.assertRegex(self.run_cli("jobs")[1], rf"ok\s+.*{jid}")
+        self.assertRegex(self.run_cli("jobs")[1], rf"JOB\s+{jid}\n\s+STATUS\s+OK")
 
     def test_an_approval_job_shows_where_to_approve_it(self):
         code, out, err = self.run_cli("submit", "careful", "--no-wait")

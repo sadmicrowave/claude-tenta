@@ -448,6 +448,15 @@ def meta(sections, cols=None):
     return out
 
 
+def job_blocks(entries, label="JOB"):
+    """Things with a name of their own (a job, a branch) as blocks of labelled rows with a blank line between: the label as a purple chip and the name in bold beside it, then rows of fixed words. The name is a
+    value on its own line, never a column that a long one can throw off. `entries` is [(name, [(label, value), ...])]."""
+    out = []
+    for i, (name, rows) in enumerate(entries):
+        out += (["\n"] if i else []) + [(Chip(label, "primary"), Styled([(name, "strong")]))] + rows
+    return out
+
+
 def chip(text):
     """A command or name as it is typed, as a code chip: the one way a command to copy is drawn anywhere (callers check whether colour is on)."""
     return theme.sgr(f" {text} ", "code")

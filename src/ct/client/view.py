@@ -231,25 +231,36 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
+STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}
+
+
+job_blocks = cards.job_blocks                                                       # one definition for every list of jobs
+
+
 def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None, where=None):
-    """The job list as cards: the jobs waiting for you (with the commands that approve them), then the table of recent jobs, then what the status words mean."""
+    """The job list as cards: the jobs waiting for you (with the commands that approve them), then your recent jobs, then what the status words mean."""
     out = out or sys.stdout
     waiting = [r for r in rows if r[1] == "awaiting_approval"]
     shown = rows if n is None else rows[:n]
     if waiting:
-        ui.table("Waiting for you", ["job", "name", "waiting"], [[(r[2], "warn"), label_of(r[2], r[4])[:27], human_age(r[0], now)] for r in waiting[:8]], tag="APPROVE", color=ui.YELLOW, stream=out,
-                 notes=("These will not run until you approve them. Approving waits for the result and prints it.",), run=[f"{admin} approve {r[2]}" for r in waiting[:8]], run_label="Approve one")
+        ui.say("Waiting for you", *job_blocks([(r[2], [("CLASS", label_of(r[2], r[4])), ("WAITING", human_age(r[0], now))]) for r in waiting[:8]]),
+               "These will not run until you approve them. Approving waits for the result and prints it.", tag="APPROVE", color=ui.YELLOW, stream=out,
+               run=[f"{admin} approve {r[2]}" for r in waiting[:8]], run_label="Approve one")
     if not shown:
         ui.say("Your jobs", "No results yet.", tag="NONE", color=ui.PRIMARY, stream=out)
         return
     took = run_durations(results)
-    table = []
+    entries = []
     for when, status, jid, note, cls in shown:
-        table.append([when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
-                      "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)] + ([where.get(jid, "")] if where is not None else []))
-    notes = [f"{jid}: {note}" for _, status, jid, note, _ in shown if note and status != "awaiting_approval"]
-    ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"] + (["worker"] if where is not None else []), table, tag="JOBS", stream=out,
-             notes=("WHEN is your local time, when the job finished (or was submitted, if it has not run). DURATION is how long the run took (so far, if it is still running).", *notes[:8]))
+        stamp = when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-"
+        rows_ = [("STATUS", cards.Styled([(status.upper(), STATUS_ROLE.get(status)), (f"  {stamp}  ·  {took.get(jid, '-')}", "muted")])), *([("CLASS", label_of(jid, cls))] if not jid.startswith(f"{cls}-") else [])]          # a generated id already starts with its class
+        if where is not None:
+            rows_.append(("WORKER", where.get(jid, "")))
+        if note and status != "awaiting_approval":
+            rows_.append(("NOTE", note))
+        entries.append((jid, rows_))
+    ui.say("Your most recent jobs, newest first", *job_blocks(entries),
+           "The time is your local time: when the job finished (or was submitted, if it has not run), then how long the run took (so far, if it is still running).", tag="JOBS", color=ui.PRIMARY, stream=out)
     ui.say("What the status words mean", *[(word, meaning) for word, meaning in STATUS_MEANING], "See one job in full:  ct-run result <job>", tag="LEGEND", color=ui.PRIMARY, stream=out)
 
 

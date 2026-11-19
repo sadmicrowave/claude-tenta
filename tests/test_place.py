@@ -234,9 +234,9 @@ class TheJobsList(Setup):
         self.assertEqual(rc, 0, text)
         order = [text.index(j) for j in ("job-bbb222", "job-ccc333", "job-aaa111")]
         self.assertEqual(order, sorted(order))
-        for pair in (("job-bbb222", "vmx"), ("job-ccc333", "ghx"), ("job-aaa111", "mini")):
-            line = [l for l in text.splitlines() if pair[0] in l][0]
-            self.assertIn(pair[1], line)
+        for jid, worker in (("job-bbb222", "vmx"), ("job-ccc333", "ghx"), ("job-aaa111", "mini")):
+            block = re.search(rf"JOB\s+{jid}\n((?:  .+\n)+)", text).group(1)                     # the job's own rows, up to the blank line
+            self.assertRegex(block, rf"WORKER\s+{worker}")
 
     def test_a_worker_that_cannot_be_read_is_named_and_the_others_still_listed(self):
         for n in ("mini", "vmx", "ghx"):

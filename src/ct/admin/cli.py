@@ -303,8 +303,8 @@ def approve_all(ctx, a):
     if not ready and not skipped:
         emit("Nothing is waiting for approval", tag="OK", color=GREEN)
         return 0
-    _ui.table("Waiting jobs", ["state", "job", "why"], [[("SKIPPED", "warn"), jid, why] for jid, why in skipped] + [[("READY", "ok"), jid, "viewed"] for jid, _ in ready],
-              tag="APPROVE", stream=sys.stdout)
+    _ui.say("Waiting jobs", *cards.job_blocks([(jid, [("STATE", cards.Styled([("SKIPPED", "warn")])), ("WHY", why)]) for jid, why in skipped] + [(jid, [("STATE", cards.Styled([("READY", "ok")])), ("WHY", "viewed")]) for jid, _ in ready]),
+            tag="APPROVE", color=_ui.PRIMARY, stream=sys.stdout)
     if not ready:
         raise ClientError("None of the waiting jobs have been viewed", "Review them first; that is what lets them be approved together.", example="ct-admin review")
     if not ctx.confirm(f"Approve these {plural(len(ready), 'job')}?", a.yes):
@@ -974,8 +974,8 @@ def cmd_proposals(ctx, a):
         if not rows:
             emit("No open proposals", "main is all there is.", tag="OK", color=GREEN)
             return 0
-        _ui.table("Changes waiting on branches", ["branch", "state", "last commit"],
-                  [[b, ("merged", "muted") if merged else (f"{ahead} to review", "warn"), subj] for b, ahead, subj, merged in rows], tag="PROPOSALS", stream=sys.stdout)
+        _ui.say("Changes waiting on branches", *cards.job_blocks([(b, [("STATE", cards.Styled([("merged", "muted")]) if merged else cards.Styled([(f"{ahead} to review", "warn")])), ("LAST COMMIT", subj)]) for b, ahead, subj, merged in rows], label="BRANCH"),
+                tag="PROPOSALS", color=_ui.PRIMARY, stream=sys.stdout)
         emit("What you can do with these", tag="NEXT", color=CYAN, run_label="Merge one, merge them all, or clean up", run=["ct-admin proposals merge <branch>", "ct-admin proposals merge --all", "ct-admin proposals tidy"])
         return 0
     if act == "merge":

@@ -377,8 +377,8 @@ def cmd_output(ctx, jid=None):
     if not rows:
         emit("No kept output", f"Failed commands keep their full output here, for {plural(keeper.keep_days, 'day')}.", tag="OK", color=GREEN)
         return 0
-    _ui.table("Full output of failed commands", ["job", "size", "age"], [[name, f"{kb} KB", f"{human_dur(age)} ago"] for name, kb, age in rows], tag="KEPT", stream=sys.stdout,
-              notes=("Newest first; only the error lines were published.",), run="ct-output <job>", run_label="Read one")
+    _ui.say("Full output of failed commands", *cards.job_blocks([(name, [("SIZE", f"{kb} KB"), ("AGE", f"{human_dur(age)} ago")]) for name, kb, age in rows]), "Newest first; only the error lines were published.",
+            tag="KEPT", color=_ui.PRIMARY, stream=sys.stdout, run="ct-output <job>", run_label="Read one")
     return 0
 
 

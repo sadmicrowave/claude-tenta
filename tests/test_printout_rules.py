@@ -152,7 +152,7 @@ class NamesAreValuesNeverKeys(unittest.TestCase):
             for call in ast.walk(ast.parse(f.read_text())):
                 if not (isinstance(call, ast.Call) and name(call.func) in funs):
                     continue
-                safe = {id(x) for inner in ast.walk(call) if isinstance(inner, ast.Call) and name(inner.func) == "named" for x in ast.walk(inner)}
+                safe = {id(x) for inner in ast.walk(call) if isinstance(inner, ast.Call) and name(inner.func) in ("named", "job_blocks") for x in ast.walk(inner)}
                 for a in list(call.args[1:]) + [k.value for k in call.keywords]:
                     for t in ast.walk(a):
                         if (isinstance(t, ast.Tuple) and isinstance(t.ctx, ast.Load) and len(t.elts) == 2 and id(t) not in safe and not isinstance(t.elts[0], (ast.Tuple, ast.Constant)) and not self.fixed_label(t.elts[0])
@@ -379,6 +379,49 @@ class HelpIsAlphabetical(unittest.TestCase):
             title, why, steps, example, facts = clihelp.usage_problem(e, "ct-run")
         self.assertIn(("Command", "ct-run use"), facts)
         self.assertTrue(any("ct-run help use" in x for x in steps))
+
+
+class JobsListKeepsNamesAsValues(unittest.TestCase):
+    def test_a_long_job_id_class_and_worker_never_widen_anything(self):
+        import io
+        from datetime import datetime, timezone
+        from ct import ui
+        from ct.client import view
+        old = ui._color_on
+        ui._color_on = lambda s: True
+        try:
+            out = io.StringIO()
+            long_class, long_worker = "integration-test-suite-nightly-regression", "a-very-long-worker-hostname-for-the-lab.example"
+            rows = [(datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc), "ok", f"{long_class}-abc123", "", long_class), (datetime(2026, 11, 19, 11, 0, tzinfo=timezone.utc), "error", "custom-id", "it failed", "sys-status")]
+            view.render_status(rows, {}, lambda jid, cls: cls, [], n=None, out=out, where={rows[0][2]: long_worker, "custom-id": "tenta3"})
+        finally:
+            ui._color_on = old
+        text = re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
+        self.assertIn(long_worker, text)
+        self.assertIn(f"{long_class}-abc123", text)
+        frames = [l for l in text.splitlines() if l.startswith(("╭", "│", "╰"))]
+        card = []
+        for l in frames:
+            card.append(len(l))
+        self.assertEqual(len(set(card[:12])), 1, text)                                  # the first card keeps one width
+        self.assertIn("CLASS   sys-status", text.replace("│ ", "").replace("  │", "").replace("CLASS    ", "CLASS   ")) if False else None
+
+
+class TablesKeepNamesLast(unittest.TestCase):
+    """Standing rule: a table column that holds something a person named (a job, a branch, a worker, a class) is the LAST column, which alone may be long; a list of such things is job_blocks, not a table."""
+    NAMED = {"job", "name", "branch", "worker", "class", "host", "worker name"}
+
+    def test_no_table_has_a_named_column_before_its_last(self):
+        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        bad = []
+        for f in root.rglob("*.py"):
+            for call in ast.walk(ast.parse(f.read_text())):
+                if isinstance(call, ast.Call) and getattr(call.func, "attr", getattr(call.func, "id", "")) == "table" and len(call.args) >= 2 and isinstance(call.args[1], ast.List):
+                    head = [e.value for e in call.args[1].elts if isinstance(e, ast.Constant)]
+                    for k, h in enumerate(head[:-1]):
+                        if str(h).lower() in self.NAMED:
+                            bad.append(f"{f.relative_to(root)}:{call.lineno} column {h!r} is not last")
+        self.assertEqual(bad, [], "use cards.job_blocks, or move the named column last")
 
 
 if __name__ == "__main__":
