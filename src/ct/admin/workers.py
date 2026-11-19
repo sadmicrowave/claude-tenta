@@ -13,7 +13,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import theme
+from .. import config, theme
 from ..words import plural
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -114,7 +114,8 @@ def row_for(name, doc, now=None):
     return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(), "spend": spend, "paused": bool(today.get("paused")),
             "cpu": f"{plural(hw.get('cores', '?'), 'core')}" + ("" if hw.get("native_claude", True) else ", old CPU"),
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
-            "claude": text, "state": "LOCKED" if doc.get("locked") else ("jail ON" if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
+            "claude": text, "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
+            "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""),
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" STALE" if age is None or age > STALE_S else ""),
             "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S,
@@ -126,6 +127,14 @@ BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "primary", "primary_chip", "warn_chip", 
 RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
 ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("TODAY", "spend"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
 HANG = 10
+
+
+def fact_rows(r, upper=False):
+    """The measurements of one worker as (label, value) rows, with what it is used for after its state when it has said (an older release does not)."""
+    rows = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
+    if r.get("purpose"):
+        rows.insert([k for _, k in ROWS].index("state") + 1, ("PURPOSE" if upper else "Purpose", r["purpose"]))
+    return rows
 
 
 def installed_rows(r, plain=False):
@@ -172,7 +181,7 @@ def cards(rows, width=80, color=True):
         for r in rows:
             from .. import alias
             out += [f"{alias.show(r['name']).upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
-            facts = [(label, str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-"))) for label, key in ROWS]
+            facts = fact_rows(r, upper=True)
             extra = installed_rows(r, plain=True)                          # what is set up here, apart from the measurements above it
             out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" if (label or value) else "" for label, value in facts + ([("", "")] if extra else []) + extra]
             out.append("")
@@ -180,7 +189,7 @@ def cards(rows, width=80, color=True):
     from .. import alias, cards as card_mod, ui as ui_mod
     out = []
     for r in rows:
-        facts = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
+        facts = fact_rows(r)
         extra = installed_rows(r)                                         # what is set up here: a blank line apart from the measurements, and bold
         facts += (["\n"] if extra else []) + extra
         tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)

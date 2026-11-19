@@ -294,6 +294,26 @@ class Status(CliBase):
         code, out = self.run_cli("status")
         self.assertRegex(out, r"Status, \w{3} \d{4}-\d\d-\d\d \d\d:\d\d UTC")
 
+    def test_a_special_use_worker_says_so_openly_and_it_is_a_notice_not_a_problem(self):
+        class Ready:
+            name = "bwrap"
+
+            def ready(self):
+                return True
+
+            def describe(self):
+                return "jobs run in a bubblewrap jail"
+
+            def problem(self, refresh=False):
+                return None
+        self.w.jail = Ready()
+        self.w.s.isolation_mode, self.w.s.isolation_purpose, self.w.s.tool_roots = "relaxed", "special-use", ("/opt/tools", "/srv/pentest")
+        code, out = self.run_cli("status")
+        self.assertIn("RELAXED", out)
+        self.assertIn("/opt/tools, /srv/pentest", out)
+        self.assertIn("special use", out)
+        self.assertNotRegex(out, r"(?i)needs attention[^\n]*Isolation")                      # the owner's choice, said openly: not a problem
+
     def test_a_virtual_machine_without_a_temperature_sensor_is_not_an_attention_item(self):
         """Seen on two real VMs: the card said ATTENTION for a heat sensor a virtual machine cannot have."""
         self.w.sensors.temp = lambda: None

@@ -388,6 +388,14 @@ class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
            "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
 
+    def test_what_the_computer_is_used_for_is_a_row_and_a_relaxed_jail_is_said_in_the_state(self):
+        doc = dict(self.DOC) if hasattr(self, "DOC") else None
+        row = workers_mod.row_for("lab", {**(doc or {"name": "lab", "hardware": {}, "observed": {}, "os": {}, "claude": {"auth": "none"}}), "isolation": {"ready": True, "mode": "relaxed", "purpose": "special-use"}})
+        self.assertEqual((row["state"], row["purpose"]), ("jail ON, relaxed", "special use"))
+        plain = workers_mod.cards([{**self.ROW, "purpose": "special use"}], width=80, color=False)
+        self.assertTrue(any(l.startswith("  PURPOSE") and l.endswith("special use") for l in plain))
+        self.assertFalse(any("PURPOSE" in l for l in workers_mod.cards([self.ROW], width=80, color=False)))          # an older release says nothing about it: no row
+
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
         lines = workers_mod.cards([self.ROW], width=80, color=False)                       # plain (a pipe): the name, then labelled rows
         self.assertEqual(lines[0], "TESTCT")
@@ -737,7 +745,7 @@ class ActionRemoveAndList(ActionBase):
         code, _, err = self.admin("action", "lst")
         self.assertEqual(code, 2)
         self.assertNotIn("usage:", err)
-        self.assertIn("The choices are: add, remove, list", err)
+        self.assertIn("The choices are: add, list, remove", err)
         self.assertIn("lst", err)
         self.assertIn("ct-admin action list", err)
         code, _, err = self.admin("statu")

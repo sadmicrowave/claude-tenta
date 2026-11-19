@@ -38,6 +38,7 @@ class Settings:
     tools_root: Path
     tool_roots: tuple = ()                  # folders of existing tools a class may name (isolation.tool_roots; only when isolation.mode is relaxed)
     isolation_mode: str = "full"
+    isolation_purpose: str = "tenta-only"
     capacity: int = 4
     max_load: float = 3.0
     max_temp_c: float = 75.0

@@ -108,7 +108,7 @@ class Context:
         problem = config.secrets_file_problem(secrets_path)
         state = Path(cfg.path("state"))
         direct = transport.for_config(cfg).kind == "direct"
-        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, capacity=cfg.hardware.capacity,
+        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
@@ -154,7 +154,7 @@ class Context:
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
                     "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
-                    "isolation_mode": cfg.isolation.mode, "tool_roots": list(cfg.isolation.tool_roots),
+                    "isolation_mode": cfg.isolation.mode, "isolation_purpose": cfg.isolation.purpose, "tool_roots": list(cfg.isolation.tool_roots),
                     **workerstate.transport_facts(transport.for_config(cfg).kind, origin_of(cfg.path("queue_clone"))),          # what this worker really fetches over: the scheduler trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 
@@ -479,6 +479,7 @@ def cmd_status(ctx, hours=12):
     head("WORKER")
     up = ctx.uptime()
     kv("Up for", human_dur(up) if up else "unknown")
+    kv("Used for", config.PURPOSE_WORDS.get(w.s.isolation_purpose, w.s.isolation_purpose))
     load = os.getloadavg()
     kv("Load", f"{load[0]:.2f} now, {load[1]:.2f} over 5 min, {load[2]:.2f} over 15 min")
     profile = (ctx.hardware or {}).get("profile")
@@ -531,7 +532,11 @@ def cmd_status(ctx, hours=12):
         kv("Longest job", f"{human_dur(job_seconds(longest[1]))}  ({longest[1].get('id')})")
     head("CHECKS")
     iso_on = w.jail.ready()
-    line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
+    if iso_on and w.s.isolation_mode == "relaxed":                    # a choice of the owner (special use), said openly: a notice, not a problem
+        roots = ", ".join(w.s.tool_roots) or "none yet"
+        D.append(("Isolation", cards.Styled([("RELAXED", "warn"), (f"  {w.jail.describe()}; special use, by choice: tool folders are shown read-only ({roots})", "muted")])))
+    else:
+        line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
     canary_file = ctx.canary_status
     try:
         st = json.loads(Path(canary_file).read_text())

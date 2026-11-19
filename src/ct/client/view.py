@@ -272,6 +272,7 @@ def class_rows(name, c, runs_on=None, installed=False):
     """One class as card rows: fixed labels, and everything a person named (the class, the workers) as a value, so a long name wraps in its own space and moves nothing else."""
     rows = [(cards.Chip("CLASS", "primary"), cards.Styled([(name, "strong")])), ("RUNS", _what(c))]
     rows += [("PARAMS", ", ".join(c["params"]))] if c.get("params") else []
+    rows += [("TOOLS" if i == 0 else "", t) for i, t in enumerate(c.get("tools") or [])]                     # folders of tools that already exist on the worker, one per line
     if runs_on:                                                         # each worker on its own line, under the value column: a long name wraps alone and nothing is run together
         rows += [("RUNS ON" if i == 0 else "", w) for i, w in enumerate(runs_on)]
     rows += [("COST", f"{c['cost']}, {TIER_WORDS.get(c['tier'], c['tier'])}")]

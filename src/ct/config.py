@@ -25,6 +25,7 @@ BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 IDENT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")                     # absolute, no spaces, no quotes, no shell characters
 RESERVED_USERS = {"root", "daemon", "bin", "sys", "nobody", "www-data", "ubuntu", "debian"}
+PURPOSE_WORDS = {"tenta-only": "only for tenta", "shared": "shared with other uses", "special-use": "special use"}      # how a computer's purpose is said on screen
 PROTECTED_PATHS = {"/", "/etc", "/var", "/var/lib", "/usr", "/usr/local", "/usr/bin", "/usr/sbin", "/opt", "/home", "/root", "/boot", "/bin", "/sbin", "/lib", "/tmp"}
 PROJECT_URL = "https://github.com/sadmicrowave/claude-tenta.git"      # privacy-ok: the project's own public home, the default place updates come from
 RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]

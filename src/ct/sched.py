@@ -126,6 +126,14 @@ def _left_out(w, cls, kind, prefs):
         return f"is reserved for {', '.join(reserved) or 'other work'}"
     if cls not in w.offered:
         return f"does not offer the class {cls}"
+    tools = (((w.registry or {}).get("classes") or {}).get(cls) or {}).get("tools")
+    if tools:                                                                      # a class that needs existing tool folders runs only where the owner allowed them
+        if w.doc("isolation", "mode", default="full") != "relaxed":
+            return f"is in full isolation, so it cannot show the tool folders {cls} needs"
+        roots = [r.rstrip("/") for r in (w.doc("isolation", "tool_roots", default=[]) or [])]
+        outside = [t for t in tools if not any(t == r or t.startswith(r + "/") for r in roots)]
+        if outside:
+            return f"does not allow the tool folder {outside[0]} that {cls} needs"
     allowed = prefs.connections.get(cls)
     if allowed and w.listens_on not in allowed:
         return f"is reached over {w.listens_on}, and {cls} is limited to {' or '.join(allowed)}"

@@ -238,5 +238,13 @@ class ClassesCarryTheirOwnInstallDate(unittest.TestCase):
         self.assertEqual([r[1] if not hasattr(r[1], "plain") else r[1].plain() for r in rows], ["a", "4 of 4 free", "WARNING: sends over github, but the worker listens on direct"])
 
 
+class ClassesShowTheirToolFolders(unittest.TestCase):
+    def test_a_class_with_tool_folders_lists_them_one_per_line(self):
+        import re
+        from ct.client import view
+        text = re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(f"{k}  {v}" for k, v in view.class_rows("scan", {"cost": "light", "tier": "approve", "kind": "command", "run": ["nmap-wrapper"], "tools": ["/opt/tools/nmap", "/opt/tools/bin"]})))
+        self.assertRegex(text, r"TOOLS  /opt/tools/nmap\n  /opt/tools/bin")
+
+
 if __name__ == "__main__":
     unittest.main()

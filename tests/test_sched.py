@@ -125,6 +125,28 @@ class TheRealPublisher(unittest.TestCase):
         self.assertEqual(pick([v]).worker, "w")
 
 
+class ToolFolderClasses(unittest.TestCase):
+    """A class that needs existing tool folders runs only on a worker in relaxed mode that allows them."""
+
+    def view(self, name, mode=None, roots=(), tools=("/opt/tools/nmap",), **kw):
+        s = state(classes=("sys-status", "scan"), **kw)
+        s["isolation"] = {"ready": True, **({"mode": mode, "tool_roots": list(roots)} if mode else {})}
+        reg = {"classes": {"sys-status": {"kind": "command", "cost": "light"}, "scan": {"kind": "command", "cost": "light", **({"tools": list(tools)} if tools else {})}}}
+        return worker_view(name, "direct", s, reg, 30, 5)
+
+    def test_only_a_relaxed_worker_that_allows_the_folder_is_chosen_and_the_others_say_why(self):
+        ws = [self.view("full"), self.view("relaxed-other", "relaxed", ["/srv/other"]), self.view("lab", "relaxed", ["/opt/tools"], running=3), self.view("old")]
+        c = pick(ws, "scan")
+        self.assertEqual(c.worker, "lab")                                              # busier, but the only one that can show the folder
+        why = dict((n, r) for n, _, r in c.lines)
+        self.assertIn("full isolation", why["full"])
+        self.assertIn("full isolation", why["old"])                                    # a worker from before the setting has no mode: full
+        self.assertIn("does not allow the tool folder /opt/tools/nmap", why["relaxed-other"])
+
+    def test_a_class_without_tool_folders_is_unaffected(self):
+        self.assertIsNotNone(pick([self.view("full")], "sys-status").worker)
+
+
 if __name__ == "__main__":
     unittest.main()
 
