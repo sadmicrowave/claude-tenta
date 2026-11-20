@@ -80,7 +80,8 @@ try {{
   $gitv = ((& $git --version 2>&1) -join '').Trim()
   Write-Output ('CT-RESULT ' + (@{{git = $gitv; git_path = $git; python = $pyv; python_path = $py; changed = $changed}} | ConvertTo-Json -Compress))
 }} catch {{ Fail 'script' $_.Exception.Message }}
-"""
+
+"""   # the blank line at the end matters: PowerShell reading a script from standard input does not run the last block until it sees one (found on the real Windows 11 VM)
 
 
 def parse_result(text):

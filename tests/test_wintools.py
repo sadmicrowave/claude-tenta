@@ -39,6 +39,9 @@ class Script(unittest.TestCase):
         self.assertIn("if (-not $py)", self.s)                                        # winget only when no Python 3.11+
         self.assertIn("-notlike '*WindowsApps*'", self.s)                             # the Store's python.exe stub is not a Python
 
+    def test_the_script_ends_with_a_blank_line_or_powershell_on_stdin_never_runs_it(self):
+        self.assertTrue(wintools.installer_script(wintools.DEFAULT_TOOLS).endswith("}\n\n"))
+
     def test_python_comes_from_winget_never_from_an_unchecked_download(self):
         self.assertIn("winget install --id Python.Python.3.13 --scope user", self.s)
         self.assertNotIn("embed", self.s.lower())
