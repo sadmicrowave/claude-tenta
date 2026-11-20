@@ -187,3 +187,24 @@ class ToolFolders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlatformRefusals(unittest.TestCase):
+    """Decided for the Windows Special Use worker: it refuses a class that must run without the network (it cannot enforce that) and any Claude class; Linux is untouched."""
+    CLASSES = {"quiet": {"kind": "command", "run": "/bin/true"}, "net": {"kind": "command", "run": "/bin/true", "network": True}, "ask": {"kind": "claude"}}
+
+    def test_linux_refuses_nothing(self):
+        for p in (None, "", "linux", "macos"):
+            self.assertEqual(registry.platform_problems(self.CLASSES, p), [])
+
+    def test_windows_refuses_the_no_network_class_and_the_claude_class_by_name(self):
+        got = registry.platform_problems(self.CLASSES, "windows")
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(any(p.startswith("quiet:") and "cannot enforce" in p for p in got))
+        self.assertTrue(any(p.startswith("ask:") and "no Claude jobs" in p for p in got))
+        self.assertFalse(any(p.startswith("net:") for p in got))
+
+    def test_validate_carries_it(self):
+        reg = {"classes": {"quiet": {"kind": "command", "run": "/bin/true"}}}
+        self.assertTrue(any("cannot enforce" in p for p in registry.validate(reg, "/t", platform="windows")))
+        self.assertFalse(any("cannot enforce" in p for p in registry.validate(reg, "/t")))

@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import render
+from . import plat, render
 from .config import ConfigError
 from . import ui as _ui
 from .setup.report import sink as _sink
@@ -229,7 +229,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=No
         reg, notes = packs.compose(loaded, cfg.registry.packs, cfg.policy.packs, user)
     except packs.PackError as e:
         raise InstallError("the registry was NOT installed: " + "; ".join(e.problems[:6]))
-    problems = registry.validate(reg, cfg.path("tools"), tool_roots=list(cfg.isolation.tool_roots) if cfg.isolation.mode == "relaxed" else [])
+    problems = registry.validate(reg, cfg.path("tools"), tool_roots=list(cfg.isolation.tool_roots) if cfg.isolation.mode == "relaxed" else [], platform=plat.name())
     if problems:
         raise InstallError("the composed registry is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
     if check_exe is None and str(prefix) == "/":

@@ -163,7 +163,23 @@ def tools_problems(w, tools, kind, tool_roots):
     return errs
 
 
-def validate(reg, tools_root, allow_empty=False, tool_roots=None):
+def platform_problems(classes, platform):
+    """What a worker on another platform (Windows) cannot honour: a class that must run without the network (it has no way to enforce that: the refusal names the class), and any Claude class
+    (not in version 1). Nothing on Linux."""
+    if platform != "windows":                                   # only Windows has the decision; a Mac worker is its own design
+        return []
+    errs = []
+    for name, c in sorted((classes or {}).items()):
+        if not isinstance(c, dict):
+            continue
+        if c.get("kind", "command") == "claude":
+            errs.append(f"{name}: a {platform} worker runs no Claude jobs in this version")
+        elif not c.get("network", False):
+            errs.append(f"{name}: needs no network, and a {platform} worker cannot enforce that; the class must say network: true to be offered there")
+    return errs
+
+
+def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None):
     """Return a list of problems (empty = fine). `tools_root` is the folder a class's `env` paths must stay under. `allow_empty` accepts a
     registry with no classes of its own (your private layer: the packs provide the rest)."""
     if not isinstance(reg, dict):
@@ -177,6 +193,7 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None):
     if "profiling" in reg and not isinstance(reg["profiling"], dict):
         errs.append("profiling: must be a mapping")
     errs += limits_problems(reg.get("limits"))
+    errs += platform_problems(classes, platform)
     from . import actions as actions_mod                      # imported here: actions needs this module's helpers
     errs += actions_mod.validate(reg.get("actions"), (reg.get("policy") or {}).get("deny_commands") or [])
     tools_root = str(tools_root)
