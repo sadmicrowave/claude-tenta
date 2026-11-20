@@ -63,6 +63,23 @@ def run_group(argv, timeout, **kw):
 
 
 # ---- the machine ----------------------------------------------------------------------------------------------------------------
+class WindowsSensors:
+    """Memory of this computer and of a job's Job Object. No temperature sensor is read (None), and nobody is 'logged in' as far as the worker can tell yet."""
+
+    def logged_in(self):
+        return []
+
+    def temp(self):
+        return None
+
+    def meminfo(self):
+        from . import winproc
+        return winproc.memory()
+
+    def group_rss_mb(self, pid):
+        return plat.group_rss_mb(pid)
+
+
 class LinuxSensors:
     """Temperature, memory and per-job memory from /sys and /proc. Missing sources give None or 0, never an error."""
 
@@ -178,7 +195,20 @@ def class_network(cls):
 
 
 # ---- the environment a job sees ---------------------------------------------------------------------------------------------------
+def windows_env(home, extra_env=None):
+    """What a job sees on Windows: a short system PATH, SystemRoot, a TEMP of its own beside its folder, HOME and USERPROFILE as given, and the class's own variables."""
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    env = {"PATH": f"{root}\\system32;{root}", "SystemRoot": root, "HOME": str(home), "USERPROFILE": str(home), "TEMP": str(Path(home) / "tmp"), "TMP": str(Path(home) / "tmp"), "LANG": "C.UTF-8"}
+    if extra_env:
+        env.update({k: v for k, v in extra_env.items() if k != "PATH"})
+        if extra_env.get("PATH"):
+            env["PATH"] = extra_env["PATH"] + ";" + env["PATH"]
+    return env
+
+
 def build_env(home, claude=False, extra_env=None, api_key=None, oauth_token=None):
+    if plat.IS_WINDOWS:
+        return windows_env(home, extra_env)
     """System directories only on PATH, so nothing a job or a package step writes into the worker's home can shadow a system program.
     A `claude` job also gets the worker's ~/.local/bin (where claude is installed), LAST so it can never shadow anything, and the API key.
     A class's own variables (extra_env) are added; its PATH, if any, goes in front (a throwaway tools folder, set deliberately)."""
@@ -203,11 +233,13 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     `limits` may hold max_rss_mb / max_temp_c / max_disk_mb; going over stops the job (status "limit").
     Metrics are measured for every job, so results show what each one really cost. `claude` marks a job whose stdout is a JSON document
     with a `result` field."""
-    limits, sensors = limits or {}, sensors or LinuxSensors()
+    limits, sensors = limits or {}, sensors or (WindowsSensors() if plat.IS_WINDOWS else LinuxSensors())
     env = build_env(home, claude, extra_env, api_key, oauth_token)
+    if plat.IS_WINDOWS:
+        Path(env["TEMP"]).mkdir(parents=True, exist_ok=True)               # the job's own TEMP must exist before it starts
     timeout = min(int(timeout), MAX_TIMEOUT)
     try:
-        launch = (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, claude=claude, env=env, require=require_netns)
+        launch = list(argv) if plat.IS_WINDOWS and jail is None else (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, claude=claude, env=env, require=require_netns)
     except Refused as e:
         return "error", None, "", {}, f"not started: {e}"
     outp, errp = Path(f"{wd}.out"), Path(f"{wd}.err")   # beside the work dir, so the job never sees them
@@ -222,7 +254,8 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
         with open(outp, "wb") as fo, open(errp, "wb") as fe:
             # own session and process group so a timeout or `kill` takes down the whole tree, not just the top process
             p = subprocess.Popen(launch, stdout=fo, stderr=fe, stdin=subprocess.DEVNULL, cwd=str(wd), env=env,
-                                 **plat.new_session(), preexec_fn=plat.child_limits(FSIZE_LIMIT))
+                                 **plat.new_session(hold=True), preexec_fn=plat.child_limits(FSIZE_LIMIT))
+            plat.adopt(p)
         if marker is not None:
             try:
                 mk = json.loads(marker.read_text())
@@ -268,6 +301,8 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
         status, rc = "killed", None
     except FileNotFoundError as e:
         return "error", None, f"not found: {e}", {}, ""
+    if p is not None:
+        plat.finish(p)
     wall = time.time() - t0
     ru1 = plat.child_usage()
     cpu = ru1.cpu_s - ru0.cpu_s

@@ -21,8 +21,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: The worker's modules import, and the seam is honest
-        run: python -m unittest tests.test_windows_ready tests.test_platform_seam -v
+      - name: The worker's modules import, the seam is honest, and a job runs and is stopped as a whole tree
+        run: python -m unittest tests.test_windows_ready tests.test_platform_seam tests.test_winproc -v
 
   test:
     # Linux is where the worker runs; macOS is where the commands on your computer run (ct-run, ct-admin, ct-setup client), so the unit tests run on both.
