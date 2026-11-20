@@ -390,6 +390,12 @@ class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
            "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
 
+    def test_the_card_names_the_platform_only_when_it_is_not_linux(self):
+        win = workers_mod.cards([{**self.ROW, "platform": "windows"}], width=90, color=False)
+        self.assertTrue(any(l.startswith("  PLATFORM") and "windows" in l for l in win), win)
+        for usual in ("", "linux"):
+            self.assertFalse(any("PLATFORM" in l for l in workers_mod.cards([{**self.ROW, "platform": usual}], width=90, color=False)))
+
     def test_a_held_shared_computer_says_why_in_its_card(self):
         plain = workers_mod.cards([{**self.ROW, "purpose": "shared with other uses", "held": "a person is using this computer (alice)"}], width=90, color=False)
         self.assertTrue(any(l.startswith("  AVAILABILITY") and "held: a person is using this computer (alice)" in l for l in plain))
