@@ -6,6 +6,7 @@
     scripts/release 0.2.0 --notes FILE    use FILE as the release notes (default: the commit subjects since the last release)
     scripts/release 0.2.0 --skip-tests    skip the unit tests (the privacy check and a clean tree are always required)
     scripts/release 0.2.0 --dry-run       run every check and show what would be tagged, changing nothing
+    scripts/release 0.1.0 --windows       the Windows line: tag `release-win-0.1.0` at this commit with docs/releases/win-0.1.0.md as its notes; no version bump, no commit
 
 Everything that people or workers learn about a release comes from this tag: `ct-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
 in `updates.mode = "signed-tags"` installs only a tag whose signature checks. Nothing is pushed here: you read the result, then push.
@@ -33,9 +34,14 @@ def git(root, *args, check=True):
     return r.stdout.strip()
 
 
-def previous_tag(root):
-    tags = [t for t in git(root, "tag", "-l", "release-*").split() if re.match(r"^release-\d+\.\d+\.\d+$", t)]
-    key = lambda t: tuple(int(x) for x in t[len("release-"):].split("."))      # noqa: E731
+def prefix_for(windows):
+    return "release-win-" if windows else "release-"                          # the Windows release is its own line of tags; the Linux check never sees it (updatecheck.TAG_RE_FOR)
+
+
+def previous_tag(root, windows=False):
+    pre = prefix_for(windows)
+    tags = [t for t in git(root, "tag", "-l", pre + "*").split() if re.match("^" + re.escape(pre) + r"\d+\.\d+\.\d+$", t)]
+    key = lambda t: tuple(int(x) for x in t[len(pre):].split("."))      # noqa: E731
     return max(tags, key=key, default=None)
 
 
@@ -45,18 +51,19 @@ def notes_since(root, prev):
     return subjects or "- (no changes recorded)"
 
 
-def check(root, version, skip_tests=False):
+def check(root, version, skip_tests=False, windows=False):
     if not VERSION_RE.match(version):
         raise ReleaseError("the version is three numbers, like 0.2.0")
     if git(root, "rev-parse", "--abbrev-ref", "HEAD") != "main":
         raise ReleaseError("releases are cut from main")
     if git(root, "status", "--porcelain"):
         raise ReleaseError("the working tree has uncommitted changes")
-    if git(root, "tag", "-l", f"release-{version}"):
-        raise ReleaseError(f"release-{version} already exists")
-    prev = previous_tag(root)
+    pre = prefix_for(windows)
+    if git(root, "tag", "-l", f"{pre}{version}"):
+        raise ReleaseError(f"{pre}{version} already exists")
+    prev = previous_tag(root, windows)
     if prev:
-        old = tuple(int(x) for x in prev[len("release-"):].split("."))
+        old = tuple(int(x) for x in prev[len(pre):].split("."))
         if tuple(int(x) for x in version.split(".")) <= old:
             raise ReleaseError(f"{version} is not newer than {prev}")
     priv = Path(root) / "scripts" / "privacy-check"
@@ -84,6 +91,22 @@ def bump(root, version):
         path.write_text(rx.sub(template.format(v=version), text, count=1))
 
 
+def windows_release(root, version, notes=None, sign=False, skip_tests=False):
+    """The Windows line: the tag `release-win-X.Y.Z` at this commit, carrying docs/releases/win-X.Y.Z.md (CI refuses a tag whose message lacks it). No version bump and no commit: the Windows release has its own version."""
+    check(root, version, skip_tests, windows=True)
+    notes_file = Path(root) / "docs" / "releases" / f"win-{version}.md"
+    if notes is None:
+        if not notes_file.exists():
+            raise ReleaseError(f"docs/releases/win-{version}.md is missing: write the Windows release notes first")
+        notes = notes_file.read_text()
+    tag, prev = f"release-win-{version}", previous_tag(root, True)
+    git(root, "tag", "-s" if sign else "-a", "--cleanup=verbatim", tag, "-m", f"release win-{version}\n\n{notes}\n")
+    if notes.strip() not in git(root, "tag", "-l", "--format=%(contents)", tag):
+        git(root, "tag", "-d", tag)
+        raise ReleaseError(f"the tag {tag} does not carry the release notes, so it was removed; nothing was pushed")
+    return tag, prev
+
+
 def release(root, version, notes=None, sign=False, skip_tests=False):
     check(root, version, skip_tests)
     prev = previous_tag(root)
@@ -108,26 +131,30 @@ def main(argv=None):
     ap.add_argument("--notes")
     ap.add_argument("--skip-tests", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--windows", action="store_true")
     a = ap.parse_args(argv)
     sys.path.insert(0, str(ROOT / "src"))
     from ct import ui                                        # the same card style as every other screen
     try:
         notes = Path(a.notes).read_text() if a.notes else None
         if a.dry_run:
-            check(ROOT, a.version, a.skip_tests)
-            prev = previous_tag(ROOT)
-            body = notes if notes is not None else notes_since(ROOT, prev)
-            ui.document(f"What release-{a.version} would say", body, tag="DRY RUN", stream=sys.stdout)
-            ui.say("Every check passed", ("Would tag", f"release-{a.version}" + (" (signed)" if a.sign else "")), ("Previous release", prev or "none"),
+            check(ROOT, a.version, a.skip_tests, a.windows)
+            prev = previous_tag(ROOT, a.windows)
+            wf = ROOT / "docs" / "releases" / f"win-{a.version}.md"
+            if a.windows and notes is None and not wf.exists():
+                raise ReleaseError(f"docs/releases/win-{a.version}.md is missing: write the Windows release notes first")
+            body = notes if notes is not None else (wf.read_text() if a.windows else notes_since(ROOT, prev))
+            ui.document(f"What {prefix_for(a.windows)}{a.version} would say", body, tag="DRY RUN", stream=sys.stdout)
+            ui.say("Every check passed", ("Would tag", f"{prefix_for(a.windows)}{a.version}" + (" (signed)" if a.sign else "")), ("Previous release", prev or "none"),
                    ("Files at this version", ", ".join(rel for rel, rx, _ in FILES if f'"{a.version}"' in (ROOT / rel).read_text())),
-                   "Nothing was changed.", tag="OK", color=ui.GREEN, stream=sys.stdout, run_label="To do it for real", run=f"scripts/release {a.version}" + (f" --notes {a.notes}" if a.notes else ""))
+                   "Nothing was changed.", tag="OK", color=ui.GREEN, stream=sys.stdout, run_label="To do it for real", run=f"scripts/release {a.version}" + (" --windows" if a.windows else "") + (f" --notes {a.notes}" if a.notes else ""))
             return 0
-        tag, prev = release(ROOT, a.version, notes, a.sign, a.skip_tests)
+        tag, prev = (windows_release if a.windows else release)(ROOT, a.version, notes, a.sign, a.skip_tests)
     except ReleaseError as e:
         ui.say("The release was stopped", str(e), tag="ERROR", color=ui.RED)
         return 1
     ui.say(f"Created {tag}", ("The last one was", prev or "none"), "Nothing was pushed.", tag="DONE", color=ui.GREEN, stream=sys.stdout, run_label="To publish it",
-           run=["git push origin main", f"git push origin {tag}"])
+           run=[f"git push origin {tag}"] if a.windows else ["git push origin main", f"git push origin {tag}"])
     return 0
 
 
