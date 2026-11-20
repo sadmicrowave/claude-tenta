@@ -81,6 +81,9 @@ def desired_files(src, cfg):
         files[render.mail_shell_path(cfg)] = (render.mail_shell(cfg), 0o755)
     for name, text in render.unit_files(cfg, templates).items():
         files[f"/etc/systemd/system/{name}"] = (text, 0o644)
+    dropin = render.step_dropin(cfg)
+    if dropin is not None:                                                            # resource limits for a shared computer: only when the owner set some
+        files[render.step_dropin_path(cfg)] = (dropin, 0o644)
     for pack in sorted(set(cfg.registry.packs) | set(cfg.policy.packs)):            # packs the configuration names and this release ships
         root = src / "packs" / pack
         if root.is_dir():
@@ -136,6 +139,11 @@ def install_release(src, cfg, rev, prefix="/", *, sandbox=None, systemctl=None, 
         _write_atomic(dest, data_b, mode)
         chown(dest)
         report.updated.append(path)
+    stale_dropin = _dest(prefix, render.step_dropin_path(cfg))                          # limits the owner has since removed: the file goes, and systemd is told
+    if render.step_dropin_path(cfg) not in files and stale_dropin.exists():
+        stale_dropin.unlink()
+        report.removed.append(render.step_dropin_path(cfg))
+        report.units_changed = True
     # IPv6 follows the configuration: a sysctl file when it is disabled, none (and the setting put back) when it is enabled
     sysctl_path, ipv6_text = f"/etc/sysctl.d/60-{cfg.identity.name}-ipv6.conf", render.sysctl_text(cfg)
     ipv6_dest = _dest(prefix, sysctl_path)

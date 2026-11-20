@@ -706,3 +706,37 @@ class RootLevelActions(RegistryInstall):
 
 for _name in [n for n in dir(RegistryInstall) if n.startswith("test_") and n not in RootLevelActions.__dict__]:
     setattr(RootLevelActions, _name, None)          # only this class's own tests: the inherited ones assume the plain registry
+
+
+class StepLimitsDropin(unittest.TestCase):
+    """The resource limits of a shared computer are a drop-in file the update tool writes, changes and removes with the configuration."""
+
+    def setUp(self):
+        self.prefix = tempfile.mkdtemp(prefix="ct-dropin-")
+
+    def install(self, **env):
+        c = config.load(None, env={"CT_CONFIG": "", "CT_SERVER_ADMIN_USER": "ctadmin", "CT_IDENTITY_NAME": "homect", **env})
+        files = update.desired_files(ROOT, c)
+        return c, files, update.install_release(ROOT, c, "a" * 40, prefix=self.prefix, sandbox=None, systemctl=lambda *a: None, visudo=lambda t: (True, ""), chown=lambda p: None)
+
+    def path(self, c):
+        return Path(self.prefix) / render.step_dropin_path(c).lstrip("/")
+
+    def test_set_limits_are_written_and_systemd_is_told(self):
+        c, files, report = self.install(CT_AVAILABILITY_NICE="10")
+        self.assertIn(render.step_dropin_path(c), files)
+        self.assertIn("Nice=10", self.path(c).read_text())
+        self.assertTrue(report.units_changed)
+
+    def test_no_limits_write_no_file(self):
+        c, files, report = self.install()
+        self.assertNotIn(render.step_dropin_path(c), files)
+        self.assertFalse(self.path(c).exists())
+
+    def test_limits_removed_from_the_configuration_remove_the_file(self):
+        c, _, _ = self.install(CT_AVAILABILITY_NICE="10")
+        self.assertTrue(self.path(c).exists())
+        c, _, report = self.install()
+        self.assertFalse(self.path(c).exists())
+        self.assertIn(render.step_dropin_path(c), report.removed)
+        self.assertTrue(report.units_changed)
