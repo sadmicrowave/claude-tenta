@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: create the worker's folders and account (src/ct/setup/winlayout.py), run it twice, then check and prove the rules with a live probe as the worker account.
+  scripts/win-layout-check USER@HOST
+Key login must work and the account must be an administrator. The second run must say changed=false."""
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.setup import winlayout, wintools   # noqa: E402
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    user, _, host = argv[0].rpartition("@")
+    run = wintools.ssh_runner(user, host)
+    bad = 0
+    for label, fn in (("ensure (first)", lambda: winlayout.ensure(run)), ("ensure (second: must be unchanged)", lambda: winlayout.ensure(run)),
+                      ("check", lambda: winlayout.check(run)), ("ensure with the live probe", lambda: winlayout.ensure(run, probe=True))):
+        t0 = time.time()
+        try:
+            r = fn()
+        except wintools.WinToolsError as e:
+            print(f"FAILED  {label}: {e.what}: {e.detail}")
+            return 1
+        found = winlayout.problems(r, r.get("probe"))
+        print(f"{label:38} {({k: v for k, v in r.items() if k != 'probe'})}  ({time.time() - t0:.0f} s)")
+        if r.get("probe"):
+            print("   probe:", r["probe"])
+        for p in found:
+            print("   PROBLEM:", p)
+            bad += 1
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

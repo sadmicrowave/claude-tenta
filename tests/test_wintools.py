@@ -36,14 +36,14 @@ class Script(unittest.TestCase):
     def test_an_existing_git_and_an_existing_python_are_used_and_nothing_is_installed_for_them(self):
         self.assertIn("Get-Command git", self.s)
         self.assertIn("if (-not $git)", self.s)                                       # the download only happens when no git was found
-        self.assertIn("if (-not $py)", self.s)                                        # winget only when no Python 3.11+
+        self.assertIn("if (-not $py)", self.s)          # only when no Python 3.11+
         self.assertIn("-notlike '*WindowsApps*'", self.s)                             # the Store's python.exe stub is not a Python
 
     def test_the_script_ends_with_a_blank_line_or_powershell_on_stdin_never_runs_it(self):
         self.assertTrue(wintools.installer_script(wintools.DEFAULT_TOOLS).endswith("}\n\n"))
 
     def test_python_comes_from_winget_else_from_python_org_checked_by_hash_and_signature(self):
-        self.assertIn("winget install --id Python.Python.3.13 --scope user", self.s)
+        self.assertNotIn("winget", self.s.replace("no winget route", ""))
         self.assertNotIn("embed", self.s.lower())
         p = wintools.PYTHON
         self.assertRegex(p["sha256"], r"^[0-9a-f]{64}$")
@@ -58,9 +58,9 @@ class Script(unittest.TestCase):
     def test_a_stale_python_on_path_is_skipped_not_fatal(self):
         self.assertRegex(self.s, r"try \{ \$v = \(& \$c\.Source --version")
 
-    def test_a_failed_or_missing_winget_falls_back_instead_of_stopping(self):
-        self.assertNotIn("winget is not available to install one", self.s)
-        self.assertIn("$viaWinget", self.s)
+    def test_a_python_under_a_persons_profile_is_not_reused_but_the_tools_folder_one_is(self):
+        self.assertIn("-notlike '*\\Users\\*'", self.s)                                  # the worker's own account could not read it
+        self.assertIn("(Join-Path $tools 'python\\python.exe'), 'python', 'py'", self.s)
 
     def test_it_prints_one_result_line_and_a_failure_names_what_failed(self):
         self.assertIn("CT-RESULT ", self.s)
