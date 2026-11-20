@@ -631,6 +631,25 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said))
         self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))
 
+    def test_an_existing_clone_moved_to_github_also_waits_for_the_keys_before_the_registry_fetch(self):
+        """Found by a real run (scripts/real-github-check): an install moved from Direct to GitHub already had its clones, so the server pointed them at GitHub and fetched the registry at once,
+        before ct-setup on the person's computer had added the deploy keys ('Permission denied (publickey)'). Only a fresh install waited."""
+        for which in ("queue", "results"):
+            self.h.path(f"/var/lib/claude-tenta/{which}/.git").mkdir(parents=True)
+        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/queue.git\n")
+        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/results.git\n")
+        calls = {"n": 0}
+
+        def ls_remote(argv):
+            calls["n"] += 1
+            return Result(0) if calls["n"] > 4 else Result(128, "Permission denied (publickey)")
+        self.h.replies["runuser -u ctworker -- git ls-remote"] = ls_remote
+        clock = {"t": 0}
+        s = self.setup_obj(dry_run=False, confirm=lambda p: True, wait_for_keys=600, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
+        s.run_all()
+        self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said), self.said)
+        self.assertFalse(s.waiting)
+
     def test_it_gives_up_waiting_after_the_time_and_says_so(self):
         self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied")
         clock = {"t": 0}
