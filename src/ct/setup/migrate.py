@@ -198,17 +198,17 @@ def back_to_github(a, host, ask, say, cfg, *, reinstall=None, url_of=None):
         bad = []
         for which, clone, url in clones:
             if not (host.exists(clone + "/.git") or host.exists(clone + "/HEAD")):
-                say(STYLER.note("skipped", f"{which} history", "no clone on this computer"))
+                say(STYLER.note("skipped", which + " history", "no clone on this computer"))
                 continue
             r = host.run(["git", "-C", clone, "push", "--quiet", url, "refs/heads/*:refs/heads/*"])
-            say(STYLER.note("pushed" if r.ok else "failed", f"{which} history", url if r.ok else r.out.strip()[-200:]))
+            say(STYLER.note("pushed" if r.ok else "failed", which + " history", url if r.ok else r.out.strip()[-200:]))
             if not r.ok:
                 bad.append((which, r.out.strip()))
         return bad
     bad = push_all()
     missing = [w for w, out in bad if "not found" in out.lower() or "does not exist" in out.lower() or "could not read" in out.lower()]
     if bad and len(missing) != len(bad):
-        _ui.say("GitHub has commits your clones lack", *[(w.capitalize(), (o.splitlines() or ["rejected"])[-1][:160]) for w, o in bad], "Nothing was changed: your configuration, the worker and your clones are as they were.",
+        _ui.say("GitHub has commits your clones lack", *[("Queue" if w == "queue" else "Results", (o.splitlines() or ["rejected"])[-1][:160]) for w, o in bad], "Nothing was changed: your configuration, the worker and your clones are as they were.",
                 "Fetch what GitHub has (ct-run setup pulls the clones), look at the difference, then run this again.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return 1
     if reinstall is None:
@@ -222,7 +222,7 @@ def back_to_github(a, host, ask, say, cfg, *, reinstall=None, url_of=None):
     if bad:                                                                        # the repositories did not exist until the reinstall made them: now the history can go in
         bad = push_all()
         if bad:
-            _ui.say("The history could not be pushed", *[(w.capitalize(), o.splitlines()[-1][:160]) for w, o in bad], tag="ERROR", color=RED, stream=sys.stderr)
+            _ui.say("The history could not be pushed", *[("Queue" if w == "queue" else "Results", (o.splitlines() or ["rejected"])[-1][:160]) for w, o in bad], tag="ERROR", color=RED, stream=sys.stderr)
             return 1
     notes, _ = rewrite_local(host, cfg, cfg2, "github")
     for step, status, detail in notes:
