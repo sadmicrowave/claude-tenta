@@ -120,6 +120,20 @@ def parse_result(text):
     raise WinToolsError("script", "no result line came back; PowerShell said: " + (str(text or "").strip()[-400:] or "nothing"))
 
 
+def ssh_runner(user, host, port=22, timeout=900):
+    """The runner install() wants, over key-login SSH: `(exit code, output)`. OpenSSH's own client warnings (lines starting `** `, such as the post-quantum notice) are left out; every other word of stderr is kept."""
+    import subprocess
+
+    def run(argv, input_text):
+        try:
+            r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", str(port), f"{user}@{host}", " ".join(argv)], input=input_text, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as e:
+            return 255, str(e)
+        err = "\n".join(x for x in r.stderr.splitlines() if not x.startswith("** "))
+        return r.returncode, (r.stdout + ("\n" + err if err.strip() else "")).replace("\r", "")
+    return run
+
+
 def install(runner, tools_dir=DEFAULT_TOOLS):
     """`runner(argv, input_text) -> (exit code, output)` runs a command on the Windows computer. Returns what parse_result returns."""
     rc, out = runner(list(POWERSHELL), installer_script(tools_dir))
