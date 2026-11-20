@@ -42,6 +42,7 @@ class Verdict:
     facts: dict = field(default_factory=dict)
     rows: list = field(default_factory=list)          # [(status, what, detail)] status: OK | WARN | FAIL
     fixes: list = field(default_factory=list)          # plain steps for each FAIL
+    windows: bool = False                              # the computer greets as Windows: it can only be a Special Use worker, with the separate Windows release
 
     @property
     def failures(self):
@@ -179,7 +180,24 @@ def run_script(host, user, port=22, run=None):
     return parse(r.stdout), ""
 
 
-def assess(host, user, port=22, run=None):
+def windows_verdict(host):
+    """The verdict for a computer that greets as Windows (nothing was logged in to): not a worker of this release, with what it can be instead."""
+    return Verdict(False, {}, [("FAIL", "Computer", "a Windows computer: it can only be a Special Use worker, with the separate Windows release")],
+                   [f"The Windows release is not available yet. Nothing was changed on {host}.",
+                    "Today: run a Linux virtual machine on that computer (or WSL2) and add the machine's own address: ct-setup add-worker <its address>"], windows=True)
+
+
+def assess(host, user, port=22, run=None, probe=None):
+    if probe is None and run is None:                                                  # a real look at the network: the SSH greeting says Windows before anything is run on it
+        from . import discover
+        probe = discover.probe
+    if probe is not None:
+        try:
+            dev = probe(host, port)
+        except Exception:
+            dev = None
+        if dev is not None and getattr(dev, "kind", "") == "windows":
+            return windows_verdict(host)
     facts, err = run_script(host, user, port, run)
     v = verdict(facts, user)
     if not facts:

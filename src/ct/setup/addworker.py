@@ -160,14 +160,16 @@ def found_card(devices, notes, nets, card=None):
     rows = [("Networks", ", ".join(f"{n.network} ({i})" for i, n in nets))] if nets else []
     mine = [d for d in devices if not d.known]
     servers = [d for d in mine if d.kind == "linux-server"]
+    windows = [d for d in mine if d.kind == "windows"]
     real, soft = [d for d in devices if not d.virtual], [d for d in devices if d.virtual]
     where = (f"{len(real)} on your real network, {len(soft)} on virtual networks inside this computer (VMs and containers; other computers on your network cannot reach those)"
              if soft else "all on your real network")
     rows.append(("Found", f"{plural(len(devices), 'device')} answering on the SSH port: {where}. {len(servers)} look like Linux servers"
+                 + (f", {len(windows)} greet as Windows (Special Use only, with the separate Windows release)" if windows else "")
                  + (f", {len(devices) - len(mine)} already yours" if len(devices) != len(mine) else "")))
     for d in devices:
         what = d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + f" · {d.latency_ms:g} ms" + (f" · on {d.iface}, virtual" if d.virtual else f" · on {d.iface}" if d.iface else "")
-        rows.append((d.ip + (f"  {d.name}" if d.name else "") + ("  (already a worker)" if d.known else ""), what))
+        rows += [("COMPUTER", d.ip + (f"  {d.name}" if d.name else "") + ("  (already a worker)" if d.known else "")), ("", what), "\n"]            # the address and name are values; the label is a fixed word
     rows += [f"Note: {n}" for n in notes]
     rows.append("This is all the network alone can tell. Nothing was logged in to; the next steps ask before they look any deeper.")
     card("Network scan", *rows, tag="FOUND" if devices else "NONE", color=PRIMARY if devices else YELLOW, stream=sys.stderr)

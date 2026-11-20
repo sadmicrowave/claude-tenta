@@ -148,10 +148,12 @@ class Worker:
         """Why this computer is not available for new work right now because of how it is shared (None = available): a person is logged in, or it is outside its working hours."""
         if self.s.window:
             start, _, end = self.s.window.partition("-")
-            now = self.clock().astimezone().strftime("%H:%M")
-            inside = start <= now < end if start < end else (now >= start or now < end)
+            t = self.clock().astimezone()
+            mins = lambda hhmm: int(hhmm[:2]) * 60 + int(hhmm[3:5])                      # noqa: E731
+            now, lo, hi = t.hour * 60 + t.minute, mins(start), mins(end)
+            inside = lo <= now < hi if lo < hi else (now >= lo or now < hi)
             if not inside:
-                return f"outside its working hours ({self.s.window}, now {now})"
+                return f"outside its working hours ({self.s.window}, now {t.strftime('%H:%M %Z')})"                      # a time on screen says its zone
         if self.s.pause_when_logged_in:
             who = getattr(self.sensors, "logged_in", None)
             people = sorted(set(who()) - set(self.s.ignore_users)) if who else []
