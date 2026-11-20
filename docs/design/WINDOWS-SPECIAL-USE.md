@@ -44,7 +44,7 @@ The code that does not change: the class model, the scheduler, approvals and sig
 5. The PowerShell installer driven over SSH, and the release selection by platform.
 6. The status, workers and class cards for a Windows worker; documentation; the test matrix; an end-to-end route on a real Windows machine (by hand at first).
 
-## Open questions
-- Which Windows versions to support (10 and 11 Pro and Enterprise; Home also has the OpenSSH feature).
-- Whether the first version may offer Claude jobs (no: the sign-in tool and its isolation need their own work).
-- Whether a Windows worker should refuse `network: false` classes (it cannot enforce them) or accept them with a plain warning in the review card.
+## Decisions
+- Supported: Windows 10 and 11 (Pro and Enterprise). Home is not a target.
+- No Claude jobs in version 1: the sign-in tool and its isolation need their own work.
+- A Windows worker refuses a class that needs no network (`network: false`), because it cannot enforce it. The refusal names the class and says why; the review card does not offer it. Nothing is accepted with a warning.
