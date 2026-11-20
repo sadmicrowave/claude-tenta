@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: register the worker's Scheduled Task (src/ct/setup/wintask.py) with a harmless long-running command, start it, read back that it runs AS the worker account, stop it,
+register again (must change nothing), and remove it.
+  scripts/win-task-check USER@HOST
+The layout step (scripts/win-layout-check) and the tools must be there first. Leaves nothing registered."""
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.setup import wintask, wintools   # noqa: E402
+
+TEST = '-c "import time; time.sleep(3600)"'
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    user, _, host = argv[0].rpartition("@")
+    run = wintools.ssh_runner(user, host)
+    bad = []
+
+    def step(label, fn, show=lambda r: r):
+        t0 = time.time()
+        r = fn()
+        print(f"{label:34} {show(r)}  ({time.time() - t0:.0f} s)")
+        return r
+    try:
+        step("ensure (first)", lambda: wintask.ensure(run, args=TEST))
+        again = step("ensure (second: unchanged)", lambda: wintask.ensure(run, args=TEST))
+        if again["changed"]:
+            bad.append("a second ensure changed the task")
+        st = step("status (registered, not started)", lambda: wintask.status(run), lambda r: {k: v for k, v in r.items() if k != "processes"})
+        bad += wintask.problems(st)
+        step("start", lambda: wintask.start(run))
+        time.sleep(6)
+        st = step("status (running)", lambda: wintask.status(run), lambda r: {"state": r["state"], "processes": r["processes"]})
+        if not any(p["name"].lower().startswith("python") for p in st["processes"]):
+            bad.append("no python process is running after start")
+        bad += wintask.problems(st)
+        sp = step("stop", lambda: wintask.stop(run))
+        if sp["processes"]:
+            bad.append(f"processes are still running after stop: {sp['processes']}")
+    except wintools.WinToolsError as e:
+        print(f"FAILED  {e.what}: {e.detail}")
+        bad.append(f"{e.what}: {e.detail}")
+    finally:
+        try:
+            gone = step("remove", lambda: wintask.remove(run))
+            if gone["processes"]:
+                bad.append("processes remain after remove")
+            if wintask.status(run)["exists"]:
+                bad.append("the task still exists after remove")
+        except wintools.WinToolsError as e:
+            bad.append(f"remove failed: {e.what}: {e.detail}")
+    for b in bad:
+        print("PROBLEM:", b)
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
