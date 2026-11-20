@@ -14,8 +14,9 @@ from collections import namedtuple
 from pathlib import Path
 
 IS_WINDOWS = os.name == "nt"
-TERM = signal.SIGTERM                                     # ask a process to stop
-KILL = getattr(signal, "SIGKILL", signal.SIGTERM)         # make it stop
+TERM = signal.CTRL_BREAK_EVENT if IS_WINDOWS else signal.SIGTERM      # ask a process to stop (Windows: Ctrl-Break to its process group)
+KILL = signal.SIGTERM if IS_WINDOWS else signal.SIGKILL               # make it stop (Windows: end the whole Job Object)
+_CPU_DONE = [0.0]                                                      # Windows: CPU seconds of the jobs that finished (see finish)
 
 def name():
     """The platform this worker runs on, as it publishes it: linux, macos or windows."""
@@ -30,17 +31,52 @@ def _not_yet(what):
 
 
 # ---- processes -----------------------------------------------------------------------------------------------------------------------
-def new_session():
-    """Keyword arguments for subprocess.Popen that put the child in a session and process group of its own, so the whole tree can be stopped at once."""
+def new_session(hold=False):
+    """Keyword arguments for subprocess.Popen that put the child in a session and process group of its own, so the whole tree can be stopped at once.
+    `hold=True` (Windows) creates it suspended: the caller MUST then call adopt(p), which puts it in its Job Object and lets it run. POSIX ignores it."""
     if IS_WINDOWS:
-        _not_yet("a process group for a job")
+        from . import winproc
+        return {"creationflags": winproc.CREATE_NEW_PROCESS_GROUP | winproc.CREATE_NO_WINDOW | (winproc.CREATE_SUSPENDED if hold else 0)}
     return {"start_new_session": True}
+
+
+def adopt(p):
+    """Windows: put the held process in a Job Object of its own and let it run. POSIX: nothing to do (the session already groups it)."""
+    if IS_WINDOWS:
+        from . import winproc
+        winproc.adopt(p)
+
+
+def finish(p):
+    """The job's process has ended: let go of what was kept for it (Windows: close its Job Object, which ends anything of it still running, and keep its CPU time)."""
+    if IS_WINDOWS:
+        from . import winproc
+        _CPU_DONE[0] += winproc.release(p.pid)
+
+
+def group_rss_mb(pid):
+    """Memory (MB) in use by the job's whole process tree: on Windows, its Job Object (on POSIX the runner's sensors read /proc)."""
+    from . import winproc
+    return winproc.rss_mb(pid)
+
+
+def _stop_windows(pid, sig):
+    """KILL ends the whole Job Object; anything else is Ctrl-Break to the process group (a program may catch it and clean up)."""
+    from . import winproc
+    if sig == KILL:
+        winproc.terminate(pid)
+        return
+    try:
+        os.kill(pid, signal.CTRL_BREAK_EVENT)
+    except OSError:
+        pass
 
 
 def kill_group(pgid, sig=KILL):
     """Send `sig` to every process in the group; a group that is gone, or one that is not ours, is not an error."""
     if IS_WINDOWS:
-        _not_yet("stopping a process tree")
+        _stop_windows(pgid, sig)
+        return
     try:
         os.killpg(pgid, sig)
     except (ProcessLookupError, PermissionError):
@@ -49,12 +85,17 @@ def kill_group(pgid, sig=KILL):
 
 def send_signal(pid, sig):
     if IS_WINDOWS:
-        _not_yet("stopping a process")
+        _stop_windows(pid, sig)
+        return
     os.kill(pid, sig)
 
 
 def on_terminate(handler):
     """Call `handler(signum, frame)` when the worker is told to stop."""
+    if IS_WINDOWS:
+        signal.signal(signal.SIGBREAK, handler)                # Ctrl-Break, which is what stopping the worker sends
+        signal.signal(signal.SIGTERM, handler)
+        return
     signal.signal(TERM, handler)
 
 
@@ -79,7 +120,7 @@ def child_limits(fsize_bytes):
 def child_usage():
     """CPU seconds and the largest memory (KiB) of the children that have finished, so far."""
     if IS_WINDOWS:
-        _not_yet("measuring a child's CPU and memory")
+        return ChildUsage(_CPU_DONE[0], 0)                      # the peak memory of a job is measured by the runner's polling, not here
     import resource
     ru = resource.getrusage(resource.RUSAGE_CHILDREN)
     return ChildUsage(ru.ru_utime + ru.ru_stime, ru.ru_maxrss)
@@ -97,7 +138,7 @@ def process_cmdline(pid):
 def loadavgs():
     """(1, 5, 15 minute) load averages."""
     if IS_WINDOWS:
-        _not_yet("the load average")
+        return (0.0, 0.0, 0.0)                                  # Windows has no load average: reported as 0 until the worker publishes something real
     return os.getloadavg()
 
 
@@ -107,6 +148,12 @@ def loadavg():
 
 def disk_free_gb(path):
     """Free space under `path` in GB (one decimal), or None."""
+    if IS_WINDOWS:
+        import shutil
+        try:
+            return round(shutil.disk_usage(path).free / 1e9, 1)
+        except OSError:
+            return None
     try:
         st = os.statvfs(path)
         return round(st.f_bavail * st.f_frsize / 1e9, 1)
