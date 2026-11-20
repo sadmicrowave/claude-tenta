@@ -94,6 +94,11 @@ packs = ["core"]                # job-class packs to install
 [policy]
 packs = ["core"]                # off-limits rule packs to apply
 
+[availability]
+pause_when_logged_in = false     # true: do not start a job while a person is logged in (a computer other people use works in their idle time; a running job finishes)
+ignore_users = []                # accounts whose login does not count (for example the admin account you SSH in with)
+window = ""                      # only start jobs within these hours on this computer's own clock, for example "22:00-07:00" (empty = any time)
+
 [hardening]
 modules = ["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]
 # offered = []                   # modules the wizard only OFFERS, one by one, each skipped unless you say yes (a shared or special-use computer gets the whole-machine protections here).

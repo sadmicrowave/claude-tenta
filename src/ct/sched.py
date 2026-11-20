@@ -40,6 +40,12 @@ class Worker:
         return self.doc("transport") or self.connection
 
     @property
+    def held(self):
+        """Why this computer is not available for new work right now (a person is using it, outside its working hours), as the worker last said, or None. A held worker is still chosen when nothing else is free: the job
+        waits there until it is available again."""
+        return self.doc("observed", "held", default=None)
+
+    @property
     def wait_s(self):
         """The longest a new job waits to be noticed: what the worker publishes, else what this computer assumes."""
         return int(self.doc("pickup_max_s") or self.pickup_s)
@@ -150,7 +156,7 @@ def _left_out(w, cls, kind, prefs):
 
 def _rank(w, cls, prefs):
     order = prefs.preferred.get(cls) or []
-    return (order.index(w.name) if w.name in order else len(order), w.stale, not w.fits(cls), -w.headroom, w.wait_s, w.per_core, w.name)
+    return (order.index(w.name) if w.name in order else len(order), w.stale, bool(w.held), not w.fits(cls), -w.headroom, w.wait_s, w.per_core, w.name)
 
 
 def _why_chosen(w, best_rank, others, cls):
@@ -195,6 +201,8 @@ def _worse_than(w, best, order, cls):
     a, b = (order.index(w.name) if w.name in order else len(order)), (order.index(best.name) if best.name in order else len(order))
     if a != b:
         return f"{best.name} is preferred for this class"
+    if bool(w.held) != bool(best.held):
+        return f"{w.held} (as of its last reading)"
     if w.stale != best.stale:
         return "its reading is old, and a fresh one was available"
     if w.fits(cls) != best.fits(cls):

@@ -389,6 +389,11 @@ class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
            "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
 
+    def test_a_held_shared_computer_says_why_in_its_card(self):
+        plain = workers_mod.cards([{**self.ROW, "purpose": "shared with other uses", "held": "a person is using this computer (alice)"}], width=90, color=False)
+        self.assertTrue(any(l.startswith("  AVAILABILITY") and "held: a person is using this computer (alice)" in l for l in plain))
+        self.assertFalse(any("AVAILABILITY" in l for l in workers_mod.cards([self.ROW], width=90, color=False)))
+
     def test_what_the_computer_is_used_for_is_a_row_and_a_relaxed_jail_is_said_in_the_state(self):
         doc = dict(self.DOC) if hasattr(self, "DOC") else None
         row = workers_mod.row_for("lab", {**(doc or {"name": "lab", "hardware": {}, "observed": {}, "os": {}, "claude": {"auth": "none"}}), "isolation": {"ready": True, "mode": "relaxed", "purpose": "special-use"}})

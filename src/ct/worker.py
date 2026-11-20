@@ -39,6 +39,9 @@ class Settings:
     tool_roots: tuple = ()                  # folders of existing tools a class may name (isolation.tool_roots; only when isolation.mode is relaxed)
     isolation_mode: str = "full"
     isolation_purpose: str = "tenta-only"
+    pause_when_logged_in: bool = False
+    ignore_users: tuple = ()
+    window: str = ""
     capacity: int = 4
     max_load: float = 3.0
     max_temp_c: float = 75.0
@@ -139,7 +142,22 @@ class Worker:
             free_gb = None
         return {"at": iso(self.clock()), "cores": os.cpu_count(), "mem_total_mb": total, "mem_available_mb": avail,
                 "load_1m": round(self.loadavg(), 2), "temp_c": self.sensors.temp() if self.sensors else None, "disk_free_gb": free_gb,
-                "running": len(list(self._p("running").glob("*"))), "waiting": len(list(self._p("queued").glob("*.json")))}
+                "running": len(list(self._p("running").glob("*"))), "waiting": len(list(self._p("queued").glob("*.json"))), "held": self.availability_reason()}
+
+    def availability_reason(self):
+        """Why this computer is not available for new work right now because of how it is shared (None = available): a person is logged in, or it is outside its working hours."""
+        if self.s.window:
+            start, _, end = self.s.window.partition("-")
+            now = self.clock().astimezone().strftime("%H:%M")
+            inside = start <= now < end if start < end else (now >= start or now < end)
+            if not inside:
+                return f"outside its working hours ({self.s.window}, now {now})"
+        if self.s.pause_when_logged_in:
+            who = getattr(self.sensors, "logged_in", None)
+            people = sorted(set(who()) - set(self.s.ignore_users)) if who else []
+            if people:
+                return "a person is using this computer (" + ", ".join(people[:3]) + ")"
+        return None
 
     def busy_reason(self):
         """Why the worker should not start another job right now (None = fine)."""
@@ -149,7 +167,7 @@ class Worker:
         t = self.sensors.temp() if self.sensors else None
         if t is not None and t > self.s.max_temp_c:
             return f"core temp {t:.0f}C > {self.s.max_temp_c:.0f}C"
-        return None
+        return self.availability_reason()
 
     # ---- approval ----
     def approve(self, jid, sha=None):

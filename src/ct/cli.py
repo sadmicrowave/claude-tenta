@@ -108,7 +108,7 @@ class Context:
         problem = config.secrets_file_problem(secrets_path)
         state = Path(cfg.path("state"))
         direct = transport.for_config(cfg).kind == "direct"
-        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, capacity=cfg.hardware.capacity,
+        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, pause_when_logged_in=cfg.availability.pause_when_logged_in, ignore_users=tuple(cfg.availability.ignore_users), window=cfg.availability.window, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
@@ -480,6 +480,8 @@ def cmd_status(ctx, hours=12):
     up = ctx.uptime()
     kv("Up for", human_dur(up) if up else "unknown")
     kv("Used for", config.PURPOSE_WORDS.get(w.s.isolation_purpose, w.s.isolation_purpose))
+    if w.s.pause_when_logged_in or w.s.window:                                        # a shared computer: whether it would start a job right now
+        kv("Available", w.availability_reason() or "yes: nobody is using it" if w.s.pause_when_logged_in else (w.availability_reason() or "yes: inside its working hours"))
     load = os.getloadavg()
     kv("Load", f"{load[0]:.2f} now, {load[1]:.2f} over 5 min, {load[2]:.2f} over 15 min")
     profile = (ctx.hardware or {}).get("profile")

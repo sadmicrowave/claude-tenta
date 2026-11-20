@@ -69,6 +69,14 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `tool_roots` | `[]` | list | folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these |
 | `method` | `bwrap` | `bwrap` , `unshare` | how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method) |
 
+## [availability]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `pause_when_logged_in` | `false` | bool | do not start a job while a person is logged in on this computer (for a computer other people use: it works in their idle time; a job already running finishes) |
+| `ignore_users` | `[]` | list | accounts whose login does not count as 'a person is using it' (for example the admin account you SSH in with) |
+| `window` | `` | text | only start jobs within these hours on this computer's own clock, for example 22:00-07:00 (empty = any time) |
+
 ## [alerts]
 
 | Setting | Default | Allowed | What it does |

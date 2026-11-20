@@ -1088,5 +1088,51 @@ class ToolFolders(Base):
         self.assertEqual((env["isolation"]["mode"], env["isolation"]["tool_roots"]), ("relaxed", [str(self.root)]))
 
 
+class SharedComputer(Base):
+    """A computer other people use: no new job while a person is logged in (a running one finishes), or outside its working hours; the worker says why."""
+
+    def setUp(self):
+        super().setUp()
+        from datetime import datetime, timezone
+        self.noon = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+
+    def hold(self, fixed_clock=False, **kw):
+        for k, v in kw.items():
+            setattr(self.settings, k, v)
+        self.make_worker(**({"clock": lambda: self.noon} if fixed_clock else {}))                       # a fixed clock only where the hours matter: jobs are dated by the real one
+
+    def test_nothing_changes_unless_the_owner_asks_for_it(self):
+        self.sensors.people = ["alice"]
+        self.assertIsNone(self.w.busy_reason())                                         # the default: a computer of its own
+
+    def test_a_person_logged_in_holds_new_jobs_and_the_owners_own_account_does_not_count(self):
+        self.hold(pause_when_logged_in=True, ignore_users=("agent",))
+        self.sensors.people = ["agent"]
+        self.assertIsNone(self.w.busy_reason())
+        self.sensors.people = ["agent", "alice", "bob"]
+        self.assertEqual(self.w.busy_reason(), "a person is using this computer (alice, bob)")
+        self.assertEqual(self.w.snapshot()["held"], "a person is using this computer (alice, bob)")          # published, so the scheduler and the cards can say it
+        self.job("job-0001")
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])                                                # queued, not started
+        self.sensors.people = []
+        self.w.fetch()
+        self.assertEqual(self.spawned, ["job-0001"])                                      # started as soon as nobody is there
+
+    def test_a_working_window_holds_jobs_outside_it_including_one_that_crosses_midnight(self):
+        import re
+        local = self.noon.astimezone().strftime("%H:%M")
+        self.hold(True, window=f"{local}-23:59" if local < "23:59" else "00:00-00:01")
+        self.assertIsNone(self.w.busy_reason())                                           # now is inside
+        h = int(local[:2])
+        outside_start = f"{(h + 2) % 24:02d}:00"
+        outside_end = f"{(h + 4) % 24:02d}:00"
+        self.hold(True, window=f"{outside_start}-{outside_end}")
+        self.assertRegex(self.w.busy_reason(), r"outside its working hours")
+        crossing = f"{(h + 2) % 24:02d}:00-{(h + 1) % 24:02d}:00"                       # all day except the hour from now to now+1: now is inside a window that crosses midnight
+        self.hold(True, window=crossing)
+        self.assertIsNone(self.w.busy_reason())
+
+
 if __name__ == "__main__":
     unittest.main()

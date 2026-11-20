@@ -112,6 +112,14 @@ class Strictness(unittest.TestCase):
             self.assertTrue(problems('[isolation]\nmode = "relaxed"\ntool_roots = [%s]\n' % bad), bad)
         self.assertTrue(problems('[isolation]\nmode = "loose"\n'))
 
+    def test_availability_windows_and_accounts_are_checked(self):
+        self.assertEqual(problems('[availability]\npause_when_logged_in = true\nignore_users = ["agent"]\nwindow = "22:00-07:00"\n'), [])
+        self.assertEqual(problems(""), [])
+        for bad in ('window = "10pm-7am"', 'window = "25:00-07:00"', 'window = "22:00"', 'ignore_users = ["a b"]', 'pause_when_logged_in = "yes"'):
+            self.assertTrue(problems("[availability]\n" + bad + "\n"), bad)
+        c = config.load(None, env={})
+        self.assertEqual((c.availability.pause_when_logged_in, c.availability.window), (False, ""))
+
     def test_unsafe_isolation_is_refused_unless_explicitly_overridden(self):
         text = "[isolation]\nrequire_netns = false\n"
         self.assertIn("require_netns = false", " ".join(problems(text)))

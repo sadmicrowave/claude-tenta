@@ -117,6 +117,15 @@ def _tool_root(v):
     return _path(v)
 
 
+def _window(v):
+    """'' (always) or 'HH:MM-HH:MM' (the hours, on the worker's own clock, when jobs may start; a window that crosses midnight, like 22:00-07:00, is fine)."""
+    if v in ("", None):
+        return "", None
+    if not isinstance(v, str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d", v):
+        return None, "must be empty (always) or hours such as 22:00-07:00"
+    return v, None
+
+
 def _url(v):
     if not isinstance(v, str) or not re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/%-]*)?", v):
         return None, "must start with https:// and have no spaces or ?query (for example https://ntfy.sh/your-private-topic)"
@@ -224,6 +233,11 @@ SCHEMA = {
         "mode": ("full", _enum("full", "relaxed"), "full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled"),
         "tool_roots": ([], _list_of(_tool_root), "folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these"),
         "method": ("bwrap", _enum("bwrap", "unshare"), "how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method)"),
+    },
+    "availability": {
+        "pause_when_logged_in": (False, _bool, "do not start a job while a person is logged in on this computer (for a computer other people use: it works in their idle time; a job already running finishes)"),
+        "ignore_users": ([], _list_of(_str(IDENT_RE, "an account name")), "accounts whose login does not count as 'a person is using it' (for example the admin account you SSH in with)"),
+        "window": ("", _window, "only start jobs within these hours on this computer's own clock, for example 22:00-07:00 (empty = any time)"),
     },
     "alerts": {
         "kind": ("none", _enum("none", "ntfy", "webhook"), "where security alerts are sent"),

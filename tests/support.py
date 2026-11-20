@@ -82,6 +82,10 @@ class FakeRunner:
 class Sensors:
     def __init__(self):
         self.t = 40
+        self.people = []                      # the accounts logged in on this (fake) computer
+
+    def logged_in(self):
+        return list(self.people)
 
     def temp(self):
         return self.t

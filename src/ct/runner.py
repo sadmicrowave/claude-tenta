@@ -77,6 +77,14 @@ class LinuxSensors:
         except (ValueError, OSError):
             self.page_mb = 4096 / 1048576
 
+    def logged_in(self):
+        """The accounts that have a login session on this computer right now (`who`), or [] when it cannot be read."""
+        try:
+            r = run_group(["who"], 5)
+        except Exception:
+            return []
+        return sorted({line.split()[0] for line in (r.stdout or "").splitlines() if line.split()}) if getattr(r, "returncode", 1) == 0 else []
+
     def temp(self):
         """Hottest CPU core in C, or None if the sensor is not readable."""
         temps = []

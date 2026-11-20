@@ -147,6 +147,24 @@ class ToolFolderClasses(unittest.TestCase):
         self.assertIsNotNone(pick([self.view("full")], "sys-status").worker)
 
 
+class SharedComputers(unittest.TestCase):
+    """A computer that says a person is using it is chosen last, not left out: with nothing else free the job waits there."""
+
+    def view(self, name, held=None, **kw):
+        s = state(**kw)
+        s["observed"]["held"] = held
+        return worker_view(name, "direct", s, {"classes": {"sys-status": {"kind": "command", "cost": "light"}}}, 30, 5)
+
+    def test_a_free_worker_is_preferred_and_the_held_one_says_why(self):
+        c = pick([self.view("pc", held="a person is using this computer (alice)"), self.view("vm", running=3)], "sys-status")
+        self.assertEqual(c.worker, "vm")                                                   # busier, but nobody is using it
+        why = dict((n, r) for n, _, r in c.lines)["pc"]
+        self.assertIn("a person is using this computer (alice)", why)
+
+    def test_when_only_held_workers_exist_the_job_still_goes_to_one_of_them(self):
+        self.assertEqual(pick([self.view("pc", held="outside its working hours (22:00-07:00, now 12:00)")], "sys-status").worker, "pc")
+
+
 if __name__ == "__main__":
     unittest.main()
 
