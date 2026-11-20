@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: run the tools installer (src/ct/setup/wintools.py) over SSH and show what came back.
+  scripts/win-tools-check USER@HOST [--tools FOLDER]       (key login must work; the PowerShell is sent on standard input)
+Run it twice: the second run must say changed=false. To start clean, delete the tools folder on the computer (default %ProgramData%\\claude-tenta\\tools)."""
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.setup import wintools   # noqa: E402
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    target = argv[0]
+    tools = argv[argv.index("--tools") + 1] if "--tools" in argv else wintools.DEFAULT_TOOLS
+
+    def runner(cmd, text):
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, " ".join(cmd)], input=text, capture_output=True, text=True, timeout=900)
+        return r.returncode, r.stdout + r.stderr
+    t0 = time.time()
+    try:
+        r = wintools.install(runner, tools)
+    except wintools.WinToolsError as e:
+        print(f"FAILED  {e.what}: {e.detail}   ({time.time() - t0:.0f} s)")
+        return 1
+    for k in ("git", "git_path", "python", "python_path", "changed"):
+        print(f"  {k:12} {r.get(k)}")
+    print(f"({time.time() - t0:.0f} s)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -19,7 +19,7 @@ Windows NT 10.0.26300, AMD64, Windows PowerShell 5.1, execution policy Restricte
 ## Design
 - **Delivery:** the script is sent as `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <base64 of UTF-16LE>` so cmd quoting and the policy never matter.
 - **Git:** MinGit (the official minimal Git for Windows zip), pinned version and SHA-256 in the repository, unpacked with `tar` into `<tools>\git`. No installer, no administrator rights, nothing on the system PATH.
-- **Python:** the official embeddable zip for the pinned 3.13, unpacked into `<tools>\python`. Risk: the embeddable build ignores `PYTHONPATH` once its `._pth` file exists, so the worker's code folder is added to that file.
+- **Python:** an existing Python 3.11 or newer is used; else `winget` installs it for this user (winget checks the package's own hash). The embeddable zip was dropped: python.org publishes only MD5 for its Windows files (the SHA-256 field is empty), which cannot be a pin, and verifying a download by GPG or Sigstore on Windows is a project of its own. With no Python and no winget the error says to install Python from python.org and run again.
 - **Where:** `<tools>` is a parameter (default `%ProgramData%\claude-tenta\tools`).
 - **Idempotent:** a marker file in `<tools>` records the versions and hashes installed; a match means "nothing to do".
 - **Result:** the script's last line is one JSON object (`{"git": "...", "python": "...", "changed": true}`) that the Python side parses; any other output is shown only on failure.
