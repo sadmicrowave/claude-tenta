@@ -90,7 +90,8 @@ try {{
 def _probe_block(probe):
     if not probe:
         return "  $probe = $null"
-    return r"""  $pw = RandomPassword
+    return r"""  if (Get-ScheduledTask -TaskName 'claude-tenta-worker' -ErrorAction SilentlyContinue) { Fail 'probe' 'the worker task is registered with the account password and a probe would invalidate it: remove the task first' }
+  $pw = RandomPassword
   Set-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force)
   $cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$u", (ConvertTo-SecureString $pw -AsPlainText -Force))
   $out = Join-Path $root 'state\jobs\probe.txt'
