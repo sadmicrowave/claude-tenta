@@ -66,19 +66,32 @@ class Units(unittest.TestCase):
         github = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)
         self.assertTrue(all("-mail" not in t for t in github.values()))
 
-    def test_a_shared_computers_limits_reach_the_step_unit_and_nothing_set_changes_nothing(self):
-        """The jobs run in the step service's cgroup, so its limits keep them from taking a computer other people use: only what the owner set is written, and an install that set none gets the unit it always had."""
-        plain = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)["homect-step.service"]
-        for key in ("CPUWeight", "IOWeight", "MemoryMax", "Nice"):
-            self.assertNotIn(key, plain)
-        self.assertIn("Type=oneshot\n# a pass should take seconds", plain)                     # byte for byte the unit text it was
+    def test_a_shared_computers_limits_are_a_dropin_of_their_own_and_nothing_set_writes_none(self):
+        """The jobs run in the step service's cgroup, so its limits keep them from taking a computer other people use. They are a drop-in FILE, never a placeholder in the unit template (see the upgrade guard below)."""
+        plain = cfg(CT_IDENTITY_NAME="homect")
+        self.assertIsNone(render.step_dropin(plain))
+        self.assertNotIn("CPUWeight", render.unit_files(plain, TEMPLATES)["homect-step.service"])
         shared = cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_CPU_WEIGHT="20", CT_AVAILABILITY_IO_WEIGHT="20", CT_AVAILABILITY_MEMORY_MAX_PERCENT="50", CT_AVAILABILITY_NICE="10")
-        units = render.unit_files(shared, TEMPLATES)
-        self.assertIn("Type=oneshot\nCPUWeight=20\nIOWeight=20\nMemoryMax=50%\nNice=10\n# a pass should take seconds", units["homect-step.service"])
-        self.assertNotIn("CPUWeight", units["homect-fetch.service"])                              # only the unit that starts the jobs
-        only = render.unit_files(cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_NICE="19"), TEMPLATES)["homect-step.service"]
-        self.assertIn("Type=oneshot\nNice=19\n", only)
-        self.assertNotIn("CPUWeight", only)
+        text = render.step_dropin(shared)
+        self.assertIn("[Service]\nCPUWeight=20\nIOWeight=20\nMemoryMax=50%\nNice=10\n", text)
+        self.assertEqual(render.step_dropin_path(shared), "/etc/systemd/system/homect-step.service.d/resources.conf")
+        self.assertNotIn("CPUWeight", render.unit_files(shared, TEMPLATES)["homect-step.service"])        # the unit itself is byte for byte what it always was
+        self.assertIn("Nice=19\n", render.step_dropin(cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_NICE="19")))
+
+    # What the updater already installed on a worker knows how to fill. A release is installed by the OLD updater (the installed code renders the NEW templates), so a template that
+    # uses a placeholder outside this set cannot be installed on any worker that runs an older release: seen on the first `ct-admin apply` of {{resources}}, on all three workers
+    # ("the template uses {{resources}} but no value is defined for it"). Add to this set only with a plan for the workers that cannot be upgraded in one step.
+    UPGRADE_SAFE_PLACEHOLDERS = {"name", "worker_user", "admin_user", "alias", "state_root", "worker_home", "lib", "config", "code", "fetch_s", "step_s", "canary_s", "update_min",
+                                 "claude_update_days", "registry_sync_min", "commands", "mailbox_rw", "sandbox"}      # release f4c9ae706
+
+    def test_no_template_uses_a_placeholder_an_older_updater_cannot_fill(self):
+        import re
+        used = {}
+        for t in sorted(TEMPLATES.rglob("*.in")):
+            for key in re.findall(r"\{\{(\w+)\}\}", t.read_text()):
+                used.setdefault(key, []).append(t.name)
+        extra = {k: v for k, v in used.items() if k not in self.UPGRADE_SAFE_PLACEHOLDERS}
+        self.assertEqual(extra, {}, "a new template placeholder breaks `ct-admin apply` on workers that run an older release (use a file of its own instead)")
 
     def test_every_unit_is_rendered_with_the_installs_names_and_no_placeholder_is_left(self):
         c = cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1", CT_SCHEDULE_FETCH_S="45", CT_SCHEDULE_UPDATE_MIN="30")

@@ -375,6 +375,8 @@ class ServerSetup:
         for which, dest in todo:
             if self.host.exists(dest + "/.git"):
                 self.adopt_clone(which, dest)
+                if not self.dry_run and transport.for_config(cfg).kind == "github" and not self.reachable(which):          # a clone that was just pointed at GitHub: its deploy key may not be there yet (an install moved from Direct)
+                    pending.append(which)
             elif not self.dry_run and not self.reachable(which):
                 pending.append(which)
         if pending and self.wait_for_keys:

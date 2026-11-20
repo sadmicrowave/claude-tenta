@@ -3,7 +3,7 @@ Description={{name}} step pass (start queued jobs while there is spare capacity)
 
 [Service]
 User={{worker_user}}
-Type=oneshot{{resources}}
+Type=oneshot
 # a pass should take seconds; never let one hang for hours
 TimeoutStartSec=10min
 # jobs are started detached; do not kill them when this short pass exits

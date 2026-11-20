@@ -1,0 +1,57 @@
+#!/bin/bash
+# BY HAND, against REAL GitHub (nothing in CI can do this): a Direct install on a throwaway OrbStack machine is moved to GitHub with `ct-setup transport github`.
+#   scripts/real-github-check [--reuse] [NAME]     --reuse: the two repositories from an earlier run exist already (they could not be deleted): use them instead of refusing          NAME defaults to ctxtest: the repositories are <you>/NAME-queue and <you>/NAME-results
+# What it does to your GitHub account: creates those two PRIVATE repositories (it refuses if they exist) and adds the throwaway worker's deploy keys to them. It cannot delete them (a normal gh
+# token has no delete_repo scope), so it prints the two names at the end: delete them in GitHub (Settings, Delete this repository), or `gh repo delete <name> --yes` after `gh auth refresh -s delete_repo`.
+# Your own configuration is not touched: ct-setup runs with a throwaway HOME (so ~/.config and ~/.ct are not used), the machine is deleted when the run ends, and the machine's ssh host key is removed
+# from known_hosts. Your gh token is handed to the commands in an environment variable for the run only (never written down).
+set -u
+cd "$(dirname "$0")/.."; REPO=$PWD
+REAL_HOME=$HOME; REUSE=0; [ "${1:-}" = "--reuse" ] && { REUSE=1; shift; }; NAME=${1:-ctxtest}; BASE=ct-cache-ubuntu-26-04; M=ct-e2e-ghreal; ADMIN=ctadmin
+OWNER=$(gh api user --jq .login) || { echo "gh is not signed in"; exit 2; }
+[ $REUSE = 1 ] || for r in queue results; do gh repo view "$OWNER/$NAME-$r" >/dev/null 2>&1 && { echo "$OWNER/$NAME-$r already exists: choose another NAME, or --reuse"; exit 3; }; done
+orb delete -f $M >/dev/null 2>&1
+H=$(mktemp -d /tmp/ct-ghreal.XXXXXX); mkdir -p "$H/.local/bin"; IP=""
+cleanup() { [ "${KEEP:-0}" = 1 ] && { echo "KEEP=1: the machine $M ($IP) is kept for you to look at; delete it with: orb delete -f $M"; rm -rf "$H"; return; }; orb delete -f $M >/dev/null 2>&1; sleep 3; orb delete -f $M >/dev/null 2>&1; [ -n "$IP" ] && ssh-keygen -R "$IP" >/dev/null 2>&1; rm -rf "$H"; echo "(machine deleted, throwaway home removed)"; }
+trap cleanup EXIT
+PASS=0; FAIL=0
+check() { local what=$1; shift; if "$@" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  PASS  $what"; else FAIL=$((FAIL+1)); echo "  FAIL  $what"; fi; }
+orbctl clone $BASE $M >/dev/null 2>&1 || { echo "could not clone $BASE"; exit 2; }
+orb -m $M -u root bash -c "systemctl enable --now ssh >/dev/null 2>&1; runuser -u $ADMIN -- bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'" < $REAL_HOME/.ssh/id_ed25519.pub
+# the cached test machine maps github.com to 127.0.0.1, where the end-to-end GitHub stand-in answers: remove that, or this run would talk to the stand-in and not to GitHub (it refused the key, offering a password)
+orb -m $M -u root bash -c "sed -i '/github.com/d' /etc/hosts; getent hosts github.com | grep -q '^127\.' && exit 1; true" || { echo "could not remove the stand-in's github.com entry"; exit 2; }
+IP=$(orbctl info $M | awk '/IPv4/ {print $2}')
+for i in 1 2 3 4 5 6 7 8 9 10; do nc -z -w 2 $IP 22 && break; sleep 1; done
+ssh-keyscan -H $IP >> $REAL_HOME/.ssh/known_hosts 2>/dev/null                 # so ssh does not stop to ask about the new machine (removed again at the end)
+echo "throwaway worker: $IP   repositories: $OWNER/$NAME-queue, $OWNER/$NAME-results"
+export GH_TOKEN=$(gh auth token) HOME=$H
+# each command gets 15 minutes and is then stopped (a hung session must not hang this run); the firewall protection is declined: its outbound rule for 192.168.0.0/16 stalled the installer's own
+# session from this computer to an OrbStack machine (seen: the run sat for an hour after "ufw --force enable"), and what is under test here is GitHub, not the firewall
+CT=(perl -e 'alarm 900; exec @ARGV' env HOME=$H GH_TOKEN="$GH_TOKEN" PYTHONDONTWRITEBYTECODE=1)
+echo "== 1. a Direct install (no GitHub involved)"
+"${CT[@]}" $REAL_HOME/.local/bin/ct-setup install --yes --source "$REPO" --set server.host=$IP --set server.admin_user=$ADMIN --set identity.name=$NAME --set transport.kind=direct --set hardening.modules=job-isolation \
+    --set github.owner=$OWNER --set network.ssh_from=192.168.0.0/16 > /tmp/ct-ghreal-install.out 2>&1; rc=$?
+tail -8 /tmp/ct-ghreal-install.out | sed 's/\x1b\[[0-9;]*m//g'
+check "the Direct install finished" test $rc -eq 0
+[ $REUSE = 1 ] || check "no GitHub repositories exist yet" bash -c "! gh repo view $OWNER/$NAME-queue"
+echo "== 2. ct-setup transport github"
+"${CT[@]}" $REAL_HOME/.local/bin/ct-setup transport github --apply --yes --no-sandbox-test --set github.owner=$OWNER --source "$REPO" > /tmp/ct-ghreal-move.out 2>&1; rc=$?
+tail -25 /tmp/ct-ghreal-move.out | sed 's/\x1b\[[0-9;]*m//g'
+check "the move finished" test $rc -eq 0
+for r in queue results; do
+  check "$OWNER/$NAME-$r exists on GitHub and is private" bash -c "[ \"\$(gh repo view $OWNER/$NAME-$r --json isPrivate --jq .isPrivate)\" = true ]"
+  check "$NAME-$r holds the history (the registry is on main)" bash -c "gh api repos/$OWNER/$NAME-$r/contents/registry.yaml --jq .name >/dev/null || gh api repos/$OWNER/$NAME-$r/branches --jq '.[].name' | grep -qx main"
+  check "$NAME-$r has the worker's deploy key" bash -c "[ \$(gh repo deploy-key list -R $OWNER/$NAME-$r --json id --jq length) -ge 1 ]"
+done
+echo "== 3. a job goes through GitHub"
+"${CT[@]}" $REAL_HOME/.local/bin/ct-run setup >/dev/null 2>&1
+"${CT[@]}" $REAL_HOME/.local/bin/ct-run submit sys-status --wait --timeout 600 > /tmp/ct-ghreal-job.out 2>&1; rc=$?
+tail -6 /tmp/ct-ghreal-job.out | sed 's/\x1b\[[0-9;]*m//g'
+check "a job came back over GitHub" test $rc -eq 0
+echo "== 4. move again: it says it already uses GitHub"
+"${CT[@]}" $REAL_HOME/.local/bin/ct-setup transport github > /tmp/ct-ghreal-again.out 2>&1
+check "the repeat is refused politely" bash -c "sed 's/\x1b\[[0-9;]*m//g' /tmp/ct-ghreal-again.out | grep -qi 'already uses that method'"
+echo
+echo "=== $PASS passed, $FAIL failed"
+echo "DELETE THESE TWO REPOSITORIES (private, made by this run): https://github.com/$OWNER/$NAME-queue  https://github.com/$OWNER/$NAME-results"
+exit $FAIL

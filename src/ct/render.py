@@ -91,9 +91,24 @@ def resources_for(cfg):
     return "".join(f"\n{k}={v}{suffix}" for k, v, suffix in pairs if v)
 
 
+def step_dropin_path(cfg):
+    return f"/etc/systemd/system/{cfg.identity.name}-step.service.d/resources.conf"
+
+
+def step_dropin(cfg):
+    """The systemd drop-in that limits what the step service (where the jobs run) may take, or None when the owner set nothing. It is a FILE OF ITS OWN, not a placeholder in the unit
+    template: a placeholder the installed updater does not know makes it refuse the next release (seen on the first `ct-admin apply` of it, on all three workers)."""
+    lines = resources_for(cfg)
+    if not lines:
+        return None
+    if not _CHECKS["resources"].fullmatch(lines):
+        raise RenderError(f"the resource limits are not allowed in a generated file: {lines!r}")
+    return "# written by the update tool from [availability] in ct.toml; delete the limits there to remove this file\n[Service]" + lines + "\n"
+
+
 def values_for(cfg):
     """Every value any template may use, from the configuration."""
-    return {"resources": resources_for(cfg), "name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
+    return {"name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
             "state_root": cfg.paths.state_root, "worker_home": cfg.paths.worker_home, "lib": f"{cfg.paths.code}/lib", "config": cfg.paths.config,
             "code": cfg.paths.code, "fetch_s": cfg.schedule.fetch_s, "step_s": cfg.schedule.step_s, "canary_s": cfg.schedule.canary_s,
             "update_min": cfg.schedule.update_min, "claude_update_days": int(cfg.claude.update_days), "registry_sync_min": int(cfg.schedule.registry_sync_min), "commands": "", "mailbox_rw": _mailbox_rw(cfg)}
