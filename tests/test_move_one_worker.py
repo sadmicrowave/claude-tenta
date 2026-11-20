@@ -82,5 +82,82 @@ class MoveOne(unittest.TestCase):
         self.assertEqual((self.d / "main.toml").read_bytes(), self.before["main.toml"])
 
 
+class BackToGitHub(unittest.TestCase):
+    """ct-setup transport github: the way back. Local bare repositories stand in for GitHub; the installer is a recorder."""
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.addCleanup(self.t.cleanup)
+        self.d = Path(self.t.name)
+        self.cfg_file = self.d / "tenta2.toml"
+        home = self.d / "ct" / "tenta2"
+        self.cfg_file.write_text(conf("tenta2", "tenta2.example", home, kind="direct"))
+        self.gh, self.clones = {}, {}
+        for which in ("queue", "results"):
+            bare = self.d / "gh" / f"tenta2-{which}.git"
+            subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+            clone = home / which
+            clone.mkdir(parents=True)
+            git = ["git", "-C", str(clone)]
+            subprocess.run(git + ["init", "-q", "-b", "main"], check=True)
+            subprocess.run(git + ["remote", "add", "origin", str(self.d / "mailbox" / f"{which}.git")], check=True)
+            (clone / "f.txt").write_text(f"{which} history\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "work done on direct"], check=True)
+            self.gh[which], self.clones[which] = bare, clone
+        self.reinstalls = []
+
+    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="tenta2"):
+        from types import SimpleNamespace
+        a = SimpleNamespace(name="github", apply=apply, yes=yes, worker=worker, here=False)
+        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        out = []
+        rc = migrate.back_to_github(a, Host(), lambda p: "y", out.append, cfg, reinstall=lambda av: self.reinstalls.append(av) or reinstall_rc, url_of=lambda c, which: str(self.gh[which]))
+        return rc, out
+
+    def head(self, which):
+        return subprocess.run(["git", "-C", str(self.gh[which]), "log", "--format=%s", "main"], capture_output=True, text=True).stdout.strip()
+
+    def test_a_preview_changes_nothing(self):
+        rc, _ = self.run_move(apply=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.head("queue"), "")                                              # nothing was pushed
+        self.assertEqual(self.reinstalls, [])
+        self.assertIn('kind = "direct"', self.cfg_file.read_text())
+
+    def test_the_history_is_pushed_the_worker_is_set_up_again_for_github_and_this_computer_points_back(self):
+        rc, _ = self.run_move()
+        self.assertEqual(rc, 0)
+        for which in ("queue", "results"):
+            self.assertEqual(self.head(which), "work done on direct")
+        self.assertEqual(self.reinstalls, [["install", "--worker", "tenta2", "--set", "transport.kind=github", "--yes"]])
+        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"CT_CONFIG": ""})).kind, "github")
+        for which in ("queue", "results"):
+            origin = subprocess.run(["git", "-C", str(self.clones[which]), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+            self.assertNotIn("mailbox", origin)
+
+    def test_a_github_that_has_commits_the_clones_lack_stops_everything_with_nothing_changed(self):
+        other = self.d / "other"
+        subprocess.run(["git", "clone", "-q", str(self.gh["queue"]), str(other)], check=True)
+        (other / "x.txt").write_text("someone else\n")
+        subprocess.run(["git", "-C", str(other), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(other), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "elsewhere"], check=True)
+        subprocess.run(["git", "-C", str(other), "push", "-q", "origin", "HEAD:main"], check=True)
+        rc, _ = self.run_move()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.reinstalls, [])
+        self.assertIn('kind = "direct"', self.cfg_file.read_text())
+
+    def test_a_failed_reinstall_leaves_this_computer_as_it_was(self):
+        rc, _ = self.run_move(reinstall_rc=1)
+        self.assertEqual(rc, 1)
+        self.assertIn('kind = "direct"', self.cfg_file.read_text())
+
+    def test_the_main_install_is_set_up_again_by_its_address(self):
+        rc, _ = self.run_move(worker=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.reinstalls[0][:2], ["install", "tenta2.example"])
+
+
 if __name__ == "__main__":
     unittest.main()

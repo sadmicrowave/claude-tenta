@@ -291,7 +291,7 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
     if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
         notice("Stopped", "Nothing was changed.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return 1
-    kind = (raw.get("transport") or {}).get("kind")
+    kind = dict(kv.split("=", 1) for kv in (getattr(a, "set", None) or []) if "=" in kv).get("transport.kind") or (raw.get("transport") or {}).get("kind")      # --set transport.kind=github is how a worker is moved back
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
 
 

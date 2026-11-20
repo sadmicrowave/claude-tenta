@@ -96,7 +96,7 @@ ct-setup add-worker | audit | client | demo | install | rename | server | transp
   install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
   rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
-  transport       move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
+  transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
   uninstall       remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
 
