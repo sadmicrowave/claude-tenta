@@ -97,6 +97,36 @@ class Release(unittest.TestCase):
         with self.assertRaisesRegex(rel.ReleaseError, "from main"):
             self.cut("0.3.0")
 
+    def test_the_windows_line_tags_this_commit_with_its_own_notes_and_changes_no_file(self):
+        (self.root / "docs" / "releases").mkdir(parents=True)
+        (self.root / "docs" / "releases" / "win-0.1.0.md").write_text("# Windows 0.1.0\n\n## Limits\n- no worker yet\n")
+        g(self.root, "add", "-A")
+        g(self.root, "commit", "-q", "-m", "notes")
+        head = g(self.root, "rev-parse", "HEAD")
+        tag, prev = rel.windows_release(self.root, "0.1.0", skip_tests=True)
+        self.assertEqual((tag, prev), ("release-win-0.1.0", None))
+        self.assertEqual(g(self.root, "rev-parse", "release-win-0.1.0^{commit}"), head)             # no bump commit
+        self.assertEqual(g(self.root, "tag", "-l", "release-*"), "release-win-0.1.0")
+        self.assertIn("- no worker yet", g(self.root, "tag", "-l", "--format=%(contents)", "release-win-0.1.0"))
+        self.assertIn('version = "0.1.0"', (self.root / "pyproject.toml").read_text())
+
+    def test_the_windows_line_needs_its_notes_file_and_a_newer_version_of_its_own_line(self):
+        with self.assertRaises(rel.ReleaseError) as e:
+            rel.windows_release(self.root, "0.1.0", skip_tests=True)
+        self.assertIn("win-0.1.0.md is missing", str(e.exception))
+        rel.windows_release(self.root, "0.1.0", notes="n", skip_tests=True)
+        with self.assertRaises(rel.ReleaseError):
+            rel.windows_release(self.root, "0.1.0", notes="n", skip_tests=True)                     # a repeat
+        self.assertEqual(rel.previous_tag(self.root), None)                                          # the Linux line does not see it
+        self.assertEqual(rel.previous_tag(self.root, True), "release-win-0.1.0")
+        with self.assertRaises(rel.ReleaseError):
+            rel.windows_release(self.root, "0.0.9", notes="n", skip_tests=True)                     # older than the last Windows release
+
+    def test_a_windows_tag_never_counts_as_the_previous_linux_release(self):
+        rel.windows_release(self.root, "0.1.0", notes="n", skip_tests=True)
+        tag, prev = self.cut("0.2.0")
+        self.assertEqual(prev, None)
+
     def test_it_never_pushes(self):
         self.cut("0.2.0")
         self.assertEqual(g(self.root, "remote"), "")
