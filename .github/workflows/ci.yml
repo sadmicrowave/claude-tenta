@@ -12,6 +12,18 @@ permissions:
   contents: read
 
 jobs:
+  windows-ready:
+    # The Windows line is planned (docs/design/WINDOWS-SPECIAL-USE.md). Until it exists this job only keeps the door open: the worker's modules must import with none of the POSIX-only Python modules, and the seam
+    # must say plainly what is not written. It does not run the worker.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: The worker's modules import, and the seam is honest
+        run: python -m unittest tests.test_windows_ready tests.test_platform_seam -v
+
   test:
     # Linux is where the worker runs; macOS is where the commands on your computer run (ct-run, ct-admin, ct-setup client), so the unit tests run on both.
     runs-on: ${{ matrix.os }}
