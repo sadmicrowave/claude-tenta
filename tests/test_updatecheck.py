@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -31,6 +32,22 @@ class Tags(unittest.TestCase):
         self.assertGreater(updatecheck.version_tuple("release-0.10.0"), updatecheck.version_tuple("0.9.9"))
         self.assertEqual(updatecheck.version_tuple("v1.2.3"), (1, 2, 3))
         self.assertIsNone(updatecheck.version_tuple("main"))
+
+
+class WindowsLine(unittest.TestCase):
+    LS = "\n".join(f"{c * 40}\trefs/tags/{t}" for c, t in (("a", "release-1.2.0"), ("b", "release-win-0.3.0"), ("c", "release-win-0.10.0"), ("d", "release-winx-9.0.0")))
+
+    def test_each_platform_sees_only_its_own_line_of_tags(self):
+        self.assertEqual(sorted(updatecheck.parse_tags(self.LS)), ["release-1.2.0"])
+        self.assertEqual(sorted(updatecheck.parse_tags(self.LS, "windows")), ["release-win-0.10.0", "release-win-0.3.0"])
+
+    def test_the_latest_windows_release_is_the_highest_version(self):
+        self.assertEqual(updatecheck.latest(updatecheck.parse_tags(self.LS, "windows"))[0], "release-win-0.10.0")
+
+    def test_check_now_for_windows_reads_the_windows_tags(self):
+        r = mock.Mock(returncode=0, stdout=self.LS, stderr="")
+        got = updatecheck.check_now("https://x.example/p.git", run=lambda *a, **k: r, now=lambda: 5, platform="windows")
+        self.assertEqual((got["tag"], got["commit"]), ("release-win-0.10.0", "c" * 40))
 
 
 class Pending(unittest.TestCase):

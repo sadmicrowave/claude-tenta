@@ -19,11 +19,11 @@ import sys
 import tomllib
 from pathlib import Path
 
-from .. import alias, cards, config, ui as _ui
+from .. import alias, cards, config, ui as _ui, updatecheck
 from ..admin import workers as workers_mod
 from ..client.view import Busy
 from ..ui import GREEN, PRIMARY, RED, YELLOW
-from . import assess as assess_mod, discover, toml_out, wintools
+from . import assess as assess_mod, discover, toml_out, winrelease, wintools
 from .server import SetupError
 from ..words import plural
 
@@ -197,7 +197,7 @@ def verdict_card(host, v, card=None):
         card("This computer cannot be a worker yet", ("Computer", host), *rows, tag="NOT YET", color=RED, steps=v.fixes or None, steps_label="How to fix it", stream=sys.stderr)
 
 
-def windows_tools(a, target, user, ui, ask, say, notice, interactive, win_runner=None):
+def windows_tools(a, target, user, ui, ask, say, notice, interactive, win_runner=None, release_source=None, find_release=None):
     """A computer that greets as Windows: it cannot be a worker yet (the Windows release is not out), but its tools (git, Python) can be put on it now. Returns the exit code."""
     notice("This is a Windows computer", ("Computer", target),
            "A Windows computer can only be a Special Use worker, with the separate Windows release, which is not available yet.",
@@ -217,8 +217,22 @@ def windows_tools(a, target, user, ui, ask, say, notice, interactive, win_runner
                steps=["Check that the account can log in with your key and that the computer can reach the internet (github.com and python.org).",
                       "Run the same command again: it picks up where it stopped, and an existing git or Python is never reinstalled."], steps_label="What to try", tag="ERROR", color=RED, stream=sys.stderr)
         return 1
-    notice("Its tools are ready" if not got.get("changed") else "Its tools were installed", ("Computer", target), ("Git", got["git"]), ("Python", got["python"]),
-           "It is not a worker yet: the Windows release is not available. Nothing else on it was changed.", tag="DONE", color=GREEN, stream=sys.stderr)
+    rows = [("Computer", target), ("Git", got["git"]), ("Python", got["python"])]
+    entry = (find_release or updatecheck.check_now)(release_source or config.PROJECT_URL, platform="windows")
+    if entry.get("error"):
+        rows.append(f"The Windows release could not be looked up ({entry['error']}); nothing was fetched.")
+    elif not entry.get("tag"):
+        rows.append("No Windows release has been published yet, so none was fetched.")
+    else:
+        try:
+            rel = winrelease.fetch(run_on, release_source or config.PROJECT_URL, entry["commit"])
+        except wintools.WinToolsError as e:
+            notice("Its tools are ready, but the Windows release could not be fetched", *rows, ("Release", entry["tag"]), ("Failed at", e.what), cards.Why(e.detail or "no detail came back"),
+                   steps=["Run the same command again: tools already there are not reinstalled."], steps_label="What to try", tag="ERROR", color=RED, stream=sys.stderr)
+            return 1
+        rows.append(("Release", f"{entry['tag']} ({'fetched' if rel.get('changed') else 'already there'}, commit {rel['commit'][:9]})"))
+    notice("Its tools are ready" if not got.get("changed") else "Its tools were installed", *rows,
+           "It is not a worker yet: the Windows worker is not available. Nothing else on it was changed.", tag="DONE", color=GREEN, stream=sys.stderr)
     return 0
 
 
@@ -345,7 +359,7 @@ def choose_device(ui, ask, say, devices, user_given=None, configured=None):
     return pick
 
 
-def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan=None, assess=None, resolve=None, notice=None, interactive=None, networks=None, command="add-worker", win_runner=None):
+def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan=None, assess=None, resolve=None, notice=None, interactive=None, networks=None, command="add-worker", win_runner=None, find_release=None):
     """ct-setup add-worker [ADDRESS] [--user U] [--worker-name N] [--yes]. Returns the exit code."""
     notice = notice or (lambda *x, **k: _ui.say(*x, **k))
     if ui is not None and interactive is not False and command in ("install", "add-worker"):         # the header comes before anything else, however the computer is chosen (an address skips the scan that used to draw it)
@@ -405,7 +419,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         return 1
     v = (assess or assess_mod.assess)(target, user, int(getattr(a, "port", 22) or 22))
     if v.windows:
-        return windows_tools(a, target, user, ui, ask, say, notice, interactive, win_runner)
+        return windows_tools(a, target, user, ui, ask, say, notice, interactive, win_runner, cfg.updates.source, find_release)
     verdict_card(target, v, notice)
     if not v.meets:
         return 1
