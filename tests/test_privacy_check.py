@@ -54,6 +54,23 @@ class History(unittest.TestCase):
         r = history(d, env)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def _with_message(self, message):
+        d, env = repo_with("tests/fixtures/ok.txt")
+        deny = Path(tempfile.mkdtemp()) / "deny.txt"                                       # outside the repository: inside, its own patch would match
+        deny.write_text("acctname\n")
+        env = {**env, "CT_PRIVACY_DENYLIST": str(deny)}
+        (d / "more.txt").write_text("more\n")
+        subprocess.run(["git", "-C", str(d), "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", str(d), "commit", "-q", "-m", message], check=True, env=env)
+        return history(d, env)
+
+    def test_githubs_merge_subject_naming_the_account_is_not_a_leak(self):
+        self.assertEqual(self._with_message("Merge pull request #5 from acctname/some-branch\n\nA clean title").returncode, 0)
+
+    def test_the_account_anywhere_else_in_a_message_is_still_caught(self):
+        for m in ("fixes for acctname", "Merge pull request #5 from acctname/b\n\nthanks acctname", "see Merge pull request #5 from acctname/b", "Merge pull request #5 from acctname/b and acctname"):
+            self.assertEqual(self._with_message(m).returncode, 1, m)
+
     def test_the_same_text_anywhere_else_is_still_caught(self):
         d, env = repo_with("src/notes.txt")
         r = history(d, env)
