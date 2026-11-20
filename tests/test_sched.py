@@ -125,6 +125,46 @@ class TheRealPublisher(unittest.TestCase):
         self.assertEqual(pick([v]).worker, "w")
 
 
+class ToolFolderClasses(unittest.TestCase):
+    """A class that needs existing tool folders runs only on a worker in relaxed mode that allows them."""
+
+    def view(self, name, mode=None, roots=(), tools=("/opt/tools/nmap",), **kw):
+        s = state(classes=("sys-status", "scan"), **kw)
+        s["isolation"] = {"ready": True, **({"mode": mode, "tool_roots": list(roots)} if mode else {})}
+        reg = {"classes": {"sys-status": {"kind": "command", "cost": "light"}, "scan": {"kind": "command", "cost": "light", **({"tools": list(tools)} if tools else {})}}}
+        return worker_view(name, "direct", s, reg, 30, 5)
+
+    def test_only_a_relaxed_worker_that_allows_the_folder_is_chosen_and_the_others_say_why(self):
+        ws = [self.view("full"), self.view("relaxed-other", "relaxed", ["/srv/other"]), self.view("lab", "relaxed", ["/opt/tools"], running=3), self.view("old")]
+        c = pick(ws, "scan")
+        self.assertEqual(c.worker, "lab")                                              # busier, but the only one that can show the folder
+        why = dict((n, r) for n, _, r in c.lines)
+        self.assertIn("full isolation", why["full"])
+        self.assertIn("full isolation", why["old"])                                    # a worker from before the setting has no mode: full
+        self.assertIn("does not allow the tool folder /opt/tools/nmap", why["relaxed-other"])
+
+    def test_a_class_without_tool_folders_is_unaffected(self):
+        self.assertIsNotNone(pick([self.view("full")], "sys-status").worker)
+
+
+class SharedComputers(unittest.TestCase):
+    """A computer that says a person is using it is chosen last, not left out: with nothing else free the job waits there."""
+
+    def view(self, name, held=None, **kw):
+        s = state(**kw)
+        s["observed"]["held"] = held
+        return worker_view(name, "direct", s, {"classes": {"sys-status": {"kind": "command", "cost": "light"}}}, 30, 5)
+
+    def test_a_free_worker_is_preferred_and_the_held_one_says_why(self):
+        c = pick([self.view("pc", held="a person is using this computer (alice)"), self.view("vm", running=3)], "sys-status")
+        self.assertEqual(c.worker, "vm")                                                   # busier, but nobody is using it
+        why = dict((n, r) for n, _, r in c.lines)["pc"]
+        self.assertIn("a person is using this computer (alice)", why)
+
+    def test_when_only_held_workers_exist_the_job_still_goes_to_one_of_them(self):
+        self.assertEqual(pick([self.view("pc", held="outside its working hours (22:00-07:00, now 12:00)")], "sys-status").worker, "pc")
+
+
 if __name__ == "__main__":
     unittest.main()
 

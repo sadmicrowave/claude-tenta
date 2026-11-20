@@ -57,6 +57,6 @@ def check(fleet, cap, adding, now=None):
     total = sum(len(v) for v in per.values())
     if total + adding > cap:
         where = ", ".join(f"{name}: {len(v)}" for name, v in per.items() if v) or "none"
-        raise ClientError(f"Too many jobs are already running ({total} in flight, the cap is {cap})", f"Sending {adding} more would pass limits.max_in_flight. In flight now: {where}.",
-                          ["Wait for some to finish: ct-run jobs shows them.", "Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it)."])
+        raise ClientError("Too many jobs are already running", f"Sending {adding} more would pass limits.max_in_flight. In flight now: {where}.",
+                          ["Wait for some to finish: ct-run jobs shows them.", "Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it)."], facts=[("In flight", str(total)), ("Cap", str(cap))])
     return total

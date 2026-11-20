@@ -139,5 +139,32 @@ class FixesAreExactForTheSystem(unittest.TestCase):
         self.assertEqual(bad, [], "use assess.as_admin")
 
 
+class WindowsComputers(unittest.TestCase):
+    """A computer that greets as Windows is a Special Use worker with the separate Windows release (not available yet): it is recognised before anything is run on it, and nothing is changed."""
+
+    def test_the_windows_ssh_greeting_is_recognised_and_sorted_after_linux(self):
+        from ct.setup import discover
+        hint, kind = discover.os_hint("SSH-2.0-OpenSSH_for_Windows_9.5")
+        self.assertEqual(kind, "windows")
+        self.assertIn("Windows", hint)
+        self.assertIn("Special Use only", hint)
+        self.assertEqual(discover.os_hint("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5")[1], "linux-server")
+
+    def test_the_candidacy_check_stops_on_a_windows_computer_before_running_anything_on_it(self):
+        ran = []
+        v = assess.assess("box.example", "me", run=lambda *a, **k: ran.append(a), probe=lambda host, port: type("D", (), {"kind": "windows"})())
+        self.assertTrue(v.windows)
+        self.assertFalse(v.meets)
+        self.assertEqual(ran, [])                                                           # nothing was logged in to
+        self.assertTrue(any("Windows release is not available yet" in f for f in v.fixes))
+        self.assertTrue(any("Linux virtual machine" in f for f in v.fixes))                # what to do today
+
+    def test_a_linux_computer_and_an_unreachable_one_are_assessed_as_before(self):
+        v = assess.assess("box.example", "me", run=lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""), probe=lambda host, port: type("D", (), {"kind": "linux-server"})())
+        self.assertFalse(v.windows)
+        v = assess.assess("box.example", "me", run=lambda *a, **k: subprocess.CompletedProcess(a, 255, "", "refused"), probe=lambda host, port: None)
+        self.assertFalse(v.windows)
+
+
 if __name__ == "__main__":
     unittest.main()

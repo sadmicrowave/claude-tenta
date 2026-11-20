@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import cards, ui
+from .. import alias, cards, ui
 from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, chip, paint
 from .repo import PENDING
 from ..words import plural
@@ -231,38 +231,100 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
-def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None):
-    """The job list as cards: the jobs waiting for you (with the commands that approve them), then the table of recent jobs, then what the status words mean."""
+STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}
+
+
+job_blocks = cards.job_blocks                                                       # one definition for every list of jobs
+
+
+def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=None, now=None, where=None):
+    """The job list as cards: the jobs waiting for you (with the commands that approve them), then your recent jobs, then what the status words mean."""
     out = out or sys.stdout
     waiting = [r for r in rows if r[1] == "awaiting_approval"]
     shown = rows if n is None else rows[:n]
     if waiting:
-        ui.table("Waiting for you", ["job", "name", "waiting"], [[(r[2], "warn"), label_of(r[2], r[4])[:27], human_age(r[0], now)] for r in waiting[:8]], tag="APPROVE", color=ui.YELLOW, stream=out,
-                 notes=("These will not run until you approve them. Approving waits for the result and prints it.",), run=[f"{admin} approve {r[2]}" for r in waiting[:8]], run_label="Approve one")
+        ui.say("Waiting for you", *job_blocks([(r[2], [("CLASS", label_of(r[2], r[4])), ("WAITING", human_age(r[0], now))]) for r in waiting[:8]]),
+               "These will not run until you approve them. Approving waits for the result and prints it.", tag="APPROVE", color=ui.YELLOW, stream=out,
+               run=[f"{admin} approve {r[2]}" for r in waiting[:8]], run_label="Approve one")
     if not shown:
         ui.say("Your jobs", "No results yet.", tag="NONE", color=ui.PRIMARY, stream=out)
         return
     took = run_durations(results)
-    table = []
+    entries = []
     for when, status, jid, note, cls in shown:
-        table.append([when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-", (status, {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn",
-                      "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}.get(status)), took.get(jid, "-"), jid, label_of(jid, cls)])
-    notes = [f"{jid}: {note}" for _, status, jid, note, _ in shown if note and status != "awaiting_approval"]
-    ui.table("Your most recent jobs, newest first", ["when", "status", "duration", "job", "name"], table, tag="JOBS", stream=out,
-             notes=("WHEN is your local time, when the job finished (or was submitted, if it has not run). DURATION is how long the run took (so far, if it is still running).", *notes[:8]))
+        stamp = when.astimezone().strftime("%Y-%m-%d %H:%M %Z") if when else "-"
+        rows_ = [("STATUS", cards.Styled([(status.upper(), STATUS_ROLE.get(status)), (f"  {stamp}  ·  {took.get(jid, '-')}", "muted")])), *([("CLASS", label_of(jid, cls))] if not jid.startswith(f"{cls}-") else [])]          # a generated id already starts with its class
+        if where is not None:
+            rows_.append(("WORKER", where.get(jid, "")))
+        if note and status != "awaiting_approval":
+            rows_.append(("NOTE", note))
+        entries.append((jid, rows_))
+    ui.say("Your most recent jobs, newest first", *job_blocks(entries),
+           "The time is your local time: when the job finished (or was submitted, if it has not run), then how long the run took (so far, if it is still running).", tag="JOBS", color=ui.PRIMARY, stream=out)
     ui.say("What the status words mean", *[(word, meaning) for word, meaning in STATUS_MEANING], "See one job in full:  ct-run result <job>", tag="LEGEND", color=ui.PRIMARY, stream=out)
 
 
+def _what(c):
+    return " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
+
+
+TIER_WORDS = {"auto": "runs as soon as you submit it", "approve": "waits for your approval"}
+
+
+def when_text(iso_text):
+    """'2026-11-17T04:40:58Z' as '2026-11-17 04:40 UTC' (a time always says its zone)."""
+    try:
+        return datetime.strptime(iso_text, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M") + " UTC"
+    except (TypeError, ValueError):
+        return None
+
+
+def class_rows(name, c, runs_on=None, installed=False):
+    """One class as card rows: fixed labels, and everything a person named (the class, the workers) as a value, so a long name wraps in its own space and moves nothing else."""
+    rows = [(cards.Chip("CLASS", "primary"), cards.Styled([(name, "strong")])), ("RUNS", _what(c))]
+    rows += [("PARAMS", ", ".join(c["params"]))] if c.get("params") else []
+    rows += [("TOOLS" if i == 0 else "", t) for i, t in enumerate(c.get("tools") or [])]                     # folders of tools that already exist on the worker, one per line
+    if runs_on:                                                         # each worker on its own line, under the value column: a long name wraps alone and nothing is run together
+        rows += [("RUNS ON" if i == 0 else "", w) for i, w in enumerate(runs_on)]
+    rows += [("COST", f"{c['cost']}, {TIER_WORDS.get(c['tier'], c['tier'])}")]
+    if installed:
+        rows += [("INSTALLED", when_text(c.get("installed")) or "not recorded (this worker runs an older release)")]
+    return rows
+
+
+def _list(rows_by_class):
+    out = []
+    for i, rows in enumerate(rows_by_class):
+        out += (["\n"] if i else []) + rows
+    return out
+
+
 def render_classes(info, pending=(), excluded=0, out=None, product="the worker"):
+    """One worker's own list: the worker's own facts first (what it has, when its set of classes last changed), then each class with the day IT was installed."""
     out = out or sys.stdout
-    rows = []
-    for name, c in sorted(info["classes"].items()):
-        what = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
-        rows.append([(name, "ok"), c["cost"], c["tier"], what + (f"   params: {', '.join(c['params'])}" if c.get("params") else "")])
-    ui.table(f"What {product} can run for you today", ["class", "cost", "tier", "runs"], rows, tag="CLASSES", stream=out,
-             notes=(f"Installed as of {info['updated']}; {info['mem_total_mb']} MB RAM, {plural(info['capacity'], 'capacity point')}.",
-                    f"COST is how heavy it is on {product}. TIER: auto runs as soon as you submit it; approve waits for your OK first.",
-                    *([f"Proposed, NOT installed yet (apply them): {', '.join(sorted(pending))}"] if pending else []), *([f"Excluded after profiling: {excluded}"] if excluded else [])))
+    facts = [("MEMORY", f"{info['mem_total_mb']} MB"), ("CAPACITY", plural(info["capacity"], "capacity point")), ("CLASSES", f"{len(info['classes'])} installed"),
+             ("REGISTRY", f"last changed {when_text(info.get('updated')) or info.get('updated')}")]
+    notes = [*([f"Proposed, NOT installed yet (apply them): {', '.join(sorted(pending))}"] if pending else []), *([f"Excluded after profiling: {excluded}"] if excluded else [])]
+    ui.say("What this worker can run for you today", ("Worker", alias.show(product)), *facts, "\n", *_list([class_rows(n, c, installed=True) for n, c in sorted(info["classes"].items())]), *(["\n", *notes] if notes else []),
+           tag="CLASSES", color=ui.PRIMARY, stream=out)
+
+
+def render_fleet_classes(classes, unreachable=(), folder_worker=None, out=None):
+    """Every class any of your workers offers, and WHICH workers offer it. `classes` is {name: {"info": the class as one worker published it, "offered_by": [workers], "dedicated": worker or None}}.
+    A class dedicated to one worker says so, and says when that worker does not offer it (a job for it would have nowhere to run)."""
+    out = out or sys.stdout
+    blocks = []
+    for name, c in sorted(classes.items()):
+        on = [alias.show(w) for w in sorted(c["offered_by"])] or ["none"]
+        if c["dedicated"]:                                              # the class goes only there: that worker alone, with a yellow DEDICATED chip after its name (and a red one when it does not offer the class)
+            pieces = [(alias.show(c["dedicated"]), None), ("DEDICATED", "warn_chip")] + ([] if c["dedicated"] in c["offered_by"] else [("NOT OFFERED", "bad_chip")])
+            on = [cards.Styled(pieces)]
+        blocks.append(class_rows(name, c["info"], on))
+    notes = ["RUNS ON lists the workers that offer the class. A dedicated class goes only to its worker (ct-admin workers use WORKER --command CLASS).",
+             "One worker's own list, with its limits: ct-run classes --worker NAME."]
+    notes += [f"Jobs from this folder go to {alias.show(folder_worker)} unless a class is set to another worker."] if folder_worker else []
+    notes += [f"{w} could not be read ({why}), so what it offers is not listed." for w, why in unreachable]
+    ui.say("What your workers can run for you today", *_list(blocks), "\n", *notes, tag="CLASSES", color=ui.PRIMARY, stream=out)
 
 
 # ---- waiting for a result ----
@@ -296,17 +358,17 @@ def phase_of(res, jid, admin="ct-admin", approved=False, product="the worker", w
     status = (res or {}).get("status")
     late = waited >= late_after()
     if approved and status in (None, "queued", "awaiting_approval"):
-        return (f"approved, but {product} has not picked it up after {waited // 60} min: `{admin} wake` looks now, `{admin} status` shows why" if late else f"approved: waiting for {product} to pick it up"), (RED if late else CYAN)
+        return (f"approved, but {alias.show(product)} has not picked it up after {waited // 60} min: `{admin} wake` looks now, `{admin} status` shows why" if late else f"approved: waiting for {alias.show(product)} to pick it up"), (RED if late else CYAN)
     if not res and late:
-        return f"sent {waited // 60} min ago and {product} has not picked it up: `{admin} wake` looks now, `{admin} status` shows why", RED
+        return f"sent {waited // 60} min ago and {alias.show(product)} has not picked it up: `{admin} wake` looks now, `{admin} status` shows why", RED
     if not res:
-        return f"sent: waiting for {product} to notice it (an idle worker looks every {PACE['idle']} s)", YELLOW
+        return f"sent: waiting for {alias.show(product)} to notice it (an idle worker looks every {PACE['idle']} s)", YELLOW
     if status == "queued":
-        return f"queued on {product}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
+        return f"queued on {alias.show(product)}: waiting for a free slot" + (f" ({waited // 60} min so far)" if waited >= 60 else ""), YELLOW
     if status == "awaiting_approval":
         return f"waiting for your approval ({admin} approve {jid})", YELLOW
     if status == "running":
-        return (f"fetching packages on {product}" if "fetching packages" in (res.get("note") or "") else f"running on {product}"), CYAN
+        return (f"fetching packages on {alias.show(product)}" if "fetching packages" in (res.get("note") or "") else f"running on {alias.show(product)}"), CYAN
     return status or "waiting", CYAN
 
 

@@ -47,6 +47,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `ct-admin adopt` | turn a finished profile run into a class and install it |
 | `ct-admin retire` | remove a class from the registry and install that |
+| `ct-admin class` | see or change what a class may do: its approval tier, network access and tool folders |
 | `ct-admin action` | register, list or remove commands that must run as root |
 | `ct-admin proposals` | list, merge or tidy the changes waiting on branches |
 | `ct-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
@@ -77,33 +78,30 @@ Run on your computer. Sends work to the worker and reads the results.
 | `ct-run result` | read a job's result |
 | `ct-run jobs` | your most recent jobs, and the ones waiting for your approval |
 | `ct-run offload` | find out what is worth running on the worker |
-| `ct-run classes` | what the worker can run today |
+| `ct-run classes` | every class your workers can run, and which workers offer each |
 | `ct-run where` | which of your workers a job of this class would go to, and why each of the others would not (nothing is sent) |
+| `ct-run use` | send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit |
 | `ct-run patch` | show the patch a write-capable job returned, and apply it here after a look |
 | `ct-run prune` | squash old job files out of the jobs branch |
 
 ## ct-setup
 
 ```
-ct-setup install | add-worker | uninstall | rename | transport | demo | client | server | audit | tripwire-test
+ct-setup add-worker | audit | client | demo | install | rename | server | transport | tripwire-test | uninstall
 
-  client    set up your own computer: your config, SSH key login, the two private repositories, the registry
-  server    turn a clean Ubuntu or Debian machine into a worker (run as root on it)
-  add-worker find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
-  transport move an existing install from GitHub to Direct (preview first; history is copied, GitHub is left as it was)
-  rename    give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
-  audit     read-only: check a server against its configuration and report anything that drifted
-  tripwire-test  on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
-  uninstall remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
-  demo      try the question and protection screens with sample questions; nothing is saved or changed
-  install   everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again
-            (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server
-            half there, adds the deploy keys to GitHub for you, and sends a first job
+  add-worker      find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
+  audit           read-only: check a server against its configuration and report anything that drifted
+  client          set up your own computer: your config, SSH key login, the two private repositories, the registry
+  demo            try the question and protection screens with sample questions; nothing is saved or changed
+  install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
+  rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
+  server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
+  transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
+  tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
+  uninstall       remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
 
-Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address;
-          client, server, audit, tripwire-test, demo: the computer they run on.
+Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address; client, server, audit, tripwire-test, demo: the computer they run on.
 
-Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing)
-          --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
+Options:  --advanced (also ask the settings that have safe defaults)   --dry-run (show everything, change nothing; the default for server unless --apply)   --yes (take every default, ask nothing) --answers FILE (a TOML file of answers)   --set section.key=value (repeatable)
 ```
 

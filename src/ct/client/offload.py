@@ -266,7 +266,7 @@ def load_spec(text, where="the spec"):
         is_flag = key.lower().startswith("flag ")
         key, val = (key.strip() if is_flag else key.strip().lower().replace("-", "_").replace(" ", "_")), val.strip()
         if not sep:
-            raise ClientError(f"{where} line {n}: expected `key: value`")
+            raise ClientError("A line is not `key: value`", facts=[("Where", f"{where} line {n}")])
         if is_flag:
             spec["flags"][key[5:].strip()] = val
         elif key == "package":
@@ -274,7 +274,7 @@ def load_spec(text, where="the spec"):
         elif key in SPEC_KEYS:
             spec[key] = val
         else:
-            raise ClientError(f"{where} line {n}: unknown field {key!r}", f"Fields: {', '.join(sorted(SPEC_KEYS))}, and `flag -x: meaning`")
+            raise ClientError("Unknown field", f"Fields: {', '.join(sorted(SPEC_KEYS))}, and `flag -x: meaning`", facts=[("Where", f"{where} line {n}"), ("Field", repr(key))])
     return spec
 
 
@@ -286,7 +286,7 @@ def build_profile_job(argv, what, expect, est, *, flags=None, packages=None, why
         raise ClientError("No command to profile", "Put the command after a double dash, exactly as you would type it.",
                           example="ct-run offload profile --what '...' --expect '...' --est-time-s 10 --est-mem-mb 100 -- eslint .")
     if argv[0].rsplit("/", 1)[-1] in PROFILE_DENY:
-        raise ClientError(f"{argv[0]} cannot be profiled", "A profile run never uses sudo, su, doas or pkexec.")
+        raise ClientError("That command cannot be profiled", "A profile run never uses sudo, su, doas or pkexec.", facts=[("Command", argv[0])])
     needs, add = [], []
     for ok, need, flag in ((what, "--what  \"what the command does\", in words someone who has never used it would understand", "--what 'what the command does'"),
                            (expect, "--expect  \"how long it should take, how much memory, and what it prints\"", "--expect 'a few seconds, tiny, prints one line'"),
@@ -303,8 +303,8 @@ def build_profile_job(argv, what, expect, est, *, flags=None, packages=None, why
                           (retry_example or (lambda extra: "ct-run offload profile " + extra))(" ".join(add)))
     for p in packages or []:
         if not PACKAGE_RE.fullmatch(p):
-            raise ClientError(f"Unreadable --package {p!r}", "Start with where the package comes from, then a colon, then its name.",
-                              ["apt:openssh-client", "npm:eslint   or   npm:eslint@8", "pip:requests   or   pip:requests==2.31.0"])
+            raise ClientError("Unreadable --package", "Start with where the package comes from, then a colon, then its name.",
+                              ["apt:openssh-client", "npm:eslint   or   npm:eslint@8", "pip:requests   or   pip:requests==2.31.0"], facts=[("Value", p)])
     job = {"class": "profile-run", "argv": argv, "what": what, "expect": expect}
     if packages:
         job["packages"] = sorted(set(packages))
@@ -322,7 +322,7 @@ def parse_flags(pairs):
     flags = {}
     for kv in pairs or []:
         if "=" not in kv:
-            raise ClientError(f"Unreadable --flag {kv!r}", "Write each flag as the flag, an equals sign, then what it means.", example="--flag '-n=use null as the input'")
+            raise ClientError("Unreadable --flag", "Write each flag as the flag, an equals sign, then what it means.", example="--flag '-n=use null as the input'", facts=[("Value", kv)])
         k, v = kv.split("=", 1)
         flags[k.strip()] = v.strip()
     return flags
@@ -366,7 +366,7 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     A command that does not fit is recorded as an exclusion; one that fits becomes the branch registry/<name> (never main)."""
     pr = res.get("profile")
     if not pr:
-        raise ClientError(f"{jid} has no profile result yet", "The worker may still be running it, or it was never approved.", example=f"ct-run result {jid} --wait")
+        raise ClientError("No profile result yet", "The worker may still be running it, or it was never approved.", example=f"ct-run result {jid} --wait", facts=[("Job", jid)])
     argv, ex = pr["argv"], read_exclusions(repos)
     ex.setdefault("excluded", [])
     if pr["verdict"] == "inconclusive":
@@ -380,7 +380,7 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     if not CLASS_RE.match(name):
         raise ClientError("That class name is not allowed", "Use lowercase letters, digits and dashes, 2 to 41 characters.", example="--name npm-lint")
     if name in taken:
-        raise ClientError(f"A class named {name!r} already exists", steps=["Pick another name with --name"])
+        raise ClientError("A class with that name already exists", steps=["Pick another name with --name"], facts=[("Class", name)])
     entry = {**pr["entry"], "tier": tier}
     if batchable:
         if not entry.get("accepts_files"):
@@ -391,7 +391,7 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     if dry_run:
         return {"kind": "preview", "already": repos.remote_branch_exists(branch), **info}
     if repos.remote_branch_exists(branch):
-        raise ClientError(f"A proposal for {name!r} is already waiting", f"Branch {branch} exists. Install it, or pick another name with --name.", example=f"ct-admin apply {branch}")
+        raise ClientError("A proposal for that class is already waiting", f"Branch {branch} exists. Install it, or pick another name with --name.", example=f"ct-admin apply {branch}", facts=[("Class", name), ("Branch", branch)])
     text = add_class_to_registry(repos.show_file("origin/main", "registry.yaml") or "", class_yaml_lines(name, entry, pr, jid))
     before = len(ex["excluded"])
     ex["excluded"] = [e for e in ex["excluded"] if e["argv"] != argv]

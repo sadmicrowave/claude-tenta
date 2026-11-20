@@ -2,8 +2,8 @@
 
 ## What you need
 
-- **Your computer** (macOS or Linux) with `git`, `ssh` and Python 3.11 or newer. The GitHub command-line tool `gh`, signed in (`gh auth login`), is strongly recommended: with it, setup creates the two private repositories and adds the
-  server's deploy keys to them for you. Without it, setup tells you exactly what to click.
+- **Your computer** (macOS or Linux) with `git`, `ssh` and Python 3.11 or newer. The GitHub command-line tool `gh`, signed in, is needed to make the repositories for you. If it is missing or signed out, the wizard offers to install it (with `brew`, `apt-get` or `dnf`) and to sign you in (`gh auth login --web`, in your browser; this tool never sees your password), and prints the same commands if you would rather run them yourself. With it, setup creates the two private repositories and adds the
+  server's deploy keys to them for you; without it, setup tells you exactly what to click.
 - **A spare computer that stays on**, running **Ubuntu 24.04 or newer, or Debian 12 or newer**, on your home network. An old laptop or a mini PC is plenty. It needs `python3` (3.11+), `sudo`, an SSH server, and a normal
   account for you on it (the *admin* account) that you can log in to **with an SSH key** (`ssh-copy-id admin@worker` once, if you have not). Everything else it needs (git, the registry reader, bubblewrap, the firewall tools) is installed for you.
 - **A GitHub account.** The two repositories are created private under it.

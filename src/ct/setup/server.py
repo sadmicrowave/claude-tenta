@@ -20,9 +20,10 @@ from ..words import plural
 
 
 class SetupError(Exception):
-    def __init__(self, title, why=None, steps=None):
+    def __init__(self, title, why=None, steps=None, facts=None):
+        """`title` is a fixed sentence; what a person named (a step, a unit, an account, a method) goes in `facts`, a list of (label, value) rows."""
         super().__init__(title)
-        self.title, self.why, self.steps = title, why, steps or []
+        self.title, self.why, self.steps, self.facts = title, why, steps or [], list(facts or [])
 
 
 def missing_steps(missing):
@@ -417,11 +418,17 @@ class ServerSetup:
 
     def hardening_step(self):
         cfg, results = self.cfg, {}
-        total = len(cfg.hardening.modules)
-        for i, mid in enumerate(cfg.hardening.modules, 1):
+        offered = [m for m in cfg.hardening.offered if m in hardening.MODULES and m not in cfg.hardening.modules]
+        total = len(cfg.hardening.modules) + (0 if self.use_defaults else len(offered))
+        for i, mid in enumerate(list(cfg.hardening.modules) + offered, 1):
             mod = hardening.MODULES[mid]
-            present = (lambda info, i=i: self.ui.protection({**info, "index": i, "total": total})) if self.ui is not None else None
-            status, detail = hardening.run_module(mod, self.host, cfg, dry_run=self.dry_run, out=self.say, confirm=self.confirm, present=present)
+            optional = mid in offered                                       # a whole-machine protection on a shared or special-use computer: offered, skipped unless the person says yes
+            if optional and self.use_defaults:
+                results[mid] = {"status": "declined", "detail": f"offered, not applied: it affects {mod.affects}, and --yes takes none of those"}
+                self.note(f"hardening: {mid}", "declined", results[mid]["detail"])
+                continue
+            present = (lambda info, i=i, optional=optional: self.ui.protection({**info, "index": i, "total": total, **({"default_skip": True, "tag": "your choice", "rows": info.get("rows", []) + [("Default", "skip: it changes the whole machine for every user")]} if optional else {})})) if self.ui is not None else None
+            status, detail = hardening.run_module(mod, self.host, cfg, dry_run=self.dry_run, out=self.say, confirm=(lambda q: False) if optional and self.confirm is None else self.confirm, present=present)
             results[mid] = {"status": status, "detail": detail}
             self.note(f"hardening: {mid}", status, detail)
         if not self.dry_run:

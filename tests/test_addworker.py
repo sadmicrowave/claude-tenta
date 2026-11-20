@@ -251,6 +251,19 @@ class TheScreens(unittest.TestCase):
         pick, _ = self.choose(["1", "2", "enter"], n=14)
         self.assertEqual(pick, "198.51.100.21")                                                     # row 12 of 15 (the 15th is "none of these")
 
+    def test_the_scan_card_has_a_blank_line_after_the_summary_and_marks_a_known_worker_with_a_chip(self):
+        devs = self.devices(2)
+        devs[0].known = True
+        seen = []
+        addworker.found_card(devs, [], [], card=lambda title, *rows, **k: seen.append(rows))
+        rows = seen[0]
+        at = [i for i, r in enumerate(rows) if isinstance(r, tuple) and r[0] == "Found"][0]
+        self.assertEqual(rows[at + 1], "\n")                                      # a blank line between the FOUND summary and the first computer
+        known = [r for r in rows if isinstance(r, tuple) and r[0] == "COMPUTER" and isinstance(r[1], addworker.cards.Styled)]
+        self.assertEqual(len(known), 1)
+        self.assertEqual(known[0][1][-1], ("already a worker", "accent_chip"))   # its own style, not the plain text the address is in
+        self.assertEqual(known[0][1].plain(), devs[0].ip + "  " + devs[0].name + "  already a worker")
+
     def test_workers_you_already_have_are_in_the_list_to_set_up_again_and_are_not_the_default(self):
         """Seen on a real network: every machine found was already a worker, so the list held only 'other' and the machines in the card above could not be picked."""
         devs = self.devices(2)
@@ -383,6 +396,7 @@ class SettingAWorkerUpAgain(Base):
         class Ui:
             def banner(inner, subtitle, unless_shown=False):
                 order.append("banner")
+                self.assertTrue(unless_shown, "run() may have drawn the header already; drawing it again was seen on a second `ct-setup install`")
 
         class Busy:
             def __init__(inner, text, color=None, **kw):
@@ -436,7 +450,7 @@ class Interactive(Base):
     def test_scan_pick_check_confirm_then_install_with_the_address_filled_in(self):
         asked = []
         scan = lambda nets, known=(): (self.DEV, [])                                              # noqa: E731
-        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", ""], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
+        rc = self.run_flow(args(), ask=["y", "1", "agent", "y", "y", "", "-", "n"], scan=scan, interactive=True, assess_fn=lambda h, u, p=22: (asked.append((h, u)), GOOD)[1])
         self.assertEqual(rc, 0, self.text())
         self.assertEqual(asked, [("198.51.100.194", "agent")])
         (c,) = self.calls
@@ -504,6 +518,32 @@ class TheRealInstaller(unittest.TestCase):
         for rc in (".zshrc", ".bashrc", ".profile"):
             self.assertFalse(m.exists(f"{home}/{rc}"), rc)                                              # no shell startup file was touched
         self.assertIn("tenta2", str(inst.state_file), "its progress is kept in its own folder")
+
+
+class OfferDedication(unittest.TestCase):
+    """Right after a worker is added the person is asked whether it is for particular commands; no is the default and writes nothing."""
+
+    def run_offer(self, answers):
+        from ct.client import here
+        here.global_path().unlink(missing_ok=True)
+        it, said = iter(answers), []
+        addworker.offer_dedication("pentest", lambda p: next(it), lambda *a, **k: said.append((a, k)))
+        return here.global_pins(), said
+
+    def test_no_writes_nothing(self):
+        pins, _ = self.run_offer([""])
+        self.assertTrue(pins.empty())
+
+    def test_commands_are_written_to_the_computers_file_and_the_worker_is_not_reserved(self):
+        pins, said = self.run_offer(["y", "nmap, sqlmap"])
+        self.assertEqual(pins.commands, {"nmap": "pentest", "sqlmap": "pentest"})
+        self.assertIn("ct-admin workers use", str(said))
+        self.assertIn("still takes other work", str(said))
+
+    def test_no_command_named_says_how_to_do_it_later(self):
+        pins, said = self.run_offer(["y", " "])
+        self.assertTrue(pins.empty())
+        self.assertIn("ct-admin workers use pentest --command", str(said))
 
 
 if __name__ == "__main__":

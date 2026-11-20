@@ -1,5 +1,6 @@
 """ct-setup: the questions, the config writer, hardening modules, and the client, server and audit halves, all against a fake machine."""
 import io
+import json
 import os
 import tempfile
 import tomllib
@@ -662,6 +663,31 @@ class ServerTests(unittest.TestCase):
             self.setup_obj(dry_run=True, given={"hardening.modules": "ssh-keys-only,made-up"}).run_all()
         self.assertIn("made-up", e.exception.why)
 
+    def test_a_shared_computer_offers_the_whole_machine_protections_and_yes_takes_none_of_them(self):
+        """Shared and special-use computers: the protections that change the machine for every user are offered one by one; --yes applies none, and the owner's decision is recorded."""
+        flat, problems = questions.collect("server", given={"isolation.purpose": "shared"}, use_defaults=True)
+        self.assertEqual(flat["hardening"]["modules"], ["job-isolation", "auditd-canaries"])
+        self.assertEqual(flat["hardening"]["offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
+        s = self.setup_obj(dry_run=False, given={"isolation.purpose": "shared"})
+        results = s.run_all()
+        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        for mid in ("ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"):
+            self.assertEqual(done[mid]["status"], "declined", mid)
+            self.assertIn("every user of this machine", done[mid]["detail"])
+        self.assertNotIn("ssh-keys-only", [m for m, r in done.items() if r["status"] == "applied"])
+
+    def test_an_offered_protection_the_person_accepts_is_applied_and_then_audited_like_the_others(self):
+        s = self.setup_obj(dry_run=False, given={"isolation.purpose": "shared"})
+        s.use_defaults = False                                              # a person is answering
+        s.confirm = lambda q: q.startswith("Apply unattended-upgrades")      # yes to one, no to the rest
+        s.run_all()
+        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        self.assertIn(done["unattended-upgrades"]["status"], ("applied", "satisfied"))
+        self.assertNotIn(done["ssh-keys-only"]["status"], ("applied", "satisfied"))      # said no (or the fake machine blocks it): not applied
+        from ct.setup import audit
+        self.assertIn("unattended-upgrades", audit.audited_modules(self.h, s.cfg))
+        self.assertNotIn("ssh-keys-only", audit.audited_modules(self.h, s.cfg))            # declined is not drift
+
     def test_modules_can_be_chosen_without_a_question(self):
         s = self.setup_obj(dry_run=True, given={"hardening.modules": "ssh-keys-only"})
         s.run_all()
@@ -883,6 +909,50 @@ class CliTests(unittest.TestCase):
         self.assertIn("not supported", err)
 
 
+class WhatTheComputerIsUsedFor(unittest.TestCase):
+    """Special Use and shared computers: one question chooses which protections are the default, each protection says who it affects, and tool folders are asked only for Special Use."""
+
+    def test_a_computer_only_for_tenta_changes_nothing(self):
+        from ct.setup import questions
+        flat = questions.derive({"isolation.purpose": "tenta-only"})
+        self.assertEqual(flat, {"isolation.purpose": "tenta-only"})
+
+    def test_shared_and_special_use_default_to_the_protections_that_affect_only_tenta(self):
+        from ct.setup import hardening, questions
+        shared = questions.derive({"isolation.purpose": "shared"})
+        self.assertEqual(shared["hardening.modules"], ["job-isolation", "auditd-canaries"])
+        self.assertEqual(shared["hardening.offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
+        self.assertNotIn("isolation.mode", shared)                                       # shared keeps full isolation
+        special = questions.derive({"isolation.purpose": "special-use"})
+        self.assertEqual((special["hardening.modules"], special["isolation.mode"]), (["job-isolation", "auditd-canaries"], "relaxed"))
+        mine = questions.derive({"isolation.purpose": "shared", "hardening.modules": ["job-isolation", "ssh-keys-only"]})
+        self.assertEqual(mine["hardening.modules"], ["job-isolation", "ssh-keys-only"])  # what the person chose is never replaced
+        for mid in questions.TENTA_ONLY_MODULES:                                         # the list in the questions is exactly the modules that say so
+            self.assertEqual(hardening.MODULES[mid].affects, hardening.TENTA_ONLY, mid)
+        self.assertEqual(sorted(mid for mid, m in hardening.MODULES.items() if m.affects == hardening.TENTA_ONLY and mid in config.SCHEMA["hardening"]["modules"][0]), sorted(questions.TENTA_ONLY_MODULES))
+
+    def test_every_protection_says_who_it_affects_in_the_text_and_on_the_screen(self):
+        from ct.setup import hardening
+        for mid, mod in hardening.MODULES.items():
+            self.assertIn(mod.affects, (hardening.TENTA_ONLY, hardening.EVERYONE), mid)
+        self.assertEqual(hardening.MODULES["ssh-keys-only"].affects, hardening.EVERYONE)
+        self.assertEqual(hardening.MODULES["ufw-lan-egress"].affects, hardening.EVERYONE)
+
+    def test_the_purpose_is_asked_and_tool_folders_only_for_special_use(self):
+        from ct.setup import questions
+        by = questions.BY_KEY
+        self.assertIn("isolation.purpose", by)
+        self.assertEqual([c[0] for c in questions.CHOICES["isolation.purpose"]], ["tenta-only", "shared", "special-use"])
+        self.assertIn("Special Use", questions.CHOICES["isolation.purpose"][2][1])
+        when = by["isolation.tool_roots"]["when"]
+        self.assertTrue(when({"isolation.purpose": "special-use"}))
+        self.assertFalse(when({"isolation.purpose": "shared"}))
+        self.assertFalse(when({}))
+        flat, problems = questions.collect("server", given={"isolation.purpose": "special-use", "isolation.tool_roots": "/opt/tools, /srv/pentest"}, use_defaults=True)
+        self.assertEqual(flat["isolation"]["tool_roots"], ["/opt/tools", "/srv/pentest"])             # any number
+        self.assertEqual(flat["isolation"]["mode"], "relaxed")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1071,3 +1141,79 @@ class ClaudeSignIn(ServerTests):
         s.run_all()
         self.assertEqual(screen.asked, [])
         self.assertTrue(any("curl -fsSL https://claude.ai/install.sh" in line for line in self.said))
+
+
+class GitHubToolOffer(RepoFixture):
+    """`gh` makes the repositories, so it must be installed and signed in. The wizard offers each (an amber card, then it runs on the person's terminal); declining or a silent run prints the commands
+    and the repository steps are done by hand. Seen by the user: the app assumed gh was installed and signed in."""
+
+    make = ClientTests.make
+
+    def go(self, tools, yes=(), auth_ok=True, installs=True, auth_after=True):
+        h, c = self.make(dry_run=False, given={"github.owner": "someone"})
+        h.env["TOOLS"] = tools
+        h.replies["gh auth status"] = lambda argv: Result(0 if (auth_ok or (len(h.ran("gh auth login")) and auth_after)) else 1)
+        h.replies["gh api user"] = Result(1, "")
+        asked, ran = [], []
+
+        def confirm(info):
+            asked.append(info["id"])
+            return info["id"] in yes
+
+        def interactive(argv):
+            ran.append(argv)
+            if argv[:2] == ["brew", "install"] and installs:
+                h.env["TOOLS"] += " gh"
+            h.calls.append(argv)
+            return 0, ""
+        c.confirm_card, c.interactive = confirm, interactive
+        c.gh = bool(h.which("gh"))
+        c.github_tool()
+        return h, c, asked, ran
+
+    def test_gh_missing_is_offered_and_installed_when_the_person_says_yes(self):
+        h, c, asked, ran = self.go("git ssh brew", yes=("gh-install",))
+        self.assertEqual(asked[0], "gh-install")
+        self.assertEqual(ran[0], ["brew", "install", "gh"])
+        self.assertTrue(c.gh)
+
+    def test_declining_the_install_prints_the_command_and_the_repositories_are_done_by_hand(self):
+        h, c, asked, ran = self.go("git ssh apt-get")
+        self.assertEqual(ran, [])
+        self.assertFalse(c.gh)
+        self.assertTrue(any("sudo apt-get install -y gh" in str(s) for s in self.said))
+
+    def test_no_package_manager_points_at_the_official_page(self):
+        h, c, asked, ran = self.go("git ssh")
+        self.assertEqual(ran, [])
+        self.assertTrue(any("cli.github.com" in str(s) for s in self.said))
+
+    def test_an_install_that_does_not_produce_gh_says_so_and_falls_back(self):
+        h, c, asked, ran = self.go("git ssh brew", yes=("gh-install",), installs=False)
+        self.assertFalse(c.gh)
+        self.assertTrue(any(r[1] == "failed" for r in c.report), c.report)
+
+    def test_gh_installed_but_signed_out_offers_the_sign_in_and_runs_it_on_yes(self):
+        h, c, asked, ran = self.go("git ssh gh", yes=("gh-login",), auth_ok=False)
+        self.assertEqual(asked, ["gh-login"])
+        self.assertEqual(ran[0][:3], ["gh", "auth", "login"])
+        self.assertTrue(c.gh)
+
+    def test_declining_the_sign_in_gives_the_command_and_stops_using_gh(self):
+        h, c, asked, ran = self.go("git ssh gh", auth_ok=False)
+        self.assertEqual(ran, [])
+        self.assertFalse(c.gh)
+        self.assertTrue(any("gh auth login" in str(s) for s in self.said))
+
+    def test_signed_in_asks_nothing(self):
+        h, c, asked, ran = self.go("git ssh gh")
+        self.assertEqual(asked, [])
+        self.assertTrue(c.gh)
+
+    def test_a_run_nobody_answers_never_installs_anything(self):
+        h, c = self.make(dry_run=False)
+        h.env["TOOLS"] = "git ssh brew"
+        c.gh, c.confirm_card = False, None
+        c.interactive = lambda argv: self.fail("installed unasked")
+        c.github_tool()
+        self.assertFalse(c.gh)

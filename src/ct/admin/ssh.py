@@ -66,15 +66,15 @@ class Ssh:
         """Run `remote` (one command line) with no terminal. Returns the CompletedProcess; raises ClientError if SSH itself failed."""
         r = self._run(self.argv(remote, batch=True), capture_output=True, text=True)
         if r.returncode == 255:
-            raise ClientError(f"Could not connect to {self.host}", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
-                              ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true")
+            raise ClientError("Could not connect", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
+                              ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true", facts=[("Host", self.host)])
         return r
 
     def send(self, remote, data):
         """Run `remote` with `data` (bytes) on its standard input, no terminal. Returns the CompletedProcess; raises ClientError if SSH itself failed."""
         r = self._run(self.argv(remote, batch=True), input=data, capture_output=True)
         if r.returncode == 255:
-            raise ClientError(f"Could not connect to {self.host}", None, ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true")
+            raise ClientError("Could not connect", None, ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true", facts=[("Host", self.host)])
         return r
 
     def popen(self, remote, tty=True):

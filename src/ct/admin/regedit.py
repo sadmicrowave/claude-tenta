@@ -53,6 +53,44 @@ def without_class(text, name):
     return "\n".join(rest) + "\n"
 
 
+def _render_field(key, value):
+    """The lines of one class setting: a true/false, text, or a list written on one line (None: the setting is removed)."""
+    if value is None:
+        return []
+    if isinstance(value, bool):
+        return [f"    {key}: {'true' if value else 'false'}"]
+    if isinstance(value, (list, tuple)):
+        return [f"    {key}: [" + ", ".join(str(v) for v in value) + "]"]
+    return [f"    {key}: {value}"]
+
+
+def set_class_fields(text, name, changes):
+    """The text with some settings of one class changed: `changes` is {setting: value}, a value of None removes the setting. An existing line (and a hand-written list under it) is replaced where it
+    stands, a new setting goes at the end of the class, and every comment and other line is kept. None if the class is not in the text."""
+    where = class_block(text, name)
+    if not where:
+        return None
+    lines = text.splitlines()
+    start, end = where
+    at = next(i for i in range(start, end) if CLASS_LINE.match(lines[i]))
+    for key, value in changes.items():
+        new = _render_field(key, value)
+        found = next((i for i in range(at + 1, end) if re.match(rf"^    {re.escape(key)}:", lines[i])), None)
+        if found is not None:
+            stop = found + 1
+            while stop < end and re.match(r"^      \S|^      -", lines[stop]):         # a list written under the setting, one folder per line
+                stop += 1
+            lines[found:stop] = new
+            end += len(new) - (stop - found)
+        elif new:
+            last = end
+            while last > at + 1 and not lines[last - 1].strip():
+                last -= 1
+            lines[last:last] = new
+            end += len(new)
+    return "\n".join(lines) + "\n"
+
+
 def is_profile_kind(text, name):
     where = class_block(text, name)
     return bool(where) and any(re.match(r"^    kind:\s*profile\s*$", line) for line in text.splitlines()[where[0]:where[1]])

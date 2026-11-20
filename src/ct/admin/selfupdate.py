@@ -26,7 +26,7 @@ def update_checkout(root, url, tag, run=subprocess.run):
         raise ClientError("Your checkout has uncommitted changes", f"{root} was not touched.", ["Commit or stash them, then run ct-admin update again."])
     r = git("fetch", "--quiet", url, f"refs/tags/{tag}:refs/tags/{tag}")
     if r.returncode:
-        raise ClientError(f"Could not fetch {tag}", (r.stderr or "").strip()[-200:], [f"Check that you can reach {url}"])
+        raise ClientError("Could not fetch the release", (r.stderr or "").strip()[-200:], [f"Check that you can reach {url}"], facts=[("Release", str(tag))])
     r = git("merge", "--ff-only", f"{tag}^{{commit}}")
     if r.returncode:
         raise ClientError("Your checkout cannot be fast-forwarded to that release", "It has commits the release does not (or the history differs), so nothing was changed.",

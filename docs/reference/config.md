@@ -64,7 +64,22 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `require_netns` | `true` | bool | refuse to run a no-network job if the machine cannot isolate it (leave on) |
+| `purpose` | `tenta-only` | `tenta-only` , `shared` , `special-use` | what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed) |
+| `mode` | `full` | `full` , `relaxed` | full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled |
+| `tool_roots` | `[]` | list | folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these |
 | `method` | `bwrap` | `bwrap` , `unshare` | how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method) |
+
+## [availability]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `pause_when_logged_in` | `false` | bool | do not start a job while a person is logged in on this computer (for a computer other people use: it works in their idle time; a job already running finishes) |
+| `ignore_users` | `[]` | list | accounts whose login does not count as 'a person is using it' (for example the admin account you SSH in with) |
+| `cpu_weight` | `0` | int | how much processor time the worker's jobs get against everything else on this computer (1 to 10000; the normal share is 100, so 20 lets a person's own work win; 0 = unset, the system's default). Applied to the jobs' service by systemd |
+| `io_weight` | `0` | int | the same for disk access (1 to 10000, normal 100; 0 = unset) |
+| `memory_max_percent` | `0` | int | the most memory, as a percent of this computer's, that all the worker's jobs together may use; a job that would go over is stopped, so the person keeps their memory (10 to 100; 0 = unset) |
+| `nice` | `0` | int | scheduling priority of the jobs, 19 = most polite (0 = unset) |
+| `window` | `` | text | only start jobs within these hours on this computer's own clock, for example 22:00-07:00 (empty = any time) |
 
 ## [alerts]
 
@@ -146,3 +161,4 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `modules` | `["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]` | list | hardening modules the wizard applies |
+| `offered` | `[]` | list | hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others |

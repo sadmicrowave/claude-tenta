@@ -7,7 +7,8 @@ files that depend on the connection (the mailbox shell) are written by the ordin
 they are your way back, and the finish card says how to remove them once Direct has proved itself.
 
 The server half (`Migrate`, run as root on the worker) does the worker's part; the client half (`transport_command`) runs it over SSH, then rewrites your own configuration and clones.
-Going back to GitHub is not done by this command yet: it says so and names the way (ct-setup install, answering GitHub to the connection question).
+Going back (`ct-setup transport github`, from your computer) is the client's job: it pushes the history your clones hold into your GitHub repositories (new commits only, nothing there is deleted or
+rewritten), sets the worker up again for GitHub with the ordinary installer (its clones follow the connection; deploy keys are checked and added if missing), and points your own clones back.
 """
 import json
 import shlex
@@ -64,22 +65,22 @@ class Migrate:
     # ---- checks, before anything is touched ----
     def check(self):
         if self.to not in transport.TRANSPORTS:
-            raise SetupError(f"{self.to} is not a connection method", f"Choose one of: {', '.join(transport.TRANSPORTS)}.")
+            raise SetupError("That is not a connection method", f"Choose one of: {', '.join(transport.TRANSPORTS)}.", facts=[("Method", str(self.to))])
         if self.to == self.old:
-            raise SetupError(f"The install already uses {self.old}", "There is nothing to move.")
+            raise SetupError("The install already uses that method", "There is nothing to move.", facts=[("Method", str(self.old))])
         if self.to != "direct":
             raise SetupError("Moving back to GitHub is not done by this command yet", "Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.",
                              ["Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again."])
         w = self.cfg.server.worker_user
         if not self.host.run(["id", w]).ok:
-            raise SetupError(f"The worker account {w} does not exist on this machine", "Nothing was changed.",
-                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."])
+            raise SetupError("The worker account does not exist on this machine", "Nothing was changed.",
+                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."], facts=[("Account", str(w))])
         for which in ("queue", "results"):
             if self.dry_run:
                 break                       # the preview runs as the administrator, who cannot see the worker's private folders (found on a real machine); the real run is root and checks
             if not self.host.exists(self.cfg.path(f"{which}_clone") + "/.git"):
-                raise SetupError(f"The worker has no {which} clone", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
-                                 ["Run ct-setup install again; it makes the clones."])
+                raise SetupError("The worker has no clone of that repository", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
+                                 ["Run ct-setup install again; it makes the clones."], facts=[("Repository", str(which))])
         running = self.host.run(["sh", "-c", f"ls {self.cfg.path('state')}/running 2>/dev/null | head -1"]).out.strip()
         if running:
             raise SetupError("A job is running", f"{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.")
@@ -152,15 +153,85 @@ class Migrate:
                     continue
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "start")):
-                    raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
+                    raise SetupError("A migration step failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
                                      ["Run the failing command by hand to see its full error and clear the cause, then run the same ct-setup transport command again: it carries on and skips what is already done.",
-                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."])
+                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."], facts=[("Step", title)])
             self.say(STYLER.note("done", title))
         self.report.append(("transport", "done", f"{self.old} -> {self.to}"))
         return self.report
 
 
 # ---- the client half: on your own computer ---------------------------------------------------------------------------------------------------------
+def github_urls(cfg2, which):
+    return transport.for_config(cfg2).client_url(cfg2, which)
+
+
+def back_to_github(a, host, ask, say, cfg, *, reinstall=None, url_of=None):
+    """ct-setup transport github [--worker NAME] [--apply]: from your computer. Preview first. Then: (1) the history your queue and results clones hold is pushed to your GitHub repositories (new commits
+    only; a GitHub that has commits yours lacks stops it with nothing changed), (2) the worker is set up again for GitHub with the ordinary installer, which repoints its clones and checks its deploy keys,
+    (3) your own clones and configuration point back at GitHub. The mailbox on the worker is not touched."""
+    from .. import ui as _ui
+    from ..ui import GREEN, RED, YELLOW
+    url_of = url_of or github_urls
+    cfg2 = load_new_config(host.read(cfg.source) or "", "github")
+    if not (cfg2.github.owner and cfg2.github.queue_repo and cfg2.github.results_repo):
+        _ui.say("The GitHub repositories are not named in the configuration", "Nothing was changed.", tag="ERROR", color=RED, run="ct-setup install")
+        return 1
+    name = getattr(a, "worker", None)
+    target = [] if not name else ["--worker", name]
+    argv = ["install", *(target or [cfg.server.host]), "--set", "transport.kind=github"] + (["--yes"] if getattr(a, "yes", False) else [])
+    clones = [(which, cfg2.path(f"client_{which}"), url_of(cfg2, which)) for which in ("queue", "results")]
+    _ui.say("Move back to GitHub", ("Worker", name or cfg.server.host), ("From", "direct (the mailbox on the worker)"), ("To", "GitHub"),
+            ("1. History", "your queue and results clones push what they hold into your GitHub repositories: new commits only, nothing there is deleted or rewritten"),
+            ("2. The worker", "set up again for GitHub with the ordinary installer: its clones follow, its deploy keys are checked and added if missing, a first job proves it"),
+            ("3. This computer", "your configuration and clones point back at GitHub"),
+            ("Not touched", "the mailbox on the worker, your job history, the worker's secrets and approver key"), tag="PREVIEW", color=_ui.PRIMARY, stream=sys.stderr)
+    if not getattr(a, "apply", False):
+        _ui.say("Nothing has been changed yet", tag="NEXT", color=GREEN, run_label="To do it", run="ct-setup transport github" + (f" --worker {name}" if name else "") + " --apply", stream=sys.stderr)
+        return 0
+    if not getattr(a, "yes", False):
+        if not sys.stdin.isatty() or ask(_ui.confirm_prompt(f"Move {name or cfg.server.host} back to GitHub? Its job loop is briefly paused while it is set up again.")).strip().lower() != "y":
+            _ui.say("Not moved", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
+            return 1
+
+    def push_all():
+        bad = []
+        for which, clone, url in clones:
+            if not (host.exists(clone + "/.git") or host.exists(clone + "/HEAD")):
+                say(STYLER.note("skipped", which + " history", "no clone on this computer"))
+                continue
+            r = host.run(["git", "-C", clone, "push", "--quiet", url, "refs/heads/*:refs/heads/*"])
+            say(STYLER.note("pushed" if r.ok else "failed", which + " history", url if r.ok else r.out.strip()[-200:]))
+            if not r.ok:
+                bad.append((which, r.out.strip()))
+        return bad
+    bad = push_all()
+    missing = [w for w, out in bad if "not found" in out.lower() or "does not exist" in out.lower() or "could not read" in out.lower()]
+    if bad and len(missing) != len(bad):
+        _ui.say("GitHub has commits your clones lack", *[("Queue" if w == "queue" else "Results", (o.splitlines() or ["rejected"])[-1][:160]) for w, o in bad], "Nothing was changed: your configuration, the worker and your clones are as they were.",
+                "Fetch what GitHub has (ct-run setup pulls the clones), look at the difference, then run this again.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
+        return 1
+    if reinstall is None:
+        from . import cli as setup_cli
+        reinstall = lambda av: setup_cli.main(av, host=host, ask=ask)                  # noqa: E731
+    rc = reinstall(argv)
+    if rc:
+        _ui.say("The worker could not be set up for GitHub again", "Your own configuration and clones are unchanged. The history already pushed to GitHub is harmless.",
+                "Fix the cause named above, then run the same command again: it carries on.", tag="ERROR", color=RED, run="ct-setup transport github" + (f" --worker {name}" if name else "") + " --apply", stream=sys.stderr)
+        return rc
+    if bad:                                                                        # the repositories did not exist until the reinstall made them: now the history can go in
+        bad = push_all()
+        if bad:
+            _ui.say("The history could not be pushed", *[("Queue" if w == "queue" else "Results", (o.splitlines() or ["rejected"])[-1][:160]) for w, o in bad], tag="ERROR", color=RED, stream=sys.stderr)
+            return 1
+    notes, _ = rewrite_local(host, cfg, cfg2, "github")
+    for step, status, detail in notes:
+        say(STYLER.note(status, step, detail))
+    _ui.say("Moved back to GitHub", ("Worker", name or cfg.server.host), "Jobs and results pass through your GitHub repositories again. The mailbox on the worker was left as it was.",
+            tag="DONE", color=GREEN, run_label="Check that it works", run=["ct-admin status", "ct-run submit sys-status --wait"], stream=sys.stderr)
+    return 0
+
+
 def ensure_key(host, cfg2):
     """The key this computer uses for the mailbox (made here if missing). Returns the public key text."""
     key = transport.for_config(cfg2).client_key(cfg2)
@@ -186,7 +257,7 @@ def rewrite_local(host, cfg, cfg2, kind):
     return notes, repos
 
 
-def transport_command(a, host, ask, ssh_factory, say, verify=None):
+def transport_command(a, host, ask, ssh_factory, say, verify=None, reinstall=None, url_of=None):
     """ct-setup transport KIND: from your computer. Preview, ask once, send the key, run the server half over ssh -t, then rewrite this computer's side and prove it."""
     from .. import ui as _ui
     from ..admin.ssh import Ssh, family_for
@@ -202,12 +273,13 @@ def transport_command(a, host, ask, ssh_factory, say, verify=None):
         emit("Say which connection to use", f"One of: {', '.join(transport.TRANSPORTS)}. The install uses {old} now.", tag="ERROR", color=RED, run="ct-setup transport direct")
         return 2
     if new == old:
-        emit(f"The install already uses {old}", ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
+        emit("The install already uses that method", ("Method", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
         return 0
+    if new == "github":
+        return back_to_github(a, host, ask, say, cfg, reinstall=reinstall, url_of=url_of)
     if new != "direct":
-        emit("Moving back to GitHub is not done by this command yet", "Nothing was changed. Your GitHub repositories were never touched.",
-             "Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again.", tag="STOPPED", color=YELLOW, run="ct-setup install")
-        return 1
+        emit("Say which connection to use", f"One of: {', '.join(transport.TRANSPORTS)}.", tag="ERROR", color=RED)
+        return 2
     cfg2 = load_new_config(host.read(cfg.source) or "", new)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     pub = ensure_key(host, cfg2) if a.apply else None

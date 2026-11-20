@@ -102,6 +102,24 @@ class Strictness(unittest.TestCase):
         self.assertIn("three different folders", " ".join(problems('[paths]\ncode = "/opt/x"\nconfig = "/opt/x"\n')))
         self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/ct"\nstate_root = "/srv/ct/state"\n')))
 
+    def test_isolation_mode_defaults_to_full_and_tool_roots_need_relaxed_and_a_plain_absolute_folder(self):
+        self.assertEqual(problems(""), [])
+        c = config.load(None, env={})
+        self.assertEqual((c.isolation.mode, c.isolation.tool_roots), ("full", []))
+        self.assertIn("tool_roots needs isolation.mode", " ".join(problems('[isolation]\ntool_roots = ["/opt/tools"]\n')))
+        self.assertEqual(problems('[isolation]\nmode = "relaxed"\ntool_roots = ["/opt/tools", "/srv/pentest"]\n'), [])        # any number
+        for bad in ('"~/tools"', '"relative"', '"/etc"', '"/opt/a b"'):
+            self.assertTrue(problems('[isolation]\nmode = "relaxed"\ntool_roots = [%s]\n' % bad), bad)
+        self.assertTrue(problems('[isolation]\nmode = "loose"\n'))
+
+    def test_availability_windows_and_accounts_are_checked(self):
+        self.assertEqual(problems('[availability]\npause_when_logged_in = true\nignore_users = ["agent"]\nwindow = "22:00-07:00"\n'), [])
+        self.assertEqual(problems(""), [])
+        for bad in ('window = "10pm-7am"', 'window = "25:00-07:00"', 'window = "22:00"', 'ignore_users = ["a b"]', 'pause_when_logged_in = "yes"'):
+            self.assertTrue(problems("[availability]\n" + bad + "\n"), bad)
+        c = config.load(None, env={})
+        self.assertEqual((c.availability.pause_when_logged_in, c.availability.window), (False, ""))
+
     def test_unsafe_isolation_is_refused_unless_explicitly_overridden(self):
         text = "[isolation]\nrequire_netns = false\n"
         self.assertIn("require_netns = false", " ".join(problems(text)))

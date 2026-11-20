@@ -49,6 +49,7 @@ _CHECKS = {
     "name": NAME_RE, "worker_user": USER_RE, "admin_user": USER_RE, "alias": re.compile(r"^[A-Z][A-Z0-9_]{2,40}$"),
     "state_root": PATH_RE, "worker_home": PATH_RE, "lib": PATH_RE, "config": PATH_RE, "code": PATH_RE,
     "fetch_s": re.compile(r"^\d{1,4}$"), "step_s": re.compile(r"^\d{1,4}$"), "canary_s": re.compile(r"^\d{1,4}$"), "update_min": re.compile(r"^\d{1,4}$"), "claude_update_days": re.compile(r"^\d{1,2}$"), "registry_sync_min": re.compile(r"^\d{1,4}$"),
+    "resources": re.compile(r"^(\n(CPUWeight|IOWeight|Nice)=\d{1,5}|\nMemoryMax=\d{1,3}%)*$"),
     "commands": re.compile(r"^[A-Za-z0-9._/ *,-]+$"), "mailbox_rw": re.compile(r"^( /[A-Za-z0-9._/-]+)?$"),
 }
 
@@ -81,9 +82,18 @@ def _mailbox_rw(cfg):
     return f" {cfg.path('mailbox')}" if kind == "direct" else ""
 
 
+def resources_for(cfg):
+    """Lines for the step service that keep the worker's jobs from taking over a computer other people use (only what the owner set: nothing set renders nothing, so an existing unit is unchanged)."""
+    a = getattr(cfg, "availability", None)
+    if a is None:
+        return ""
+    pairs = (("CPUWeight", a.cpu_weight, ""), ("IOWeight", a.io_weight, ""), ("MemoryMax", a.memory_max_percent, "%"), ("Nice", a.nice, ""))
+    return "".join(f"\n{k}={v}{suffix}" for k, v, suffix in pairs if v)
+
+
 def values_for(cfg):
     """Every value any template may use, from the configuration."""
-    return {"name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
+    return {"resources": resources_for(cfg), "name": cfg.identity.name, "worker_user": cfg.server.worker_user, "admin_user": cfg.server.admin_user or "", "alias": alias_for(cfg),
             "state_root": cfg.paths.state_root, "worker_home": cfg.paths.worker_home, "lib": f"{cfg.paths.code}/lib", "config": cfg.paths.config,
             "code": cfg.paths.code, "fetch_s": cfg.schedule.fetch_s, "step_s": cfg.schedule.step_s, "canary_s": cfg.schedule.canary_s,
             "update_min": cfg.schedule.update_min, "claude_update_days": int(cfg.claude.update_days), "registry_sync_min": int(cfg.schedule.registry_sync_min), "commands": "", "mailbox_rw": _mailbox_rw(cfg)}

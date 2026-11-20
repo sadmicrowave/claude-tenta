@@ -19,7 +19,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from .. import config, ui as _ui
+from .. import alias, cards, config, ui as _ui
 from ..admin import workers as workers_mod
 from ..client.view import Busy
 from ..ui import GREEN, PRIMARY, RED, YELLOW
@@ -160,14 +160,18 @@ def found_card(devices, notes, nets, card=None):
     rows = [("Networks", ", ".join(f"{n.network} ({i})" for i, n in nets))] if nets else []
     mine = [d for d in devices if not d.known]
     servers = [d for d in mine if d.kind == "linux-server"]
+    windows = [d for d in mine if d.kind == "windows"]
     real, soft = [d for d in devices if not d.virtual], [d for d in devices if d.virtual]
     where = (f"{len(real)} on your real network, {len(soft)} on virtual networks inside this computer (VMs and containers; other computers on your network cannot reach those)"
              if soft else "all on your real network")
     rows.append(("Found", f"{plural(len(devices), 'device')} answering on the SSH port: {where}. {len(servers)} look like Linux servers"
+                 + (f", {len(windows)} greet as Windows (Special Use only, with the separate Windows release)" if windows else "")
                  + (f", {len(devices) - len(mine)} already yours" if len(devices) != len(mine) else "")))
+    rows.append("\n")                                                                 # the summary line, then a blank line, then the computers
     for d in devices:
         what = d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + f" · {d.latency_ms:g} ms" + (f" · on {d.iface}, virtual" if d.virtual else f" · on {d.iface}" if d.iface else "")
-        rows.append((d.ip + (f"  {d.name}" if d.name else "") + ("  (already a worker)" if d.known else ""), what))
+        who = d.ip + (f"  {d.name}" if d.name else "")
+        rows += [("COMPUTER", cards.Styled([(who, None), ("already a worker", "accent_chip")]) if d.known else who), ("", what), "\n"]            # the address and name are values; the label is a fixed word
     rows += [f"Note: {n}" for n in notes]
     rows.append("This is all the network alone can tell. Nothing was logged in to; the next steps ask before they look any deeper.")
     card("Network scan", *rows, tag="FOUND" if devices else "NONE", color=PRIMARY if devices else YELLOW, stream=sys.stderr)
@@ -187,10 +191,10 @@ def verdict_card(host, v, card=None):
     rows = [(f"{icons[s]:<4} {w}", d) for s, w, d in v.rows]
     if v.meets:
         rows.append("It meets the requirements" + (f", with {len(v.warnings)} thing{'s' if len(v.warnings) != 1 else ''} to know about." if v.warnings else "."))
-        card(f"{host} can be a worker", *rows, tag="MEETS", color=GREEN, stream=sys.stderr)
+        card("This computer can be a worker", ("Computer", host), *rows, tag="MEETS", color=GREEN, stream=sys.stderr)
     else:
         rows += [_ui.cards.Why(why) for s, w, why in v.failures]
-        card(f"{host} cannot be a worker yet", *rows, tag="NOT YET", color=RED, steps=v.fixes or None, steps_label="How to fix it", stream=sys.stderr)
+        card("This computer cannot be a worker yet", ("Computer", host), *rows, tag="NOT YET", color=RED, steps=v.fixes or None, steps_label="How to fix it", stream=sys.stderr)
 
 
 # ---- the flow ------------------------------------------------------------------------------------------------------------------------------------
@@ -226,6 +230,8 @@ MAIN = object()           # what run() returns when the computer you picked is t
 def find_worker(cfg, wfile, key):
     """The worker you mean by `key` (its install name, its address, or the name its configuration is listed under): (MAIN, None) for the first install, ("extra", (name, file, settings)) for one in
     workers.toml, or None."""
+    from .. import alias
+    key = alias.resolve(key, [cfg.identity.name, *workers_mod.load_list(wfile)])                      # an alias means its worker
     if key in (cfg.identity.name, cfg.server.host):
         return MAIN, None
     for entry, path in workers_mod.load_list(wfile).items():
@@ -243,7 +249,7 @@ def scan_for(hosts, ui, ask, say, notice, interactive, scan=None, resolve=None, 
     nets = (networks or discover.local_networks)()
     where = ", ".join(str(n.network) for _, n in nets) or "nothing"
     if banner and ui is not None:                                                 # the header comes first: before anything else is asked (the old first question drew it)
-        ui.banner(banner)
+        ui.banner(banner, unless_shown=True)                                       # `run` may have drawn it already (an install on a computer that has a configuration): once per run
     notice("Scan your network?", ("Looks at", where), ("How", "tries the SSH port on each address there, and reads this computer's list of neighbours; it does not log in to anything"),
            ("Changes", "nothing on this computer or on any other; no password is asked or sent"), ("Takes", "a few seconds, longer on a large network"),
            f"It finds the computers you can pick from. If you would rather not scan, say no and give the address yourself: ct-setup {command} box.example",
@@ -280,7 +286,7 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
     name, conf, raw = ex
     user = a.user or (raw.get("server") or {}).get("admin_user") or cfg.server.admin_user or os.environ.get("USER", "")
     home = Path((raw.get("paths") or {}).get("client_home") or paths_for(cfg, name)[1]).expanduser()
-    notice(f"{name} is already a worker: set it up again", ("Machine", f"{user}@{target}"), ("Its configuration", str(conf)),
+    notice("That computer is already a worker: set it up again", ("Worker", alias.show(name)), ("Machine", f"{user}@{target}"), ("Its configuration", str(conf)),
            "This sends it the current release, checks and repairs its protections and the connection, and sends a first job. Your other workers, your first install and the commands on your PATH are not touched.",
            tag="AGAIN", color=PRIMARY, stream=sys.stderr)
     if getattr(a, "dry_run", False):                                      # a preview changes nothing: it said what would happen and stops (found on a real worker: --dry-run went on to connect and run the wizard)
@@ -289,7 +295,7 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
     if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
         notice("Stopped", "Nothing was changed.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return 1
-    kind = (raw.get("transport") or {}).get("kind")
+    kind = dict(kv.split("=", 1) for kv in (getattr(a, "set", None) or []) if "=" in kv).get("transport.kind") or (raw.get("transport") or {}).get("kind")      # --set transport.kind=github is how a worker is moved back
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
 
 
@@ -331,7 +337,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if mine:                                                  # a worker whose file cannot be read cannot be compared with, or left alone: say which and why, do not guess (seen: a duplicated section made one invisible and the machine was treated as new)
         gone = all(x[3] == "missing" for x in mine)
         names_ = ", ".join(x[0] for x in mine)
-        notice("A worker's configuration file is missing" if gone else "A worker's configuration file cannot be read", *[(n, f"{p}: {e}") for n, p, e, _kind in mine],
+        notice("A worker's configuration file is missing" if gone else "A worker's configuration file cannot be read", *cards.named([(n, f"{p}: {e}") for n, p, e, _kind in mine]),
                "It is listed as one of your workers, but its file is gone (deleted or moved)." if gone else "Adding or setting up a worker must leave the others exactly as they are, and that cannot be checked while a file is unreadable.",
                steps=([f"Put the file back if you have a copy, or stop listing {names_}: ct-admin workers remove {mine[0][0]} (the computer itself is not touched).",
                        "Then set the computer up again: ct-setup install <its address>"] if gone else
@@ -339,7 +345,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
                steps_label="How to fix it", tag="ERROR", color=RED, stream=sys.stderr)
         return 2
     if others:                                                # not blocking: left out, and said so once
-        notice("A worker is left out", *[(n, f"{p}: {e}") for n, p, e, _kind in others], "Its configuration file cannot be read, so it is left out of this. Nothing about it is changed.",
+        notice("A worker is left out", *cards.named([(n, f"{p}: {e}") for n, p, e, _kind in others]), "Its configuration file cannot be read, so it is left out of this. Nothing about it is changed.",
                steps=[f"ct-admin workers remove {others[0][0]} stops listing it, or put its file back."], steps_label="When you want it back", tag="NOTE", color=YELLOW, stream=sys.stderr)
     names, hosts = known_workers(cfg, wfile)
     if interactive is None:
@@ -348,7 +354,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if getattr(a, "worker", None):                                                    # named: no scan, no question about which
         found = find_worker(cfg, wfile, a.worker)
         if found is None:
-            notice(f"{a.worker} is not one of your workers", f"Your workers: {', '.join(sorted(names))}.", steps=["ct-admin workers lists them with their addresses."], steps_label="What to try", tag="ERROR", color=RED, stream=sys.stderr)
+            notice("That is not one of your workers", ("Name", a.worker), f"Your workers: {', '.join(sorted(names))}.", steps=["ct-admin workers lists them with their addresses."], steps_label="What to try", tag="ERROR", color=RED, stream=sys.stderr)
             return 2
         if found[0] is MAIN:
             return MAIN
@@ -391,10 +397,10 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if taken(name):
         raise SetupError("That worker name cannot be used", taken(name), [f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"])
     conf, home = paths_for(cfg, name)
-    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user)
+    return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, ask=ask, interactive=interactive)
 
 
-def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None):
+def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None, ask=None, interactive=False):
     """Run the installer for ONE worker with its own configuration and folder, prove nothing of the others changed, and register it. `again`: the worker already exists and is being set up again
     (its own files are of course allowed to change; everything else is not)."""
     before = fingerprint(protected_files(cfg, wfile, leave=name if again else None))
@@ -419,11 +425,48 @@ def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, 
     if touched:
         notice("Something of your existing installs changed", *[("Changed", p) for p in touched], "Adding a worker must not do that. Nothing was undone; check these files.", tag="WARNING", color=RED, stream=sys.stderr)
     if any(r[1] == "failed" for r in report):
-        notice(f"{name} was set up but its first job did not come back", "Run ct-admin check and ct-admin status for it.", tag="WARNING", color=YELLOW, stream=sys.stderr)
+        notice("A worker was set up but its first job did not come back", ("Worker", alias.show(name)), "Run ct-admin check and ct-admin status for it.", tag="WARNING", color=YELLOW, stream=sys.stderr)
     workers_mod.add(wfile, name, str(conf))
-    notice(f"{name} is set up again" if again else f"{name} is now a worker", ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
+    if interactive and not again and ask:
+        offer_alias(name, ask, notice, [name, *workers_mod.load_list(wfile)])
+        offer_dedication(name, ask, notice)
+    notice("The worker is set up again" if again else "A new worker is ready", ("Worker", alias.show(name)), ("Machine", f"{user}@{server_host}"), ("Configuration", str(conf)), ("Your other installs", "unchanged" if not touched else "see the warning above"),
            tag="DONE", color=GREEN, run_label="See all your workers", run=["ct-admin workers", "ct-admin watch"], stream=sys.stderr)
     return 1 if touched else 0
+
+
+def offer_alias(name, ask, notice, names):
+    """A new worker can be given a short name for the ct- commands right away (kept on this computer only): the next arm1, arm2, ... Enter accepts it, a name of your own replaces it, - skips."""
+    default = alias.next_default(names)
+    answer = ask(f"  Name for {name} in the ct- commands (kept on this computer only) [{default}; Enter accepts, - skips]: ").strip()
+    if answer == "-":
+        return
+    chosen = answer or default
+    problem = alias.check(chosen, name, names)
+    if problem:
+        notice("That name cannot be used", ("Name", chosen), problem, "Nothing was named. Later: ct-admin workers rename " + name + " <name>", tag="NOTE", color=_ui.YELLOW, stream=sys.stderr)
+        return
+    aliases, show_real = alias.load()
+    aliases[name] = chosen
+    alias.save(aliases, show_real)
+    notice("The new worker has a name here", ("Worker", alias.show(name)), ("File", str(alias.path())), "Only this computer knows the name; the worker and its hostname are unchanged.", tag="DONE", color=_ui.GREEN, stream=sys.stderr)
+
+
+def offer_dedication(name, ask, notice):
+    """Right after a new worker exists is when the person knows what it is for: offer to dedicate commands to it (the same setting `ct-admin workers use` writes to ~/.tenta.toml). Default no."""
+    from ..client import here
+    if ask(_ui.confirm_prompt(f"Should some commands always go to {name}?")).strip().lower() not in ("y", "yes"):
+        return
+    raw = ask("  Which commands (job class names, separated by spaces or commas)? ").replace(",", " ").split()
+    names = [c for c in raw if here.NAME.match(c)]
+    if not names:
+        notice("No commands were named", f"Nothing was dedicated. Later: ct-admin workers use {name} --command <class>", tag="NOTE", color=_ui.YELLOW, stream=sys.stderr)
+        return
+    pins = here.global_pins()
+    pins.commands.update({c: name for c in names})
+    here.save(pins)
+    notice("Commands dedicated to a worker", ("Worker", alias.show(name)), *[("Command" if i == 0 else "", c) for i, c in enumerate(names)], ("File", str(pins.path)), "It still takes other work.", tag="PINNED", color=_ui.GREEN,
+           run_label="See or change it", run=["ct-admin workers use"], stream=sys.stderr)
 
 
 class _nullcontext:

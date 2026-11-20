@@ -545,7 +545,7 @@ class WithTheScreen(InstallBase):
         from test_tui import typed
         from ct.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
-        self.assertEqual(total, 8)                                   # the server, your account on it, the connection method, GitHub, the machine, IPv6, alerts, Claude sign-in: everything else has a safe default
+        self.assertEqual(total, 8)                                   # the server, your account on it, the connection method, GitHub, the machine, what the computer is used for, alerts, Claude sign-in: everything else has a safe default (IPv6 is asked with --advanced)
         events = typed("worker.example", "admin") + typed("", "someone", "", "", "", "") + ["enter"]       # the connection questions, the rest (Enter on the connection method first), then Enter on the review
         inst, term = self.installer_with_screen(events)
         inst.run_all()

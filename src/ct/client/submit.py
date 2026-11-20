@@ -104,7 +104,7 @@ def parse_params(pairs):
     params = {}
     for kv in pairs or []:
         if "=" not in kv:
-            raise ClientError(f"Unreadable -p {kv!r}", "Write each job parameter as a name, an equals sign, then a value.", example="-p dir=src")
+            raise ClientError("Unreadable -p value", "Write each job parameter as a name, an equals sign, then a value.", example="-p dir=src", facts=[("Value", kv)])
         k, v = kv.split("=", 1)
         params[k] = int(v) if re.fullmatch(r"-?\d+", v) else v
     return params

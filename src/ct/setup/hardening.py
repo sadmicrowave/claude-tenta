@@ -53,8 +53,13 @@ def module(cls):
     return cls
 
 
+TENTA_ONLY = "only tenta's own jobs"
+EVERYONE = "every user of this machine"
+
+
 class Module:
     id = title = why = risk = ""
+    affects = EVERYONE             # who feels it: TENTA_ONLY or EVERYONE (a shared or special-use computer is offered only the first kind by default)
     default = True
     lockout = False                # True when applying it wrongly could lock you out (it is then shown with the warning frame)
 
@@ -168,6 +173,7 @@ class UfwLanEgress(Module):
 @module
 class AuditdCanaries(Module):
     id, title = "auditd-canaries", "Tripwires for stolen credentials"
+    affects = TENTA_ONLY
     why = ("Decoy credential files are placed where an attacker would look. The kernel audit system raises the alarm the moment anything reads "
            "one, and the worker locks itself down.")
     risk = "None. It only watches."
@@ -209,6 +215,7 @@ class UnattendedUpgrades(Module):
 @module
 class StatePermissions(Module):
     id, title = "state-permissions", "Job data readable only by the right accounts"
+    affects = TENTA_ONLY
     why = "Job inputs and results can contain private material. Only the worker account and your admin account should be able to read them."
     risk = "None."
 
@@ -232,6 +239,7 @@ class StatePermissions(Module):
 @module
 class JobIsolation(Module):
     id, title = "job-isolation", "Jobs run in a jail"
+    affects = TENTA_ONLY
     why = ("Every job runs with no network, no capabilities, no new privileges, its own process tree, and no view of the worker's home folder "
            "(where its repository keys live) or of this install's configuration. This installs the tool that does it (bubblewrap) and, on Ubuntu "
            "24.04 and newer, puts the kernel's user-namespace restriction back on for everyone else.")
@@ -305,7 +313,7 @@ def run_module(mod, host, cfg, *, dry_run=True, out=None, confirm=None, present=
         return "satisfied", before.detail
     use_screen = present is not None and not dry_run
     if not use_screen:
-        out(f"\n{mod.title}\n  {mod.why}\n  Risk: {mod.risk}\n  Now: {before.detail}")
+        out(f"\n{mod.title}\n  {mod.why}\n  Risk: {mod.risk}\n  Affects: {mod.affects}\n  Now: {before.detail}")
     problem = mod.preflight(host, cfg)
     if problem:
         return "blocked", problem
@@ -319,7 +327,7 @@ def run_module(mod, host, cfg, *, dry_run=True, out=None, confirm=None, present=
     if dry_run:
         return "planned", before.detail
     if use_screen:
-        if not present({"id": mod.id, "title": mod.title, "why": mod.why, "risk": mod.risk, "now": before.detail, "steps": [s.show() for s in steps], "lockout": mod.lockout}):
+        if not present({"id": mod.id, "title": mod.title, "why": mod.why, "risk": mod.risk, "now": before.detail, "rows": [("Affects", mod.affects)], "steps": [s.show() for s in steps], "lockout": mod.lockout}):
             return "declined", before.detail
     elif confirm is not None and not confirm(f"Apply {mod.id}?"):
         return "declined", before.detail

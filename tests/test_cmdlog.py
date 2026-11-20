@@ -151,7 +151,7 @@ class Command(unittest.TestCase):
             log.hook("post", ev("python3 -m unittest discover tests", f"t{i}"), now=1060.0)
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertEqual(code, 0)
-        for needle in ("Candidates for homect (median time at least 30 s)", "From 4 commands recorded on this computer.", "python3 -m unittest",
+        for needle in ("Candidates for offloading", "For homect; median time at least 30 s.", "From 4 commands recorded on this computer.", "python3 -m unittest",
                        "Most recent example of each", "offload fit -- <the example command>"):
             self.assertIn(needle, out + err)
         self.assertRegex(out, r"1\s+4\s+60s\s+240s\s+python3 -m unittest")

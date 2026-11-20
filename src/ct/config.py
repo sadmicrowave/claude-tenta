@@ -25,6 +25,7 @@ BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 IDENT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")                     # absolute, no spaces, no quotes, no shell characters
 RESERVED_USERS = {"root", "daemon", "bin", "sys", "nobody", "www-data", "ubuntu", "debian"}
+PURPOSE_WORDS = {"tenta-only": "only for tenta", "shared": "shared with other uses", "special-use": "special use"}      # how a computer's purpose is said on screen
 PROTECTED_PATHS = {"/", "/etc", "/var", "/var/lib", "/usr", "/usr/local", "/usr/bin", "/usr/sbin", "/opt", "/home", "/root", "/boot", "/bin", "/sbin", "/lib", "/tmp"}
 PROJECT_URL = "https://github.com/sadmicrowave/claude-tenta.git"      # privacy-ok: the project's own public home, the default place updates come from
 RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
@@ -106,6 +107,22 @@ def _path(v):
         return None, "must be an absolute path of letters, digits and . _ - / only (no spaces, no ..)"
     if (v.rstrip("/") or "/") in PROTECTED_PATHS:
         return None, "must not be a system folder; use a folder of its own"
+    return v, None
+
+
+def _tool_root(v):
+    """A folder of tools that already exist on this machine and that jobs may use: an absolute path, nothing under ~, never a system folder."""
+    if isinstance(v, str) and v.startswith("~"):
+        return None, "must be an absolute path, not under ~ (a job does not run as you)"
+    return _path(v)
+
+
+def _window(v):
+    """'' (always) or 'HH:MM-HH:MM' (the hours, on the worker's own clock, when jobs may start; a window that crosses midnight, like 22:00-07:00, is fine)."""
+    if v in ("", None):
+        return "", None
+    if not isinstance(v, str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d", v):
+        return None, "must be empty (always) or hours such as 22:00-07:00"
     return v, None
 
 
@@ -212,7 +229,19 @@ SCHEMA = {
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
+        "purpose": ("tenta-only", _enum("tenta-only", "shared", "special-use"), "what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed)"),
+        "mode": ("full", _enum("full", "relaxed"), "full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled"),
+        "tool_roots": ([], _list_of(_tool_root), "folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these"),
         "method": ("bwrap", _enum("bwrap", "unshare"), "how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method)"),
+    },
+    "availability": {
+        "pause_when_logged_in": (False, _bool, "do not start a job while a person is logged in on this computer (for a computer other people use: it works in their idle time; a job already running finishes)"),
+        "ignore_users": ([], _list_of(_str(IDENT_RE, "an account name")), "accounts whose login does not count as 'a person is using it' (for example the admin account you SSH in with)"),
+        "cpu_weight": (0, _int(0, 10000), "how much processor time the worker's jobs get against everything else on this computer (1 to 10000; the normal share is 100, so 20 lets a person's own work win; 0 = unset, the system's default). Applied to the jobs' service by systemd"),
+        "io_weight": (0, _int(0, 10000), "the same for disk access (1 to 10000, normal 100; 0 = unset)"),
+        "memory_max_percent": (0, _int(0, 100), "the most memory, as a percent of this computer's, that all the worker's jobs together may use; a job that would go over is stopped, so the person keeps their memory (10 to 100; 0 = unset)"),
+        "nice": (0, _int(0, 19), "scheduling priority of the jobs, 19 = most polite (0 = unset)"),
+        "window": ("", _window, "only start jobs within these hours on this computer's own clock, for example 22:00-07:00 (empty = any time)"),
     },
     "alerts": {
         "kind": ("none", _enum("none", "ntfy", "webhook"), "where security alerts are sent"),
@@ -265,6 +294,7 @@ SCHEMA = {
     "hardening": {
         "modules": (["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"],
                     _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard applies"),
+        "offered": ([], _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others"),
     },
 }
 CLAUDE_SECRET_KEYS = {"account": "CLAUDE_CODE_OAUTH_TOKEN", "api-key": "ANTHROPIC_API_KEY"}      # the name each sign-in route has in secrets.env
@@ -330,6 +360,9 @@ def validate(raw, require_alert_url=True):
     if not clean["isolation"]["require_netns"] and os.environ.get("CT_ALLOW_UNSAFE") != "1":
         problems.append("isolation.require_netns = false would let a no-network job run WITH network whenever isolation fails, so it is not "
                         "accepted (for a throwaway test only, set the environment variable CT_ALLOW_UNSAFE=1)")
+    iso_ = clean["isolation"]
+    if iso_["tool_roots"] and iso_["mode"] != "relaxed":
+        problems.append("isolation.tool_roots needs isolation.mode = \"relaxed\": a worker in full isolation shows jobs no tool folders")
     paths = clean["paths"]
     distinct = [paths["code"], paths["state_root"], paths["config"]]
     if len(set(distinct)) != 3:

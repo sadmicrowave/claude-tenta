@@ -80,7 +80,9 @@ class Refusals(Installed):
 
     def test_an_install_already_on_direct_has_nothing_to_move(self):
         self.cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
-        self.assertIn("already uses direct", self.refused(self.mg()).title)
+        e = self.refused(self.mg())
+        self.assertIn("already uses that method", e.title)
+        self.assertIn("direct", str(e.facts))
 
     def test_going_back_to_github_is_refused_with_the_way_to_do_it(self):
         self.cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
@@ -88,11 +90,15 @@ class Refusals(Installed):
         self.assertIn("ct-setup install", " ".join(e.steps))
 
     def test_an_unknown_method_is_refused(self):
-        self.assertIn("not a connection method", self.refused(self.mg(to="carrier-pigeon")).title)
+        e = self.refused(self.mg(to="carrier-pigeon"))
+        self.assertIn("not a connection method", e.title)
+        self.assertIn("carrier-pigeon", str(e.facts))
 
     def test_a_missing_clone_stops_before_anything_is_touched(self):
         __import__("shutil").rmtree(self.h.path(self.cfg.path("queue_clone") + "/.git"))
-        self.assertIn("no queue clone", self.refused(self.mg(dry_run=False)).title)
+        e = self.refused(self.mg(dry_run=False))
+        self.assertIn("no clone", e.title)
+        self.assertIn("queue", str(e.facts))
         self.mg(dry_run=True).check()          # a preview is run by the administrator, who cannot see those folders: it must not say they are missing
 
     def test_a_running_job_stops_the_move(self):
@@ -112,3 +118,20 @@ class Words(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransportCommandAlreadyThere(unittest.TestCase):
+    """Found by the move route on a real machine: `ct-setup transport direct` on a Direct install said 'already uses that NAME' (the rename wording)."""
+
+    def test_it_says_method_not_name(self):
+        import argparse
+        import io
+        from contextlib import redirect_stderr
+        from unittest import mock
+        cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
+        out = io.StringIO()
+        with mock.patch.object(migrate.config, "load", return_value=cfg), redirect_stderr(out):
+            rc = migrate.transport_command(argparse.Namespace(name="direct", apply=False), None, None, None, None)
+        self.assertEqual(rc, 0)
+        self.assertIn("already uses that method", out.getvalue())
+        self.assertNotIn("already uses that name", out.getvalue())

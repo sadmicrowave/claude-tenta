@@ -1,7 +1,10 @@
 """ct-admin: the SSH layer, job review and approval pinned to a digest, proposals, adopt/retire, and a verified install with rollback."""
 import argparse
 import io
+from types import SimpleNamespace
+import re
 import json
+import tempfile
 import os
 import subprocess
 import unittest
@@ -137,7 +140,8 @@ class WakeAndAudit(AdminBase):
         self.ctx.workers_file = self.tmp / "workers.toml"
         code, out, err = self.admin("wake", "--worker", "nobody")
         self.assertEqual(code, 2)
-        self.assertIn("no worker called 'nobody'", out + err)
+        self.assertIn("There is no such worker", out + err)
+        self.assertIn("nobody", out + err)
         self.assertEqual(self.ssh.calls, [])
         self.assertIs(self.ctx.for_worker("testct"), self.ctx)                    # the main worker answers to its own name
 
@@ -286,6 +290,9 @@ class Fleet:
         if self.fail:
             raise RuntimeError("network down")
 
+    def registry_info(self):
+        return None                                   # the real ClientRepos reads registry.json from the results clone; a stand-in worker published none
+
 
 class WorkersCommand(AdminBase):
     NOW = datetime_now = None
@@ -381,19 +388,40 @@ ANSI_ = __import__("re").compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 class WorkerCards(unittest.TestCase):
     ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
-           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2}
+           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
+
+    def test_the_card_names_the_platform_only_when_it_is_not_linux(self):
+        win = workers_mod.cards([{**self.ROW, "platform": "windows"}], width=90, color=False)
+        self.assertTrue(any(l.startswith("  PLATFORM") and "windows" in l for l in win), win)
+        for usual in ("", "linux"):
+            self.assertFalse(any("PLATFORM" in l for l in workers_mod.cards([{**self.ROW, "platform": usual}], width=90, color=False)))
+
+    def test_a_held_shared_computer_says_why_in_its_card(self):
+        plain = workers_mod.cards([{**self.ROW, "purpose": "shared with other uses", "held": "a person is using this computer (alice)"}], width=90, color=False)
+        self.assertTrue(any(l.startswith("  AVAILABILITY") and "held: a person is using this computer (alice)" in l for l in plain))
+        self.assertFalse(any("AVAILABILITY" in l for l in workers_mod.cards([self.ROW], width=90, color=False)))
+
+    def test_what_the_computer_is_used_for_is_a_row_and_a_relaxed_jail_is_said_in_the_state(self):
+        doc = dict(self.DOC) if hasattr(self, "DOC") else None
+        row = workers_mod.row_for("lab", {**(doc or {"name": "lab", "hardware": {}, "observed": {}, "os": {}, "claude": {"auth": "none"}}), "isolation": {"ready": True, "mode": "relaxed", "purpose": "special-use"}})
+        self.assertEqual((row["state"], row["purpose"]), ("jail ON, relaxed", "special use"))
+        plain = workers_mod.cards([{**self.ROW, "purpose": "special use"}], width=80, color=False)
+        self.assertTrue(any(l.startswith("  PURPOSE") and l.endswith("special use") for l in plain))
+        self.assertFalse(any("PURPOSE" in l for l in workers_mod.cards([self.ROW], width=80, color=False)))          # an older release says nothing about it: no row
 
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
         lines = workers_mod.cards([self.ROW], width=80, color=False)                       # plain (a pipe): the name, then labelled rows
         self.assertEqual(lines[0], "TESTCT")
-        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "INSTALLED"):
+        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "CLASSES", "PACKAGES"):
             self.assertTrue(any(l.startswith("  " + label) for l in lines), label)
-        self.assertTrue(any(l.startswith("  INSTALLED") and l.endswith("2 classes, 1 package") for l in lines))
+        self.assertTrue(any(l.startswith("  CLASSES") and l.endswith("alpha") for l in lines))                   # the classes by name, one per line
+        self.assertTrue(any(l.strip() == "beta" for l in lines))
+        self.assertTrue(any(l.startswith("  PACKAGES") and l.endswith("1 package") for l in lines))
         values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("  ") and len(l) > 12}
         self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
         framed = [ANSI_.sub("", x) for x in workers_mod.cards([self.ROW], width=80, color=True)]            # on a terminal: one framed card per worker
         self.assertTrue(any(x.startswith("╭─ testct") for x in framed))
-        self.assertTrue(any(x.startswith("│ INSTALLED") for x in framed))
+        self.assertTrue(any(x.startswith("│ CLASSES") for x in framed))
 
     def test_no_line_is_longer_than_the_card_width_so_nothing_wraps(self):
         long = dict(self.ROW, claude="account: " + "x" * 200)
@@ -447,7 +475,8 @@ class UpdateCommand(AdminBase):
         finally:
             cli.selfupdate.checkout_root = orig
         self.assertEqual(code, 0)
-        self.assertIn("release-9.9.9 is available", out + err)
+        self.assertIn("A new release is available", out + err)
+        self.assertIn("release-9.9.9", out + err)
         self.assertIn("Fixes others", out + err)
         self.assertEqual(sh("git", "-C", str(root), "rev-parse", "HEAD"), self.old)            # nothing was updated
         self.assertEqual(self.ssh.calls, [])
@@ -704,7 +733,7 @@ class ActionRemoveAndList(ActionBase):
         before = self.main_registry()
         code, _, err = self.admin("action", "add", str(self.pack), "--yes")
         self.assertEqual(code, 0, err)
-        self.assertIn("already registered", err)
+        self.assertIn("Already registered", err)
         self.assertEqual(self.main_registry(), before)
 
     def test_the_same_program_under_a_second_name_is_refused(self):
@@ -713,7 +742,8 @@ class ActionRemoveAndList(ActionBase):
                          "classes:\n  fan-two:\n    kind: privileged\n    action: fan-two\n")
         code, _, err = self.admin("action", "add", str(other), "--yes")
         self.assertEqual(code, 2)
-        self.assertIn("already registered, as 'fan-profile'", err)
+        self.assertIn("That program is already registered", err)
+        self.assertIn("fan-profile", err)
         self.assertNotIn("fan-two", self.main_registry())
 
     def test_list_shows_each_action_with_its_pin_and_class(self):
@@ -728,7 +758,8 @@ class ActionRemoveAndList(ActionBase):
         code, _, err = self.admin("action", "lst")
         self.assertEqual(code, 2)
         self.assertNotIn("usage:", err)
-        self.assertIn("accepts: add, remove, list", err)
+        self.assertIn("The choices are: add, list, remove", err)
+        self.assertIn("lst", err)
         self.assertIn("ct-admin action list", err)
         code, _, err = self.admin("statu")
         self.assertIn("ct-admin status", err)
@@ -910,7 +941,8 @@ class JobTests(AdminBase):
     def test_a_job_that_is_nowhere_is_an_error(self):
         code, _, err = self.admin("approve", "nothing-here")
         self.assertEqual(code, 2)
-        self.assertIn("No job called nothing-here", err)
+        self.assertIn("No such job", err)
+        self.assertIn("nothing-here", err)
 
     def test_bad_ids_are_refused_before_any_command_is_built(self):
         for cmd in (["approve", "A;rm"], ["cancel", "x y"], ["kill", "../x"]):
@@ -925,6 +957,20 @@ class JobTests(AdminBase):
             self.ssh.calls.clear()
             self.assertEqual(self.admin(*args)[0], 0)
             self.assertEqual(self.ssh.calls, [expect])
+
+
+class SystemBranchesAreNotProposals(unittest.TestCase):
+    """Seen on the real fleet: the branch that holds the signed approvals was listed as '9 to review', and `merge --all` or `tidy` would have treated it as a change."""
+
+    def test_the_approvals_branch_is_reserved_like_main_and_jobs(self):
+        from ct import approvals
+        from ct.admin import proposals
+        self.assertIn(approvals.BRANCH, proposals.RESERVED)
+        p = proposals.Proposals(SimpleNamespace(git=lambda repo, *a, **k: SimpleNamespace(stdout="main jobs approvals feature-x registry/ssh-version\n")))
+        p.repos.queue = "q"
+        self.assertEqual(p.branches(), ["feature-x", "registry/ssh-version"])
+        with self.assertRaises(ClientError):
+            p.check_name("approvals")
 
 
 class ProposalTests(AdminBase):
@@ -1229,6 +1275,7 @@ class ReleaseMismatch(AdminBase):
         ctx.name, ctx.ssh.host = "tenta3", "h"
         ctx.source.resolve.return_value = "f" * 40
         ctx.source.relation.return_value = "unpublished"
+        ctx.repos.results = tempfile.mkdtemp()
         with mock.patch.object(cli.release, "installed_rev", return_value="1" * 40), mock.patch.object(cli, "emit") as e, mock.patch.object(cli, "show_diff") as diff:
             rc = cli.apply(ctx, argparse.Namespace(rev=None, yes=True, force=False, no_verify=False, full=False))
         self.assertEqual(rc, 1)
@@ -1247,6 +1294,135 @@ class ReleaseMismatch(AdminBase):
         self.assertEqual(seen, ["c" * 40, "c" * 40])
 
 
+
+
+class ClassSetTests(AdminBase):
+    """ct-admin class set / show: change a class's tier, network access and tool folders without editing registry.yaml by hand."""
+
+    def setUp(self):
+        super().setUp()
+        self.ssh.answers[INSTALLED] = self.rel[0] + "\n"
+        self.ssh.answers["systemctl"] = "timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev={}\n".format(self.rel[0])
+        self.ctx.sleep = lambda s: None
+
+    def registry(self):
+        self.repos.fetch_queue()
+        return self.repos.show_file("origin/main", "registry.yaml")
+
+    def test_the_tier_changes_in_place_and_the_change_is_installed(self):
+        code, out, err = self.admin("class", "set", "careful", "--tier", "auto", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("approve  ->  auto", out + err)
+        self.assertRegex(self.registry(), r"(?m)^  careful:\n(?:    .*\n)*?    tier: auto\n")
+        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
+
+    def test_turning_the_network_on_for_an_automatic_class_also_makes_it_need_approval(self):
+        code, out, err = self.admin("class", "set", "echo", "--network", "on", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("also set to approve", out + err)
+        block = re.search(r"(?m)^  echo:\n((?:    .*\n)+)", self.registry()).group(1)
+        self.assertIn("network: true", block)
+        self.assertIn("tier: approve", block)
+
+    def test_network_without_approval_needs_the_explicit_flag_and_a_person_answering_yes_does_not_count(self):
+        code, out, err = self.admin("class", "set", "echo", "--network", "on", "--tier", "auto", "--yes")
+        self.assertEqual(code, 2)                                                           # no terminal: --yes does not answer it
+        self.assertIn("answering this question yourself", err)
+        self.assertNotIn("network: true", self.registry())
+        self.ctx.is_tty, self.ctx.ask = (lambda: True), (lambda p: "n")
+        self.assertEqual(self.admin("class", "set", "echo", "--network", "on", "--tier", "auto")[0], 1)
+        self.assertNotIn("network: true", self.registry())
+        self.ctx.ask = lambda p: "y"
+        self.assertEqual(self.admin("class", "set", "echo", "--network", "on", "--tier", "auto")[0], 0)
+        self.assertIn("network: true", self.registry())
+
+    def test_tool_folders_can_be_listed_or_repeated_and_removed_with_none(self):
+        self.assertEqual(self.admin("class", "set", "careful", "--tools", "/opt/tools/nmap", "/opt/tools/bin", "--tools", "/srv/more", "--yes")[0], 0)
+        self.assertIn("tools: [/opt/tools/nmap, /opt/tools/bin, /srv/more]", self.registry())
+        self.assertEqual(self.admin("class", "set", "careful", "--tools", "none", "--yes")[0], 0)
+        self.assertNotIn("tools:", self.registry())
+
+    def test_a_folder_that_is_not_plain_and_a_missing_change_and_an_unchanged_class_are_explained(self):
+        code, _, err = self.admin("class", "set", "careful", "--tools", "relative/bin", "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("invalid registry", err)
+        self.assertEqual(self.admin("class", "set", "careful", "--yes")[0], 2)
+        code, out, err = self.admin("class", "set", "careful", "--tier", "approve", "--yes")
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing to change", out + err)
+
+    def test_show_says_what_a_class_may_do(self):
+        self.admin("class", "set", "careful", "--tools", "/opt/tools/nmap", "--yes")
+        code, out, err = self.admin("class", "show", "careful")
+        self.assertEqual(code, 0, err)
+        for needle in ("Tier", "approve", "Network", "/opt/tools/nmap", "NOT inside a folder this worker allows"):
+            self.assertIn(needle, out + err)
+
+    def test_a_class_that_is_not_anywhere_is_refused_with_the_real_ones(self):
+        code, _, err = self.admin("class", "show", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("No such class", err)
+        self.assertIn("careful", err)
+
+    def test_a_class_from_a_pack_can_be_shown_but_not_set(self):
+        self.repos.registry_info = lambda: {"classes": {"fromapack": {"tier": "auto", "cost": "light", "network": True, "tools": ["/opt/x"]}}}
+        code, out, err = self.admin("class", "show", "fromapack")
+        self.assertEqual(code, 0, err)
+        for needle in ("a pack (change it there)", "auto", "yes: jobs of this class can reach the network", "/opt/x"):
+            self.assertIn(needle, out + err)
+        code, _, err = self.admin("class", "set", "fromapack", "--tier", "approve", "--yes")
+        self.assertEqual(code, 2)
+        self.assertIn("comes from a pack", err)
+
+
+class RegeditSetFields(unittest.TestCase):
+    TEXT = "classes:\n  # about a\n  a:\n    tier: approve\n    run: [/bin/a]\n\n  b:\n    tier: auto\n    tools:\n      - /opt/x\n      - /opt/y\n    run: [/bin/b]\n"
+
+    def test_a_line_is_replaced_in_place_a_new_one_is_added_at_the_end_and_comments_stay(self):
+        out = regedit.set_class_fields(self.TEXT, "a", {"tier": "auto", "network": True})
+        self.assertIn("  # about a\n  a:\n    tier: auto\n    run: [/bin/a]\n    network: true\n", out)
+        self.assertIn("  b:\n    tier: auto", out)                                       # the other class is untouched
+
+    def test_a_list_written_under_the_setting_is_replaced_whole_and_none_removes_it(self):
+        out = regedit.set_class_fields(self.TEXT, "b", {"tools": ["/opt/z"]})
+        self.assertIn("    tools: [/opt/z]\n    run: [/bin/b]\n", out)
+        self.assertNotIn("- /opt/x", out)
+        self.assertNotIn("tools", regedit.set_class_fields(self.TEXT, "b", {"tools": None}))
+        self.assertIsNone(regedit.set_class_fields(self.TEXT, "nope", {"tier": "auto"}))
+
+
+class BeforeApprovingAToolClass(AdminBase):
+    """Which tool a class with tool folders would really run is said before the person signs, and in `class show`."""
+    INFO = {"kind": "command", "cost": "light", "tier": "approve", "run": ["scan"], "tools": ["/opt/tools/a", "/opt/tools/b"]}
+    CHECK = {"program": "scan", "found": "/opt/tools/a/scan", "where": "tool folder",
+             "folders": [{"path": "/opt/tools/a", "exists": True, "allowed": True}, {"path": "/opt/tools/b", "exists": False, "allowed": True}]}
+
+    def text_of(self, card):
+        import re
+        return re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(" ".join(str(x) for x in d) if isinstance(d, tuple) else str(d) for d in card["details"]))
+
+    def test_the_review_card_names_the_folders_the_program_found_and_each_folders_state(self):
+        from ct.admin import jobs
+        card = jobs.review_card({"id": "scan-abc123", "class": "scan"}, None, "lab", info={**self.INFO, "tool_check": self.CHECK}, digest="a" * 64)
+        text = self.text_of(card)
+        for needle in ("Tool folders /opt/tools/a", "/opt/tools/b", "Found /opt/tools/a/scan  (in a tool folder)", "/opt/tools/b  missing on the worker"):
+            self.assertIn(needle, text)
+
+    def test_a_program_that_is_found_nowhere_is_said_loudly_and_an_unknown_state_is_not_invented(self):
+        from ct.admin import jobs
+        none = jobs.tool_check_rows({**self.CHECK, "found": None, "where": None}, ["/opt/tools/a"])
+        self.assertTrue(any("NOT FOUND" in str(v) for _, v in none))
+        unknown = jobs.tool_check_rows(None, ["/opt/tools/a"])
+        self.assertTrue(any("not known yet" in str(v) for _, v in unknown))
+
+    def test_class_show_reads_it_from_the_workers_published_state(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"updated": "2999-01-01T00:00:00Z", "isolation": {"mode": "relaxed", "tool_roots": ["/opt/tools"]}, "tool_check": {"careful": self.CHECK}}))
+        self.admin("class", "set", "careful", "--tools", "/opt/tools/a", "/opt/tools/b", "--yes")
+        self.repos.registry_info = lambda: {"classes": {"careful": self.INFO}}
+        code, out, err = self.admin("class", "show", "careful")
+        self.assertEqual(code, 0, err)
+        for needle in ("Program", "scan", "/opt/tools/a/scan", "in a tool folder", "missing on the worker"):
+            self.assertIn(needle, out + err)
 
 
 if __name__ == "__main__":
@@ -1349,7 +1525,7 @@ class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
     """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
     so a new command cannot be added without saying which it is."""
     FLEET = {"apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
-    PICK = {"update", "clean", "adopt", "retire", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
+    PICK = {"update", "clean", "adopt", "retire", "class", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
     OWN_FLAG = {"wake", "audit", "tripwire-test", "locate"}                                # already every worker (or the one named) with their own --worker
     BY_NATURE = {"watch", "workers"}                                                       # look at the whole fleet by definition
     BY_JOB = {"approve", "review", "cancel", "kill", "output"}                             # follow the job to the worker it was sent to (placements)
@@ -1398,7 +1574,7 @@ class FleetWideCommands(AdminBase):
         self.assertIn("second", out + err)
 
     def test_the_next_steps_footer_is_said_once_after_the_last_worker_not_under_every_card(self):
-        """Seen on `ct-admin status` with three workers: 'From here' and its three commands under every card."""
+        """Seen on `ct-admin status` with three workers: 'From here you can' and its three commands under every card."""
         from ct import ui as _ui
 
         def inner(c, args):
@@ -1408,16 +1584,16 @@ class FleetWideCommands(AdminBase):
         (code, out, err), calls, seen = self.run_diff(inner=inner)
         text = out + err
         self.assertEqual(code, 0)
-        self.assertEqual(text.count("From here"), 1, text)
+        self.assertEqual(text.count("From here you can"), 1, text)
         self.assertEqual(text.count("ct-admin review"), 1, text)
         self.assertEqual(text.count("card for"), 2)                                     # the content is still repeated for every worker
-        self.assertGreater(text.index("From here"), text.rindex("card for"))              # and the footer comes after the last of them
+        self.assertGreater(text.index("From here you can"), text.rindex("card for"))              # and the footer comes after the last of them
 
     def test_a_single_worker_still_gets_its_footer_straight_after_its_card(self):
         from ct import ui as _ui
         a, b = self.two()
         (code, out, err), calls, seen = self.run_diff(targets=[("first", a)], inner=lambda c, args: _ui.related(("Jobs waiting for you", "ct-admin review"), force=True) and 0)
-        self.assertEqual((out + err).count("From here"), 1)
+        self.assertEqual((out + err).count("From here you can"), 1)
 
     def test_worker_narrows_it_to_the_one_named(self):
         a, b = self.two()
@@ -1458,6 +1634,19 @@ class ApplyOnAnAlreadyCurrentWorker(AdminBase):
         code, text = self.run_apply()
         self.assertEqual(code, 0)
         self.assertEqual(text.count("Nothing to change"), 1, text)
+
+    def test_it_refuses_a_worker_of_another_platform_and_changes_nothing(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"platform": "windows"}))
+        code, text = self.run_apply("--force")
+        self.assertEqual(code, 1, text)
+        self.assertIn("This release is not for that worker", text)
+        self.assertIn("windows", text)
+        self.assertNotIn("Install ", text)
+
+    def test_a_worker_that_publishes_no_platform_is_linux(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"release": "0" * 40}))
+        code, text = self.run_apply()
+        self.assertNotIn("not for that worker", text)
 
     def test_the_force_hint_names_the_worker_so_it_does_not_force_them_all(self):
         code, text = self.run_apply()

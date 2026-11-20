@@ -105,6 +105,24 @@ class FollowsTheTerminal(unittest.TestCase):
             self.assertIsNone(theme._ask_terminal())                       # returns at once: nothing was written to it, nothing read
 
 
+    def test_the_terminal_is_asked_through_dev_tty_even_when_stdin_is_not_the_terminal(self):
+        """Seen on the real fleet: `ct-run classes </dev/null` made the colours follow a DARK default on a light terminal, because the question was only asked when stdin was a terminal."""
+        import io
+        written, opened = [], []
+
+        class Out:
+            def isatty(self):
+                return True
+        replies = iter([b"\x1b]11;rgb:ffff/ffff/ffff\x07"])
+        with mock.patch.object(sys, "stdout", Out()), mock.patch.object(sys, "stdin", io.StringIO()), mock.patch.dict(os.environ, {"TERM": "xterm"}), \
+                mock.patch("os.open", lambda p, *a, **k: opened.append(p) or 99), mock.patch("os.close", lambda fd: None), mock.patch("os.write", lambda fd, d: written.append((fd, d)) or len(d)), \
+                mock.patch("os.read", lambda fd, n: next(replies)), mock.patch("termios.tcgetattr", lambda fd: []), mock.patch("termios.tcsetattr", lambda *a: None), \
+                mock.patch("tty.setcbreak", lambda fd: None), mock.patch("select.select", lambda r, w, x, t: (r, [], [])):
+            self.assertGreater(theme._ask_terminal(timeout=1), 0.9)             # white: light
+        self.assertEqual(opened, ["/dev/tty"])
+        self.assertEqual(written, [(99, b"\x1b]11;?\x07")])                    # asked on the terminal itself, not on stdout
+
+
 class NoColourOutsideTheTheme(unittest.TestCase):
     """The point of the theme: changing a colour never means editing a command. These stop a colour being written anywhere else."""
 

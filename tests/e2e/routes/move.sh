@@ -15,5 +15,6 @@ check "both clones now point at the mailbox" bash -c "rgit -C /var/lib/$NAME/que
 check "the GitHub repositories were not touched" rgit -C $H/git/$OWNER/$NAME-queue.git cat-file -e main:registry.yaml
 check "the job loop is running again and nothing failed" bash -c "systemctl is-active $NAME-fetch.timer $NAME-step.timer | sort -u | grep -qx active && ! systemctl --failed --no-legend | grep -q $NAME"
 check "a job goes through the whole loop over the mailbox" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job-direct.out 2>&1"
-check "running the move again says the install already uses Direct" bash -c "as_admin ct-setup transport direct 2>&1 | grep -qi 'already uses direct'"
+as_admin ct-setup transport direct >/tmp/e2e-again.out 2>&1; sed "s/\x1b\[[0-9;]*m//g" /tmp/e2e-again.out | head -12
+check "running the move again says the install already uses that method, Direct" bash -c "sed 's/\x1b\[[0-9;]*m//g' /tmp/e2e-again.out | grep -qi 'already uses that method'"
 finish

@@ -39,6 +39,12 @@ max_temp_c = 75                 # do not start a job when the hottest core is ab
 [isolation]
 require_netns = true            # refuse to run a no-network job if the machine cannot isolate it. Leave on.
 method = "unshare"              # unshare | systemd-run
+purpose = "tenta-only"           # tenta-only | shared | special-use. What this computer is used for (asked at install). It chooses the defaults: shared and special-use make only the protections that affect
+                                 # tenta's own jobs the default (job-isolation, auditd-canaries); the ones that change the whole machine are left for you to add to hardening.modules. special-use also sets mode = "relaxed".
+mode = "full"                    # full | relaxed. full: jobs see only the system folders and what this install fetched for them. relaxed: this computer is for special use (for example a tools box), so the
+                                 # folders in tool_roots may be shown to jobs, read-only, for the classes that name them. A relaxed worker says so in its status and is still scheduled.
+# tool_roots = ["/opt/tools"]    # folders of tools that already exist on this computer that a class may use (any number; needs mode = "relaxed"). A class names the folders it needs under
+                                 # `tools:` in the registry, each inside one of these, so nothing is reinstalled into the locked-down worker account.
 
 [alerts]
 kind = "none"                   # none | ntfy | webhook
@@ -88,5 +94,16 @@ packs = ["core"]                # job-class packs to install
 [policy]
 packs = ["core"]                # off-limits rule packs to apply
 
+[availability]
+pause_when_logged_in = false     # true: do not start a job while a person is logged in (a computer other people use works in their idle time; a running job finishes)
+ignore_users = []                # accounts whose login does not count (for example the admin account you SSH in with)
+window = ""                      # only start jobs within these hours on this computer's own clock, for example "22:00-07:00" (empty = any time)
+cpu_weight = 0                   # how much processor time the jobs get against everything else here (1 to 10000, the normal share is 100; 20 lets a person's own work win; 0 = unset)
+io_weight = 0                    # the same for disk access (0 = unset)
+memory_max_percent = 0           # the most memory, as a percent of this computer's, that all the jobs together may use (a job that would go over is stopped; 0 = unset)
+nice = 0                         # scheduling priority of the jobs, 19 = most polite (0 = unset)
+
 [hardening]
 modules = ["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]
+# offered = []                   # modules the wizard only OFFERS, one by one, each skipped unless you say yes (a shared or special-use computer gets the whole-machine protections here).
+                                 # --yes takes none of them. Those you accept are checked by ct-setup audit like the others.

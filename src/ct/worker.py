@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import shutil
-import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -26,6 +25,7 @@ from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
 from .jail import Unshare
+from . import plat
 from .runner import MAX_TIMEOUT, class_network, kill_group, run_command
 from .util import SAFE_PATH, iso, now
 from .words import plural
@@ -36,6 +36,12 @@ class Settings:
     state: Path
     registry_path: Path
     tools_root: Path
+    tool_roots: tuple = ()                  # folders of existing tools a class may name (isolation.tool_roots; only when isolation.mode is relaxed)
+    isolation_mode: str = "full"
+    isolation_purpose: str = "tenta-only"
+    pause_when_logged_in: bool = False
+    ignore_users: tuple = ()
+    window: str = ""
     capacity: int = 4
     max_load: float = 3.0
     max_temp_c: float = 75.0
@@ -75,7 +81,7 @@ class Worker:
         self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
-        self.loadavg = loadavg or (lambda: os.getloadavg()[0])
+        self.loadavg = loadavg or plat.loadavg
         self.is_job_process = is_job_process or self._pid_is_job
         self._spawn = spawn or self._default_spawn
         self.find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
@@ -93,13 +99,10 @@ class Worker:
         return self.state.joinpath(*parts)
 
     def _pid_is_job(self, pid, jid):
-        try:
-            return jid in Path(f"/proc/{pid}/cmdline").read_text()
-        except Exception:
-            return False
+        return jid in plat.process_cmdline(pid)
 
     def _default_spawn(self, jid):
-        return subprocess.Popen([*self.s.exec_argv, jid], start_new_session=True, stdin=subprocess.DEVNULL).pid
+        return subprocess.Popen([*self.s.exec_argv, jid], stdin=subprocess.DEVNULL, **plat.new_session()).pid
 
     def load_registry(self):
         reg = registry.parse(self.s.registry_path.read_text())
@@ -107,19 +110,49 @@ class Worker:
         self.policy = registry.policy_of(reg)
         return reg
 
+    def tool_folders(self, tools):
+        """([real folders], refusal or None) for a class's `tools`: each must exist here and, once symbolic links are followed, still be inside a folder the owner allowed (isolation.tool_roots). The jail then
+        shows them read-only and puts them first on the job's PATH. Checked at EVERY run, whatever the registry said when it was installed."""
+        if self.s.isolation_mode != "relaxed":
+            return [], ("this worker is in full isolation, so a class's tool folders are not shown to jobs. The owner can change that: isolation.mode = \"relaxed\" and the folder in isolation.tool_roots "
+                        "(see ct-worker status)")
+        roots = [os.path.realpath(r) for r in self.s.tool_roots]
+        real = []
+        for t in tools:
+            r = os.path.realpath(t)
+            if not os.path.isdir(r):
+                return [], f"the tool folder {t} does not exist on this worker, so the job was not run"
+            if not registry.inside(r, roots):
+                return [], f"the tool folder {t} leads outside the folders this worker allows (isolation.tool_roots), so the job was not run"
+            real.append(r)
+        return real, None
+
     def mem_total(self):
         return self.sensors.meminfo()[0] if self.sensors else 0
 
     def snapshot(self):
         total, avail = self.sensors.meminfo() if self.sensors else (0, None)
-        try:
-            st = os.statvfs(self.state)
-            free_gb = round(st.f_bavail * st.f_frsize / 1e9, 1)
-        except OSError:
-            free_gb = None
+        free_gb = plat.disk_free_gb(self.state)
         return {"at": iso(self.clock()), "cores": os.cpu_count(), "mem_total_mb": total, "mem_available_mb": avail,
                 "load_1m": round(self.loadavg(), 2), "temp_c": self.sensors.temp() if self.sensors else None, "disk_free_gb": free_gb,
-                "running": len(list(self._p("running").glob("*"))), "waiting": len(list(self._p("queued").glob("*.json")))}
+                "running": len(list(self._p("running").glob("*"))), "waiting": len(list(self._p("queued").glob("*.json"))), "held": self.availability_reason()}
+
+    def availability_reason(self):
+        """Why this computer is not available for new work right now because of how it is shared (None = available): a person is logged in, or it is outside its working hours."""
+        if self.s.window:
+            start, _, end = self.s.window.partition("-")
+            t = self.clock().astimezone()
+            mins = lambda hhmm: int(hhmm[:2]) * 60 + int(hhmm[3:5])                      # noqa: E731
+            now, lo, hi = t.hour * 60 + t.minute, mins(start), mins(end)
+            inside = lo <= now < hi if lo < hi else (now >= lo or now < hi)
+            if not inside:
+                return f"outside its working hours ({self.s.window}, now {t.strftime('%H:%M %Z')})"                      # a time on screen says its zone
+        if self.s.pause_when_logged_in:
+            who = getattr(self.sensors, "logged_in", None)
+            people = sorted(set(who()) - set(self.s.ignore_users)) if who else []
+            if people:
+                return "a person is using this computer (" + ", ".join(people[:3]) + ")"
+        return None
 
     def busy_reason(self):
         """Why the worker should not start another job right now (None = fine)."""
@@ -129,7 +162,7 @@ class Worker:
         t = self.sensors.temp() if self.sensors else None
         if t is not None and t > self.s.max_temp_c:
             return f"core temp {t:.0f}C > {self.s.max_temp_c:.0f}C"
-        return None
+        return self.availability_reason()
 
     # ---- approval ----
     def approve(self, jid, sha=None):
@@ -347,6 +380,10 @@ class Worker:
                 argv += ["--disallowedTools", ",".join(registry.HELPER_TOOLS)]       # and the helper-starting tools are named as forbidden, whatever the release does with --tools
             return (argv, None, limits, None)
         run_argv, extra, prep_fail = argv, cls.get("env"), None
+        if cls.get("tools") and kind == "command":
+            real, prep_fail = self.tool_folders(cls["tools"])
+            if real:
+                extra = {**(extra or {}), "PATH": ":".join(real + ([extra["PATH"]] if extra and extra.get("PATH") else []))}
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             limits = profiling.profile_limits(rules, self.mem_total())
@@ -468,12 +505,12 @@ class Worker:
             return False
         if hard:
             if info.get("child_pgid"):
-                kill_group(info["child_pgid"], signal.SIGKILL)
-            kill_group(info["pid"], signal.SIGKILL)
+                kill_group(info["child_pgid"], plat.KILL)
+            kill_group(info["pid"], plat.KILL)
             info["watchdog"] = "hard-killed"
             m.write_text(json.dumps(info))
         else:
-            os.kill(info["pid"], signal.SIGTERM)
+            plat.send_signal(info["pid"], plat.TERM)
         return True
 
     def reap(self):
@@ -487,7 +524,7 @@ class Worker:
                         self.log(f"watchdog: {jid} exceeded its time limit; asking it to stop")
                         info["term_sent"] = time.time()
                         m.write_text(json.dumps(info))
-                        os.kill(info["pid"], signal.SIGTERM)
+                        plat.send_signal(info["pid"], plat.TERM)
                     elif time.time() > info["term_sent"] + 30:
                         self.log(f"watchdog: {jid} ignored SIGTERM; killing it")
                         self.kill_job(jid, hard=True)
@@ -661,13 +698,21 @@ class Worker:
                 "privileged": c.get("privileged"), "writable": c.get("writable"),
                 "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind in ("profile", "privileged") else c.get("tier", "approve"),
                 "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"),
-                "packages": c.get("packages"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
+                "packages": c.get("packages"), "tools": c.get("tools"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
-        info = {"updated": iso(self.clock()), "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
+        when, since_file = iso(self.clock()), self._p("registry.since")
+        try:
+            known = json.loads(since_file.read_text())
+        except (OSError, ValueError):
+            known = {}
+        for name in classes:                                      # when each class first appeared on this worker (a class that was already here when this was added gets that day)
+            classes[name]["installed"] = known.get(name) or when
+        info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
                 "profiling": registry.profiling_rules(reg), "limits": registry.limits_of(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
+            since_file.write_text(json.dumps({n: c["installed"] for n, c in classes.items()}))
             return True
         return False
 

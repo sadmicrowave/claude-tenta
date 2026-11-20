@@ -950,6 +950,18 @@ class RegistryInfo(Base):
         self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
         self.assertIn("extra", json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["classes"])
 
+    def test_each_class_carries_the_day_it_was_first_installed_and_keeps_it_when_another_is_added(self):
+        shown = lambda: json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["classes"]          # noqa: E731
+        self.w.publish_registry_info(self.w.load_registry())
+        first = shown()["profile-run"]["installed"]
+        self.assertRegex(first, r"^\d{4}-\d\d-\d\dT")
+        self.w.clock = lambda: __import__("datetime").datetime(2100, 1, 1, tzinfo=__import__("datetime").timezone.utc)                                                  # a later day
+        self.registry_path.write_text(REGISTRY + "  extra:\n    tier: auto\n    run: [/bin/true]\n")
+        self.w.publish_registry_info(self.w.load_registry())
+        later = shown()
+        self.assertEqual(later["profile-run"]["installed"], first)                            # kept
+        self.assertGreater(later["extra"]["installed"], first)                                # the new one is dated when it appeared
+
     def test_the_trusted_registry_is_the_installed_file_never_the_repo(self):
         req = self.tmp / "requester"
         sh("git", "checkout", "-q", "-B", "jobs", "origin/main", cwd=req)
@@ -1018,6 +1030,108 @@ class Housekeeping(Base):
         self.settings.identity = "myinstall"
         self.w.fetch()
         self.assertTrue((self.home / ".git-credentials").read_text().startswith("https://myinstall:"))
+
+
+class ToolFolders(Base):
+    """A class may name folders of tools that already exist on the computer (Special Use). The worker enforces the owner's allowed folders at EVERY run, whatever the registry said."""
+
+    def setUp(self):
+        super().setUp()
+        self.base = Path(tempfile.mkdtemp())
+        self.root = self.base / "existing"
+        (self.root / "nmap" / "bin").mkdir(parents=True)
+        (self.root / "extra").mkdir()
+        self.outside = self.base / "outside"
+        self.outside.mkdir()
+        self.use(["%s/nmap/bin" % self.root, "%s/extra" % self.root], mode="relaxed", roots=(str(self.root),))
+
+    def use(self, tools, mode, roots):
+        self.registry_path.write_text(REGISTRY + "  probe:\n    tier: auto\n    cost: light\n    run: [nmap-wrapper]\n    tools: [%s]\n" % ", ".join(tools))
+        self.settings.isolation_mode, self.settings.tool_roots = mode, roots
+        self.make_worker()
+
+    def run_probe(self):
+        self.job("job-0001", "probe")
+        self.run_all()
+        return self.result("job-0001")
+
+    def test_the_folders_come_first_on_the_jobs_path_in_the_order_given(self):
+        res = self.run_probe()
+        self.assertEqual(res["status"], "ok", res)
+        path = self.runner.calls[0]["kw"]["extra_env"]["PATH"].split(":")
+        self.assertEqual(path, [str(self.root.resolve() / "nmap" / "bin"), str(self.root.resolve() / "extra")])
+
+    def test_a_worker_in_full_isolation_refuses_and_says_how_the_owner_changes_it(self):
+        self.use(["%s/nmap/bin" % self.root], mode="full", roots=())
+        res = self.run_probe()
+        self.assertEqual(res["status"], "error")
+        self.assertIn("full isolation", res["note"])
+        self.assertIn("isolation.tool_roots", res["note"])
+        self.assertEqual(self.runner.calls, [])                                           # nothing ran
+
+    def test_a_missing_folder_and_a_link_that_leaves_the_allowed_folders_are_refused(self):
+        self.use(["%s/gone" % self.root], mode="relaxed", roots=(str(self.root),))
+        self.assertIn("does not exist", self.run_probe()["note"])
+        (self.root / "sneaky").symlink_to(self.outside)                                   # inside the root by name, outside it once followed
+        self.use(["%s/sneaky" % self.root], mode="relaxed", roots=(str(self.root),))
+        self.job("job-0002", "probe")
+        self.run_all()
+        self.assertIn("leads outside", self.result("job-0002")["note"])
+        self.assertEqual(self.runner.calls, [])
+
+    def test_the_published_registry_and_state_say_which_class_uses_which_folders_and_the_mode(self):
+        self.w.publish_registry_info(self.w.load_registry())
+        info = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))
+        self.assertEqual(info["classes"]["probe"]["tools"], ["%s/nmap/bin" % self.root, "%s/extra" % self.root])
+        from ct import workerstate
+        env, _ = workerstate.build(snapshot={}, registry=self.w.load_registry(), extra={"isolation_mode": "relaxed", "tool_roots": [str(self.root)]}, jail=jail_mod.NoJail(), locked=False, now_iso="x")
+        self.assertEqual((env["isolation"]["mode"], env["isolation"]["tool_roots"]), ("relaxed", [str(self.root)]))
+
+
+class SharedComputer(Base):
+    """A computer other people use: no new job while a person is logged in (a running one finishes), or outside its working hours; the worker says why."""
+
+    def setUp(self):
+        super().setUp()
+        from datetime import datetime, timezone
+        self.noon = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+
+    def hold(self, fixed_clock=False, **kw):
+        for k, v in kw.items():
+            setattr(self.settings, k, v)
+        self.make_worker(**({"clock": lambda: self.noon} if fixed_clock else {}))                       # a fixed clock only where the hours matter: jobs are dated by the real one
+
+    def test_nothing_changes_unless_the_owner_asks_for_it(self):
+        self.sensors.people = ["alice"]
+        self.assertIsNone(self.w.busy_reason())                                         # the default: a computer of its own
+
+    def test_a_person_logged_in_holds_new_jobs_and_the_owners_own_account_does_not_count(self):
+        self.hold(pause_when_logged_in=True, ignore_users=("agent",))
+        self.sensors.people = ["agent"]
+        self.assertIsNone(self.w.busy_reason())
+        self.sensors.people = ["agent", "alice", "bob"]
+        self.assertEqual(self.w.busy_reason(), "a person is using this computer (alice, bob)")
+        self.assertEqual(self.w.snapshot()["held"], "a person is using this computer (alice, bob)")          # published, so the scheduler and the cards can say it
+        self.job("job-0001")
+        self.w.fetch()
+        self.assertEqual(self.spawned, [])                                                # queued, not started
+        self.sensors.people = []
+        self.w.fetch()
+        self.assertEqual(self.spawned, ["job-0001"])                                      # started as soon as nobody is there
+
+    def test_a_working_window_holds_jobs_outside_it_including_one_that_crosses_midnight(self):
+        import re
+        local = self.noon.astimezone().strftime("%H:%M")
+        self.hold(True, window=f"{local}-23:59" if local < "23:59" else "00:00-00:01")
+        self.assertIsNone(self.w.busy_reason())                                           # now is inside
+        h = int(local[:2])
+        outside_start = f"{(h + 2) % 24:02d}:00"
+        outside_end = f"{(h + 4) % 24:02d}:00"
+        self.hold(True, window=f"{outside_start}-{outside_end}")
+        self.assertRegex(self.w.busy_reason(), r"outside its working hours")
+        crossing = f"{(h + 2) % 24:02d}:00-{(h + 1) % 24:02d}:00"                       # all day except the hour from now to now+1: now is inside a window that crosses midnight
+        self.hold(True, window=crossing)
+        self.assertIsNone(self.w.busy_reason())
 
 
 if __name__ == "__main__":

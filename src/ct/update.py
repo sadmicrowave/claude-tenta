@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import render
+from . import plat, render
 from .config import ConfigError
 from . import ui as _ui
 from .setup.report import sink as _sink
@@ -229,7 +229,7 @@ def install_registry(cfg, src, *, run, prefix="/", install_packages=None, out=No
         reg, notes = packs.compose(loaded, cfg.registry.packs, cfg.policy.packs, user)
     except packs.PackError as e:
         raise InstallError("the registry was NOT installed: " + "; ".join(e.problems[:6]))
-    problems = registry.validate(reg, cfg.path("tools"))
+    problems = registry.validate(reg, cfg.path("tools"), tool_roots=list(cfg.isolation.tool_roots) if cfg.isolation.mode == "relaxed" else [], platform=plat.name())
     if problems:
         raise InstallError("the composed registry is not valid, so it was NOT installed: " + "; ".join(problems[:5]))
     if check_exe is None and str(prefix) == "/":
@@ -452,7 +452,7 @@ def main(argv=None):
             return 0 if ok else 1
         if argv == ["--verified"] or (len(argv) == 2 and argv[0] == "--rev"):
             src, rev, label = fetch_release(cfg, verified=argv[0] == "--verified", rev=argv[1] if len(argv) == 2 else None)
-            _ui.say(f"Installing {label}", ("Release", rev[:9]), tag="INSTALL", color=_ui.PRIMARY, stream=sys.stdout)
+            _ui.say("Installing", ("What", label), ("Release", rev[:9]), tag="INSTALL", color=_ui.PRIMARY, stream=sys.stdout)
         elif len(argv) == 3 and argv[0] == "--local":
             src, rev = argv[1], argv[2]
         else:

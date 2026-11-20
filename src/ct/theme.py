@@ -197,22 +197,27 @@ def _ask_terminal(timeout=0.25):
     import sys
     import termios
     import tty
-    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("TERM", "dumb") == "dumb":
+    if not sys.stdout.isatty() or os.environ.get("TERM", "dumb") == "dumb":
         return None
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
     try:
-        tty.setcbreak(fd)
-        sys.stdout.write("\x1b]11;?\x07")
-        sys.stdout.flush()
-        got = ""
-        while select.select([fd], [], [], timeout)[0]:
-            got += os.read(fd, 64).decode("latin-1")
-            if "\x07" in got or "\x1b\\" in got:
-                break
-        return parse_background_reply(got)
+        fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)               # the terminal itself, so it still works when stdin is a file or a pipe (`ct-run classes </dev/null`, a script): the colours then follow the terminal as usual
+    except OSError:
+        return None
+    try:
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            os.write(fd, b"\x1b]11;?\x07")
+            got = ""
+            while select.select([fd], [], [], timeout)[0]:
+                got += os.read(fd, 64).decode("latin-1")
+                if "\x07" in got or "\x1b\\" in got:
+                    break
+            return parse_background_reply(got)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        os.close(fd)
 
 
 def background(env=None):

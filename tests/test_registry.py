@@ -160,5 +160,51 @@ class Loading(unittest.TestCase):
         self.assertIn("not valid YAML", str(cm.exception))
 
 
+class ToolFolders(unittest.TestCase):
+    """`tools` in a class: folders of tools that already exist on the worker. Structural everywhere, and against the worker's own allowed folders where those are known."""
+
+    def check(self, tools, roots=None, **extra):
+        return registry.validate({"classes": {"scan": {"tier": "approve", "cost": "light", "run": ["nmap-wrapper"], "tools": tools, **extra}}}, TOOLS, tool_roots=roots)
+
+    def test_any_number_of_absolute_folders_is_fine_without_knowing_the_workers_roots(self):
+        self.assertEqual(self.check(["/opt/tools/nmap", "/opt/tools/bin", "/srv/other"]), [])
+
+    def test_each_folder_must_be_inside_an_allowed_root_when_the_roots_are_known(self):
+        self.assertEqual(self.check(["/opt/tools/nmap", "/srv/more/bin"], roots=["/opt/tools", "/srv/more"]), [])
+        bad = self.check(["/opt/tools/nmap", "/etc/ssh"], roots=["/opt/tools"])
+        self.assertTrue(any("/etc/ssh" in e and "isolation.tool_roots" in e for e in bad), bad)
+        none = self.check(["/opt/tools/nmap"], roots=[])
+        self.assertTrue(any("isolation.mode = relaxed" in e for e in none), none)
+
+    def test_a_folder_that_is_not_plain_is_refused_and_a_repeat_and_other_kinds_are_too(self):
+        for t in ("relative/bin", "/opt/../etc", "/opt//x", "/opt/with space"):
+            self.assertTrue(self.check([t]), t)
+        self.assertTrue(any("twice" in e for e in self.check(["/opt/a", "/opt/a"])))
+        self.assertTrue(any("list of folders" in e for e in self.check([])))
+        reg = {"classes": {"askme": {"kind": "claude", "tier": "approve", "cost": "light", "allowed_tools": ["Read"], "tools": ["/opt/a"]}}}
+        self.assertTrue(any("only a command class" in e for e in registry.validate(reg, TOOLS, allow_empty=True)))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlatformRefusals(unittest.TestCase):
+    """Decided for the Windows Special Use worker: it refuses a class that must run without the network (it cannot enforce that) and any Claude class; Linux is untouched."""
+    CLASSES = {"quiet": {"kind": "command", "run": "/bin/true"}, "net": {"kind": "command", "run": "/bin/true", "network": True}, "ask": {"kind": "claude"}}
+
+    def test_linux_refuses_nothing(self):
+        for p in (None, "", "linux", "macos"):
+            self.assertEqual(registry.platform_problems(self.CLASSES, p), [])
+
+    def test_windows_refuses_the_no_network_class_and_the_claude_class_by_name(self):
+        got = registry.platform_problems(self.CLASSES, "windows")
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(any(p.startswith("quiet:") and "cannot enforce" in p for p in got))
+        self.assertTrue(any(p.startswith("ask:") and "no Claude jobs" in p for p in got))
+        self.assertFalse(any(p.startswith("net:") for p in got))
+
+    def test_validate_carries_it(self):
+        reg = {"classes": {"quiet": {"kind": "command", "run": "/bin/true"}}}
+        self.assertTrue(any("cannot enforce" in p for p in registry.validate(reg, "/t", platform="windows")))
+        self.assertFalse(any("cannot enforce" in p for p in registry.validate(reg, "/t")))

@@ -56,7 +56,8 @@ class Cap(unittest.TestCase):
         self.assertEqual(cap.check(fleet, 4, 1, NOW), 3)               # 3 + 1 is the cap: allowed
         with self.assertRaises(ClientError) as e:
             cap.check(fleet, 3, 1, NOW)
-        self.assertIn("3 in flight", e.exception.title)
+        self.assertIn("3", str(e.exception.facts))                       # how many are in flight is a labelled row, not part of the title
+        self.assertIn("Too many jobs", e.exception.title)
         self.assertIn("main: 2", e.exception.why)
         self.assertIn("max_in_flight", " ".join(e.exception.steps))
 

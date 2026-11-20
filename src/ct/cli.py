@@ -17,7 +17,6 @@ import os
 import re
 import subprocess
 import shutil
-import signal
 import sys
 import textwrap
 import time
@@ -26,7 +25,7 @@ from pathlib import Path
 
 from . import transport, alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
-from . import publishdiag, workerstate
+from . import plat, publishdiag, workerstate
 from . import cards
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -93,10 +92,7 @@ class Context:
 
     @staticmethod
     def _uptime():
-        try:
-            return float(Path("/proc/uptime").read_text().split()[0])
-        except (OSError, ValueError, IndexError):
-            return None
+        return plat.uptime_s()
 
     @classmethod
     def from_config(cls, cfg, env=None):
@@ -108,7 +104,7 @@ class Context:
         problem = config.secrets_file_problem(secrets_path)
         state = Path(cfg.path("state"))
         direct = transport.for_config(cfg).kind == "direct"
-        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), capacity=cfg.hardware.capacity,
+        settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, pause_when_logged_in=cfg.availability.pause_when_logged_in, ignore_users=tuple(cfg.availability.ignore_users), window=cfg.availability.window, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
@@ -140,7 +136,7 @@ class Context:
                     return Path(path).read_text()
                 except OSError:
                     return ""
-            cpuinfo = read("/proc/cpuinfo")
+            cpuinfo = plat.cpuinfo_text()
             flags = re.search(r"^flags\s*:\s*(.*)$", cpuinfo, re.M)
             claude = {"auth": cfg.claude.auth}
             if cfg.claude.auth == "account":
@@ -154,6 +150,7 @@ class Context:
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
                     "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
+                    "platform": plat.name(), "isolation_mode": cfg.isolation.mode, "isolation_purpose": cfg.isolation.purpose, "tool_roots": list(cfg.isolation.tool_roots),
                     **workerstate.transport_facts(transport.for_config(cfg).kind, origin_of(cfg.path("queue_clone"))),          # what this worker really fetches over: the scheduler trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 
@@ -229,7 +226,7 @@ def describe_job(ctx, raw):
 def cmd_show(ctx, jid):
     raw = ctx.w.io.job_bytes(jid) if jobs.ID_RE.match(jid or "") else None
     if raw is None:
-        stop(f"No job called {jid}", "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
+        stop("No such job", ("Job", jid), "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
     _ui.document(jid, raw.decode("utf-8", "replace"), tag="JOB FILE", stream=sys.stdout)
     return 0
 
@@ -253,7 +250,7 @@ def cmd_approve(ctx, jid, sha=None, yes=False):
     ctx.w.io.sync()
     raw = ctx.w.io.job_bytes(jid)
     if raw is None:
-        stop(f"No job called {jid}", "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
+        stop("No such job", ("Job", jid), "Its file is not in the queue repo (has it been pushed to the jobs branch?).", tag="ERROR", color=RED)
     digest = hashlib.sha256(raw).hexdigest()
     if sha and not yes and digest != sha.lower():
         stop("NOT approved: the job changed", f"{ctx.product}'s copy has digest {digest[:12]}..., not the {sha[:12]}... you reviewed.",
@@ -305,7 +302,7 @@ def cmd_action_hash(ctx, path, as_json=False):
 def cmd_cancel(ctx, jid):
     ok, why = ctx.w.cancel(jid)
     if not ok:
-        stop(f"Cannot cancel {jid}", cards.Why(why.capitalize() + "."), tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
+        stop("Cannot cancel the job", ("Job", jid), cards.Why(why.capitalize() + "."), tag="ERROR", color=RED, run_label="If it is running, stop it with", run="ct-kill <job>")
     emit("Cancelled", f"Job {jid} will not run.", tag="DONE", color=GREEN)
     return 0
 
@@ -314,7 +311,7 @@ def cmd_kill(ctx, jid, hard=False):
     if not jobs.ID_RE.match(jid or ""):
         stop("That is not a job id", tag="ERROR", color=RED, code=2)
     if not ctx.w.kill_job(jid, hard=hard):
-        stop(f"{jid} is not running", "It may have finished, or it was never started.", tag="NOTE", color=YELLOW)
+        stop("The job is not running", ("Job", jid), "It may have finished, or it was never started.", tag="NOTE", color=YELLOW)
     emit("Stopping" if not hard else "Killed", f"Job {jid}", "It publishes a 'killed' result." if not hard else "The whole process tree was killed.", tag="DONE", color=GREEN)
     return 0
 
@@ -326,13 +323,13 @@ def cmd_quarantine(ctx, jid=None):
     if jid:
         f = qd / f"{jid}.json"
         if f.exists() and jobs.ID_RE.match(jid):
-            _ui.document(f"Quarantined result {jid}", f.read_text(), tag="WITHHELD", color=_ui.RED, stream=sys.stdout)
+            _ui.document("A quarantined result", f.read_text(), notes=(f"Job {jid}",), tag="WITHHELD", color=_ui.RED, stream=sys.stdout)
         else:
-            emit(f"No quarantined result {jid}", tag="NOTE", color=YELLOW)
+            emit("No quarantined result", ("Job", jid), tag="NOTE", color=YELLOW)
         return 0
     state = ctx.w.lock.locked()
     if state:
-        emit(f"{ctx.product} is LOCKED", ("What happened", state.get("kind")), ("Job", state.get("job")),
+        emit("This worker is LOCKED", ("Worker", ctx.product), ("What happened", state.get("kind")), ("Job", state.get("job")),
              ("Rules", ", ".join(state.get("rules") or []) or "n/a"), tag="LOCKED", color=RED)
     else:
         emit("Not locked", tag="OK", color=GREEN)
@@ -368,16 +365,16 @@ def cmd_output(ctx, jid=None):
     if jid:
         text = keeper.read(jid)
         if text is None:
-            emit(f"No kept output for {jid}", f"Only failed commands keep their full output, for {plural(keeper.keep_days, 'day')}.", tag="NOTE", color=YELLOW)
+            emit("No kept output", ("Job", jid), f"Only failed commands keep their full output, for {plural(keeper.keep_days, 'day')}.", tag="NOTE", color=YELLOW)
         else:
-            _ui.document(f"Output of {jid}", text, tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
+            _ui.document("Output of a failed job", text, notes=(f"Job {jid}",), tag="OUTPUT", color=_ui.RED, stream=sys.stdout)
         return 0
     rows = keeper.listing()
     if not rows:
         emit("No kept output", f"Failed commands keep their full output here, for {plural(keeper.keep_days, 'day')}.", tag="OK", color=GREEN)
         return 0
-    _ui.table("Full output of failed commands", ["job", "size", "age"], [[name, f"{kb} KB", f"{human_dur(age)} ago"] for name, kb, age in rows], tag="KEPT", stream=sys.stdout,
-              notes=("Newest first; only the error lines were published.",), run="ct-output <job>", run_label="Read one")
+    _ui.say("Full output of failed commands", *cards.job_blocks([(name, [("SIZE", f"{kb} KB"), ("AGE", f"{human_dur(age)} ago")]) for name, kb, age in rows]), "Newest first; only the error lines were published.",
+            tag="KEPT", color=_ui.PRIMARY, stream=sys.stdout, run="ct-output <job>", run_label="Read one")
     return 0
 
 
@@ -392,10 +389,16 @@ def cmd_wake(ctx):
     (w.state / "last-sync.stamp").unlink(missing_ok=True)                  # so this pass is not skipped as "too soon"
     (w.state / "activity.stamp").touch()                                    # and the worker is active again, so the quick pace resumes
     t0 = time.monotonic()
-    seen = w.fetch()
+    events, original = [], w.log
+    w.log = events.append                                                  # what the pass says it did (queued, started ...) goes into the card, not between cards as bare lines
+    try:
+        seen = w.fetch()
+    finally:
+        w.log = original
     record_pass(w.state, "fetch", True, idle=False, mode="active", took=time.monotonic() - t0)
     emit("Looked for jobs now", ("Took", f"{time.monotonic() - t0:.0f} s"), ("Jobs seen", str(len(seen))),
-         ("From here", f"it checks every few seconds while there is work, and idles again after {plural(w.s.idle_after_s // 60, 'quiet minute')}"), tag="AWAKE", color=GREEN)
+         *[("Saw" if i == 0 else "", e) for i, e in enumerate(events)],
+         ("Afterwards", f"it checks every few seconds while there is work, and idles again after {plural(w.s.idle_after_s // 60, 'quiet minute')}"), tag="AWAKE", color=GREEN)
     return 0
 
 
@@ -472,7 +475,10 @@ def cmd_status(ctx, hours=12):
     head("WORKER")
     up = ctx.uptime()
     kv("Up for", human_dur(up) if up else "unknown")
-    load = os.getloadavg()
+    kv("Used for", config.PURPOSE_WORDS.get(w.s.isolation_purpose, w.s.isolation_purpose))
+    if w.s.pause_when_logged_in or w.s.window:                                        # a shared computer: whether it would start a job right now
+        kv("Available", w.availability_reason() or "yes: nobody is using it" if w.s.pause_when_logged_in else (w.availability_reason() or "yes: inside its working hours"))
+    load = plat.loadavgs()
     kv("Load", f"{load[0]:.2f} now, {load[1]:.2f} over 5 min, {load[2]:.2f} over 15 min")
     profile = (ctx.hardware or {}).get("profile")
     fits = is_virtual_machine() and profile not in (None, "virtual-machine", "custom")       # a virtual machine set up before that profile existed keeps its old limits until it is told
@@ -524,7 +530,11 @@ def cmd_status(ctx, hours=12):
         kv("Longest job", f"{human_dur(job_seconds(longest[1]))}  ({longest[1].get('id')})")
     head("CHECKS")
     iso_on = w.jail.ready()
-    line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
+    if iso_on and w.s.isolation_mode == "relaxed":                    # a choice of the owner (special use), said openly: a notice, not a problem
+        roots = ", ".join(w.s.tool_roots) or "none yet"
+        D.append(("Isolation", cards.Styled([("RELAXED", "warn"), (f"  {w.jail.describe()}; special use, by choice: tool folders are shown read-only ({roots})", "muted")])))
+    else:
+        line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
     canary_file = ctx.canary_status
     try:
         st = json.loads(Path(canary_file).read_text())
@@ -606,7 +616,7 @@ def cmd_status(ctx, hours=12):
         line(True, "Security", "NOT LOCKED", "the output guard has not tripped; jobs are being accepted")
     if problems:                                                     # a card that says ATTENTION says which rows
         D.insert(0, ("Needs attention", ", ".join(problems)))
-    _ui.say(f"{ctx.product}, " + time.strftime("%a %Y-%m-%d %H:%M UTC", time.gmtime()), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
+    _ui.say("Status, " + time.strftime("%a %Y-%m-%d %H:%M UTC", time.gmtime()), ("Worker", ctx.product), *D, tag="STATUS" if not problems else "ATTENTION", color=_ui.PRIMARY if not problems else _ui.YELLOW, stream=out,
             run=approve_cmd, run_label="Approve the first waiting job")
     if state:
         emit("SECURITY LOCKDOWN", ("What happened", state.get("kind")), ("Job", state.get("job")), tag="LOCKED", color=RED,
@@ -693,7 +703,7 @@ def _value(args, name, default, cast):
         try:
             v = cast(args[i + 1])
         except (IndexError, ValueError):
-            stop(f"{name} needs a number", tag="ERROR", color=RED, code=2)
+            stop("That setting needs a number", ("Setting", name), tag="ERROR", color=RED, code=2)
         del args[i:i + 2]
         return v
     return default
@@ -759,7 +769,7 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_test_alert(ctx)
         if cmd == "canary-alarm" and len(args) == 1:
             return cmd_canary_alarm(ctx, args[0])
-        emit(f"Unknown or incomplete command: {cmd}", "Run it with no arguments to see the commands.", tag="ERROR", color=RED)
+        emit("Unknown or incomplete command", ("Command", cmd), "Run it with no arguments to see the commands.", tag="ERROR", color=RED)
         return 2
     except Stop as s:
         return s.code
@@ -769,5 +779,5 @@ def main(argv=None, ctx=None, cfg=None):
 
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    plat.quiet_broken_pipe()
     sys.exit(main())

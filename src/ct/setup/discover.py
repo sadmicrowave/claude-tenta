@@ -30,7 +30,7 @@ class Device:
     name: str = ""
     banner: str = ""
     os_hint: str = ""
-    kind: str = "unknown"                # linux-server | other | unknown
+    kind: str = "unknown"                # linux-server | windows | other | unknown
     mac: str = ""
     vendor: str = ""
     latency_ms: float = 0.0
@@ -109,6 +109,8 @@ def os_hint(banner):
     m = re.search(r"OpenSSH_([\d.]+)", b)
     ver = f", OpenSSH {m.group(1)}" if m else ""
     plain = f" {m.group(1)}" if m else ""
+    if re.search(r"OpenSSH_for_Windows", b):                                    # the Windows OpenSSH server says so in its greeting
+        return "Windows" + (f", OpenSSH {m.group(1)}" if m else "") + " (Special Use only)", "windows"
     if re.search(r"Ubuntu", b):
         return "Ubuntu" + ver, "linux-server"
     m = re.search(r"deb(\d+)", b)
@@ -241,7 +243,7 @@ def scan(nets=None, *, known=(), run=None, connect=None, resolve=None, threads=T
         d.known = d.ip in known or d.name.lower() in known or d.name.lower().removesuffix(".local") in {k.removesuffix(".local") for k in known}
         if d.vendor in ("VMware", "QEMU/KVM", "VirtualBox", "Hyper-V"):
             d.notes.append("a virtual machine")
-    order = {"linux-server": 0, "unknown": 1, "other": 2}
+    order = {"linux-server": 0, "unknown": 1, "windows": 2, "other": 3}
     found.sort(key=lambda d: (d.known, d.virtual, order.get(d.kind, 1), tuple(int(p) for p in d.ip.split("."))))             # your real network first, then software networks inside this computer
     if progress:
         progress(len(addrs), len(found))

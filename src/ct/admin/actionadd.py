@@ -20,25 +20,25 @@ def load_definition(source):
     path = Path(source).expanduser()
     files = sorted(list((path / "actions").glob("*.yaml")) + list((path / "classes").glob("*.yaml"))) if path.is_dir() else [path]
     if not files or not all(f.is_file() for f in files):
-        raise ClientError(f"Cannot find a definition at {source}", "Give a YAML file, or a pack folder with an actions/ folder in it.", example="ct-admin action add packs/fan-control")
+        raise ClientError("Cannot find a definition", "Give a YAML file, or a pack folder with an actions/ folder in it.", example="ct-admin action add packs/fan-control", facts=[("Path", str(source))])
     out = {"actions": {}, "classes": {}}
     for f in files:
         try:
             data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as e:
-            raise ClientError(f"Cannot read {f}", str(e).splitlines()[0])
+            raise ClientError("Cannot read a definition file", str(e).splitlines()[0], facts=[("File", str(f))])
         if not isinstance(data, dict) or set(data) - {"actions", "classes"}:
-            raise ClientError(f"{f.name} is not an action definition", "It may only contain an `actions:` and a `classes:` section.")
+            raise ClientError("That is not an action definition", "It may only contain an `actions:` and a `classes:` section.", facts=[("File", f.name)])
         for kind in out:
             for name, body in (data.get(kind) or {}).items():
                 if name in out[kind]:
-                    raise ClientError(f"{name!r} is defined twice", f"in {kind}")
+                    raise ClientError("An action is defined twice", f"in {kind}", facts=[("Action", name)])
                 out[kind][name] = body
     if not out["actions"]:
         raise ClientError("That defines no action", "An action says which program runs as root; without one there is nothing to register.")
     for name, body in out["classes"].items():
         if not isinstance(body, dict) or body.get("kind") != "privileged" or body.get("action") not in out["actions"]:
-            raise ClientError(f"Class {name!r} does not use one of these actions", "A class here must say `kind: privileged` and `action:` the name of an action in the same definition.")
+            raise ClientError("A class does not use one of these actions", "A class here must say `kind: privileged` and `action:` the name of an action in the same definition.", facts=[("Class", name)])
     return out
 
 
@@ -53,11 +53,11 @@ def ask_worker(ctx, path):
     try:
         info = json.loads((r.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):
-        raise ClientError(f"{ctx.name} did not answer about {path}", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
-                          ["Is the worker up to date? Run: ct-admin update"])
+        raise ClientError("The worker did not answer", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
+                          ["Is the worker up to date? Run: ct-admin update"], facts=[("Worker", ctx.name), ("Path", str(path))])
     if not info.get("ok"):
-        raise ClientError(f"{path} cannot be a root-level action", info.get("problem"),
-                          ["The program must be a plain file owned by root, in a system folder, that nobody else can write."])
+        raise ClientError("That path cannot be a root-level action", info.get("problem"),
+                          ["The program must be a plain file owned by root, in a system folder, that nobody else can write."], facts=[("Path", str(path))])
     return info
 
 
