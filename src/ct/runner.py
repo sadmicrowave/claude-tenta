@@ -7,12 +7,11 @@ Isolation FAILS CLOSED: if the machine cannot build an empty network namespace a
 """
 import json
 import os
-import resource
-import signal
 import subprocess
 import time
 from pathlib import Path
 
+from . import plat
 from .jail import Refused, Unshare, isolate, netns_flags  # noqa: F401  (re-exported)
 from .util import SAFE_PATH
 
@@ -27,24 +26,21 @@ class Killed(Exception):
 def install_term_handler():
     def _on_term(signum, frame):
         raise Killed()
-    signal.signal(signal.SIGTERM, _on_term)
+    plat.on_terminate(_on_term)
 
 
 # ---- process groups -------------------------------------------------------------------------------------------------------------
-def kill_group(pgid, sig=signal.SIGKILL):
-    try:
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        pass
+def kill_group(pgid, sig=plat.KILL):
+    plat.kill_group(pgid, sig)
 
 
 def stop_group(p, term_wait=10):
     """Stop a Popen'd process group: SIGTERM, then SIGKILL. Returns (stdout, stderr) captured so far."""
-    kill_group(p.pid, signal.SIGTERM)
+    kill_group(p.pid, plat.TERM)
     try:
         return p.communicate(timeout=term_wait)
     except subprocess.TimeoutExpired:
-        kill_group(p.pid, signal.SIGKILL)
+        kill_group(p.pid, plat.KILL)
         try:
             return p.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -53,7 +49,7 @@ def stop_group(p, term_wait=10):
 
 def run_group(argv, timeout, **kw):
     """subprocess.run with a hard timeout that kills the WHOLE process group (git -> ssh, and so on). Exit code 124 means it timed out."""
-    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, **kw)
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **plat.new_session(), **kw)
     try:
         out, err = p.communicate(timeout=timeout)
         return subprocess.CompletedProcess(argv, p.returncode, out, err)
@@ -198,11 +194,6 @@ def build_env(home, claude=False, extra_env=None, api_key=None, oauth_token=None
     return env
 
 
-def _child_limits():
-    resource.setrlimit(resource.RLIMIT_FSIZE, (FSIZE_LIMIT, FSIZE_LIMIT))
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-
-
 # ---- running and watching one command ---------------------------------------------------------------------------------------------
 def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=None, network=True, extra_env=None, api_key=None, oauth_token=None,
                 sensors=None, require_netns=True, jail=None):
@@ -222,16 +213,16 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     outp, errp = Path(f"{wd}.out"), Path(f"{wd}.err")   # beside the work dir, so the job never sees them
     total_mb, avail_mb = sensors.meminfo()
     m = {"mem_total_mb": total_mb, "mem_available_start_mb": avail_mb, "start_temp_c": sensors.temp(),
-         "load_start": round(os.getloadavg()[0], 2)}
+         "load_start": round(plat.loadavg(), 2)}
     peak_rss = peak_temp = disk = 0.0
-    ru0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    ru0 = plat.child_usage()
     t0 = time.time()
     p, reason, note, rc = None, None, "", None
     try:
         with open(outp, "wb") as fo, open(errp, "wb") as fe:
             # own session and process group so a timeout or `kill` takes down the whole tree, not just the top process
             p = subprocess.Popen(launch, stdout=fo, stderr=fe, stdin=subprocess.DEVNULL, cwd=str(wd), env=env,
-                                 start_new_session=True, preexec_fn=_child_limits)
+                                 **plat.new_session(), preexec_fn=plat.child_limits(FSIZE_LIMIT))
         if marker is not None:
             try:
                 mk = json.loads(marker.read_text())
@@ -278,16 +269,16 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     except FileNotFoundError as e:
         return "error", None, f"not found: {e}", {}, ""
     wall = time.time() - t0
-    ru1 = resource.getrusage(resource.RUSAGE_CHILDREN)
-    cpu = (ru1.ru_utime + ru1.ru_stime) - (ru0.ru_utime + ru0.ru_stime)
+    ru1 = plat.child_usage()
+    cpu = ru1.cpu_s - ru0.cpu_s
     t_end = sensors.temp()
     if t_end is not None:
         peak_temp = max(peak_temp, t_end)
-    peak_rss = max(peak_rss, ru1.ru_maxrss / 1024 if ru0.ru_maxrss == 0 else 0)
+    peak_rss = max(peak_rss, ru1.maxrss_kb / 1024 if ru0.maxrss_kb == 0 else 0)
     disk = max(disk, tree_mb(wd))
     m.update(wall_s=round(wall, 2), cpu_s=round(cpu, 2), cores_busy=round(cpu / wall, 2) if wall >= 0.5 else None,
              peak_rss_mb=round(peak_rss), peak_temp_c=round(peak_temp) if peak_temp else None,
-             disk_mb=round(disk, 1), load_end=round(os.getloadavg()[0], 2))
+             disk_mb=round(disk, 1), load_end=round(plat.loadavg(), 2))
     stdout, stderr = read_text(outp), read_text(errp)
     outp.unlink(missing_ok=True)
     errp.unlink(missing_ok=True)

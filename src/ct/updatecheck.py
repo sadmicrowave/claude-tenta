@@ -13,6 +13,8 @@ import sys
 import time
 from pathlib import Path
 
+from . import plat
+
 TAG_RE = re.compile(r"^release-(\d+)\.(\d+)\.(\d+)$")
 CACHE_FILE = "update-check.json"
 CHECK_EVERY_S = 86400
@@ -88,7 +90,7 @@ def background_refresh(home, url):
     """Start the check in a detached process and return at once, so no command ever waits for the network."""
     try:
         subprocess.Popen([sys.executable, "-m", "ct.updatecheck", str(home), url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+                         **plat.new_session())
     except OSError:
         pass
 

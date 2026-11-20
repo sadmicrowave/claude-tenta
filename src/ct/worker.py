@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import shutil
-import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -26,6 +25,7 @@ from .gitio import FileLock
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
 from .jail import Unshare
+from . import plat
 from .runner import MAX_TIMEOUT, class_network, kill_group, run_command
 from .util import SAFE_PATH, iso, now
 from .words import plural
@@ -81,7 +81,7 @@ class Worker:
         self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
-        self.loadavg = loadavg or (lambda: os.getloadavg()[0])
+        self.loadavg = loadavg or plat.loadavg
         self.is_job_process = is_job_process or self._pid_is_job
         self._spawn = spawn or self._default_spawn
         self.find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
@@ -99,13 +99,10 @@ class Worker:
         return self.state.joinpath(*parts)
 
     def _pid_is_job(self, pid, jid):
-        try:
-            return jid in Path(f"/proc/{pid}/cmdline").read_text()
-        except Exception:
-            return False
+        return jid in plat.process_cmdline(pid)
 
     def _default_spawn(self, jid):
-        return subprocess.Popen([*self.s.exec_argv, jid], start_new_session=True, stdin=subprocess.DEVNULL).pid
+        return subprocess.Popen([*self.s.exec_argv, jid], stdin=subprocess.DEVNULL, **plat.new_session()).pid
 
     def load_registry(self):
         reg = registry.parse(self.s.registry_path.read_text())
@@ -135,11 +132,7 @@ class Worker:
 
     def snapshot(self):
         total, avail = self.sensors.meminfo() if self.sensors else (0, None)
-        try:
-            st = os.statvfs(self.state)
-            free_gb = round(st.f_bavail * st.f_frsize / 1e9, 1)
-        except OSError:
-            free_gb = None
+        free_gb = plat.disk_free_gb(self.state)
         return {"at": iso(self.clock()), "cores": os.cpu_count(), "mem_total_mb": total, "mem_available_mb": avail,
                 "load_1m": round(self.loadavg(), 2), "temp_c": self.sensors.temp() if self.sensors else None, "disk_free_gb": free_gb,
                 "running": len(list(self._p("running").glob("*"))), "waiting": len(list(self._p("queued").glob("*.json"))), "held": self.availability_reason()}
@@ -512,12 +505,12 @@ class Worker:
             return False
         if hard:
             if info.get("child_pgid"):
-                kill_group(info["child_pgid"], signal.SIGKILL)
-            kill_group(info["pid"], signal.SIGKILL)
+                kill_group(info["child_pgid"], plat.KILL)
+            kill_group(info["pid"], plat.KILL)
             info["watchdog"] = "hard-killed"
             m.write_text(json.dumps(info))
         else:
-            os.kill(info["pid"], signal.SIGTERM)
+            plat.send_signal(info["pid"], plat.TERM)
         return True
 
     def reap(self):
@@ -531,7 +524,7 @@ class Worker:
                         self.log(f"watchdog: {jid} exceeded its time limit; asking it to stop")
                         info["term_sent"] = time.time()
                         m.write_text(json.dumps(info))
-                        os.kill(info["pid"], signal.SIGTERM)
+                        plat.send_signal(info["pid"], plat.TERM)
                     elif time.time() > info["term_sent"] + 30:
                         self.log(f"watchdog: {jid} ignored SIGTERM; killing it")
                         self.kill_job(jid, hard=True)

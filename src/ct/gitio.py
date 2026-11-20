@@ -7,7 +7,6 @@
 Git is always run with a hard timeout that kills the whole process group (git -> ssh), and never prompts. One lock serialises the
 worker's own git work, with a bounded wait so a hung holder cannot hang everything else.
 """
-import fcntl
 import json
 import os
 import re
@@ -16,6 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import plat
 from .runner import kill_group, run_group
 from .words import plural
 
@@ -40,14 +40,12 @@ class FileLock:
         self.f = open(self.path, "w")
         end = time.time() + self.wait
         while True:
-            try:
-                fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if plat.try_lock(self.f):
                 self.got = True
                 break
-            except BlockingIOError:
-                if time.time() >= end:
-                    break
-                time.sleep(0.2)
+            if time.time() >= end:
+                break
+            time.sleep(0.2)
         return self
 
     def __exit__(self, *a):
@@ -77,7 +75,7 @@ class GitIO:
 
     def git_bytes(self, repo, *args):
         """stdout of a git command as raw bytes (exact digests need exact bytes), or None on failure or timeout."""
-        p = subprocess.Popen(["git", "-C", str(repo), *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        p = subprocess.Popen(["git", "-C", str(repo), *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **plat.new_session())
         try:
             out, _ = p.communicate(timeout=self.git_timeout)
         except subprocess.TimeoutExpired:

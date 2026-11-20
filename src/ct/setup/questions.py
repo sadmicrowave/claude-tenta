@@ -46,7 +46,7 @@ QUESTIONS = [
        examples=["/opt/tools", "/opt/tools, /srv/pentest"], half="server", when=lambda a: a.get("isolation.purpose") == "special-use"),
     _Q("network.ipv6", "Should the server use IPv6?",
        "IPv6 is the newer kind of network address. Many home networks never need it to reach the server, and switching it off leaves less to attack.",
-       risk="Turning it off applies to the whole machine and lasts across restarts (a system settings file). If you reach the server over IPv6, choose enabled.", half="server"),
+       risk="Turning it off applies to the whole machine and lasts across restarts (a system settings file). If you reach the server over IPv6, choose enabled.", half="server", advanced=True),      # the default (keep IPv6) is right for almost everyone: the short first pass stays at eight questions
     _Q("alerts.kind", "Where should security alerts go?",
        "A short alert is sent when a result is withheld and when the worker locks itself down, with reminders while it stays locked, so a quiet phone never means all is well.",
        risk="With none, a security event is only visible if you look (ct-admin status). The worker locks itself down either way.", half="server"),

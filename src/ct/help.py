@@ -22,7 +22,7 @@ SECTIONS = [
                                               ("ct-admin review | approve", "look at waiting jobs, then approve exactly what you saw"),
                                               ("ct-admin cancel | kill", "stop a job that has not started, or one that is running"),
                                               ("ct-admin quarantine | unlock | output", "look at a security hold, clear it, read a failed command's output"),
-                                              ("ct-admin adopt | retire | proposals", "add or remove job classes, and merge the changes waiting on branches"),
+                                              ("ct-admin adopt | retire | class | proposals", "add or remove job classes, see or change what a class may do (approval tier, network, tool folders), and merge the changes waiting on branches"),
                                               ("ct-admin action add | remove | list | action-hash", "register, remove or list commands that run as root; print a program's fingerprint"),
                                               ("ct-admin theme", "show the colour roles and where the theme came from"),
                                               ("ct-admin diff | apply | update | clean", "see and install a release, with a health check and a way back; update looks for a newer one; clean clears old signed approvals")]),

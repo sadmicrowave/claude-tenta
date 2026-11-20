@@ -17,7 +17,6 @@ import os
 import re
 import subprocess
 import shutil
-import signal
 import sys
 import textwrap
 import time
@@ -26,7 +25,7 @@ from pathlib import Path
 
 from . import transport, alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
-from . import publishdiag, workerstate
+from . import plat, publishdiag, workerstate
 from . import cards
 from . import ui as _ui
 from .ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -93,10 +92,7 @@ class Context:
 
     @staticmethod
     def _uptime():
-        try:
-            return float(Path("/proc/uptime").read_text().split()[0])
-        except (OSError, ValueError, IndexError):
-            return None
+        return plat.uptime_s()
 
     @classmethod
     def from_config(cls, cfg, env=None):
@@ -140,7 +136,7 @@ class Context:
                     return Path(path).read_text()
                 except OSError:
                     return ""
-            cpuinfo = read("/proc/cpuinfo")
+            cpuinfo = plat.cpuinfo_text()
             flags = re.search(r"^flags\s*:\s*(.*)$", cpuinfo, re.M)
             claude = {"auth": cfg.claude.auth}
             if cfg.claude.auth == "account":
@@ -482,7 +478,7 @@ def cmd_status(ctx, hours=12):
     kv("Used for", config.PURPOSE_WORDS.get(w.s.isolation_purpose, w.s.isolation_purpose))
     if w.s.pause_when_logged_in or w.s.window:                                        # a shared computer: whether it would start a job right now
         kv("Available", w.availability_reason() or "yes: nobody is using it" if w.s.pause_when_logged_in else (w.availability_reason() or "yes: inside its working hours"))
-    load = os.getloadavg()
+    load = plat.loadavgs()
     kv("Load", f"{load[0]:.2f} now, {load[1]:.2f} over 5 min, {load[2]:.2f} over 15 min")
     profile = (ctx.hardware or {}).get("profile")
     fits = is_virtual_machine() and profile not in (None, "virtual-machine", "custom")       # a virtual machine set up before that profile existed keeps its old limits until it is told
@@ -783,5 +779,5 @@ def main(argv=None, ctx=None, cfg=None):
 
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    plat.quiet_broken_pipe()
     sys.exit(main())
