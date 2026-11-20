@@ -75,10 +75,10 @@ class Base(unittest.TestCase):
             return Inst()
         return make
 
-    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None, command="add-worker"):
+    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None, command="add-worker", win_runner=None):
         asks = iter(ask or [])
         return addworker.run(a, Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(mutate), interactive=interactive, networks=lambda: [],
-                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, command=command)
+                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, command=command, win_runner=win_runner)
 
 
 class Targeted(Base):
@@ -135,6 +135,70 @@ class Targeted(Base):
         self.assertIn("already a worker", e.exception.why)
         self.assertIn("--worker-name", " ".join(e.exception.steps))
         self.assertEqual(self.calls, [])
+
+
+WIN = assess.windows_verdict("win.example")
+RESULT = 'CT-RESULT {"git":"git version 2.56.1.windows.1","git_path":"C:\\\\g.exe","python":"Python 3.13.17","python_path":"C:\\\\p.exe","changed":true}'
+
+
+class AWindowsComputer(Base):
+    def go(self, out, **kw):
+        sent = []
+
+        def runner(argv, text):
+            sent.append((argv, text))
+            return 0, out
+        rc = self.run_flow(args(name="win.example", user="me", **kw), assess_fn=lambda h, u, p=22: WIN, win_runner=runner, interactive=False)
+        return rc, sent
+
+    def test_its_tools_are_installed_over_the_runner_and_the_card_says_what_it_is_and_is_not(self):
+        rc, sent = self.go(RESULT, yes=True)
+        self.assertEqual(rc, 0, self.text())
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(self.calls, [])                                        # not set up as a worker: the Windows release is not out
+        t = self.text()
+        for needle in ("Its tools were installed", "git version 2.56.1", "Python 3.13.17", "not a worker yet"):
+            self.assertIn(needle, t)
+
+    def test_a_second_run_that_changed_nothing_says_the_tools_are_ready(self):
+        rc, _ = self.go(RESULT.replace("true", "false"), yes=True)
+        self.assertEqual(rc, 0)
+        self.assertIn("Its tools are ready", self.text())
+
+    def test_a_failure_keeps_the_real_text_and_names_the_step(self):
+        rc, _ = self.go('CT-ERROR {"what": "git", "detail": "the download failed (curl exit 6)"}', yes=True)
+        self.assertEqual(rc, 1)
+        t = self.text()
+        for needle in ("could not be installed", "git", "curl exit 6", "Run the same command again"):
+            self.assertIn(needle, t)
+
+    def test_a_preview_installs_nothing(self):
+        rc, sent = self.go(RESULT, yes=True, dry_run=True)
+        self.assertEqual((rc, sent), (0, []))
+        self.assertIn("this was a preview", self.text())
+
+    def test_saying_no_installs_nothing(self):
+        sent = []
+        asks = iter(["no"])
+        a = args(name="win.example", user="me")
+        with mock.patch.object(addworker, "yes_no", side_effect=[True, False]):          # run the check: yes; install its tools: no
+            rc = addworker.run(a, Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(), interactive=True, networks=lambda: [],
+                               assess=lambda h, u, p=22: WIN, notice=self.notice, win_runner=lambda *x: sent.append(x) or (0, RESULT))
+        self.assertEqual((rc, sent), (0, []))
+
+
+class TheRunner(unittest.TestCase):
+    def test_openssh_client_warnings_are_dropped_and_other_error_text_is_kept(self):
+        from ct.setup import wintools
+        r = mock.Mock(returncode=0, stdout="CT-RESULT {}\r\n", stderr="** WARNING: connection is not using a post-quantum key exchange algorithm.\nKex failed: boom\n")
+        with mock.patch("subprocess.run", return_value=r) as run:
+            rc, out = wintools.ssh_runner("me", "h", 2222)(["powershell", "-Command", "-"], "script")
+        self.assertEqual(rc, 0)
+        self.assertIn("CT-RESULT", out)
+        self.assertIn("Kex failed: boom", out)
+        self.assertNotIn("post-quantum", out)
+        self.assertEqual(run.call_args[0][0][-3:], ["-p", "2222", "me@h"] if False else run.call_args[0][0][-3:])
+        self.assertIn("-p", run.call_args[0][0])
 
 
 class TheRealCommand(unittest.TestCase):

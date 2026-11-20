@@ -14,3 +14,6 @@ In scope now: [Windows tools installer](design/WINDOWS-TOOLS-INSTALLER.md).
 - 2026-11-20 A Special Use route that runs a class which uses a tool folder end to end (the route only checks the install).
 - 2026-11-20 Clean up leftover files from earlier test runs (needs a say-so per file).
 - 2026-11-20 Decide the minimum Python version (3.10 or 3.11).
+
+## The "Candidacy check" card lists Linux checks before a Windows computer is recognised
+`ct-setup add-worker <windows address>` first prints the Linux check list (Ubuntu, systemd, sudo ...) and "It only reads", and only then says "This is a Windows computer" and offers to install its tools. Recognise the greeting before the summary card and show a Windows-specific one. Found on the real Windows 11 VM.
