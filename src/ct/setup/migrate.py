@@ -25,15 +25,17 @@ from .server import ServerSetup, SetupError
 STYLER = report_mod.Styler(styled=sys.stderr.isatty(), stream=sys.stderr)
 
 
-def with_transport(text, kind):
-    """The configuration text with `[transport] kind` set (everything else as it was)."""
+def with_transport(text, kind, github_owner=None):
+    """The configuration text with `[transport] kind` set (everything else as it was). `github_owner`: the GitHub account to record when the text has none (a Direct install never asked for one)."""
     raw = tomllib.loads(text or "")
     raw.setdefault("transport", {})["kind"] = kind
+    if github_owner and not raw.get("github", {}).get("owner"):
+        raw.setdefault("github", {})["owner"] = github_owner
     return toml_out.dump(raw)
 
 
-def load_new_config(text, kind):
-    clean, problems = config.validate(tomllib.loads(with_transport(text, kind)), require_alert_url=False)
+def load_new_config(text, kind, github_owner=None):
+    clean, problems = config.validate(tomllib.loads(with_transport(text, kind, github_owner)), require_alert_url=False)
     if problems:
         raise SetupError("The new connection does not make a valid configuration", "\n".join(problems[:5]))
     return config.Config(clean)
@@ -166,6 +168,22 @@ def github_urls(cfg2, which):
     return transport.for_config(cfg2).client_url(cfg2, which)
 
 
+def github_owner_for(a, host, cfg, ask, interactive):
+    """The GitHub account the repositories belong to when moving to GitHub: what was given (--set github.owner=NAME), what the configuration already says, the account gh is signed in as, or (at a
+    terminal) what the person types. None when nothing says. A Direct install never recorded one: the way back used to refuse with advice that did not help (found by scripts/real-github-check)."""
+    for item in getattr(a, "set", None) or []:
+        if item.startswith("github.owner=") and item.split("=", 1)[1].strip():
+            return item.split("=", 1)[1].strip()
+    if cfg.github.owner:
+        return cfg.github.owner
+    r = host.run(["gh", "api", "user", "--jq", ".login"])
+    login = r.out.strip() if r.ok else ""
+    if interactive and ask:
+        typed = ask(f"  Which GitHub account should the two private repositories be under?{f' [{login}]' if login else ''} ").strip()
+        return typed or login or None
+    return login or None
+
+
 def back_to_github(a, host, ask, say, cfg, *, reinstall=None, url_of=None):
     """ct-setup transport github [--worker NAME] [--apply]: from your computer. Preview first. Then: (1) the history your queue and results clones hold is pushed to your GitHub repositories (new commits
     only; a GitHub that has commits yours lacks stops it with nothing changed), (2) the worker is set up again for GitHub with the ordinary installer, which repoints its clones and checks its deploy keys,
@@ -173,15 +191,21 @@ def back_to_github(a, host, ask, say, cfg, *, reinstall=None, url_of=None):
     from .. import ui as _ui
     from ..ui import GREEN, RED, YELLOW
     url_of = url_of or github_urls
-    cfg2 = load_new_config(host.read(cfg.source) or "", "github")
+    name = getattr(a, "worker", None)
+    owner = github_owner_for(a, host, cfg, ask, not getattr(a, "yes", False) and sys.stdin.isatty())
+    if not owner:
+        _ui.say("The GitHub account is not known", "Nothing was changed. A Direct install never recorded one, and gh is not signed in here to say which account to use.",
+                tag="ERROR", color=RED, steps=["Say it once: --set github.owner=YOUR-GITHUB-NAME (your username, or an organisation you belong to)", "Or sign in first: gh auth login"],
+                steps_label="How to fix it", run="ct-setup transport github" + (f" --worker {name}" if name else "") + " --set github.owner=YOUR-GITHUB-NAME --apply")
+        return 1
+    cfg2 = load_new_config(host.read(cfg.source) or "", "github", owner)
     if not (cfg2.github.owner and cfg2.github.queue_repo and cfg2.github.results_repo):
         _ui.say("The GitHub repositories are not named in the configuration", "Nothing was changed.", tag="ERROR", color=RED, run="ct-setup install")
         return 1
-    name = getattr(a, "worker", None)
     target = [] if not name else ["--worker", name]
-    argv = ["install", *(target or [cfg.server.host]), "--set", "transport.kind=github"] + (["--yes"] if getattr(a, "yes", False) else [])
+    argv = ["install", *(target or [cfg.server.host]), "--set", "transport.kind=github"] + (["--set", f"github.owner={owner}"] if not cfg.github.owner else []) + (["--yes"] if getattr(a, "yes", False) else [])
     clones = [(which, cfg2.path(f"client_{which}"), url_of(cfg2, which)) for which in ("queue", "results")]
-    _ui.say("Move back to GitHub", ("Worker", name or cfg.server.host), ("From", "direct (the mailbox on the worker)"), ("To", "GitHub"),
+    _ui.say("Move back to GitHub", ("Worker", name or cfg.server.host), ("From", "direct (the mailbox on the worker)"), ("To", "GitHub"), ("Account", owner),
             ("1. History", "your queue and results clones push what they hold into your GitHub repositories: new commits only, nothing there is deleted or rewritten"),
             ("2. The worker", "set up again for GitHub with the ordinary installer: its clones follow, its deploy keys are checked and added if missing, a first job proves it"),
             ("3. This computer", "your configuration and clones point back at GitHub"),
@@ -246,7 +270,7 @@ def ensure_key(host, cfg2):
 def rewrite_local(host, cfg, cfg2, kind):
     """Your computer's configuration says the new connection, and the two clones fetch from and push to the mailbox. Returns [(step, status, detail)]."""
     notes = []
-    host.write(cfg.source, with_transport(host.read(cfg.source) or "", kind), 0o600)
+    host.write(cfg.source, with_transport(host.read(cfg.source) or "", kind, cfg2.github.owner if kind == "github" else None), 0o600)
     notes.append(("configuration", "written", cfg.source))
     from ..client.repo import ClientRepos
     repos = ClientRepos.from_config(cfg2)
