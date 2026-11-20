@@ -25,7 +25,7 @@ class Seam(unittest.TestCase):
     def test_no_module_of_the_workers_runtime_reaches_past_the_seam(self):
         bad = []
         for f in runtime_modules():
-            for n in ast.walk(ast.parse(f.read_text())):
+            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
                 if isinstance(n, ast.Import):
                     bad += [f"{f.name}: import {a.name}" for a in n.names if a.name.split(".")[0] in BAD_IMPORT]
                 elif isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in BAD_IMPORT:
