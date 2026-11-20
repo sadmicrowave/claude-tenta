@@ -70,20 +70,35 @@ def run_group(argv, timeout, **kw):
 class LinuxSensors:
     """Temperature, memory and per-job memory from /sys and /proc. Missing sources give None or 0, never an error."""
 
-    def __init__(self, hwmon="/sys/class/hwmon", proc="/proc", sensor_name="coretemp"):
+    def __init__(self, hwmon="/sys/class/hwmon", proc="/proc", sensor_name="coretemp", run=None):
         self.hwmon, self.proc, self.sensor_name = Path(hwmon), Path(proc), sensor_name
+        self._run = run or run_group
         try:
             self.page_mb = os.sysconf("SC_PAGE_SIZE") / 1048576
         except (ValueError, OSError):
             self.page_mb = 4096 / 1048576
 
-    def logged_in(self):
-        """The accounts that have a login session on this computer right now (`who`), or [] when it cannot be read."""
+    def _text(self, argv):
         try:
-            r = run_group(["who"], 5)
+            r = self._run(argv, 5)
         except Exception:
-            return []
-        return sorted({line.split()[0] for line in (r.stdout or "").splitlines() if line.split()}) if getattr(r, "returncode", 1) == 0 else []
+            return None
+        return (r.stdout or "") if getattr(r, "returncode", 1) == 0 else None
+
+    def logged_in(self):
+        """The accounts that have a login session on this computer right now, or [] when it cannot be read. The login manager is asked first (`loginctl`: sessions of class `user`, not the per-user
+        manager); `who` is added for a computer that keeps a utmp file instead. Found by the end-to-end run: Ubuntu 26.04 keeps no utmp file and its `who` prints nothing, so `who` alone never saw anyone."""
+        people = set()
+        listing = self._text(["loginctl", "list-sessions", "--no-legend"])
+        for line in (listing or "").splitlines():
+            if not line.split():
+                continue
+            info = self._text(["loginctl", "show-session", line.split()[0], "-p", "Name", "-p", "Class"])
+            props = dict(l.split("=", 1) for l in (info or "").splitlines() if "=" in l)
+            if props.get("Name") and props.get("Class", "user") == "user":          # the manager, greeter and lock-screen sessions are not a person sitting there
+                people.add(props["Name"])
+        people |= {line.split()[0] for line in (self._text(["who"]) or "").splitlines() if line.split()}
+        return sorted(people)
 
     def temp(self):
         """Hottest CPU core in C, or None if the sensor is not readable."""

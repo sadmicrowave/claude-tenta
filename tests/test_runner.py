@@ -247,5 +247,36 @@ class Sensors(unittest.TestCase):
         self.assertEqual(runner.tree_mb(d / "missing"), 0)
 
 
+class WhoIsLoggedIn(unittest.TestCase):
+    """Recorded from the three real workers and from the Ubuntu 26.04 machine of the end-to-end run, where `who` prints nothing at all (no utmp file) and only the login manager knows the sessions."""
+
+    def sensors(self, replies):
+        from types import SimpleNamespace
+
+        def run(argv, timeout):
+            out = replies.get(tuple(argv))
+            return SimpleNamespace(returncode=0 if out is not None else 1, stdout=out or "", stderr="")
+        return runner.LinuxSensors(run=run)
+
+    def test_ubuntu_26_04_has_no_utmp_so_only_the_login_manager_sees_the_person(self):
+        s = self.sensors({("loginctl", "list-sessions", "--no-legend"): "c1 0 root - 264 manager-early - no -\nc2 1002 guest - 720 user - no -\nc3 1002 guest - 726 manager - no -\n",
+                          ("loginctl", "show-session", "c1", "-p", "Name", "-p", "Class"): "Name=root\nClass=manager-early\n",
+                          ("loginctl", "show-session", "c2", "-p", "Name", "-p", "Class"): "Name=guest\nClass=user\n",
+                          ("loginctl", "show-session", "c3", "-p", "Name", "-p", "Class"): "Name=guest\nClass=manager\n",
+                          ("who",): ""})
+        self.assertEqual(s.logged_in(), ["guest"])
+
+    def test_the_older_column_layout_and_a_console_session_work_and_the_manager_session_never_counts(self):
+        s = self.sensors({("loginctl", "list-sessions", "--no-legend"): "   1 1000 agent seat0 tty1 active yes -\n1108 1000 agent -     -    active no  -\n",
+                          ("loginctl", "show-session", "1", "-p", "Name", "-p", "Class"): "Name=agent\nRemote=no\nClass=user\nState=active\n",
+                          ("loginctl", "show-session", "1108", "-p", "Name", "-p", "Class"): "Name=agent\nClass=manager\n",
+                          ("who",): "agent    tty1         2026-11-18 00:38\n"})
+        self.assertEqual(s.logged_in(), ["agent"])                                       # once, though two sources name them
+
+    def test_a_computer_without_loginctl_falls_back_to_who_and_one_that_answers_nothing_is_empty(self):
+        self.assertEqual(self.sensors({("who",): "alice    pts/0   2026-11-19 18:44 (192.0.2.7)\nbob      :0      2026-11-19 09:00\n"}).logged_in(), ["alice", "bob"])
+        self.assertEqual(self.sensors({}).logged_in(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
