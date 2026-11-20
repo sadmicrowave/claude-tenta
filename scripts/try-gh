@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Walk through the wizard's GitHub-tool steps by hand, safely: the real cards and prompts, with a pretend `gh` and package manager that change nothing on this computer. At the sign-in, Enter opens GitHub's real device page in your browser, as the real gh does; the code is made up, so enter nothing there.
+  scripts/try-gh missing         gh is not installed: the install card, then (after the pretend install) the sign-in card
+  scripts/try-gh missing --apt   the same with apt-get and sudo wording instead of brew
+  scripts/try-gh signed-out      gh is installed but not signed in: the sign-in card only
+  scripts/try-gh signed-in       gh is ready: nothing is asked
+Answer the cards as you like (Skip is a good one to try too): what it prints after a refusal is the fallback a real user sees."""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+from ct.setup import tui                                  # noqa: E402
+from ct.setup.client import ClientSetup                   # noqa: E402
+from ct.setup.host import Host                            # noqa: E402
+
+GH = """#!/bin/sh
+S="@STATE@"
+case "$1 $2" in
+  "auth status") [ -f "$S/signed" ] && { echo "github.com: Logged in as example-user (pretend)"; exit 0; }; echo "You are not logged into any GitHub hosts. To log in, run: gh auth login"; exit 1;;
+  "auth login") echo "! First copy your one-time code: ABCD-1234"; echo "Press Enter to open github.com in your browser..."; read x; (open https://github.com/login/device || xdg-open https://github.com/login/device) >/dev/null 2>&1; echo "(pretend gh opened GitHub's real device page; the code above is made up, so do not enter anything there)"; sleep 2; touch "$S/signed"; echo "OK Logged in as example-user (pretend: nothing was contacted)";;
+  *) echo "pretend gh: $*";;
+esac
+"""
+INSTALL = """#!/bin/sh
+echo "pretend: $0 $*  (nothing is installed on this computer)"; sleep 1
+cp "@BIN@/gh.template" "@BIN@/gh"; chmod +x "@BIN@/gh"; echo "pretend: gh installed"
+"""
+
+
+def main(argv):
+    mode = next((a for a in argv if not a.startswith("--")), "")
+    if mode not in ("missing", "signed-out", "signed-in"):
+        print(__doc__)
+        return 2
+    work = Path(tempfile.mkdtemp(prefix="try-gh-"))
+    bin_ = work / "bin"
+    bin_.mkdir()
+    (bin_ / "gh.template").write_text(GH.replace("@STATE@", str(work)))
+    for name in (["sudo", "apt-get"] if "--apt" in argv else ["brew"]):
+        script = INSTALL.replace("@BIN@", str(bin_)) if name != "sudo" else '#!/bin/sh\nexec "$@"\n'
+        (bin_ / name).write_text(script)
+        (bin_ / name).chmod(0o755)
+    if mode != "missing":
+        (bin_ / "gh").write_text((bin_ / "gh.template").read_text())
+        (bin_ / "gh").chmod(0o755)
+    if mode == "signed-in":
+        (work / "signed").write_text("")
+    os.environ["PATH"] = f"{bin_}:/usr/bin:/bin"          # only the pretend tools, git and ssh: the real gh and brew are out of reach
+    host = Host(env=dict(os.environ))
+    screen = tui.make(interactive=True)
+    if screen is None:
+        print("This needs a real terminal.")
+        return 2
+    c = ClientSetup(host, work / "home", say=lambda m: print(m, file=sys.stderr), dry_run=False, ui=screen, confirm_card=screen.protection)
+    c.gh = bool(host.which("gh"))
+    screen.banner("try gh")
+    with screen.session():
+        c.github_tool()
+    print(f"\nResult: gh {'ready' if c.gh else 'not available, so the repository steps would be printed'}.  (nothing on this computer was changed; {work} holds the pretend tools)\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

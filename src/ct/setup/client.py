@@ -70,7 +70,7 @@ class ClientSetup:
         if missing:
             raise SetupError("Missing tools", ", ".join(missing) + " must be installed first", ["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."])
         self.gh = bool(self.host.which("gh"))
-        self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found, repository steps will be printed"))
+        self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found (it is offered at the repository step)"))
         for what, fix in legacy.find(self.host):                           # nothing is removed here: these are the person's shell and Claude Code settings
             self.note("old install leftover", "found", f"{what}. Clear it: {fix}")
 
@@ -149,7 +149,57 @@ class ClientSetup:
                               "Or sign in as that account first: gh auth login"])
         self.note("GitHub account", "ok", f"signed in as {login}; repositories go under {self.cfg.github.owner}")
 
+    GH_PAGE = "https://cli.github.com"
+
+    def gh_install_command(self):
+        """The command that installs gh with this computer's package manager, or None (the official page is then the way)."""
+        for tool, argv in (("brew", ["brew", "install", "gh"]), ("apt-get", ["sudo", "apt-get", "install", "-y", "gh"]), ("dnf", ["sudo", "dnf", "install", "-y", "gh"])):
+            if self.host.which(tool):
+                return argv
+        return None
+
+    def github_tool(self):
+        """The GitHub tool `gh` makes the repositories, so it must be installed and signed in. Each is offered (an amber card: yes does it, here, on this terminal); declining, or a run nobody
+        is answering, prints the commands and the repository steps are done by hand, as they always could be."""
+        if self.dry_run:
+            return
+        if not self.gh:
+            argv = self.gh_install_command()
+            info = {"id": "gh-install", "label": "Install", "tag": "installs a program on this computer", "title": "Install the GitHub tool (gh)",
+                    "why": "The private repositories are made and wired up with GitHub's own command-line tool, gh. It is not installed on this computer.",
+                    "risk": "Installs gh with " + (f"`{argv[0]}`" if argv else "your package manager") + ", from your system's own package source. " + ("It may ask for this computer's password (sudo). " if argv and argv[0] == "sudo" else "")
+                    + "Skip it to install gh yourself, or to create the two repositories by hand instead.",
+                    "now": "not installed", "steps": [shlex.join(argv)] if argv else [f"see {self.GH_PAGE} for your system"], "lockout": False}
+            if argv and self.confirm_card and self.confirm_card(info):
+                rc, text = self.interactive(argv)
+                self.gh = bool(self.host.which("gh"))
+                if not self.gh:
+                    self.note("GitHub tool (gh)", "failed", f"`{shlex.join(argv)}` did not install it (exit {rc}): {str(text or '').strip()[-300:]}")
+            if not self.gh:
+                self.say(self.r.info(f"gh is needed to make the repositories for you. Install it ({self.GH_PAGE}), then run ct-setup install again:" if not argv else "To install gh yourself, then run ct-setup install again:"))
+                self.say(self.r.command(shlex.join(argv) if argv else self.GH_PAGE))
+                self.note("GitHub tool (gh)", "manual", "not installed: the repositories are created by hand (steps below)")
+                return
+            self.note("GitHub tool (gh)", "installed")
+        if self.host.run(["gh", "auth", "status"]).ok:
+            return
+        login = ["gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "ssh", "--web"]
+        info = {"id": "gh-login", "label": "Sign in", "tag": "signs this computer in to GitHub", "title": "Sign in to GitHub",
+                "why": "gh is installed but not signed in, so it cannot create the repositories under your account.",
+                "risk": "Opens GitHub's own sign-in in your browser and shows a one-time code to type there. This tool never sees your password. Skip it to run `gh auth login` yourself, or to create the repositories by hand.",
+                "now": "not signed in", "steps": [shlex.join(login)], "lockout": False}
+        if self.confirm_card and self.confirm_card(info):
+            self.interactive(login)
+        if self.host.run(["gh", "auth", "status"]).ok:
+            self.note("GitHub sign-in", "ok")
+            return
+        self.say(self.r.info("To sign in yourself, then run ct-setup install again:"))
+        self.say(self.r.command("gh auth login"))
+        self.gh = False                                                                 # the repository steps are printed instead, as when gh is missing
+        self.note("GitHub sign-in", "manual", "not signed in: the repositories are created by hand (steps below)")
+
     def create_repos(self):
+        self.github_tool()
         self.check_owner()
         for which in ("queue", "results"):
             slug = self.repo_slug(which)
