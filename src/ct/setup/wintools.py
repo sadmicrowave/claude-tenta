@@ -5,7 +5,7 @@ quoting or command-line length limit of the default cmd shell applies). It print
 
   git     an existing `git` is used; else MinGit (the official minimal Git for Windows zip) is downloaded, its SHA-256 compared with the pinned one BEFORE anything is unpacked, and unpacked
           with `tar` into <tools>\\git. No installer, no administrator rights, nothing on the system PATH.
-  python  an existing Python 3.11 or newer is used; else `winget` installs it for this user (winget checks the package's hash itself); else (no winget, or it failed) the official
+  python  an existing Python 3.11 or newer is used; else the official
           python.org installer is downloaded, its SHA-256 compared with the pinned one and its Authenticode signature checked (signer Python Software Foundation) BEFORE it is run, then run
           silently for this user into <tools>\\python (no administrator rights, nothing on PATH). python.org publishes only MD5 for the embeddable zip, which also has no venv, so it is not used.
 Standard library only.
@@ -16,7 +16,6 @@ import re
 GIT = {"version": "2.56.1", "name": "MinGit-2.56.1-64-bit.zip", "size": 39849768,
        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/MinGit-2.56.1-64-bit.zip",
        "sha256": "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd"}      # the digest GitHub states for that release asset
-PYTHON_WINGET_ID = "Python.Python.3.13"
 PYTHON = {"version": "3.13.17", "name": "python-3.13.17-amd64.exe", "size": 29941280,
           "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe",
           "sha256": "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190",     # computed from the file on python.org (it publishes only MD5 and GPG); also checked: Authenticode signer
@@ -45,26 +44,19 @@ $changed = $false
 function Fail($what, $detail) {{ Write-Output ('CT-ERROR ' + (@{{what = $what; detail = "$detail"}} | ConvertTo-Json -Compress)); exit 1 }}
 try {{
   $py = $null; $pyv = ''
-  foreach ($name in 'python', 'py') {{
+  foreach ($name in (Join-Path $tools 'python\\python.exe'), 'python', 'py') {{
     $c = Get-Command $name -ErrorAction SilentlyContinue
-    if ($c -and $c.Source -notlike '*WindowsApps*') {{
+    if ($c -and $c.Source -notlike '*WindowsApps*' -and $c.Source -notlike '*\\Users\\*') {{       # not the Store stub, and not one under a person's profile (the worker's account could not read it)
       $v = ''
       try {{ $v = (& $c.Source --version 2>&1) -join '' }} catch {{ $v = '' }}                      # a stale entry (an uninstalled Python still on PATH) is skipped, not fatal
       if ($v -match 'Python (\\d+)\\.(\\d+)' -and ([int]$Matches[1] -gt {MIN_PYTHON[0]} -or ([int]$Matches[1] -eq {MIN_PYTHON[0]} -and [int]$Matches[2] -ge {MIN_PYTHON[1]}))) {{ $py = $c.Source; $pyv = $v.Trim(); break }}
     }}
   }}
-  if (-not $py) {{
-    $viaWinget = $false
-    if (Get-Command winget -ErrorAction SilentlyContinue) {{
-      & winget install --id {PYTHON_WINGET_ID} --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
-      $cand = Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python313\\python.exe'
-      if (($LASTEXITCODE -eq 0) -and (Test-Path $cand)) {{ $py = $cand; $viaWinget = $true }}
-    }}
-    if (-not $viaWinget) {{
+  if (-not $py) {{                                                                          # no winget route: it installs under one person's profile, where the worker's own account could not read it
       New-Item -ItemType Directory -Force -Path $tools | Out-Null
       $exe = Join-Path $tools '{p["name"]}'
       & curl.exe -L --fail --silent --show-error -o $exe '{p["url"]}'
-      if ($LASTEXITCODE -ne 0) {{ Fail 'python' "there is no Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer, winget is not available or failed, and the download from python.org failed (curl exit $LASTEXITCODE)" }}
+      if ($LASTEXITCODE -ne 0) {{ Fail 'python' "there is no Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer, the download from python.org failed (curl exit $LASTEXITCODE)" }}
       $got = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
       if ($got -ne '{p["sha256"]}') {{ Remove-Item $exe -Force; Fail 'python' "the download's SHA-256 is $got but {p["sha256"]} was expected: refused, nothing was run" }}
       $sig = Get-AuthenticodeSignature $exe
@@ -75,7 +67,6 @@ try {{
       if ($proc.ExitCode -ne 0) {{ Fail 'python' "the Python installer exited with $($proc.ExitCode)" }}
       $py = Join-Path $pydir 'python.exe'
       if (-not (Test-Path $py)) {{ Fail 'python' 'the Python installer finished, but python.exe is not where it was expected' }}
-    }}
     $pyv = ((& $py --version 2>&1) -join '').Trim()
     $changed = $true
   }}
