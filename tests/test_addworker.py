@@ -251,6 +251,19 @@ class TheScreens(unittest.TestCase):
         pick, _ = self.choose(["1", "2", "enter"], n=14)
         self.assertEqual(pick, "198.51.100.21")                                                     # row 12 of 15 (the 15th is "none of these")
 
+    def test_the_scan_card_has_a_blank_line_after_the_summary_and_marks_a_known_worker_with_a_chip(self):
+        devs = self.devices(2)
+        devs[0].known = True
+        seen = []
+        addworker.found_card(devs, [], [], card=lambda title, *rows, **k: seen.append(rows))
+        rows = seen[0]
+        at = [i for i, r in enumerate(rows) if isinstance(r, tuple) and r[0] == "Found"][0]
+        self.assertEqual(rows[at + 1], "\n")                                      # a blank line between the FOUND summary and the first computer
+        known = [r for r in rows if isinstance(r, tuple) and r[0] == "COMPUTER" and isinstance(r[1], addworker.cards.Styled)]
+        self.assertEqual(len(known), 1)
+        self.assertEqual(known[0][1][-1], ("already a worker", "accent_chip"))   # its own style, not the plain text the address is in
+        self.assertEqual(known[0][1].plain(), devs[0].ip + "  " + devs[0].name + "  already a worker")
+
     def test_workers_you_already_have_are_in_the_list_to_set_up_again_and_are_not_the_default(self):
         """Seen on a real network: every machine found was already a worker, so the list held only 'other' and the machines in the card above could not be picked."""
         devs = self.devices(2)
@@ -383,6 +396,7 @@ class SettingAWorkerUpAgain(Base):
         class Ui:
             def banner(inner, subtitle, unless_shown=False):
                 order.append("banner")
+                self.assertTrue(unless_shown, "run() may have drawn the header already; drawing it again was seen on a second `ct-setup install`")
 
         class Busy:
             def __init__(inner, text, color=None, **kw):

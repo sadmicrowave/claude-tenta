@@ -118,3 +118,20 @@ class Words(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransportCommandAlreadyThere(unittest.TestCase):
+    """Found by the move route on a real machine: `ct-setup transport direct` on a Direct install said 'already uses that NAME' (the rename wording)."""
+
+    def test_it_says_method_not_name(self):
+        import argparse
+        import io
+        from contextlib import redirect_stderr
+        from unittest import mock
+        cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
+        out = io.StringIO()
+        with mock.patch.object(migrate.config, "load", return_value=cfg), redirect_stderr(out):
+            rc = migrate.transport_command(argparse.Namespace(name="direct", apply=False), None, None, None, None)
+        self.assertEqual(rc, 0)
+        self.assertIn("already uses that method", out.getvalue())
+        self.assertNotIn("already uses that name", out.getvalue())

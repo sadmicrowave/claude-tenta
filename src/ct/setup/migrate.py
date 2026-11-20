@@ -273,7 +273,7 @@ def transport_command(a, host, ask, ssh_factory, say, verify=None, reinstall=Non
         emit("Say which connection to use", f"One of: {', '.join(transport.TRANSPORTS)}. The install uses {old} now.", tag="ERROR", color=RED, run="ct-setup transport direct")
         return 2
     if new == old:
-        emit("The install already uses that name", ("Name", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
+        emit("The install already uses that method", ("Method", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host), "There is nothing to move.", tag="NOTE", color=YELLOW)
         return 0
     if new == "github":
         return back_to_github(a, host, ask, say, cfg, reinstall=reinstall, url_of=url_of)

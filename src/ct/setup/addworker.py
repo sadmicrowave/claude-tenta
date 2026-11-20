@@ -167,9 +167,11 @@ def found_card(devices, notes, nets, card=None):
     rows.append(("Found", f"{plural(len(devices), 'device')} answering on the SSH port: {where}. {len(servers)} look like Linux servers"
                  + (f", {len(windows)} greet as Windows (Special Use only, with the separate Windows release)" if windows else "")
                  + (f", {len(devices) - len(mine)} already yours" if len(devices) != len(mine) else "")))
+    rows.append("\n")                                                                 # the summary line, then a blank line, then the computers
     for d in devices:
         what = d.os_hint + (f" · {d.vendor}" if d.vendor else "") + ("".join(f" · {n}" for n in d.notes)) + f" · {d.latency_ms:g} ms" + (f" · on {d.iface}, virtual" if d.virtual else f" · on {d.iface}" if d.iface else "")
-        rows += [("COMPUTER", d.ip + (f"  {d.name}" if d.name else "") + ("  (already a worker)" if d.known else "")), ("", what), "\n"]            # the address and name are values; the label is a fixed word
+        who = d.ip + (f"  {d.name}" if d.name else "")
+        rows += [("COMPUTER", cards.Styled([(who, None), ("already a worker", "accent_chip")]) if d.known else who), ("", what), "\n"]            # the address and name are values; the label is a fixed word
     rows += [f"Note: {n}" for n in notes]
     rows.append("This is all the network alone can tell. Nothing was logged in to; the next steps ask before they look any deeper.")
     card("Network scan", *rows, tag="FOUND" if devices else "NONE", color=PRIMARY if devices else YELLOW, stream=sys.stderr)
@@ -247,7 +249,7 @@ def scan_for(hosts, ui, ask, say, notice, interactive, scan=None, resolve=None, 
     nets = (networks or discover.local_networks)()
     where = ", ".join(str(n.network) for _, n in nets) or "nothing"
     if banner and ui is not None:                                                 # the header comes first: before anything else is asked (the old first question drew it)
-        ui.banner(banner)
+        ui.banner(banner, unless_shown=True)                                       # `run` may have drawn it already (an install on a computer that has a configuration): once per run
     notice("Scan your network?", ("Looks at", where), ("How", "tries the SSH port on each address there, and reads this computer's list of neighbours; it does not log in to anything"),
            ("Changes", "nothing on this computer or on any other; no password is asked or sent"), ("Takes", "a few seconds, longer on a large network"),
            f"It finds the computers you can pick from. If you would rather not scan, say no and give the address yourself: ct-setup {command} box.example",
