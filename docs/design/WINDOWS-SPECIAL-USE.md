@@ -48,3 +48,4 @@ The code that does not change: the class model, the scheduler, approvals and sig
 - Supported: Windows 10 and 11 (Pro and Enterprise). Home is not a target.
 - No Claude jobs in version 1: the sign-in tool and its isolation need their own work.
 - A Windows worker refuses a class that needs no network (`network: false`), because it cannot enforce it. The refusal names the class and says why; the review card does not offer it. Nothing is accepted with a warning.
+- Windows 10 is an **unverified target** (2026-11-20): no Windows 10 test image could be found, so everything is proven on Windows 11 only. It is expected to work and is not claimed to; a beta tester will confirm. Nothing Windows-11-only may be used.
