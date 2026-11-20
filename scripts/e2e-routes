@@ -21,6 +21,7 @@ one() {  # one route: clone (from the cache, or from the shared baseline), copy 
   orb delete -f "$M" >/dev/null 2>&1 || true
   orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }
   [ "$FROM" = "$CACHE" ] && { git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"; } || true
+  [ "$route" = upgrade ] && git archive "${E2E_FROM_REV:-f4c9ae706}" | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-old && mkdir -p /opt/ct-old && tar -xf - -C /opt/ct-old'       # the OLDER release the upgrade route installs first
   local sub=routes/$script.sh; [ "$script" = baseline ] && sub=baseline.sh
   orb -m "$M" -u root bash /opt/ct-src/tests/e2e/$sub >"$OUT/$route.out" 2>&1
   local rc=$?

@@ -7,7 +7,7 @@ import fnmatch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ALL_ROUTES = ("install", "direct", "switch", "move", "rename", "uninstall", "shared", "special")
+ALL_ROUTES = ("install", "direct", "switch", "move", "rename", "uninstall", "shared", "special", "upgrade")
 ALL_PROBES = ("ownership", "release", "kernel", "locate", "fixes", "tooldirs")
 
 # (glob on the path from the repository root, extra unit modules, probes, routes). First match that fits adds to the plan; every matching rule counts.
@@ -16,8 +16,9 @@ RULES = [
     ("src/ct/rediscover.py", ("test_rediscover", "test_admin"), ("locate",), ()),
     ("src/ct/mailshell.py", ("test_mailshell",), ("ownership",), ("direct",)),
     ("src/ct/clonediag.py", ("test_clonediag", "test_real_outputs"), ("ownership",), ("direct",)),
-    ("src/ct/render.py", ("test_render",), ("kernel",), ("install",)),
-    ("templates/*", ("test_render",), ("kernel",), ("install", "direct")),
+    ("src/ct/render.py", ("test_render",), ("kernel",), ("install", "upgrade")),
+    ("templates/*", ("test_render",), ("kernel",), ("install", "direct", "upgrade")),
+    ("src/ct/update.py", ("test_update",), (), ("upgrade",)),
     ("src/ct/setup/hardening.py", ("test_install",), ("kernel", "release"), ("install", "direct", "shared", "special")),
     ("src/ct/setup/{discover,assess,addworker}.py", ("test_real_outputs", "test_assess"), ("release", "fixes"), ("direct",)),
     ("src/ct/setup/detect.py", ("test_real_outputs",), ("release",), ("install",)),
