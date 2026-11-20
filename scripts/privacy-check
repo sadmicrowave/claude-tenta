@@ -53,10 +53,15 @@ def denylist():
 STANDARD_RANGES = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")   # the three standard private blocks name no one's network
 
 
-def scan_text(label, text, rules, personal):
+MERGE_SUBJECT = re.compile(r"^Merge pull request #\d+ from [\w.-]+/[\w./-]+$")      # the subject GitHub writes for a merge: the project's own public account and a branch name, not a person's detail
+
+
+def scan_text(label, text, rules, personal, merge_subject_ok=False):
     hits = []
     for n, line in enumerate(text.splitlines(), 1):
         if "privacy-ok" in line:
+            continue
+        if merge_subject_ok and n == 1 and MERGE_SUBJECT.match(line):
             continue
         for block in STANDARD_RANGES + ("git@github.com",):      # git@github.com is the standard SSH address, not a person
             line = line.replace(block, "")
@@ -126,7 +131,7 @@ def main(argv):
                 for who in rest[:2]:
                     if not (who.endswith("@users.noreply.github.com>") or who == "GitHub <noreply@github.com>"):          # the second is GitHub's own identity as the committer of a merge made in its web interface
                         hits.append(f"{sha[:8]}:author: [email] not a GitHub noreply address")
-                hits += scan_text(f"{sha[:8]}:message", "\n".join(rest[2:]), GENERIC, personal)
+                hits += scan_text(f"{sha[:8]}:message", "\n".join(rest[2:]), GENERIC, personal, merge_subject_ok=True)
         patch = git("log", "--all", "-p", "--format=", "--no-color")
         hits += scan_text("history-patch", "\n".join(added_lines(patch)), GENERIC, personal)
     else:
