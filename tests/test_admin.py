@@ -4,6 +4,7 @@ import io
 from types import SimpleNamespace
 import re
 import json
+import tempfile
 import os
 import subprocess
 import unittest
@@ -1268,6 +1269,7 @@ class ReleaseMismatch(AdminBase):
         ctx.name, ctx.ssh.host = "tenta3", "h"
         ctx.source.resolve.return_value = "f" * 40
         ctx.source.relation.return_value = "unpublished"
+        ctx.repos.results = tempfile.mkdtemp()
         with mock.patch.object(cli.release, "installed_rev", return_value="1" * 40), mock.patch.object(cli, "emit") as e, mock.patch.object(cli, "show_diff") as diff:
             rc = cli.apply(ctx, argparse.Namespace(rev=None, yes=True, force=False, no_verify=False, full=False))
         self.assertEqual(rc, 1)
@@ -1626,6 +1628,19 @@ class ApplyOnAnAlreadyCurrentWorker(AdminBase):
         code, text = self.run_apply()
         self.assertEqual(code, 0)
         self.assertEqual(text.count("Nothing to change"), 1, text)
+
+    def test_it_refuses_a_worker_of_another_platform_and_changes_nothing(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"platform": "windows"}))
+        code, text = self.run_apply("--force")
+        self.assertEqual(code, 1, text)
+        self.assertIn("This release is not for that worker", text)
+        self.assertIn("windows", text)
+        self.assertNotIn("Install ", text)
+
+    def test_a_worker_that_publishes_no_platform_is_linux(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"release": "0" * 40}))
+        code, text = self.run_apply()
+        self.assertNotIn("not for that worker", text)
 
     def test_the_force_hint_names_the_worker_so_it_does_not_force_them_all(self):
         code, text = self.run_apply()

@@ -1214,8 +1214,16 @@ def fleet_apply_summary(outcomes, rev):
 
 
 def apply(ctx, a):
-    sha = ctx.source.resolve(a.rev)
     outcomes = getattr(a, "outcomes", None)
+    theirs = (workers.read_state(ctx.repos.results) or {}).get("platform")
+    if theirs and theirs != release.PLATFORM:                                                   # this release installs on Linux; another platform has its own release line
+        emit("This release is not for that worker", ("Worker", alias.show(ctx.name)), ("It runs", theirs), ("This release is for", release.PLATFORM),
+             "Nothing was changed. A worker on another platform is brought up to date with the release line made for it.", tag="NOT CHANGED", color=YELLOW,
+             steps=["The Windows release is not available yet (docs/design/WINDOWS-SPECIAL-USE.md)."] if theirs == "windows" else None, steps_label="What to do")
+        if outcomes is not None:
+            outcomes.append((ctx.name, "left"))
+        return 1
+    sha = ctx.source.resolve(a.rev)
     now = release.installed_rev(ctx.ssh, ctx.name)
     if now and now != sha and ctx.source.relation(now) == "unpublished" and not a.force:
         emit("A worker runs a commit the release source does not have", ("Worker", alias.show(ctx.name)), ("It runs", release.short(now)), ("Apply would install", release.short(sha)),

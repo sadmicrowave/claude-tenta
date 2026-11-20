@@ -15,6 +15,9 @@ ROOT_RUN = ("src/ct/update.py", "src/ct/render.py", "src/ct/sandboxtest.py", "sr
 SELFTEST_CLASS = "sys-status"
 
 
+PLATFORM = "linux"                       # what this release installs on: the Windows release is a separate line (docs/design/WINDOWS-SPECIAL-USE.md)
+
+
 def short(sha):
     return (sha or "")[:9]
 

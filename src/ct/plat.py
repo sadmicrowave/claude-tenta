@@ -9,13 +9,18 @@ Today there is one implementation, POSIX. Where Windows would differ, `_not_yet(
 """
 import os
 import signal
-import subprocess
+import sys
 from collections import namedtuple
 from pathlib import Path
 
 IS_WINDOWS = os.name == "nt"
 TERM = signal.SIGTERM                                     # ask a process to stop
 KILL = getattr(signal, "SIGKILL", signal.SIGTERM)         # make it stop
+
+def name():
+    """The platform this worker runs on, as it publishes it: linux, macos or windows."""
+    return "windows" if IS_WINDOWS else "macos" if sys.platform == "darwin" else "linux"
+
 
 ChildUsage = namedtuple("ChildUsage", "cpu_s maxrss_kb")
 

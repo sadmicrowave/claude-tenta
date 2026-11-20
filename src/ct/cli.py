@@ -150,7 +150,7 @@ class Context:
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
                     "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
                     "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
-                    "isolation_mode": cfg.isolation.mode, "isolation_purpose": cfg.isolation.purpose, "tool_roots": list(cfg.isolation.tool_roots),
+                    "platform": plat.name(), "isolation_mode": cfg.isolation.mode, "isolation_purpose": cfg.isolation.purpose, "tool_roots": list(cfg.isolation.tool_roots),
                     **workerstate.transport_facts(transport.for_config(cfg).kind, origin_of(cfg.path("queue_clone"))),          # what this worker really fetches over: the scheduler trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
 

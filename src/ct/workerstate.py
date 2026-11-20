@@ -85,6 +85,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
                      "native_claude": extra.get("native_claude"), "capacity": extra.get("capacity")},
         "claude": extra.get("claude") or {"auth": "none"},
         "isolation": {"ready": bool(jail.ready()), "method": jail.name, "mode": extra.get("isolation_mode") or "full", "purpose": extra.get("isolation_purpose") or "tenta-only", "tool_roots": list(extra.get("tool_roots") or [])},
+        "platform": extra.get("platform") or "linux",
         "classes": sorted(((registry or {}).get("classes") or {})),
         **({"tool_check": checks} if (checks := tool_check(registry, extra.get("tool_roots"), extra.get("isolation_mode"))) else {}),         # which tool a class with tool folders would really run
         "packages": packages_of(registry),
