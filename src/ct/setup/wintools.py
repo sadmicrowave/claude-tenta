@@ -5,8 +5,9 @@ quoting or command-line length limit of the default cmd shell applies). It print
 
   git     an existing `git` is used; else MinGit (the official minimal Git for Windows zip) is downloaded, its SHA-256 compared with the pinned one BEFORE anything is unpacked, and unpacked
           with `tar` into <tools>\\git. No installer, no administrator rights, nothing on the system PATH.
-  python  an existing Python 3.11 or newer is used; else `winget` installs it for this user (winget checks the package's hash itself). python.org publishes only MD5 for the Windows
-          embeddable zip, which cannot be a pin, so that route is not used; with no Python and no winget the error says what to do.
+  python  an existing Python 3.11 or newer is used; else `winget` installs it for this user (winget checks the package's hash itself); else (no winget, or it failed) the official
+          python.org installer is downloaded, its SHA-256 compared with the pinned one and its Authenticode signature checked (signer Python Software Foundation) BEFORE it is run, then run
+          silently for this user into <tools>\\python (no administrator rights, nothing on PATH). python.org publishes only MD5 for the embeddable zip, which also has no venv, so it is not used.
 Standard library only.
 """
 import json
@@ -16,6 +17,10 @@ GIT = {"version": "2.56.1", "name": "MinGit-2.56.1-64-bit.zip", "size": 39849768
        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/MinGit-2.56.1-64-bit.zip",
        "sha256": "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd"}      # the digest GitHub states for that release asset
 PYTHON_WINGET_ID = "Python.Python.3.13"
+PYTHON = {"version": "3.13.17", "name": "python-3.13.17-amd64.exe", "size": 29941280,
+          "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe",
+          "sha256": "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190",     # computed from the file on python.org (it publishes only MD5 and GPG); also checked: Authenticode signer
+          "signer": "Python Software Foundation"}
 MIN_PYTHON = (3, 11)
 DEFAULT_TOOLS = r"%ProgramData%\claude-tenta\tools"
 POWERSHELL = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"]       # the script itself arrives on standard input
@@ -32,6 +37,7 @@ def installer_script(tools_dir=DEFAULT_TOOLS):
     if not TOOLS_RE.match(tools_dir) or ".." in tools_dir:
         raise ValueError(f"not a folder this installer will write to: {tools_dir!r}")
     g = GIT
+    p = PYTHON
     return f"""$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $tools = [Environment]::ExpandEnvironmentVariables('{tools_dir}')
@@ -42,16 +48,34 @@ try {{
   foreach ($name in 'python', 'py') {{
     $c = Get-Command $name -ErrorAction SilentlyContinue
     if ($c -and $c.Source -notlike '*WindowsApps*') {{
-      $v = (& $c.Source --version 2>&1) -join ''
+      $v = ''
+      try {{ $v = (& $c.Source --version 2>&1) -join '' }} catch {{ $v = '' }}                      # a stale entry (an uninstalled Python still on PATH) is skipped, not fatal
       if ($v -match 'Python (\\d+)\\.(\\d+)' -and ([int]$Matches[1] -gt {MIN_PYTHON[0]} -or ([int]$Matches[1] -eq {MIN_PYTHON[0]} -and [int]$Matches[2] -ge {MIN_PYTHON[1]}))) {{ $py = $c.Source; $pyv = $v.Trim(); break }}
     }}
   }}
   if (-not $py) {{
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {{ Fail 'python' 'there is no Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer, and winget is not available to install one: install Python from python.org, then run this again' }}
-    & winget install --id {PYTHON_WINGET_ID} --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
-    if ($LASTEXITCODE -ne 0) {{ Fail 'python' "winget exited with $LASTEXITCODE" }}
-    $py = Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python313\\python.exe'
-    if (-not (Test-Path $py)) {{ Fail 'python' 'winget finished, but python.exe is not where it was expected' }}
+    $viaWinget = $false
+    if (Get-Command winget -ErrorAction SilentlyContinue) {{
+      & winget install --id {PYTHON_WINGET_ID} --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
+      $cand = Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python313\\python.exe'
+      if (($LASTEXITCODE -eq 0) -and (Test-Path $cand)) {{ $py = $cand; $viaWinget = $true }}
+    }}
+    if (-not $viaWinget) {{
+      New-Item -ItemType Directory -Force -Path $tools | Out-Null
+      $exe = Join-Path $tools '{p["name"]}'
+      & curl.exe -L --fail --silent --show-error -o $exe '{p["url"]}'
+      if ($LASTEXITCODE -ne 0) {{ Fail 'python' "there is no Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer, winget is not available or failed, and the download from python.org failed (curl exit $LASTEXITCODE)" }}
+      $got = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+      if ($got -ne '{p["sha256"]}') {{ Remove-Item $exe -Force; Fail 'python' "the download's SHA-256 is $got but {p["sha256"]} was expected: refused, nothing was run" }}
+      $sig = Get-AuthenticodeSignature $exe
+      if (($sig.Status -ne 'Valid') -or ($sig.SignerCertificate.Subject -notlike '*{p["signer"]}*')) {{ Remove-Item $exe -Force; Fail 'python' "the installer's signature is $($sig.Status), not a valid one from {p["signer"]}: refused, nothing was run" }}
+      $pydir = Join-Path $tools 'python'
+      $proc = Start-Process -FilePath $exe -ArgumentList '/quiet', 'InstallAllUsers=0', 'PrependPath=0', 'Include_launcher=0', 'Include_test=0', "TargetDir=$pydir" -Wait -PassThru
+      Remove-Item $exe -Force
+      if ($proc.ExitCode -ne 0) {{ Fail 'python' "the Python installer exited with $($proc.ExitCode)" }}
+      $py = Join-Path $pydir 'python.exe'
+      if (-not (Test-Path $py)) {{ Fail 'python' 'the Python installer finished, but python.exe is not where it was expected' }}
+    }}
     $pyv = ((& $py --version 2>&1) -join '').Trim()
     $changed = $true
   }}

@@ -42,9 +42,25 @@ class Script(unittest.TestCase):
     def test_the_script_ends_with_a_blank_line_or_powershell_on_stdin_never_runs_it(self):
         self.assertTrue(wintools.installer_script(wintools.DEFAULT_TOOLS).endswith("}\n\n"))
 
-    def test_python_comes_from_winget_never_from_an_unchecked_download(self):
+    def test_python_comes_from_winget_else_from_python_org_checked_by_hash_and_signature(self):
         self.assertIn("winget install --id Python.Python.3.13 --scope user", self.s)
         self.assertNotIn("embed", self.s.lower())
+        p = wintools.PYTHON
+        self.assertRegex(p["sha256"], r"^[0-9a-f]{64}$")
+        self.assertTrue(p["url"].startswith("https://www.python.org/ftp/python/"))
+        self.assertTrue(p["url"].endswith(p["name"]))
+        self.assertIn(p["sha256"], self.s)
+        i = self.s.index("Get-AuthenticodeSignature")
+        self.assertLess(self.s.index("-ne '" + p["sha256"]), i)                       # hash first, then signature
+        self.assertLess(i, self.s.index("Start-Process"))                              # both before anything is run
+        self.assertIn("Python Software Foundation", self.s)
+
+    def test_a_stale_python_on_path_is_skipped_not_fatal(self):
+        self.assertRegex(self.s, r"try \{ \$v = \(& \$c\.Source --version")
+
+    def test_a_failed_or_missing_winget_falls_back_instead_of_stopping(self):
+        self.assertNotIn("winget is not available to install one", self.s)
+        self.assertIn("$viaWinget", self.s)
 
     def test_it_prints_one_result_line_and_a_failure_names_what_failed(self):
         self.assertIn("CT-RESULT ", self.s)
