@@ -66,6 +66,20 @@ class Units(unittest.TestCase):
         github = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)
         self.assertTrue(all("-mail" not in t for t in github.values()))
 
+    def test_a_shared_computers_limits_reach_the_step_unit_and_nothing_set_changes_nothing(self):
+        """The jobs run in the step service's cgroup, so its limits keep them from taking a computer other people use: only what the owner set is written, and an install that set none gets the unit it always had."""
+        plain = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)["homect-step.service"]
+        for key in ("CPUWeight", "IOWeight", "MemoryMax", "Nice"):
+            self.assertNotIn(key, plain)
+        self.assertIn("Type=oneshot\n# a pass should take seconds", plain)                     # byte for byte the unit text it was
+        shared = cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_CPU_WEIGHT="20", CT_AVAILABILITY_IO_WEIGHT="20", CT_AVAILABILITY_MEMORY_MAX_PERCENT="50", CT_AVAILABILITY_NICE="10")
+        units = render.unit_files(shared, TEMPLATES)
+        self.assertIn("Type=oneshot\nCPUWeight=20\nIOWeight=20\nMemoryMax=50%\nNice=10\n# a pass should take seconds", units["homect-step.service"])
+        self.assertNotIn("CPUWeight", units["homect-fetch.service"])                              # only the unit that starts the jobs
+        only = render.unit_files(cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_NICE="19"), TEMPLATES)["homect-step.service"]
+        self.assertIn("Type=oneshot\nNice=19\n", only)
+        self.assertNotIn("CPUWeight", only)
+
     def test_every_unit_is_rendered_with_the_installs_names_and_no_placeholder_is_left(self):
         c = cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1", CT_SCHEDULE_FETCH_S="45", CT_SCHEDULE_UPDATE_MIN="30")
         units = render.unit_files(c, TEMPLATES)

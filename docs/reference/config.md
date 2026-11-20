@@ -75,6 +75,10 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 |---|---|---|---|
 | `pause_when_logged_in` | `false` | bool | do not start a job while a person is logged in on this computer (for a computer other people use: it works in their idle time; a job already running finishes) |
 | `ignore_users` | `[]` | list | accounts whose login does not count as 'a person is using it' (for example the admin account you SSH in with) |
+| `cpu_weight` | `0` | int | how much processor time the worker's jobs get against everything else on this computer (1 to 10000; the normal share is 100, so 20 lets a person's own work win; 0 = unset, the system's default). Applied to the jobs' service by systemd |
+| `io_weight` | `0` | int | the same for disk access (1 to 10000, normal 100; 0 = unset) |
+| `memory_max_percent` | `0` | int | the most memory, as a percent of this computer's, that all the worker's jobs together may use; a job that would go over is stopped, so the person keeps their memory (10 to 100; 0 = unset) |
+| `nice` | `0` | int | scheduling priority of the jobs, 19 = most polite (0 = unset) |
 | `window` | `` | text | only start jobs within these hours on this computer's own clock, for example 22:00-07:00 (empty = any time) |
 
 ## [alerts]

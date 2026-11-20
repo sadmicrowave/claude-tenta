@@ -98,6 +98,10 @@ packs = ["core"]                # off-limits rule packs to apply
 pause_when_logged_in = false     # true: do not start a job while a person is logged in (a computer other people use works in their idle time; a running job finishes)
 ignore_users = []                # accounts whose login does not count (for example the admin account you SSH in with)
 window = ""                      # only start jobs within these hours on this computer's own clock, for example "22:00-07:00" (empty = any time)
+cpu_weight = 0                   # how much processor time the jobs get against everything else here (1 to 10000, the normal share is 100; 20 lets a person's own work win; 0 = unset)
+io_weight = 0                    # the same for disk access (0 = unset)
+memory_max_percent = 0           # the most memory, as a percent of this computer's, that all the jobs together may use (a job that would go over is stopped; 0 = unset)
+nice = 0                         # scheduling priority of the jobs, 19 = most polite (0 = unset)
 
 [hardening]
 modules = ["ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]
