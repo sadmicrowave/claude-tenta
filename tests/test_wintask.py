@@ -29,6 +29,9 @@ class Script(unittest.TestCase):
         for needle in (r"tools\python\python.exe", r"release\src", r"config\ct.toml", r"state\worker.log", "-m ct.cli run", "-WorkingDirectory"):
             self.assertIn(needle, self.s)
 
+    def test_the_worker_finds_the_tools_git_because_the_task_puts_it_on_the_workers_own_path(self):
+        self.assertIn(";%PATH%", self.s)
+
     def test_a_matching_task_is_left_alone_so_the_password_is_not_touched_again(self):
         i = self.s.index("-like \"*definition $hash*\"")
         self.assertLess(i, self.s.index("Set-LocalUser"))

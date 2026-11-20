@@ -49,7 +49,7 @@ class WindowsSaysSoPlainly(unittest.TestCase):
     """Where the Windows port has not been written, the seam stops with a sentence that names the design, never a quiet wrong answer. Simulated here by saying the platform is Windows."""
 
     def test_each_unwritten_function_raises_with_the_pointer(self):
-        calls = [lambda: plat.try_lock(object())]                    # what is still unwritten; process control and measuring are written (tests/test_winproc.py)
+        calls = []                                                  # nothing is unwritten now: process control, measuring and the file lock are written (tests/test_winproc.py)
         with mock.patch.object(plat, "IS_WINDOWS", True):
             for call in calls:
                 with self.assertRaises(NotImplementedError) as e:

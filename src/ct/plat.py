@@ -181,7 +181,13 @@ def cpuinfo_text():
 def try_lock(f):
     """Take an exclusive lock on the open file `f` without waiting. True when taken, False when another process holds it. It is released when the file is closed."""
     if IS_WINDOWS:
-        _not_yet("a file lock")
+        import msvcrt
+        try:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)           # the first byte; another process holding it makes this raise at once
+            return True
+        except OSError:
+            return False
     import fcntl
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)

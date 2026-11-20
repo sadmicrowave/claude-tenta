@@ -16,3 +16,9 @@ How a job reaches the worker over SSH. Known problem to design for: an SSH login
 
 ## Not covered anywhere yet
 Windows 10 (unverified, awaiting a beta tester), a reboot of the VM, GitHub transport to a Windows worker.
+
+## 4d-1 result (run on the real Windows 11 VM, as the administrator account)
+- `ct.cli help` and `ct.cli status` work: memory, disk and the state read from the configuration (heat is "unreadable": no sensor, as on a VM). The worker's Windows unit tests (21) pass there.
+- Found by running it, and fixed: the context built `LinuxSensors` directly (now `runner.default_sensors()`); the file lock was unwritten (now `msvcrt.locking`, tested across two processes); `git` was not on the worker's PATH (the start task now puts `tools\git\cmd` first on the worker's own PATH, never on the system PATH).
+- Next failure, by design (what is not there yet): `fetch` / `run` stop with a raw `FileNotFoundError` for `config\registry.yaml`, which the installer slice will write. A raw traceback is not an acceptable end-user message: the installer slice must make the worker say plainly that it is not set up and what to run (both operating systems share the path).
+- Not run: as `ctworker` through the start task (needs the registry and queue first), a reboot.

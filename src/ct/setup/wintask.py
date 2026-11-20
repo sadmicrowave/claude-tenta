@@ -49,7 +49,7 @@ def ensure_script(root=ROOT, user=USER, task=TASK, args=DEFAULT_ARGS):
   if (-not (Test-Path $py)) { Fail 'python' "there is no Python at ${py}: run the tools installer first (ct-setup add-worker)" }
   if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) { Fail 'account' "there is no account ${u}: run the layout step first" }
   $log = Join-Path $root 'state\worker.log'
-  $inner = 'set "PYTHONPATH=' + (Join-Path $root 'release\src') + '" && set "CT_CONFIG=' + (Join-Path $root 'config\ct.toml') + '" && "' + $py + '" @ARGS@ >> "' + $log + '" 2>&1'
+  $inner = 'set "PATH=' + (Join-Path $root 'tools\git\cmd') + ';%PATH%" && set "PYTHONPATH=' + (Join-Path $root 'release\src') + '" && set "CT_CONFIG=' + (Join-Path $root 'config\ct.toml') + '" && "' + $py + '" @ARGS@ >> "' + $log + '" 2>&1'
   $arg = '/d /c "' + $inner + '"'
   $hash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($arg + '|' + $u + '|restart1m|nolimit|startup'))).Replace('-', '').ToLower().Substring(0, 16)
   $existing = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
