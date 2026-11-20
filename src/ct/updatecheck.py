@@ -16,17 +16,18 @@ from pathlib import Path
 from . import plat
 
 TAG_RE = re.compile(r"^release-(\d+)\.(\d+)\.(\d+)$")
+TAG_RE_FOR = {"linux": TAG_RE, "windows": re.compile(r"^release-win-(\d+)\.(\d+)\.(\d+)$")}      # the Windows release is its own line of tags: the Linux check can never see it, nor the other way round
 CACHE_FILE = "update-check.json"
 CHECK_EVERY_S = 86400
 BANNER_EVERY_S = 43200
 
 
 def version_tuple(text):
-    m = re.match(r"^(?:release-)?v?(\d+)\.(\d+)\.(\d+)", (text or "").strip())
+    m = re.match(r"^(?:release-)?(?:win-)?v?(\d+)\.(\d+)\.(\d+)", (text or "").strip())
     return tuple(int(x) for x in m.groups()) if m else None
 
 
-def parse_tags(ls_remote_text):
+def parse_tags(ls_remote_text, platform="linux"):
     """{tag: commit} for `release-X.Y.Z` tags from `git ls-remote --tags`; an annotated tag's own line is replaced by the commit it points to (the `^{}` line)."""
     out = {}
     for line in (ls_remote_text or "").splitlines():
@@ -36,7 +37,7 @@ def parse_tags(ls_remote_text):
         tag = ref[len("refs/tags/"):]
         peeled = tag.endswith("^{}")
         tag = tag[:-3] if peeled else tag
-        if TAG_RE.match(tag) and (peeled or tag not in out):
+        if TAG_RE_FOR[platform].match(tag) and (peeled or tag not in out):
             out[tag] = sha
     return out
 
@@ -66,7 +67,7 @@ def save(home, data):
         pass                                         # a cache that cannot be written is not worth an error
 
 
-def check_now(url, run=subprocess.run, now=time.time, timeout=10):
+def check_now(url, run=subprocess.run, now=time.time, timeout=10, platform="linux"):
     """Ask the project repository for its release tags. Returns the cache entry: {checked, tag, commit} or {checked, error}."""
     try:
         r = run(["git", "ls-remote", "--tags", url, "release-*"], capture_output=True, text=True, timeout=timeout,
@@ -75,7 +76,7 @@ def check_now(url, run=subprocess.run, now=time.time, timeout=10):
         return {"checked": int(now()), "error": str(e)[:120]}
     if r.returncode != 0:
         return {"checked": int(now()), "error": (r.stderr or "").strip()[-120:] or "could not reach the release source"}
-    found = latest(parse_tags(r.stdout))
+    found = latest(parse_tags(r.stdout, platform))
     return {"checked": int(now()), **({"tag": found[0], "commit": found[1]} if found else {})}
 
 

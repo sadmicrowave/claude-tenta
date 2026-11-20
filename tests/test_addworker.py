@@ -75,10 +75,10 @@ class Base(unittest.TestCase):
             return Inst()
         return make
 
-    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None, command="add-worker", win_runner=None):
+    def run_flow(self, a, ask=None, scan=None, assess_fn=None, interactive=False, mutate=None, command="add-worker", win_runner=None, find_release=None):
         asks = iter(ask or [])
         return addworker.run(a, Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(mutate), interactive=interactive, networks=lambda: [],
-                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, command=command, win_runner=win_runner)
+                             scan=scan or (lambda nets, known=(): ([], [])), assess=assess_fn or (lambda h, u, p=22: GOOD), resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, command=command, win_runner=win_runner, find_release=find_release)
 
 
 class Targeted(Base):
@@ -140,16 +140,43 @@ class Targeted(Base):
 WIN = assess.windows_verdict("win.example")
 RESULT = 'CT-RESULT {"git":"git version 2.56.1.windows.1","git_path":"C:\\\\g.exe","python":"Python 3.13.17","python_path":"C:\\\\p.exe","changed":true}'
 
+REL_OK = 'CT-RESULT {"commit": "' + "a" * 40 + '", "path": "C:\\\\r", "changed": true}'
+
 
 class AWindowsComputer(Base):
-    def go(self, out, **kw):
+    def go(self, out, release=None, fetched=None, **kw):
         sent = []
 
         def runner(argv, text):
             sent.append((argv, text))
-            return 0, out
-        rc = self.run_flow(args(name="win.example", user="me", **kw), assess_fn=lambda h, u, p=22: WIN, win_runner=runner, interactive=False)
+            return 0, (fetched or REL_OK) if "rev-parse HEAD" in text and "init -q" in text else out
+        rc = self.run_flow(args(name="win.example", user="me", **kw), assess_fn=lambda h, u, p=22: WIN, win_runner=runner, interactive=False,
+                           find_release=lambda url, platform=None: release if release is not None else {"checked": 1})
         return rc, sent
+
+    def test_the_latest_windows_release_is_fetched_by_its_commit_and_named_on_the_card(self):
+        rc, sent = self.go(RESULT, release={"checked": 1, "tag": "release-win-0.1.0", "commit": "a" * 40}, yes=True)
+        self.assertEqual(rc, 0, self.text())
+        self.assertEqual(len(sent), 2)
+        self.assertIn("a" * 40, sent[1][1])
+        for needle in ("release-win-0.1.0", "fetched", "aaaaaaaaa"):
+            self.assertIn(needle, self.text())
+
+    def test_with_no_windows_release_published_it_says_so_and_fetches_nothing(self):
+        rc, sent = self.go(RESULT, yes=True)
+        self.assertEqual((rc, len(sent)), (0, 1))
+        self.assertIn("No Windows release has been published yet", self.text())
+
+    def test_a_release_that_cannot_be_looked_up_is_said_not_hidden(self):
+        rc, sent = self.go(RESULT, release={"checked": 1, "error": "could not reach the release source"}, yes=True)
+        self.assertEqual((rc, len(sent)), (0, 1))
+        self.assertIn("could not reach the release source", self.text())
+
+    def test_a_failed_fetch_keeps_git_words_and_says_the_tools_are_ready(self):
+        rc, sent = self.go(RESULT, release={"checked": 1, "tag": "release-win-0.1.0", "commit": "a" * 40}, fetched='CT-ERROR {"what": "release", "detail": "the fetch failed: not our ref"}', yes=True)
+        self.assertEqual(rc, 1)
+        for needle in ("tools are ready, but the Windows release could not be fetched", "not our ref", "release-win-0.1.0"):
+            self.assertIn(needle, self.text())
 
     def test_its_tools_are_installed_over_the_runner_and_the_card_says_what_it_is_and_is_not(self):
         rc, sent = self.go(RESULT, yes=True)
