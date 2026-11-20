@@ -159,5 +159,72 @@ class BackToGitHub(unittest.TestCase):
         self.assertEqual(self.reinstalls[0][:2], ["install", "tenta2.example"])
 
 
+class BackToGitHubWithoutAnAccount(unittest.TestCase):
+    """Found by a real run (scripts/real-github-check): a Direct install never records a GitHub account, so the way back refused with 'not named in the configuration' and advice that did not help."""
+
+    head = BackToGitHub.head
+
+    def setUp(self):
+        BackToGitHub.setUp(self)
+        self.addCleanup(lambda: None)
+        self.cfg_file.write_text(self.cfg_file.read_text().replace('owner = "someone"\n', ""))        # what a Direct install leaves: no account
+
+    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="tenta2", sets=(), login=None, interactive_answer=None):
+        from types import SimpleNamespace
+        a = SimpleNamespace(name="github", apply=apply, yes=yes, worker=worker, here=False, set=list(sets))
+        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        out, asked = [], []
+
+        def ask(prompt):
+            asked.append(prompt)
+            return interactive_answer if interactive_answer is not None else "y"
+        host = Host()
+        real_run = host.run
+        host.run = lambda argv, **kw: (__import__("ct.setup.host", fromlist=["Result"]).Result(0, login + "\n") if (login and argv[:3] == ["gh", "api", "user"]) else
+                                       __import__("ct.setup.host", fromlist=["Result"]).Result(1, "not signed in") if argv[:3] == ["gh", "api", "user"] else real_run(argv, **kw))
+        rc = migrate.back_to_github(a, host, ask, out.append, cfg, reinstall=lambda av: self.reinstalls.append(av) or reinstall_rc, url_of=lambda c, which: str(self.gh[which]))
+        self.asked = asked
+        return rc, out
+
+    def test_the_account_can_be_given_on_the_command_line_and_is_kept(self):
+        rc, _ = self.run_move(sets=["github.owner=someone"])
+        self.assertEqual(rc, 0)
+        self.assertIn("github.owner=someone", self.reinstalls[0])                                  # the installer is told the account too
+        text = self.cfg_file.read_text()
+        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"CT_CONFIG": ""})).kind, "github")        # GitHub is the default, so the file simply no longer says direct
+        self.assertNotIn('kind = "direct"', text)
+        self.assertIn('owner = "someone"', text)                                                   # and the configuration remembers it
+
+    def test_the_signed_in_github_account_is_used_when_none_is_given(self):
+        rc, _ = self.run_move(login="signed-in-user")
+        self.assertEqual(rc, 0)
+        self.assertIn("github.owner=signed-in-user", self.reinstalls[0])
+        self.assertIn('owner = "signed-in-user"', self.cfg_file.read_text())
+
+    def test_with_no_account_anywhere_it_says_the_one_command_that_fixes_it_and_changes_nothing(self):
+        rc, out = self.run_move(yes=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.reinstalls, [])
+        self.assertIn('kind = "direct"', self.cfg_file.read_text())
+        self.assertEqual(self.head("queue"), "")
+        import io
+        from contextlib import redirect_stderr
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.run_move(yes=True)
+        self.assertIn("--set github.owner=", err.getvalue())                                       # the exact command, not "run ct-setup install"
+        self.assertNotIn("Run this\n\nct-setup install", err.getvalue())
+
+    def test_a_person_at_a_terminal_is_asked_for_the_account_and_enter_takes_the_signed_in_one(self):
+        from types import SimpleNamespace
+        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        host = Host()
+        host.run = lambda argv, **kw: __import__("ct.setup.host", fromlist=["Result"]).Result(0, "signed-in-user\n")
+        a = SimpleNamespace(set=[])
+        self.assertEqual(migrate.github_owner_for(a, host, cfg, lambda p: "typed-name", True), "typed-name")
+        self.assertEqual(migrate.github_owner_for(a, host, cfg, lambda p: "", True), "signed-in-user")
+        self.assertEqual(migrate.github_owner_for(a, host, cfg, None, False), "signed-in-user")
+
+
 if __name__ == "__main__":
     unittest.main()
