@@ -48,8 +48,10 @@ try {{
     if ($LASTEXITCODE -ne 0) {{ Remove-Item -Recurse -Force $new; Fail 'release' "the checkout failed: $out" }}
     $have = ((& $git -C $new rev-parse HEAD 2>$null) -join '').Trim()
     if ($have -ne '{commit}') {{ Remove-Item -Recurse -Force $new; Fail 'release' "the commit fetched is $have but {commit} was expected: refused, nothing is kept" }}
-    if (Test-Path $dest) {{ Remove-Item -Recurse -Force $dest }}
-    Move-Item $new $dest
+    if (-not (Test-Path $dest)) {{ New-Item -ItemType Directory -Force -Path $dest | Out-Null }}
+    & robocopy.exe $new $dest /MIR /COPY:D /DCOPY:D /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null           # into the folder that is already there, copying data only: files take the access that folder gives them (the worker account's, set by the layout step), which replacing the folder would lose
+    if ($LASTEXITCODE -ge 8) {{ Fail 'release' "copying the verified release into place failed (robocopy exit $LASTEXITCODE)" }}
+    Remove-Item -Recurse -Force $new
     $changed = $true
   }}
   Write-Output ('CT-RESULT ' + (@{{commit = $have; path = $dest; changed = $changed}} | ConvertTo-Json -Compress))

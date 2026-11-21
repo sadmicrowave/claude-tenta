@@ -1,0 +1,7 @@
+name = "windows-core"
+version = "0.1.0"
+description = "A first, portable job class set for a Windows worker (version 1 of the Windows line)"
+kinds = ["classes"]
+
+[requires]
+os = ["windows"]
