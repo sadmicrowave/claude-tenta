@@ -9,14 +9,14 @@ import time
 from pathlib import Path
 
 from .. import config, transport, updatecheck
-from . import winfiles, winlayout, winmailbox, winrelease, wintask, wintools
+from . import report as report_mod, winfiles, winlayout, winmailbox, winrelease, wintask, wintools
 from .server import SetupError
 
 FIRST_JOB = "win-status"
 
 
 class WindowsInstaller:
-    def __init__(self, conf, home, name, host, user, suggest=None, *, run=None, say=None, find_release=None, repos_factory=None, submit=None, sleep=time.sleep, release_commit=None, wait_s=120):
+    def __init__(self, conf, home, name, host, user, suggest=None, *, run=None, say=None, find_release=None, repos_factory=None, submit=None, sleep=time.sleep, release_commit=None, wait_s=120, styled=False):
         self.conf, self.home, self.name, self.host, self.user = Path(conf), Path(home), name, host, user
         self.suggest = suggest or {}
         self.port = int(self.suggest.get("server.ssh_port", 22) or 22)
@@ -26,18 +26,19 @@ class WindowsInstaller:
         self.repos_factory, self.submit, self.sleep, self.wait_s = repos_factory, submit, sleep, wait_s
         self.release_commit = release_commit or os.environ.get("CT_WINDOWS_RELEASE_COMMIT")          # for testing a commit that has no release tag yet; never needed in normal use
         self.report = []
+        self.r = report_mod.Styler(styled=styled, verbose=False)          # the setup's own style for its progress rows (plain text without a terminal)
 
     # ---- helpers ----
     def note(self, what, status, detail=""):
         self.report.append((what, status, detail))
-        self.say(f"  {what:24} {status}  {detail}".rstrip())
+        self.say(self.r.note(status, what, detail))
 
     def step(self, what, fn, fix):
         try:
             return fn()
         except wintools.WinToolsError as e:
             self.report.append((what, "failed", f"{e.what}: {e.detail}"))
-            raise SetupError(f"The Windows computer could not be set up: {what}", f"{e.what}: {e.detail}", fix + ["Run the same command again: it continues from where it stopped."], facts=[("Computer", self.host)])
+            raise SetupError("A step of the Windows setup failed", f"{e.what}: {e.detail}", fix + ["Run the same command again: it continues from where it stopped."], facts=[("Step", what), ("Computer", self.host)])
 
     # ---- this computer ----
     def client_config(self):
@@ -57,7 +58,7 @@ class WindowsInstaller:
             key.parent.mkdir(parents=True, exist_ok=True)
             r = subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key), "-C", f"{cfg.identity.name} mailbox"], capture_output=True, text=True)
             if r.returncode:
-                raise SetupError("The mailbox key could not be made", (r.stderr or r.stdout).strip(), ["Check that ssh-keygen works on this computer: ssh-keygen -t ed25519 -f /tmp/test"])
+                raise SetupError("The mailbox key could not be made", (r.stderr or r.stdout).strip(), ["Run: ssh-keygen -t ed25519 -N '' -f /tmp/ct-test-key  (it must make a key without an error)"])
             key.chmod(0o600)
             self.note("mailbox key", "made", str(key))
         else:
@@ -69,7 +70,7 @@ class WindowsInstaller:
             return "(given)", self.release_commit
         entry = self.find_release(cfg.updates.source, platform="windows")
         if entry.get("error"):
-            raise SetupError("The Windows release could not be looked up", entry["error"], [f"Check that this computer can reach {cfg.updates.source}"])
+            raise SetupError("The Windows release could not be looked up", entry["error"], [f"Open {cfg.updates.source} in a browser on this computer; if it does not load, the connection to it is the problem"])
         if not entry.get("tag"):
             raise SetupError("No Windows release has been published yet", "A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.", ["Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>"])
         return entry["tag"], entry["commit"]

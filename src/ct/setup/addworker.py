@@ -403,7 +403,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         return 1
     v = (assess or assess_mod.assess)(target, user, int(getattr(a, "port", 22) or 22))
     if v.windows:
-        factory = win_installer_factory or (lambda conf, home, name, host, user_, suggest: winsetup.WindowsInstaller(conf, home, name, host, user_, suggest, run=win_runner, say=say, find_release=find_release))
+        factory = win_installer_factory or (lambda conf, home, name, host, user_, suggest: winsetup.WindowsInstaller(conf, home, name, host, user_, suggest, run=win_runner, say=say, find_release=find_release, styled=ui is not None))
         return windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, interactive, factory)
     verdict_card(target, v, notice)
     if not v.meets:
