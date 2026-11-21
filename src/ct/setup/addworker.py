@@ -197,6 +197,17 @@ def verdict_card(host, v, card=None):
         card("This computer cannot be a worker yet", ("Computer", host), *rows, tag="NOT YET", color=RED, steps=v.fixes or None, steps_label="How to fix it", stream=sys.stderr)
 
 
+def windows_factory(win_installer_factory, win_runner, say, find_release, ui):
+    """The installer for a Windows worker: the one given (tests), or the real one."""
+    return win_installer_factory or (lambda conf, home, name, host, user_, suggest: winsetup.WindowsInstaller(conf, home, name, host, user_, suggest, run=win_runner, say=say, find_release=find_release, styled=ui is not None))
+
+
+def is_windows_worker(raw):
+    """True when a worker's own configuration says its folders are on a Windows drive (C:/...)."""
+    code = str((raw.get("paths") or {}).get("code") or "")
+    return len(code) > 2 and code[1] == ":" and code[2] == "/"
+
+
 def windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, interactive, installer_factory):
     """A computer that greets as Windows: it can be a Special Use worker. Says what the setup will and will not touch, asks, then runs the Windows installer through the same registration every worker gets."""
     notice("This is a Windows computer", ("Computer", target),
@@ -303,22 +314,28 @@ def scan_for(hosts, ui, ask, say, notice, interactive, scan=None, resolve=None, 
     return choose_device(ui, ask, say, devices, configured=configured), None
 
 
-def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive):
+def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive, win_factory=None):
     """A worker you already added is set up AGAIN: the current release is sent to it, its protections and connection are checked and repaired, and a first job proves it works, using ITS OWN
     configuration and folder (the plain installer would read the first install's). Everything else stays as it is."""
     name, conf, raw = ex
     user = a.user or (raw.get("server") or {}).get("admin_user") or cfg.server.admin_user or os.environ.get("USER", "")
     home = Path((raw.get("paths") or {}).get("client_home") or paths_for(cfg, name)[1]).expanduser()
+    windows = is_windows_worker(raw)
+    if windows:
+        installer_factory = win_factory or installer_factory                  # a Windows worker is set up again with the Windows steps (every one idempotent), never the Linux installer
     notice("That computer is already a worker: set it up again", ("Worker", alias.show(name)), ("Machine", f"{user}@{target}"), ("Its configuration", str(conf)),
+           "This runs every Windows setup step again (tools, accounts, release, mailbox, the worker's files and its start task: each only changes what is not already right) and sends a first job. Your other workers and your first install are not touched." if windows else
            "This sends it the current release, checks and repairs its protections and the connection, and sends a first job. Your other workers, your first install and the commands on your PATH are not touched.",
            tag="AGAIN", color=PRIMARY, stream=sys.stderr)
     if getattr(a, "dry_run", False):                                      # a preview changes nothing: it said what would happen and stops (found on a real worker: --dry-run went on to connect and run the wizard)
         notice("Preview only", f"{name} would be set up again as described above. Nothing was connected to or changed.", tag="PREVIEW", color=PRIMARY, run=f"ct-setup install --worker {name}", run_label="To do it", stream=sys.stderr)
         return 0
-    if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
+    if interactive and not yes_no(ui, ask, say, f"Set {name} up again?", "The Windows setup steps run again for this one worker. Nothing already right is changed." if windows else "The install wizard runs for this one worker with its own answers filled in. It asks for the sudo password on that computer."):
         notice("Stopped", "Nothing was changed.", tag="STOPPED", color=YELLOW, stream=sys.stderr)
         return 1
     kind = dict(kv.split("=", 1) for kv in (getattr(a, "set", None) or []) if "=" in kv).get("transport.kind") or (raw.get("transport") or {}).get("kind")      # --set transport.kind=github is how a worker is moved back
+    if windows and kind and kind != "direct":
+        raise SetupError("A Windows worker uses the Direct connection only", "The GitHub connection is not available for a Windows worker in this version.", [f"Run: ct-setup install --worker {name}  (without --set transport.kind)"], facts=[("Worker", name)])
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
 
 
@@ -381,7 +398,8 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
             return 2
         if found[0] is MAIN:
             return MAIN
-        return rerun(a, cfg, wfile, found[1], found[1][2].get("server", {}).get("host") or a.worker, ui, ask, say, notice, installer_factory, interactive)
+        return rerun(a, cfg, wfile, found[1], found[1][2].get("server", {}).get("host") or a.worker, ui, ask, say, notice, installer_factory, interactive,
+                     windows_factory(win_installer_factory, win_runner, say, find_release, ui))
     if not target:
         target, code = scan_for(hosts, ui, ask, say, notice, interactive, scan=scan, resolve=resolve, networks=networks, command=command, banner="install" if command == "install" else "add worker")
         if target is None:
@@ -389,7 +407,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     if target in hosts:
         ex = existing_worker(target, wfile)
         if ex is not None:
-            return rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive)
+            return rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, interactive, windows_factory(win_installer_factory, win_runner, say, find_release, ui))
         if command == "install" and target == cfg.server.host:
             return MAIN
         notice("That computer is already one of your workers", f"{target} is in your configuration. To set it up again: ct-setup install --worker NAME; to see it: ct-admin workers.", tag="NOTE", color=YELLOW, run="ct-admin workers", stream=sys.stderr)
@@ -403,8 +421,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
         return 1
     v = (assess or assess_mod.assess)(target, user, int(getattr(a, "port", 22) or 22))
     if v.windows:
-        factory = win_installer_factory or (lambda conf, home, name, host, user_, suggest: winsetup.WindowsInstaller(conf, home, name, host, user_, suggest, run=win_runner, say=say, find_release=find_release, styled=ui is not None))
-        return windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, interactive, factory)
+        return windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, interactive, windows_factory(win_installer_factory, win_runner, say, find_release, ui))
     verdict_card(target, v, notice)
     if not v.meets:
         return 1
