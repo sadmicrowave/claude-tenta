@@ -4,7 +4,7 @@ The first Windows release that can be a worker. `ct-setup add-worker <windows ad
 
 ## What you get
 - **One command from your computer.** It says what it will and will not touch and asks, then installs git and Python for the worker (existing ones are used; downloads are checked against pinned hashes and, for Python, its signature), creates the worker's folders and accounts, fetches this release, sets up the Direct connection (the mailbox), writes the worker's files, registers a task that starts the worker at boot, and sends a first test job. Every step can be run again; running it again only changes what is not already right (`ct-setup install --worker NAME`).
-- **Two unprivileged accounts, never administrators.** One runs the worker and its jobs; one only receives jobs over SSH and can run nothing but git on the two mailbox repositories (it cannot log on at a desktop). Nothing is kept of either password.
+- **Two unprivileged accounts, never administrators.** One runs the worker and its jobs; one only receives jobs over SSH and can run nothing but git on the two mailbox repositories (it cannot log on at a desktop). Their passwords are random and are not kept by the setup (Windows' Task Scheduler holds the worker account's, so do not change it).
 - **`ct-run` works as it does for any worker:** `ct-run classes`, `ct-run submit CLASS --wait`, results, the round-trip breakdown.
 - **Job classes** come from the `windows-core` pack (`win-status`, `win-echo`); more are added the way every class is (`ct-admin adopt`).
 - **Each job runs in a Job Object:** its whole process tree is stopped together on a timeout, a limit or when the worker stops.
