@@ -39,6 +39,15 @@ class Script(unittest.TestCase):
         self.assertIn("if (-not $py)", self.s)          # only when no Python 3.11+
         self.assertIn("-notlike '*WindowsApps*'", self.s)                             # the Store's python.exe stub is not a Python
 
+    def test_pyyaml_is_installed_by_hash_from_wheels_only_with_no_dependencies_and_only_when_missing(self):
+        for needle in ('import yaml', "--require-hashes", "--only-binary=:all:", "--no-deps", f"PyYAML=={wintools.PYYAML['version']}"):
+            self.assertIn(needle, self.s)
+        for tag, h in wintools.PYYAML["hashes"].items():
+            self.assertRegex(h, r"^[0-9a-f]{64}$")
+            self.assertIn(f"--hash=sha256:{h}", self.s)
+        self.assertLess(self.s.index("import yaml"), self.s.index("--require-hashes"))
+        self.assertIn("pip could not install PyYAML", self.s)                              # with pip's own words
+
     def test_the_script_ends_with_a_blank_line_or_powershell_on_stdin_never_runs_it(self):
         self.assertTrue(wintools.installer_script(wintools.DEFAULT_TOOLS).endswith("}\n\n"))
 

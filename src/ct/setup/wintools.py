@@ -20,6 +20,10 @@ PYTHON = {"version": "3.13.17", "name": "python-3.13.17-amd64.exe", "size": 2994
           "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe",
           "sha256": "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190",     # computed from the file on python.org (it publishes only MD5 and GPG); also checked: Authenticode signer
           "signer": "Python Software Foundation"}
+PYYAML = {"version": "6.0.4",                         # the registry is YAML: the worker's own code needs this one package beyond the standard library
+          "hashes": {"cp311": "0db75f402e99c25239003a499c214a61947b4ef5312af34711d4c63e5c179318", "cp312": "131d11bd9b60d705a6388366d77ed67850995a4d2be85fe149785a257c17e531",
+                     "cp313": "0a3a351f04dc124f9357512bdb80ac37cd1750cf1371da33e7cbb96d80ac865f", "cp314": "1d2f08c122727c86f8303bb1dd45159ca1de1f2d68798e671ec46974e321008e",
+                     "cp315": "67da066ca12eb60114ea87f2ecbcca622fff0c205c743cc900437127564fabf6"}}      # sha256 of each win_amd64 wheel on PyPI; pip refuses any other file
 MIN_PYTHON = (3, 11)
 DEFAULT_TOOLS = r"%ProgramData%\claude-tenta\tools"
 POWERSHELL = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"]       # the script itself arrives on standard input
@@ -37,6 +41,7 @@ def installer_script(tools_dir=DEFAULT_TOOLS):
         raise ValueError(f"not a folder this installer will write to: {tools_dir!r}")
     g = GIT
     p = PYTHON
+    req = f"PyYAML=={PYYAML['version']} " + " ".join(f"--hash=sha256:{h}" for h in PYYAML["hashes"].values())
     return f"""$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $tools = [Environment]::ExpandEnvironmentVariables('{tools_dir}')
@@ -70,6 +75,19 @@ try {{
     $pyv = ((& $py --version 2>&1) -join '').Trim()
     $changed = $true
   }}
+  $ErrorActionPreference = 'Continue'                                                         # pip and python write to stderr; PowerShell 5.1 would stop on it
+  & $py -c "import yaml" 2>$null
+  if ($LASTEXITCODE -ne 0) {{
+    New-Item -ItemType Directory -Force -Path $tools | Out-Null
+    $reqfile = Join-Path $tools 'requirements.txt'
+    Set-Content -LiteralPath $reqfile -Value '{req}' -Encoding ASCII
+    $o = (& $py -m pip install --disable-pip-version-check --no-deps --only-binary=:all: --require-hashes -r $reqfile 2>&1) -join ' '
+    $rc = $LASTEXITCODE
+    Remove-Item -LiteralPath $reqfile -Force -ErrorAction SilentlyContinue
+    if ($rc -ne 0) {{ $ErrorActionPreference = 'Stop'; Fail 'pyyaml' "pip could not install PyYAML (exit $rc): $o" }}
+    $changed = $true
+  }}
+  $ErrorActionPreference = 'Stop'
   $git = $null
   $mingit = Join-Path $tools 'git\\cmd\\git.exe'
   $existing = Get-Command git -ErrorAction SilentlyContinue

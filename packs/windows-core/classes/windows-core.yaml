@@ -1,0 +1,21 @@
+# The first job classes for a Windows worker. A Windows worker runs no job without the network allowed in the class (it cannot enforce "no network"), so each class says network: true.
+# Commands are argument lists with typed parameters, never shell text; the program is named by its full path (a job's PATH is only the system folders).
+classes:
+  # A quick read of the Windows version: the worker's test job after an install.
+  win-status:
+    tier: auto
+    cost: light
+    network: true
+    run: ['C:\Windows\System32\cmd.exe', '/c', 'ver']
+    timeout_s: 30
+
+  # Echoes a short text back: proves a job travels to the worker, runs and returns.
+  win-echo:
+    tier: auto
+    cost: light
+    network: true
+    params:
+      text:
+        regex: '^[A-Za-z0-9 ._-]{1,60}$'
+    run: ['C:\Windows\System32\cmd.exe', '/c', 'echo', '{text}']
+    timeout_s: 30

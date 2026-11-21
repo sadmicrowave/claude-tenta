@@ -20,8 +20,13 @@ class Script(unittest.TestCase):
 
     def test_a_failed_fetch_leaves_the_release_that_works(self):
         self.assertIn("$new = $dest + '.new'", self.s)
-        self.assertLess(self.s.index("$new = $dest"), self.s.index("Move-Item $new $dest"))
-        self.assertLess(self.s.index("refused, nothing is kept"), self.s.index("Remove-Item -Recurse -Force $dest }"))   # the old one is removed only after the new one is verified
+        self.assertLess(self.s.index("refused, nothing is kept"), self.s.index("robocopy.exe"))                 # the old one is touched only after the new one is verified
+
+    def test_the_release_is_copied_into_the_existing_folder_not_swapped_so_the_workers_access_survives(self):
+        self.assertIn("robocopy.exe $new $dest /MIR /COPY:D /DCOPY:D", self.s)
+        self.assertNotIn("Move-Item $new $dest", self.s)
+        self.assertNotIn("Remove-Item -Recurse -Force $dest", self.s)                                             # the folder itself (and its access rules) is never deleted
+        self.assertIn("-ge 8", self.s)                                                                           # robocopy: 0 to 7 are success codes
 
     def test_the_same_commit_again_changes_nothing(self):
         self.assertIn("if ($have -ne '" + SHA + "')", self.s)
