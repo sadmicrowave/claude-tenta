@@ -30,7 +30,12 @@ class Anywhere(unittest.TestCase):
         cfg = config.Config(clean)
         with mock.patch("os.name", "nt"):
             self.assertEqual(jail.from_config(cfg).name, "windows-job")
-        self.assertNotEqual(jail.from_config(cfg).name, "windows-job")
+
+    @unittest.skipIf(WIN, "POSIX only")
+    def test_a_linux_configuration_does_not_get_the_windows_jail(self):
+        from ct import config, jail
+        clean, problems = config.validate({"identity": {"name": "claude-tenta"}, "server": {"host": "h.example", "admin_user": "me"}})
+        self.assertNotEqual(jail.from_config(config.Config(clean)).name, "windows-job")
 
 
     def test_term_and_kill_are_different_requests_on_every_platform(self):
