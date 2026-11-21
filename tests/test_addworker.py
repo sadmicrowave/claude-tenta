@@ -196,6 +196,53 @@ class AWindowsComputer(Base):
             self.go(yes=True, worker_name="claude-tenta")
 
 
+class AWindowsWorkerAgain(Base):
+    """A Windows worker that is already registered is set up again with the Windows steps, never the Linux installer."""
+
+    def register(self):
+        from ct.admin import workers
+        conf = self.conf_dir / "win.toml"
+        conf.write_text('[identity]\nname = "win"\n[server]\nhost = "win.example"\nadmin_user = "me"\n[paths]\ncode = "C:/ProgramData/claude-tenta/release"\nstate_root = "C:/ProgramData/claude-tenta/state"\nconfig = "C:/ProgramData/claude-tenta/config"\nworker_home = "C:/ProgramData/claude-tenta/state"\nclient_home = "%s"\n' % (self.tmp / ".ct" / "workers" / "win"))
+        workers.add(self.conf_dir / "workers.toml", "win", str(conf))
+
+    def go(self, **kw):
+        wins, linux = [], []
+        self.register()
+
+        def win_make(conf, home, name, host, user, suggest):
+            wins.append((name, host))
+            return SimpleNamespace(run_all=lambda: [("first job", "ok", "")])
+        a = args(name="win.example", user="me", **kw)
+        rc = addworker.run(a, Host(str(self.tmp / "root")), lambda p: "", None, lambda m: None, ui=None, installer_factory=lambda *x: linux.append(x) or SimpleNamespace(run_all=lambda: []), interactive=False,
+                           networks=lambda: [], assess=lambda h, u, p=22: WIN, notice=self.notice, win_installer_factory=win_make)
+        return rc, wins, linux
+
+    def test_it_runs_the_windows_steps_and_not_the_linux_installer(self):
+        rc, wins, linux = self.go(yes=True)
+        self.assertEqual((rc, wins, linux), (0, [("win", "win.example")], []))
+        self.assertIn("every Windows setup step again", self.text())
+        self.assertNotIn("sudo", self.text())
+
+    def test_naming_the_worker_does_the_same(self):
+        rc, wins, linux = self.go(yes=True, worker="win")
+        self.assertEqual((wins, linux), ([("win", "win.example")], []))
+
+    def test_a_preview_changes_nothing(self):
+        rc, wins, linux = self.go(yes=True, dry_run=True)
+        self.assertEqual((rc, wins, linux), (0, [], []))
+
+    def test_the_github_connection_is_refused_for_a_windows_worker(self):
+        with self.assertRaises(addworker.SetupError) as e:
+            self.go(yes=True, set=["transport.kind=github"])
+        self.assertIn("Direct connection only", e.exception.title)
+        self.assertNotIn("win.example", e.exception.title)
+
+    def test_the_detection_looks_only_at_the_workers_own_folders(self):
+        self.assertTrue(addworker.is_windows_worker({"paths": {"code": "C:/ProgramData/x/release"}}))
+        self.assertFalse(addworker.is_windows_worker({"paths": {"code": "/opt/x"}}))
+        self.assertFalse(addworker.is_windows_worker({}))
+
+
 class TheRunner(unittest.TestCase):
     def test_openssh_client_warnings_are_dropped_and_other_error_text_is_kept(self):
         from ct.setup import wintools
