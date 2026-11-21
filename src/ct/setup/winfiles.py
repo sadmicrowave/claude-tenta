@@ -15,11 +15,12 @@ PACK = Path(__file__).resolve().parents[3] / "packs" / "windows-core" / "classes
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{2,23}$")
 
 
-def windows_config(name, host, admin_user, worker_user=USER, ssh_port=22, root=None):
+def windows_config(name, host, admin_user, worker_user=USER, ssh_port=22, root=None, client_home=None):
     """The worker's ct.toml for a Windows computer whose files live under `root` (forward slashes, e.g. C:/ProgramData/claude-tenta)."""
     root = root or "C:/ProgramData/claude-tenta"
     answers = {"identity": {"name": name}, "server": {"host": host, "admin_user": admin_user, "worker_user": worker_user, "ssh_port": ssh_port},
-               "paths": {"code": f"{root}/release", "state_root": f"{root}/state", "config": f"{root}/config", "worker_home": f"{root}/state"}, "transport": {"kind": "direct"}}
+               "paths": {"code": f"{root}/release", "state_root": f"{root}/state", "config": f"{root}/config", "worker_home": f"{root}/state", **({"client_home": client_home} if client_home else {})},
+               "transport": {"kind": "direct"}}
     clean, problems = config.validate(answers)
     if problems:
         raise ValueError("; ".join(problems))

@@ -140,78 +140,60 @@ class Targeted(Base):
 WIN = assess.windows_verdict("win.example")
 RESULT = 'CT-RESULT {"git":"git version 2.56.1.windows.1","git_path":"C:\\\\g.exe","python":"Python 3.13.17","python_path":"C:\\\\p.exe","changed":true}'
 
-REL_OK = 'CT-RESULT {"commit": "' + "a" * 40 + '", "path": "C:\\\\r", "changed": true}'
-
-
 class AWindowsComputer(Base):
-    def go(self, out, release=None, fetched=None, **kw):
-        sent = []
+    """A computer that greets as Windows is set up through the same registration as any worker, with the Windows installer (tests/test_winsetup.py tests that)."""
 
-        def runner(argv, text):
-            sent.append((argv, text))
-            return 0, (fetched or REL_OK) if "rev-parse HEAD" in text and "init -q" in text else out
-        rc = self.run_flow(args(name="win.example", user="me", **kw), assess_fn=lambda h, u, p=22: WIN, win_runner=runner, interactive=False,
-                           find_release=lambda url, platform=None: release if release is not None else {"checked": 1})
-        return rc, sent
+    def factory_calls(self, fail=False):
+        calls = []
 
-    def test_the_latest_windows_release_is_fetched_by_its_commit_and_named_on_the_card(self):
-        rc, sent = self.go(RESULT, release={"checked": 1, "tag": "release-win-0.1.0", "commit": "a" * 40}, yes=True)
+        def make(conf, home, name, host, user, suggest):
+            calls.append({"conf": conf, "home": home, "name": name, "host": host, "user": user, "suggest": suggest})
+
+            class Inst:
+                def run_all(inner):
+                    Path(conf).write_text(f'[identity]\nname = "{name}"\n[server]\nhost = "{host}"\nadmin_user = "{user}"\n[paths]\nclient_home = "{home}"\n')
+                    return [("first job", "failed" if fail else "ok", "")]
+            return Inst()
+        return calls, make
+
+    def go(self, extra=None, interactive=False, **kw):
+        calls, make = self.factory_calls()
+        asks = iter(extra or [])
+        rc = addworker.run(args(name="win.example", user="me", **kw), Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(), interactive=interactive,
+                           networks=lambda: [], assess=lambda h, u, p=22: WIN, resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, win_installer_factory=make)
+        return rc, calls
+
+    def test_it_says_what_it_will_and_will_not_touch_then_installs_through_the_windows_installer(self):
+        rc, calls = self.go(yes=True)
         self.assertEqual(rc, 0, self.text())
-        self.assertEqual(len(sent), 2)
-        self.assertIn("a" * 40, sent[1][1])
-        for needle in ("release-win-0.1.0", "fetched", "aaaaaaaaa"):
-            self.assertIn(needle, self.text())
-
-    def test_with_no_windows_release_published_it_says_so_and_fetches_nothing(self):
-        rc, sent = self.go(RESULT, yes=True)
-        self.assertEqual((rc, len(sent)), (0, 1))
-        self.assertIn("No Windows release has been published yet", self.text())
-
-    def test_a_release_that_cannot_be_looked_up_is_said_not_hidden(self):
-        rc, sent = self.go(RESULT, release={"checked": 1, "error": "could not reach the release source"}, yes=True)
-        self.assertEqual((rc, len(sent)), (0, 1))
-        self.assertIn("could not reach the release source", self.text())
-
-    def test_a_failed_fetch_keeps_git_words_and_says_the_tools_are_ready(self):
-        rc, sent = self.go(RESULT, release={"checked": 1, "tag": "release-win-0.1.0", "commit": "a" * 40}, fetched='CT-ERROR {"what": "release", "detail": "the fetch failed: not our ref"}', yes=True)
-        self.assertEqual(rc, 1)
-        for needle in ("tools are ready, but the Windows release could not be fetched", "not our ref", "release-win-0.1.0"):
-            self.assertIn(needle, self.text())
-
-    def test_its_tools_are_installed_over_the_runner_and_the_card_says_what_it_is_and_is_not(self):
-        rc, sent = self.go(RESULT, yes=True)
-        self.assertEqual(rc, 0, self.text())
-        self.assertEqual(len(sent), 1)
-        self.assertEqual(self.calls, [])                                        # not set up as a worker: the Windows release is not out
+        (c,) = calls
+        self.assertEqual((c["host"], c["user"], c["name"]), ("win.example", "me", "win"))
+        self.assertEqual(c["conf"], self.conf_dir / "win.toml")                                       # its own file beside the main one, like any worker
         t = self.text()
-        for needle in ("Its tools were installed", "git version 2.56.1", "Python 3.13.17", "not a worker yet"):
+        for needle in ("This is a Windows computer", "two unprivileged accounts", "OpenSSH server", "ProgramData", "no file or network isolation", "A new worker is ready"):
             self.assertIn(needle, t)
 
-    def test_a_second_run_that_changed_nothing_says_the_tools_are_ready(self):
-        rc, _ = self.go(RESULT.replace("true", "false"), yes=True)
-        self.assertEqual(rc, 0)
-        self.assertIn("Its tools are ready", self.text())
-
-    def test_a_failure_keeps_the_real_text_and_names_the_step(self):
-        rc, _ = self.go('CT-ERROR {"what": "git", "detail": "the download failed (curl exit 6)"}', yes=True)
-        self.assertEqual(rc, 1)
-        t = self.text()
-        for needle in ("could not be installed", "git", "curl exit 6", "Run the same command again"):
-            self.assertIn(needle, t)
+    def test_the_worker_is_registered_where_admin_workers_looks_for_it(self):
+        from ct.admin import workers
+        self.go(yes=True)
+        (name, path), = workers.load_list(self.conf_dir / "workers.toml").items()
+        self.assertEqual((name, Path(path)), ("win", self.conf_dir / "win.toml"))
 
     def test_a_preview_installs_nothing(self):
-        rc, sent = self.go(RESULT, yes=True, dry_run=True)
-        self.assertEqual((rc, sent), (0, []))
+        rc, calls = self.go(yes=True, dry_run=True)
+        self.assertEqual((rc, calls), (0, []))
         self.assertIn("this was a preview", self.text())
 
     def test_saying_no_installs_nothing(self):
-        sent = []
-        asks = iter(["no"])
-        a = args(name="win.example", user="me")
-        with mock.patch.object(addworker, "yes_no", side_effect=[True, False]):          # run the check: yes; install its tools: no
-            rc = addworker.run(a, Host(str(self.tmp / "root")), lambda p: next(asks), None, lambda m: None, ui=None, installer_factory=self.factory(), interactive=True, networks=lambda: [],
-                               assess=lambda h, u, p=22: WIN, notice=self.notice, win_runner=lambda *x: sent.append(x) or (0, RESULT))
-        self.assertEqual((rc, sent), (0, []))
+        calls, make = self.factory_calls()
+        with mock.patch.object(addworker, "yes_no", side_effect=[True, False]):          # run the check: yes; set it up: no
+            rc = addworker.run(args(name="win.example", user="me"), Host(str(self.tmp / "root")), lambda p: "", None, lambda m: None, ui=None, installer_factory=self.factory(), interactive=True, networks=lambda: [],
+                               assess=lambda h, u, p=22: WIN, notice=self.notice, win_installer_factory=make)
+        self.assertEqual((rc, calls), (0, []))
+
+    def test_a_name_that_is_already_a_worker_is_refused(self):
+        with self.assertRaises(addworker.SetupError):
+            self.go(yes=True, worker_name="claude-tenta")
 
 
 class TheRunner(unittest.TestCase):
