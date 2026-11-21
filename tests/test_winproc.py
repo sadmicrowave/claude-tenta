@@ -16,6 +16,23 @@ PY = sys.executable
 
 
 class Anywhere(unittest.TestCase):
+    def test_the_windows_jail_runs_the_command_as_it_is_says_it_is_ready_and_claims_no_isolation(self):
+        from ct import jail
+        j = jail.WindowsJobObject()
+        self.assertEqual((j.ready(), j.problem()), (True, None))
+        self.assertEqual(j.wrap(["a", "b"], network=False, wd="w", home="h"), ["a", "b"])
+        self.assertIn("no file or network isolation", j.describe())
+
+    def test_a_windows_configuration_gets_the_windows_jail_and_a_linux_one_does_not(self):
+        from unittest import mock
+        from ct import config, jail
+        clean, problems = config.validate({"identity": {"name": "claude-tenta"}, "server": {"host": "h.example", "admin_user": "me"}})
+        cfg = config.Config(clean)
+        with mock.patch("os.name", "nt"):
+            self.assertEqual(jail.from_config(cfg).name, "windows-job")
+        self.assertNotEqual(jail.from_config(cfg).name, "windows-job")
+
+
     def test_term_and_kill_are_different_requests_on_every_platform(self):
         self.assertNotEqual(plat.TERM, plat.KILL)
 
@@ -103,6 +120,17 @@ class OnWindows(unittest.TestCase):
             self.assertEqual(other, "False")                                        # held here: refused there
         other = subprocess.run([PY, "-c", code], capture_output=True, text=True).stdout.strip()
         self.assertEqual(other, "True")                                              # closed here: free there
+
+    def test_the_command_line_of_a_running_process_is_readable_and_a_dead_one_is_empty(self):
+        p = subprocess.Popen([PY, "-c", "import time; time.sleep(30)  # marker-job-id-xyz"], **plat.new_session())
+        try:
+            time.sleep(1)
+            self.assertIn("marker-job-id-xyz", plat.process_cmdline(p.pid))
+        finally:
+            p.kill()
+            p.wait()
+        self.assertEqual(plat.process_cmdline(p.pid), "")
+        self.assertEqual(plat.process_cmdline(99999999), "")
 
     def test_cpu_time_of_a_finished_job_is_counted(self):
         before = plat.child_usage().cpu_s

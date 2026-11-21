@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: send a job to a Windows worker the way ct-run does, from this computer over SSH, let the worker (running as its own account through the start task) run it, and read the
+result back. Sets up everything it needs first (all idempotent): the layout, the tools, the release (the commit of origin/main here), the mailbox with a throwaway client key, and the worker's files.
+  scripts/win-job-check USER@HOST [--keep] [--dev]          (--dev overlays this working tree's src on the fetched release, to test unmerged code; --keep leaves the worker task, the mailbox and the files in place)
+Prints each step; exits 1 if the job did not come back as expected."""
+import json
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct import config   # noqa: E402
+from ct.client import repo as client_repo, submit   # noqa: E402
+from ct.setup import winfiles, winlayout, winmailbox, winrelease, wintask, wintools   # noqa: E402
+
+NAME = "claude-tenta"
+
+
+def step(label, fn):
+    t0 = time.time()
+    r = fn()
+    print(f"{label:34} {r}  ({time.time() - t0:.0f} s)")
+    return r
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    user, _, host = argv[0].rpartition("@")
+    run = wintools.ssh_runner(user, host)
+    home = Path(tempfile.mkdtemp())
+    (home / "mailbox").mkdir()
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(home / "mailbox" / "key"), "-C", "job-check"], check=True)
+    pub = (home / "mailbox" / "key.pub").read_text().strip()
+    commit = subprocess.run(["git", "rev-parse", "origin/main"], capture_output=True, text=True, cwd=Path(__file__).resolve().parent.parent).stdout.strip()
+    bad = []
+    step("tools", lambda: wintools.install(run))
+    step("layout", lambda: winlayout.ensure(run)["changed"])
+    step("release", lambda: winrelease.fetch(run, config.PROJECT_URL, commit)["commit"][:9])
+    if "--dev" in argv:                                      # test code that is not on origin/main yet: this working tree's src goes over the fetched release
+        root = Path(__file__).resolve().parent.parent
+        tar = home / "src.tar"
+        subprocess.run(["tar", "-C", str(root), "-cf", str(tar), "src"], check=True, env={"COPYFILE_DISABLE": "1", "PATH": "/usr/bin:/bin"})
+        subprocess.run(["scp", "-q", str(tar), f"{user}@{host}:ct-dev.tar"], check=True)
+        step("overlay this tree (--dev)", lambda: run(["powershell", "-NoProfile", "-Command", "-"], "tar.exe -xf \"$env:USERPROFILE\\ct-dev.tar\" -C \"$env:ProgramData\\claude-tenta\\release\"\n\n")[0])
+    step("mailbox", lambda: winmailbox.ensure(run, key=pub)["changed"])
+    step("worker files", lambda: winfiles.ensure(run, winfiles.windows_config(NAME, host, user), winfiles.pack_text())["changed"])
+    clean, problems = config.validate({"identity": {"name": NAME}, "server": {"host": host, "admin_user": user}, "transport": {"kind": "direct"},
+                                       "paths": {"code": "C:/ProgramData/claude-tenta/release", "state_root": "C:/ProgramData/claude-tenta/state", "config": "C:/ProgramData/claude-tenta/config",
+                                                 "worker_home": "C:/ProgramData/claude-tenta/state", "client_home": str(home)}})
+    assert not problems, problems
+    cfg = config.Config(clean)
+    repos = client_repo.ClientRepos.from_config(cfg)
+    step("client clones", lambda: [r[0] for r in repos.clone_all(home)])
+    text = "hello from the Mac " + time.strftime("%H%M%S")
+    jid = submit.new_job_id("win-echo")
+    try:
+        step("start the worker task", lambda: (wintask.ensure(run)["changed"], wintask.start(run)["started"]))
+        step("send the job", lambda: submit.push_job(repos, jid, submit.build_job("win-echo", {"text": text})) or jid)
+        t0, res = time.time(), None
+        while time.time() - t0 < 120 and (res is None or res.get("status") in ("running", "queued", "approved", "waiting")):          # a first result says it started; wait for the last one
+            time.sleep(5)
+            repos.pull_results()
+            res = repos.read_result(jid)
+        if res is None:
+            bad.append("no result came back within 120 s")
+            print("no result; worker log:")
+            r = run(["powershell", "-NoProfile", "-Command", "-"], "Get-Content \"$env:ProgramData\\claude-tenta\\state\\worker.log\" -Tail 15 -ErrorAction SilentlyContinue\n\n")
+            print(r[1])
+        else:
+            print(f"result after {time.time() - t0:.0f} s: {json.dumps(res)[:400]}")
+            if res.get("status") != "ok":
+                bad.append(f"status is {res.get('status')}")
+            if text not in str(res.get("output", "")):
+                bad.append("the echoed text is not in the output")
+    finally:
+        if "--keep" not in argv:
+            step("stop and remove the task", lambda: (wintask.stop(run)["processes"], wintask.remove(run)["removed"]))
+    print("PROBLEMS:" if bad else "all as expected", *bad, sep="\n  ")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

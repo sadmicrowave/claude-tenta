@@ -91,6 +91,24 @@ class NoJail(Jail):
     """Nothing is available (or, in tests, nothing is wanted)."""
 
 
+class WindowsJobObject(Jail):
+    """Windows has no namespaces or bind mounts: a job runs in a Job Object of its own (the runner puts it there), which stops its whole process tree and ends it with the worker, and nothing more. Files and the network
+    are NOT isolated: a Windows worker is Special Use by design (docs/design/WINDOWS-SPECIAL-USE.md), and the registry already refuses a class that needs no network there."""
+    name = "windows-job"
+
+    def ready(self):
+        return True
+
+    def problem(self):
+        return None
+
+    def describe(self):
+        return "a Job Object per job (the whole process tree is stopped together); no file or network isolation on Windows"
+
+    def wrap(self, argv, *, network, wd, home, claude=False, env=None, require=True):
+        return list(argv)
+
+
 class Unshare(Jail):
     name = "unshare"
 
@@ -234,6 +252,8 @@ class Bwrap(Jail):
 
 def from_config(cfg, **kw):
     """The jail the configuration asks for. The install's configuration folder is hidden inside it."""
+    if os.name == "nt":
+        return WindowsJobObject()
     if cfg.isolation.method == "unshare":
         return Unshare()
     return Bwrap(hide=[cfg.paths.config], **kw)
