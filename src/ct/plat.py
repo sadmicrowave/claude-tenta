@@ -128,6 +128,12 @@ def child_usage():
 
 def process_cmdline(pid):
     """The command line of a process as text, or '' when it is not there or cannot be read."""
+    if IS_WINDOWS:
+        from . import winproc
+        try:
+            return winproc.cmdline(pid)
+        except OSError:
+            return ""
     try:
         return Path(f"/proc/{pid}/cmdline").read_text()
     except Exception:

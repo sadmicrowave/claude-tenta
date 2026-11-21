@@ -153,6 +153,37 @@ def release(pid):
     return used
 
 
+def cmdline(pid):
+    """The command line of a process of this account, as text, or '' when it is not there or cannot be read (NtQueryInformationProcess, class 60: no process memory is read)."""
+    _need_windows()
+    c, w, k = _api()
+
+    class UnicodeString(c.Structure):
+        _fields_ = [("Length", c.c_ushort), ("MaximumLength", c.c_ushort), ("Buffer", c.c_void_p)]
+    h = k.OpenProcess(_PROCESS_QUERY_LIMITED, False, pid)
+    if not h:
+        return ""
+    try:
+        nt = c.WinDLL("ntdll")
+        nt.NtQueryInformationProcess.argtypes = [c.c_void_p, c.c_int, c.c_void_p, w.ULONG, c.POINTER(w.ULONG)]
+        nt.NtQueryInformationProcess.restype = c.c_long
+        size = 1024
+        for _ in range(3):
+            buf = c.create_string_buffer(size)
+            need = w.ULONG(0)
+            status = nt.NtQueryInformationProcess(h, 60, buf, size, c.byref(need)) & 0xFFFFFFFF
+            if status == 0:
+                us = UnicodeString.from_buffer(buf)
+                return c.wstring_at(us.Buffer, us.Length // 2) if us.Buffer else ""
+            if status in (0xC0000004, 0x80000005, 0xC0000023) and need.value > size:          # buffer too small: ask again with the size it named
+                size = need.value
+                continue
+            return ""
+        return ""
+    finally:
+        k.CloseHandle(h)
+
+
 def memory():
     """(total_mb, available_mb) of this computer."""
     _need_windows()
