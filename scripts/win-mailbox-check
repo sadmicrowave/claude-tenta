@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: set up the Direct transport's mailbox (src/ct/setup/winmailbox.py) with a throwaway client key, then use it the way ct-run does, from this computer, over SSH:
+push a job to the queue, read the results, and be refused everything else. Run it twice: the second ensure must say changed=false. Finish with --remove to undo the account and the sshd_config block.
+  scripts/win-mailbox-check USER@HOST [--remove]
+The layout (scripts/win-layout-check), the tools and the release must be there first."""
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.setup import winmailbox, wintools   # noqa: E402
+
+NAME = "claude-tenta"
+
+
+def sh(argv, env=None, cwd=None):
+    r = subprocess.run(argv, capture_output=True, text=True, env={**os.environ, **(env or {})}, cwd=cwd)
+    return r.returncode, "\n".join(x for x in (r.stdout + r.stderr).splitlines() if not x.startswith("** ")).strip()
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    user, _, host = argv[0].rpartition("@")
+    run = wintools.ssh_runner(user, host)
+    if "--remove" in argv:
+        print("remove:", winmailbox.remove(run))
+        return 0
+    tmp = Path(tempfile.mkdtemp())
+    key = tmp / "mailbox-key"
+    sh(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key), "-C", "mailbox-check"])
+    pub = (tmp / "mailbox-key.pub").read_text().strip()
+    bad = []
+    r1 = winmailbox.ensure(run, key=pub)
+    print("ensure (first)  ", r1)
+    r2 = winmailbox.ensure(run, key=pub)
+    print("ensure (second) ", r2)
+    if r2["changed"]:
+        bad.append("a second ensure changed something")
+    mail = winmailbox.mail_user(NAME)
+    base = f"ssh://{mail}@{host}/C:/ProgramData/claude-tenta/state-mail"
+    gs = {"GIT_SSH_COMMAND": f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "GIT_TERMINAL_PROMPT": "0"}
+    work = tmp / "work"
+    work.mkdir()
+    sh(["git", "init", "-q", "-b", "main"], cwd=work)
+    (work / "job.json").write_text('{"class": "probe"}\n')
+    sh(["git", "add", "-A"], cwd=work)
+    sh(["git", "-c", "user.name=t", "-c", "user.email=t" + "@" + "example.invalid", "commit", "-q", "-m", "a job"], cwd=work)
+
+    def expect(label, ok, argv, **kw):
+        rc, out = sh(argv, **kw)
+        good = (rc == 0) == ok
+        print(f"{'ok  ' if good else 'FAIL'} {label:44} exit {rc}  {out[:120].replace(chr(10), ' | ')}")
+        if not good:
+            bad.append(label)
+        return out
+    expect("read the (empty) results", True, ["git", "ls-remote", f"{base}/results.git"], env=gs)
+    expect("push a job to the queue", True, ["git", "push", "-q", f"{base}/queue.git", "main"], env=gs, cwd=work)
+    out = expect("read the queue back: the job is there", True, ["git", "ls-remote", f"{base}/queue.git"], env=gs)
+    if "refs/heads/main" not in out:
+        bad.append("the pushed job is not in the queue")
+    expect("push to the results is refused", False, ["git", "push", "-q", f"{base}/results.git", "main"], env=gs, cwd=work)
+    expect("any other command is refused", False, ["ssh", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", f"{mail}@{host}", "dir C:\\"])
+    expect("another repository path is refused", False, ["git", "ls-remote", f"ssh://{mail}@{host}/C:/Windows"], env=gs)
+    print("\nPROBLEMS:" if bad else "\nall as expected", *bad, sep="\n  ")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

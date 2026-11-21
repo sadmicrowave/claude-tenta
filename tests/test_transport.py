@@ -72,6 +72,13 @@ class DirectAddresses(unittest.TestCase):
         self.assertEqual(cfg.queue_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/queue.git")
         self.assertEqual(cfg.results_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/results.git")
 
+    def test_a_windows_worker_has_a_slash_before_the_drive_letter_in_its_address(self):
+        cfg = cfg_with(transport={"kind": "direct"}, server={"admin_user": "me", "host": "worker.example"},
+                       paths={"code": "C:/ProgramData/claude-tenta/release", "state_root": "C:/ProgramData/claude-tenta/state", "config": "C:/ProgramData/claude-tenta/config", "worker_home": "C:/ProgramData/claude-tenta/state"})
+        self.assertEqual(cfg.queue_url, "ssh://claude-tenta-mail" + "@" + "worker.example/C:/ProgramData/claude-tenta/state-mail/queue.git")
+        t = transport.for_config(cfg)
+        self.assertEqual(t.worker_url(cfg, "queue"), "C:/ProgramData/claude-tenta/state-mail/queue.git")      # the worker itself uses its own plain path
+
     def test_a_non_standard_ssh_port_is_in_the_address(self):
         self.assertIn("worker.example:2222/", self.direct(ssh_port=2222).queue_url)
 
