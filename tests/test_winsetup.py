@@ -42,6 +42,8 @@ class Fixture(unittest.TestCase):
 
     def runner(self, fail_on=None):
         def run(argv, text):
+            if "'CT-RESULT ' + '{}'" in text:                                              # the reachability check: not a step
+                return 0, "CT-RESULT {}"
             self.sent.append(text)
             for marker, answer in ANSWERS:
                 if marker in text:
@@ -98,6 +100,41 @@ class Whole(Fixture):
     def test_the_release_comes_from_the_latest_windows_tag_commit(self):
         self.installer().run_all()
         self.assertIn("b" * 40, next(t for t in self.sent if "robocopy" in t))
+
+
+class Reach(Fixture):
+    def unreachable(self, said):
+        inst = self.installer()
+        inst.run = lambda argv, text: (255, said)
+        return inst
+
+    def test_a_computer_that_does_not_answer_is_named_as_unreachable_before_anything_else_is_tried(self):
+        inst = self.unreachable("ssh: connect to host 192.0.2.50 port 22: Operation timed out")
+        with self.assertRaises(SetupError) as e:
+            inst.run_all()
+        self.assertEqual(e.exception.title, "The Windows computer cannot be reached over SSH")
+        self.assertIn("Operation timed out", e.exception.why)
+        self.assertIn("ssh me@192.0.2.50 hostname", " ".join(e.exception.steps))
+        self.assertNotIn("python.org", " ".join(e.exception.steps))                           # not advice about the internet
+        self.assertEqual(self.sent, [])
+
+    def test_a_refused_key_says_how_to_put_one_there(self):
+        with self.assertRaises(SetupError) as e:
+            self.unreachable("me@192.0.2.50: Permission denied (publickey,password,keyboard-interactive).").run_all()
+        self.assertIn("ssh-copy-id", " ".join(e.exception.steps))
+
+    def test_the_title_is_fixed_and_the_computer_is_a_labelled_row(self):
+        with self.assertRaises(SetupError) as e:
+            self.unreachable("x").run_all()
+        self.assertNotIn("192.0.2.50", e.exception.title)
+        self.assertIn(("Computer", "192.0.2.50"), e.exception.facts)
+
+    def test_the_check_runs_before_the_configuration_or_the_key_are_written(self):
+        inst = self.unreachable("x")
+        with self.assertRaises(SetupError):
+            inst.run_all()
+        self.assertFalse((self.tmp / "conf" / "win.toml").exists())
+        self.assertFalse((self.tmp / "home" / "mailbox" / "key").exists())
 
 
 class Failures(Fixture):

@@ -75,8 +75,22 @@ class WindowsInstaller:
             raise SetupError("No Windows release has been published yet", "A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.", ["Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>"])
         return entry["tag"], entry["commit"]
 
+    def reach(self):
+        """Before anything else: can this computer log in to the Windows computer over SSH and run PowerShell? A computer that is asleep, off, on another network or without key login is the most common failure, and
+        it must not be reported as a failure of the first real step with advice about the internet."""
+        try:
+            wintools.parse_result(self.run(list(wintools.POWERSHELL), "Write-Output ('CT-RESULT ' + '{}')\n\n")[1])
+        except wintools.WinToolsError as e:
+            said = e.detail
+            denied = any(w in said.lower() for w in ("permission denied", "publickey"))
+            raise SetupError("The Windows computer cannot be reached over SSH", said.strip()[-300:] or "no answer",
+                             [f"Is it on, awake and on this network? Try: ssh {self.user}@{self.host} hostname",
+                              *([f"Key login is not set up for that account: ssh-copy-id {self.user}@{self.host}  (on Windows the key goes in C:\\ProgramData\\ssh\\administrators_authorized_keys for an administrator)"] if denied else []),
+                              "Run the same command again once that works: nothing was changed on it."], facts=[("Computer", self.host), ("Account", self.user)])
+
     # ---- the whole job ----
     def run_all(self):
+        self.reach()
         cfg = self.client_config()
         pub = self.mailbox_key(cfg)
         tag, commit = self.release(cfg)
