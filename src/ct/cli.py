@@ -118,7 +118,7 @@ class Context:
         seclog = guard.SecurityLog(state / "security.log")
         lock = alerts.Lockdown(state, notifier, seclog, product=name, remind_at=cfg.alerts.remind_hours, repeat_h=cfg.alerts.remind_repeat_h)
         keeper = results.OutputKeeper(state)
-        sensors = runner.LinuxSensors()
+        sensors = runner.default_sensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
         approvers = cfg.path("approvers")
         claude_memo = {}

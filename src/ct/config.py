@@ -23,10 +23,11 @@ GH_OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 GH_REPO_RE = re.compile(r"^(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$")
 BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 IDENT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
-PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")                     # absolute, no spaces, no quotes, no shell characters
+PATH_RE = re.compile(r"^(/|[A-Za-z]:/)[A-Za-z0-9._/-]+$")         # absolute (POSIX, or a Windows drive with forward slashes: C:/ProgramData/x), no spaces, no quotes, no shell characters
 RESERVED_USERS = {"root", "daemon", "bin", "sys", "nobody", "www-data", "ubuntu", "debian"}
 PURPOSE_WORDS = {"tenta-only": "only for tenta", "shared": "shared with other uses", "special-use": "special use"}      # how a computer's purpose is said on screen
 PROTECTED_PATHS = {"/", "/etc", "/var", "/var/lib", "/usr", "/usr/local", "/usr/bin", "/usr/sbin", "/opt", "/home", "/root", "/boot", "/bin", "/sbin", "/lib", "/tmp"}
+PROTECTED_WINDOWS = {"c:", "c:/windows", "c:/programdata", "c:/users", "c:/program", "c:/temp"}          # a system folder of Windows (compared lower-case; any drive letter)
 PROJECT_URL = "https://github.com/sadmicrowave/claude-tenta.git"      # privacy-ok: the project's own public home, the default place updates come from
 RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
@@ -95,6 +96,10 @@ def _enum(*options):
     return check
 
 
+def _is_windows_path(v):
+    return isinstance(v, str) and len(v) > 2 and v[1] == ":" and v[2] == "/"
+
+
 def _path(v):
     if not isinstance(v, str):
         return None, "must be text"
@@ -105,7 +110,7 @@ def _path(v):
         return v, None
     if not PATH_RE.fullmatch(v) or ".." in v.split("/") or "//" in v:
         return None, "must be an absolute path of letters, digits and . _ - / only (no spaces, no ..)"
-    if (v.rstrip("/") or "/") in PROTECTED_PATHS:
+    if (v.rstrip("/") or "/") in PROTECTED_PATHS or (_is_windows_path(v) and "c" + v[1:].rstrip("/").lower() in PROTECTED_WINDOWS):
         return None, "must not be a system folder; use a folder of its own"
     return v, None
 
@@ -467,7 +472,7 @@ class Config:
             "state": f"{p.state_root}/state", "queue_clone": f"{p.state_root}/queue", "results_clone": f"{p.state_root}/results",
             "registry": f"{p.config}/registry.yaml", "secrets": f"{p.config}/secrets.env", "installed_rev": f"{p.config}/installed-rev",
             "allowed_signers": f"{p.config}/allowed_signers", "approvers": f"{p.config}/approvers", "config_file": f"{p.config}/ct.toml",
-            "watch_state": f"{p.state_root}-watch", "run_dir": f"/run/{n}", "helper_socket": f"/run/{n}-helper.sock", "helper_state": f"{p.state_root}-helper", "source_clone": f"{p.state_root}-src", "mailbox": f"{p.state_root}-mail",
+            "watch_state": f"{p.state_root}-watch", "run_dir": f"{p.state_root}/run" if _is_windows_path(p.code) else f"/run/{n}", "helper_socket": f"{p.state_root}/run/helper.sock" if _is_windows_path(p.code) else f"/run/{n}-helper.sock", "helper_state": f"{p.state_root}-helper", "source_clone": f"{p.state_root}-src", "mailbox": f"{p.state_root}-mail",
             "client_queue": str(Path(p.client_home).expanduser() / "queue"), "client_results": str(Path(p.client_home).expanduser() / "results"),
         }
         return table[what]

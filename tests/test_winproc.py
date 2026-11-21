@@ -92,6 +92,18 @@ class OnWindows(unittest.TestCase):
         plat.finish(p)                                                       # closing the Job Object ends what is in it
         self.assertIsNotNone(p.wait(timeout=10))
 
+    def test_the_file_lock_is_exclusive_across_processes_and_released_when_the_file_closes(self):
+        path = self.home / "lock.txt"
+        path.write_text("x")
+        with open(path, "r+") as mine:
+            self.assertTrue(plat.try_lock(mine))
+            code = (f"import sys; sys.path.insert(0, r'{Path(__file__).resolve().parents[1] / 'src'}'); from ct import plat; "
+                    f"f = open(r'{path}', 'r+'); print(plat.try_lock(f))")
+            other = subprocess.run([PY, "-c", code], capture_output=True, text=True).stdout.strip()
+            self.assertEqual(other, "False")                                        # held here: refused there
+        other = subprocess.run([PY, "-c", code], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(other, "True")                                              # closed here: free there
+
     def test_cpu_time_of_a_finished_job_is_counted(self):
         before = plat.child_usage().cpu_s
         self.run_it([PY, "-c", "t=__import__('time').time()\nwhile __import__('time').time()-t<1: pass"])

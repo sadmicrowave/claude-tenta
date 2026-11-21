@@ -80,6 +80,11 @@ class WindowsSensors:
         return plat.group_rss_mb(pid)
 
 
+def default_sensors():
+    """The sensors of the computer this runs on."""
+    return WindowsSensors() if plat.IS_WINDOWS else LinuxSensors()
+
+
 class LinuxSensors:
     """Temperature, memory and per-job memory from /sys and /proc. Missing sources give None or 0, never an error."""
 
@@ -233,7 +238,7 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     `limits` may hold max_rss_mb / max_temp_c / max_disk_mb; going over stops the job (status "limit").
     Metrics are measured for every job, so results show what each one really cost. `claude` marks a job whose stdout is a JSON document
     with a `result` field."""
-    limits, sensors = limits or {}, sensors or (WindowsSensors() if plat.IS_WINDOWS else LinuxSensors())
+    limits, sensors = limits or {}, sensors or default_sensors()
     env = build_env(home, claude, extra_env, api_key, oauth_token)
     if plat.IS_WINDOWS:
         Path(env["TEMP"]).mkdir(parents=True, exist_ok=True)               # the job's own TEMP must exist before it starts
