@@ -96,7 +96,10 @@ class Direct:
     def client_url(self, cfg, which):
         cfg.require("server.host")
         port = f":{cfg.server.ssh_port}" if int(cfg.server.ssh_port) != 22 else ""
-        return f"ssh://{self.mail_user(cfg)}@{cfg.server.host}{port}{self.repo_path(cfg, which)}"
+        path = self.repo_path(cfg, which)
+        if len(path) > 2 and path[1] == ":":                  # a Windows folder (C:/...): in an ssh URL the path starts with a slash
+            path = "/" + path
+        return f"ssh://{self.mail_user(cfg)}@{cfg.server.host}{port}{path}"
 
     def worker_url(self, cfg, which):
         return self.repo_path(cfg, which)                     # a path on the worker itself: reading its own queue and writing its own results touches no network

@@ -10,6 +10,37 @@ from ct import mailshell
 Q, R = "/var/lib/x-mail/queue.git", "/var/lib/x-mail/results.git"
 
 
+WQ, WR = "C:/ProgramData/claude-tenta/state-mail/queue.git", "C:/ProgramData/claude-tenta/state-mail/results.git"
+
+
+class DecideOnWindows(unittest.TestCase):
+    def d(self, command):
+        return mailshell.decide(command, WQ, WR)
+
+    def test_the_url_path_with_a_slash_before_the_drive_letter_is_the_configured_folder(self):
+        self.assertEqual(self.d("git-receive-pack '/C:/ProgramData/claude-tenta/state-mail/queue.git'"), ["git-receive-pack", WQ])
+        self.assertEqual(self.d("git-upload-pack '/C:/ProgramData/claude-tenta/state-mail/results.git'"), ["git-upload-pack", WR])
+
+    def test_case_and_slash_style_do_not_matter_as_on_the_file_system_but_git_gets_the_configured_path(self):
+        self.assertEqual(self.d("git-upload-pack 'c:\\programdata\\Claude-Tenta\\state-mail\\QUEUE.git'"), ["git-upload-pack", WQ])
+
+    def test_the_results_are_still_read_only_and_nothing_else_runs(self):
+        self.assertIsNone(self.d("git-receive-pack '/C:/ProgramData/claude-tenta/state-mail/results.git'"))
+        self.assertIsNone(self.d("cmd /c dir"))
+        self.assertIsNone(self.d("git-upload-pack '/C:/Windows/System32'"))
+
+    def test_a_path_that_climbs_out_of_the_mailbox_is_refused(self):
+        self.assertIsNone(self.d("git-receive-pack '/C:/ProgramData/claude-tenta/state-mail/../state/queue.git'"))
+        self.assertIsNone(self.d("git-upload-pack '/D:/ProgramData/claude-tenta/state-mail/queue.git'"))
+
+
+class MailboxFromTheLauncher(unittest.TestCase):
+    def test_a_launcher_that_names_the_mailbox_needs_no_configuration_file(self):
+        with mock.patch("sys.stderr"):
+            rc = mailshell.main(environ={"CT_MAILBOX": "C:/ProgramData/x/state-mail", "SSH_ORIGINAL_COMMAND": "cmd /c dir"})
+        self.assertEqual(rc, 1)                                              # refused as any other command, without ever loading ct.toml (which would have raised)
+
+
 class Decide(unittest.TestCase):
     def d(self, command):
         return mailshell.decide(command, Q, R)
