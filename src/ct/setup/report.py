@@ -47,7 +47,7 @@ class Styler:
     def columns(self):
         """How wide a line may be. Only a real terminal is measured; a log or a pipe is never wrapped."""
         try:
-            return max(50, min(shutil.get_terminal_size((100, 24)).columns, 160)) - 1 if self.stream.isatty() else 0
+            return max(20, min(shutil.get_terminal_size((100, 24)).columns, 160)) - 1 if self.stream.isatty() else 0
         except (AttributeError, ValueError, OSError):
             return 0
 
@@ -85,6 +85,9 @@ class Styler:
         lead = self.p(status.upper().ljust(width), BOLD, status_color(status))
         if not detail:
             return "\n".join(self.wrapped(lead, step, width, dim=False))
+        cols = self.columns()
+        if cols and cols - (width + len(step) + 2) - 2 < 24:                  # no room beside the step: the detail goes on its own lines under it, indented two
+            return "\n".join(self.wrapped(lead, step, width, dim=False) + self.wrapped("  ", detail, 2))
         return "\n".join(self.wrapped(lead + step + "  ", detail, width + len(step) + 2))       # the detail starts right after the step, and wraps under itself
 
     def cmd(self, text):

@@ -71,6 +71,9 @@ def offer_copy(run, stream):
         stream.flush()
     except (OSError, ValueError):
         return []
+    from . import cards
+    if len(f"copied to your clipboard: {first}") > cards.width():                      # too long for the pane: the sentence, then the command alone under it (never cut, so it can still be read whole)
+        return ["", paint("copied to your clipboard:", DIM, stream=stream), paint(first, DIM, stream=stream)]
     return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream)]
 
 
@@ -215,8 +218,8 @@ def confirm_prompt(question, stream=None):
     stream = stream or sys.stdout
     if not _color_on(stream):
         return f"\n  {question} [y/N] "
-    cols = max(40, min(__import__("shutil").get_terminal_size((100, 24)).columns, 100))
     from . import cards
+    cols = cards.width()
     import textwrap
     lines = textwrap.wrap(cards.code_spans(question), cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False) or [""]     # a command in the question is a code chip
     lines[0], lines[-1] = "  ❯ " + lines[0], lines[-1] + "  [y/N] "
