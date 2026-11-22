@@ -9,12 +9,13 @@ import os
 import subprocess
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from ct import approvals, clihelp, registry, theme
+from ct import approvals, clihelp, registry, theme, util
 from ct.admin import cli, jobs, regedit, release
 from ct.admin import workers as workers_mod
 from ct.admin.ssh import Ssh
@@ -909,6 +910,27 @@ class JobTests(AdminBase):
         self.assertEqual(self.ssh.calls, [f"ct-worker approve job-b --sha256 {digest}"])
         self.assertEqual(self.results_followed, ["job-b"])
         self.assertIn(digest[:12], out)
+
+    def test_approve_one_refuses_an_expired_job_before_showing_or_signing_anything(self):
+        self.put_job("job-old", created=util.iso(util.now() - timedelta(days=2)))
+        self.tty = True
+        self.answers.append("y")
+        code, out, err = self.admin("approve", "job-old")
+        self.assertNotEqual(code, 0)
+        self.assertIn("That job has expired", out + err)
+        self.assertIn("job-old", out + err)
+        self.assertEqual(self.ssh.calls, [])
+        self.assertEqual(self.answers, ["y"])                                          # it asked nothing: the answer was never used
+        self.assertNotIn("job-old", jobs.Viewed(self.home).load())
+
+    def test_approve_all_skips_an_expired_job_and_says_why(self):
+        self.put_job("job-old", created=util.iso(util.now() - timedelta(days=2)))
+        self.put_result("job-old", status="awaiting_approval")
+        self.admin("review")
+        code, out, err = self.admin("approve", "--all")
+        self.assertNotEqual(code, 0)
+        self.assertIn("expired", out)
+        self.assertEqual(self.ssh.calls, [])
 
     def test_answering_no_approves_nothing(self):
         self.put_job("job-b")

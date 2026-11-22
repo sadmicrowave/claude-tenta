@@ -23,13 +23,25 @@ class Ids(unittest.TestCase):
 
 
 class Age(unittest.TestCase):
+    def test_an_expired_job_says_so_in_words_and_how_to_go_on(self):
+        with self.assertRaises(jobs.Reject) as cm:
+            jobs.check_age(self.job(timedelta(days=-2)))
+        self.assertIn("more than 24 hours old", str(cm.exception))
+        self.assertIn("send it again", str(cm.exception))
+
+    def test_the_client_and_the_worker_use_one_definition_of_expired(self):
+        self.assertTrue(jobs.expired(self.job(timedelta(days=-2))))
+        self.assertFalse(jobs.expired(self.job(timedelta(hours=-23))))
+        self.assertFalse(jobs.expired({}))                                             # no readable time: not called expired here (the worker rejects it for that reason)
+        self.assertFalse(jobs.expired({"created": "yesterday"}))
+
     def job(self, delta):
         return {"created": util.iso(util.now() + delta)}
 
     def test_fresh_old_future_and_malformed(self):
         jobs.check_age(self.job(timedelta(seconds=-10)))
         jobs.check_age(self.job(timedelta(seconds=120)))                                  # a little clock skew is fine
-        for delta, needle in ((timedelta(days=-2), "too old"), (timedelta(minutes=30), "future")):
+        for delta, needle in ((timedelta(days=-2), "expired"), (timedelta(minutes=30), "future")):
             with self.assertRaises(jobs.Reject) as cm:
                 jobs.check_age(self.job(delta))
             self.assertIn(needle, str(cm.exception))

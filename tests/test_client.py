@@ -117,6 +117,18 @@ class Human(unittest.TestCase):
         self.assertEqual(view.run_durations({"a": {"id": "a", "started": "2026-01-01T00:00:00Z", "finished": "2026-01-01T00:14:00Z", "status": "ok"},
                                              "b": {"id": "b", "status": "awaiting_approval"}}), {"a": "14 min"})
 
+    def test_a_job_waiting_for_approval_for_more_than_a_day_is_listed_as_expired_not_waiting(self):
+        results = {"w": {"id": "w", "status": "awaiting_approval", "class": "careful"}, "f": {"id": "f", "status": "awaiting_approval", "class": "careful"}}
+        created = {"w": NOW - timedelta(hours=30), "f": NOW - timedelta(hours=2)}
+        rows = view.status_rows(results, lambda jid: created[jid], None, now=NOW)
+        status = {r[2]: r[1] for r in rows}
+        self.assertEqual(status, {"w": "expired", "f": "awaiting_approval"})
+        self.assertIn("send it again", [r for r in rows if r[2] == "w"][0][3])
+        out = io.StringIO()
+        view.render_status(rows, results, lambda jid, cls: cls, [], "ct-admin", out=out, now=NOW)
+        self.assertIn("ct-admin approve f", out.getvalue())                              # the fresh one is still offered
+        self.assertNotIn("ct-admin approve w", out.getvalue())                            # no command offered for a job that can no longer be approved
+
     def test_a_job_the_worker_has_not_picked_up_is_a_queued_row_with_a_nudge_after_five_minutes(self):
         listing = [("new", {"created": "2026-01-02T02:58:00Z", "class": "echo"}), ("stuck", {"created": "2026-01-02T02:00:00Z", "class": "echo"}),
                    ("old", {"created": "2025-12-01T00:00:00Z"}), ("known", {"created": "2026-01-02T02:59:00Z"})]
@@ -129,7 +141,7 @@ class Human(unittest.TestCase):
     def test_render_status_and_classes(self):
         out = io.StringIO()
         results = {"w": {"id": "w", "status": "awaiting_approval", "class": "careful"}, "a": {"id": "a", "status": "ok", "class": "echo", "finished": "2026-01-01T00:00:00Z"}}
-        rows = view.status_rows(results, lambda jid: NOW, None)
+        rows = view.status_rows(results, lambda jid: NOW, None, now=NOW)
         with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
             view.render_status(rows, results, lambda jid, cls: cls or "-", [("on your computer", "tct-admin approve {}"), ("on tct", "tct approve {}")], "tct-admin", out=out, now=NOW)
         text = out.getvalue()

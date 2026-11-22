@@ -329,6 +329,9 @@ def approve_one(ctx, a):
     if raw is None:
         return approve_on_worker(ctx, a, jid)
     digest, job = jobs.digest_of(raw), json.loads(raw)
+    if jobs.is_expired(raw):                                                     # before anything is shown or signed: the worker would refuse it, so do not let a person approve it
+        raise ClientError("That job has expired", f"It was sent more than a day ago, and {ctx.name} does not run a job that old, so it cannot be approved. Send it again.",
+                          example=f"ct-run submit {job.get('class') or '<class>'}", facts=[("Job", jid), ("Sent", str(job.get("created") or "unknown"))])
     banner = ctx.repos.pull_results()
     if banner:
         emit("A worker is LOCKED", ("Worker", alias.show(ctx.name)), ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
