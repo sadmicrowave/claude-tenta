@@ -80,6 +80,8 @@ ct-setup uninstall --apply     # asks once, then removes it (your sudo password,
 The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `ct-setup install` sets it all up again.
 See [the setup wizard](components/setup.md#ct-setup-uninstall) for the options (`--keep-data`, `--remove-account`).
 
+To remove a Windows worker, name it: `ct-setup uninstall --worker NAME` (preview first, `--apply` to remove; `--keep-data` keeps its state folders). To take the ct commands off your own computer: `ct-setup uninstall --client` (it never touches your GitHub repositories or a worker computer, so remove the workers first).
+
 ## If something goes wrong
 
 Every command explains itself: what went wrong, why, how to fix it, and a command to copy. `ct-help` lists everything. The [components](components/overview.md) pages explain how each part works.

@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""BY HAND, on a real Windows computer: read-only look for anything a removal left behind (src/ct/setup/winremove.py).
+  scripts/win-remove-check USER@HOST
+Run it after `ct-setup uninstall --worker NAME --apply`. Prints what is left (the start task, the worker and mailbox accounts, the folder, the sshd_config block, a Python registration under the worker's tools folder,
+the rights entries whose account is gone) and exits 1 if anything is."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.setup import wintools   # noqa: E402
+
+SCRIPT = r"""$ErrorActionPreference = 'Stop'
+$root = Join-Path $env:ProgramData 'claude-tenta'
+$left = [ordered]@{}
+$left.task = [bool](Get-ScheduledTask -TaskName 'claude-tenta-worker' -ErrorAction SilentlyContinue)
+$left.accounts = @(Get-LocalUser | Where-Object { $_.Name -eq 'ctworker' -or $_.Name -like '*-mail' } | ForEach-Object { $_.Name })
+$left.folder = Test-Path -LiteralPath $root
+$left.profile = Test-Path 'C:\Users\ctworker'
+$left.sshd_block = [bool]((Get-Content (Join-Path $env:ProgramData 'ssh\sshd_config') -Raw) -match 'claude-tenta')
+$left.python_registered = @(foreach ($h in 'HKCU:', 'HKLM:') { Get-ChildItem "$h\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } | Where-Object { $_.DisplayName -like 'Python 3*' -and "$($_.InstallLocation)" -like '*claude-tenta*' } | ForEach-Object { $_.DisplayName } })
+$tmp = Join-Path $env:TEMP 'ct-leftover.inf'; & secedit.exe /export /cfg $tmp /areas USER_RIGHTS | Out-Null
+$left.orphan_rights = @(Get-Content $tmp | Where-Object { $_ -match '^(SeBatchLogonRight|SeDenyInteractiveLogonRight|SeDenyRemoteInteractiveLogonRight|SeDenyNetworkLogonRight)' } | ForEach-Object { ($_ -split '=', 2)[1] -split ',' } | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ -match '^S-1-5-21-' } | Where-Object { try { ([Security.Principal.SecurityIdentifier]$_).Translate([Security.Principal.NTAccount]) | Out-Null; $false } catch { $true } })
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+Write-Output ('CT-RESULT ' + ($left | ConvertTo-Json -Compress))
+
+"""
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__)
+        return 2
+    user, _, host = argv[0].rpartition("@")
+    r = wintools.parse_result(wintools.ssh_runner(user, host)(list(wintools.POWERSHELL), SCRIPT)[1])
+    left = {k: v for k, v in r.items() if v}
+    print("LEFT BEHIND: " + (", ".join(f"{k}={v}" for k, v in left.items()) if left else "nothing"))
+    return 1 if left else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
