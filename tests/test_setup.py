@@ -434,7 +434,8 @@ class ServerTests(unittest.TestCase):
         s = self.setup_obj(dry_run=False)
         with self.assertRaises(server.SetupError) as e:
             s.run_all()
-        self.assertIn("already runs as cwworker", e.exception.title)
+        self.assertIn("already runs as another account", e.exception.title)
+        self.assertIn(("Existing", "cwworker"), e.exception.facts)                                # (the account is a labelled row, not part of the title)
         self.assertIn("--set server.worker_user=cwworker", " ".join(e.exception.steps))
         self.assertFalse(self.h.ran("useradd"))
         self.h.replies["stat -c %U"] = Result(0, "ctworker\n")                          # the account this install means: nothing to say
