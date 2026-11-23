@@ -162,8 +162,11 @@ class UfwLanEgress(Module):
 
     def plan(self, host, cfg):
         steps = [Action("run", argv=["apt-get", "install", "-y", "ufw"], why="install ufw if it is missing")]
-        steps += [Action("run", argv=["ufw", *r]) for r in firewall.rules(cfg, firewall.detect_gateway())]
+        session = firewall.session_address(host.env.get("SSH_CONNECTION"))
+        steps += [Action("run", argv=["ufw", *r]) for r in firewall.rules(cfg, firewall.detect_gateway(), session=session)]
         steps.append(Action("run", argv=["ufw", "--force", "enable"]))
+        if session:
+            steps.append(Action("run", argv=["ufw", "delete", *firewall.session_rule(session, cfg.server.ssh_port)], why="the connection is tracked now, so its replies no longer need their own rule"))
         return steps
 
     def revert(self, host, cfg):

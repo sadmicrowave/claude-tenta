@@ -52,6 +52,7 @@ class Ssh:
         a = ["ssh"] + (["-t"] if tty else [])
         if batch:
             a += ["-o", "BatchMode=yes"]
+        a += ["-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=6"]       # a silent path is noticed (or woken by the traffic) within a minute
         a += ["-o", "LogLevel=ERROR"]                       # no "Shared connection to ... closed." line after every command
         if self.family:
             a += ["-o", f"AddressFamily={self.family}"]

@@ -14,6 +14,21 @@ def cfg(**env):
 
 
 class Rules(unittest.TestCase):
+    def test_the_session_in_use_keeps_its_replies_while_the_firewall_starts(self):
+        """A connection that began before the firewall existed is not tracked when the firewall starts: its replies count as new traffic to a LAN address
+        and the LAN-deny rule drops them, so the installer's own session froze until the next keystroke. The reply is allowed first, and removed after."""
+        r = self.flat(firewall.rules(cfg(), gateway="192.0.2.1", session="192.0.2.50"))
+        allow = "allow out from any port 22 to 192.0.2.50 proto tcp"
+        self.assertIn(allow, r)
+        self.assertLess(r.index(allow), r.index("deny out to 192.168.0.0/16"))
+        self.assertEqual(" ".join(firewall.session_rule("192.0.2.50", 22)), allow)
+        self.assertNotIn(allow, self.flat(firewall.rules(cfg(), gateway="192.0.2.1")))
+
+    def test_only_a_real_address_is_used_for_the_session_rule(self):
+        self.assertEqual(firewall.session_address("192.0.2.50 51234 192.0.2.9 22"), "192.0.2.50")
+        for bad in ("", None, "not-an-ip 1 2 3", "192.0.2.50; rm -rf /"):
+            self.assertIsNone(firewall.session_address(bad))
+
     def flat(self, rl):
         return [" ".join(r) for r in rl]
 
