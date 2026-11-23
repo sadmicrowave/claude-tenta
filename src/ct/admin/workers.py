@@ -13,7 +13,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import config, theme
+from .. import config, refusals, theme
 from ..words import plural
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -39,10 +39,10 @@ def save_list(path, workers):
 
 def add(path, name, config_path):
     if not NAME_RE.match(name or ""):
-        raise ValueError("a worker name is lowercase letters, digits and dashes, starting with a letter")
+        raise refusals.refuse("worker.name.invalid")
     cfg_file = Path(config_path).expanduser()
     if not cfg_file.is_file():
-        raise ValueError(f"there is no configuration file at {cfg_file}")
+        raise refusals.refuse("worker.config.missing", path=cfg_file)
     workers = load_list(path)
     workers[name] = str(cfg_file)
     save_list(path, workers)

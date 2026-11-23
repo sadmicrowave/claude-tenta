@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .. import jobs as core_jobs
 from .. import review as review_mod
+from ..client import refuse
 from ..client.repo import ClientError
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,80}$")
@@ -149,5 +150,5 @@ def classify(waiting_jobs, seen, current):
 
 def require_id(jid):
     if not jid or not ID_RE.match(jid):
-        raise ClientError("That is not a job id", "Job ids are lowercase letters, digits and dashes.", example="ct-run jobs")
+        raise refuse.error("job.id.not_an_id", example="ct-run jobs")
     return jid

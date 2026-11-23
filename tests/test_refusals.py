@@ -12,7 +12,8 @@ import support  # noqa: E402,F401
 from ct import refusals  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
-POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py")            # each later slice adds its modules here
+POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py",
+                  "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 
@@ -90,6 +91,16 @@ class OperationalErrors(unittest.TestCase):
 
     def test_the_client_modules_hold_no_literal_error_any_more(self):
         self.assertEqual({k: v for k, v in OPERATIONAL.items() if v}, {})                       # the list is empty: every client error is in the catalog
+
+
+class EveryClientEntry(unittest.TestCase):
+    def test_every_entry_decided_on_this_computer_builds_a_client_error_with_its_code_last(self):
+        from ct.client import refuse
+        for code, e in refusals.CATALOG.items():
+            if e.who == "client":
+                err = refuse.error(code, ("Thing", "x"))
+                self.assertEqual(err.facts[-1], ("Code", code), code)
+                self.assertEqual(err.title, e.title, code)
 
 
 class StillLiteral(unittest.TestCase):

@@ -285,3 +285,56 @@ define("repo.file_missing", "error", "A push that succeeded is not proof the fil
        "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.", who="client", steps=["Send it again with the same command."])
 define("repo.push_failed", "error", "A branch that could not be pushed is reported with how to reach it, never as a job sent.", "Could not push to the branch", "Check your connection and access, then try again.", who="client",
        steps=["Check your connection and access, then run the same command again."])
+
+# ---- administering the worker from this computer (ct-admin): actions, proposals, releases, updates, ssh ----
+define("action.source.missing", "error", "A root-level action is added from a definition file or a pack folder, so a path that is neither is said plainly.", "Cannot find a definition",
+       "Give a YAML file, or a pack folder with an actions/ folder in it.", who="client", steps=["Give the path of a definition file or a pack folder."])
+define("action.file.unreadable", "error", "The real error text of a definition file that cannot be read.", "Cannot read a definition file", "{reason}", who="client", steps=["Open the file named above and correct it."])
+define("action.file.shape", "format", "A definition holds only actions and the classes that use them, so nothing else is silently ignored.", "That is not an action definition",
+       "It may only contain an `actions:` and a `classes:` section.", who="client", steps=["Remove every other section from the definition."])
+define("action.duplicate", "format", "An action name names one program that runs as root, so a second definition would silently replace it.", "An action is defined twice", "in {kind}", who="client",
+       steps=["Give each action its own name in the definition."])
+define("action.none", "format", "An action says which program runs as root; without one there is nothing to register.", "That defines no action",
+       "An action says which program runs as root; without one there is nothing to register.", who="client", steps=["Add an action to the definition."])
+define("action.class.unlinked", "format", "A class that runs as root must name one action in the same definition, so what it runs can be checked.", "A class does not use one of these actions",
+       "A class here must say `kind: privileged` and `action:` the name of an action in the same definition.", who="client", steps=["Add kind: privileged and action: NAME to the class."])
+define("action.worker.silent", "error", "The worker checks a program before it may run as root; no answer means it was not checked.", "The worker did not answer", "{reason}", who="client",
+       steps=["Is the worker up to date? Run: ct-admin update"])
+define("action.path.invalid", "security", "A program that runs as root must be a plain file owned by root, in a system folder, that nobody else can write.", "That path cannot be a root-level action",
+       "{problem}", who="client", steps=["The program must be a plain file owned by root, in a system folder, that nobody else can write."])
+define("job.id.not_an_id", "format", "A job id is plain, so it is safe as a file name and on a command line.", "That is not a job id", "Job ids are lowercase letters, digits and dashes.", who="client",
+       steps=["List your jobs with ct-run jobs."])
+define("proposal.branch.protected", "policy", "main, jobs and data are managed by the system, so they are never merged as a proposal.", "That is not a branch you can merge",
+       "main, jobs and data are managed by the system.", who="client", steps=["List the proposals with ct-admin proposals."])
+define("proposal.branch.missing", "error", "A proposal is a branch in your queue repository; one that is not there cannot be merged.", "No such branch on GitHub", "The branch is not in your queue repository on GitHub.",
+       who="client", steps=["List the proposals with ct-admin proposals."])
+define("proposal.merge.conflict", "error", "A branch that does not merge cleanly is not merged: the conflict is for the person to resolve.", "A branch does not merge cleanly into main", "{detail}", who="client",
+       steps=["Rebase the branch on main in your copy of the queue repository, then run this again."])
+define("proposal.branch.nothing_new", "policy", "A branch whose changes are all in main has nothing to merge.", "A branch has nothing that is not already in main", "Its changes are already in main.", who="client",
+       steps=["List the proposals with ct-admin proposals."])
+define("proposal.push.private_email", "error", "GitHub refuses a push that would publish a private email address; the real cause is said, not 'main moved'.", "GitHub refused: the commit would publish a private email address",
+       "Your GitHub account blocks pushes that expose your email.", who="client", steps=["Use your GitHub noreply address in this clone: git config user.email <id>+<handle>@users.noreply.github.com"])
+define("proposal.push.main_moved", "error", "A push refused because main has new commits is retried by running the command again.", "main moved while you were reviewing",
+       "GitHub refused the push because main has new commits.", who="client", steps=["Run the same command again."])
+define("proposal.push.refused", "error", "The real text of a push GitHub refused, in plain words.", "GitHub refused the push", "{detail}", who="client",
+       steps=["Read the reason above, then run the same command again."])
+define("release.source.missing", "error", "An update needs a release source to read from.", "No release source is configured", "updates.source is empty.", who="client", steps=["Run ct-setup client."])
+define("release.fetch_failed", "error", "The real error text of a release source that could not be fetched.", "Could not fetch the release source", "{reason}", who="client",
+       steps=["Check that this computer can reach the release source."])
+define("release.commit.missing", "error", "A commit that is not in the release source cannot be installed.", "A commit was not found in the release source", "Has it been pushed?", who="client",
+       steps=["Push the commit to the release source, then run this again."])
+define("release.commit.off_branch", "policy", "The worker only installs commits that are on the release branch, so what it runs has been through that branch.", "A commit is not on the release branch",
+       "The worker only installs commits that are on the release branch.", who="client", steps=["Merge it first, then try again."])
+define("update.dirty", "error", "A checkout with uncommitted changes is never touched by an update.", "Your checkout has uncommitted changes", "{root} was not touched.", who="client",
+       steps=["Commit or stash them, then run ct-admin update again."])
+define("update.fetch_failed", "error", "The real error text of a release that could not be fetched.", "Could not fetch the release", "{reason}", who="client", steps=["Check that this computer can reach the release source."])
+define("update.not_fast_forward", "error", "A checkout that has commits the release does not is not rewound or merged for the person.", "Your checkout cannot be fast-forwarded to that release",
+       "It has commits the release does not (or the history differs), so nothing was changed.", who="client", steps=["Merge the release into your checkout yourself with git merge."])
+define("update.pip_failed", "error", "The real error text of a pip install that failed.", "pip could not install that release", "{reason}", who="client", steps=["Run the pip command shown to see the error."])
+define("ssh.control_folder.long", "error", "A unix socket path has a short limit; a folder that exceeds it cannot be used for the connection.", "The SSH control folder is too long",
+       "the SSH control folder {path} is too long for a unix socket", who="client", steps=["Set CT_SSH_DIR to a shorter folder."])
+define("ssh.address.missing", "error", "A connection needs a server address.", "No server address is configured", "server.host is empty or not an address.", who="client", steps=["Run ct-setup client."])
+define("ssh.connect_failed", "error", "The real error text of a connection that failed.", "Could not connect", "{reason}", who="client", steps=["Check that SSH key login works from this computer."])
+define("worker.name.invalid", "format", "A worker name is short and plain, so it is safe in a file and on a command line.", "A worker name is not allowed",
+       "a worker name is lowercase letters, digits and dashes, starting with a letter", who="client")
+define("worker.config.missing", "error", "A worker is added from its configuration file, so a path with none is said plainly.", "There is no configuration file there", "there is no configuration file at {path}", who="client")

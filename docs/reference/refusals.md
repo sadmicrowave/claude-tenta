@@ -136,6 +136,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `action.path.invalid`: That path cannot be a root-level action
+
+- **Text:** {problem}
+- **Protects:** A program that runs as root must be a plain file owned by root, in a system folder, that nobody else can write.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** The program must be a plain file owned by root, in a system folder, that nobody else can write.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -385,6 +394,59 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 
 - **Text:** Letters, digits, dot, dash and underscore only.
 - **Protects:** A worker or command name is plain, so it is safe in a file and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `action.file.shape`: That is not an action definition
+
+- **Text:** It may only contain an `actions:` and a `classes:` section.
+- **Protects:** A definition holds only actions and the classes that use them, so nothing else is silently ignored.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Remove every other section from the definition.
+
+### `action.duplicate`: An action is defined twice
+
+- **Text:** in {kind}
+- **Protects:** An action name names one program that runs as root, so a second definition would silently replace it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give each action its own name in the definition.
+
+### `action.none`: That defines no action
+
+- **Text:** An action says which program runs as root; without one there is nothing to register.
+- **Protects:** An action says which program runs as root; without one there is nothing to register.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Add an action to the definition.
+
+### `action.class.unlinked`: A class does not use one of these actions
+
+- **Text:** A class here must say `kind: privileged` and `action:` the name of an action in the same definition.
+- **Protects:** A class that runs as root must name one action in the same definition, so what it runs can be checked.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Add kind: privileged and action: NAME to the class.
+
+### `job.id.not_an_id`: That is not a job id
+
+- **Text:** Job ids are lowercase letters, digits and dashes.
+- **Protects:** A job id is plain, so it is safe as a file name and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your jobs with ct-run jobs.
+
+### `worker.name.invalid`: A worker name is not allowed
+
+- **Text:** a worker name is lowercase letters, digits and dashes, starting with a letter
+- **Protects:** A worker name is short and plain, so it is safe in a file and on a command line.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
@@ -736,6 +798,33 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `proposal.branch.protected`: That is not a branch you can merge
+
+- **Text:** main, jobs and data are managed by the system.
+- **Protects:** main, jobs and data are managed by the system, so they are never merged as a proposal.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `proposal.branch.nothing_new`: A branch has nothing that is not already in main
+
+- **Text:** Its changes are already in main.
+- **Protects:** A branch whose changes are all in main has nothing to merge.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `release.commit.off_branch`: A commit is not on the release branch
+
+- **Text:** The worker only installs commits that are on the release branch.
+- **Protects:** The worker only installs commits that are on the release branch, so what it runs has been through that branch.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Merge it first, then try again.
+
 ## Error
 
 ### `result.not_ready`: No result yet
@@ -845,3 +934,173 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Check your connection and access, then run the same command again.
+
+### `action.source.missing`: Cannot find a definition
+
+- **Text:** Give a YAML file, or a pack folder with an actions/ folder in it.
+- **Protects:** A root-level action is added from a definition file or a pack folder, so a path that is neither is said plainly.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give the path of a definition file or a pack folder.
+
+### `action.file.unreadable`: Cannot read a definition file
+
+- **Text:** {reason}
+- **Protects:** The real error text of a definition file that cannot be read.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the file named above and correct it.
+
+### `action.worker.silent`: The worker did not answer
+
+- **Text:** {reason}
+- **Protects:** The worker checks a program before it may run as root; no answer means it was not checked.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Is the worker up to date? Run: ct-admin update
+
+### `proposal.branch.missing`: No such branch on GitHub
+
+- **Text:** The branch is not in your queue repository on GitHub.
+- **Protects:** A proposal is a branch in your queue repository; one that is not there cannot be merged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `proposal.merge.conflict`: A branch does not merge cleanly into main
+
+- **Text:** {detail}
+- **Protects:** A branch that does not merge cleanly is not merged: the conflict is for the person to resolve.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Rebase the branch on main in your copy of the queue repository, then run this again.
+
+### `proposal.push.private_email`: GitHub refused: the commit would publish a private email address
+
+- **Text:** Your GitHub account blocks pushes that expose your email.
+- **Protects:** GitHub refuses a push that would publish a private email address; the real cause is said, not 'main moved'.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Use your GitHub noreply address in this clone: git config user.email <id>+<handle>@users.noreply.github.com
+
+### `proposal.push.main_moved`: main moved while you were reviewing
+
+- **Text:** GitHub refused the push because main has new commits.
+- **Protects:** A push refused because main has new commits is retried by running the command again.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again.
+
+### `proposal.push.refused`: GitHub refused the push
+
+- **Text:** {detail}
+- **Protects:** The real text of a push GitHub refused, in plain words.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Read the reason above, then run the same command again.
+
+### `release.source.missing`: No release source is configured
+
+- **Text:** updates.source is empty.
+- **Protects:** An update needs a release source to read from.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup client.
+
+### `release.fetch_failed`: Could not fetch the release source
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release source that could not be fetched.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check that this computer can reach the release source.
+
+### `release.commit.missing`: A commit was not found in the release source
+
+- **Text:** Has it been pushed?
+- **Protects:** A commit that is not in the release source cannot be installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Push the commit to the release source, then run this again.
+
+### `update.dirty`: Your checkout has uncommitted changes
+
+- **Text:** {root} was not touched.
+- **Protects:** A checkout with uncommitted changes is never touched by an update.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Commit or stash them, then run ct-admin update again.
+
+### `update.fetch_failed`: Could not fetch the release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be fetched.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check that this computer can reach the release source.
+
+### `update.not_fast_forward`: Your checkout cannot be fast-forwarded to that release
+
+- **Text:** It has commits the release does not (or the history differs), so nothing was changed.
+- **Protects:** A checkout that has commits the release does not is not rewound or merged for the person.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Merge the release into your checkout yourself with git merge.
+
+### `update.pip_failed`: pip could not install that release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a pip install that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the pip command shown to see the error.
+
+### `ssh.control_folder.long`: The SSH control folder is too long
+
+- **Text:** the SSH control folder {path} is too long for a unix socket
+- **Protects:** A unix socket path has a short limit; a folder that exceeds it cannot be used for the connection.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Set CT_SSH_DIR to a shorter folder.
+
+### `ssh.address.missing`: No server address is configured
+
+- **Text:** server.host is empty or not an address.
+- **Protects:** A connection needs a server address.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup client.
+
+### `ssh.connect_failed`: Could not connect
+
+- **Text:** {reason}
+- **Protects:** The real error text of a connection that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check that SSH key login works from this computer.
+
+### `worker.config.missing`: There is no configuration file there
+
+- **Text:** there is no configuration file at {path}
+- **Protects:** A worker is added from its configuration file, so a path with none is said plainly.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
