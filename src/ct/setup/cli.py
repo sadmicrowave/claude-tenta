@@ -9,7 +9,7 @@
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
-  uninstall       remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
+  uninstall       remove an install, completely and on purpose (preview first): a Linux worker, a Windows worker (--worker NAME), or the ct commands on this computer (--client); your GitHub repositories stay
 
 Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address; client, server, audit, tripwire-test, demo: the computer they run on.
 
@@ -98,8 +98,9 @@ def build_parser():
         s.add_argument("--no-banner", action="store_true")
         s.add_argument("--verbose", action="store_true", help="on a terminal, also show the raw commands the setup runs")
         s.add_argument("--here", action="store_true")
-        s.add_argument("--keep-data", action="store_true")
+        s.add_argument("--keep-data", action="store_true", help="uninstall: keep the data (a worker's state folders, or this computer's configuration and keys with --client)")
         s.add_argument("--remove-account", action="store_true")
+        s.add_argument("--client", action="store_true", help="uninstall: remove the ct commands and your configuration from THIS computer instead of a worker")
     return ap
 
 
@@ -144,6 +145,8 @@ def demo(ui, say):
 def uninstall_command(a, host, ask, ssh_factory, say):
     """On the server itself (--here, run as root): remove it. From your computer: confirm once, then run exactly that on the server over ssh -t."""
     flags = (["--keep-data"] if a.keep_data else []) + (["--remove-account"] if a.remove_account else [])
+    if a.client:
+        return client_uninstall_command(a, ask, say)
     if a.here:
         cfg = load_config()
         interactive = not a.yes and sys.stdin.isatty()
@@ -162,6 +165,8 @@ def uninstall_command(a, host, ask, ssh_factory, say):
     from ..admin.ssh import Ssh, family_for
     cfg = config.load()
     cfg.require("server.host", "server.admin_user")
+    if str(cfg.paths.code)[1:3] == ":/":                                           # a Windows worker: removed from here over SSH with PowerShell
+        return windows_uninstall_command(a, cfg, ask, say)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     # The code that does the removal comes with this checkout, not from the install being removed, so it works however old or broken that install is.
     d, rev, _ = deliver_source(ssh, a.source, say=say)
@@ -184,6 +189,62 @@ def uninstall_command(a, host, ask, ssh_factory, say):
         return 1
     emit("Removed", f"The {cfg.identity.name} install is gone from {cfg.server.host}. Your repositories and your computer's configuration were not touched.", tag="DONE", color=GREEN,
          run_label="Set it up again", run="ct-setup install")
+    return 0
+
+
+def client_uninstall_command(a, ask, say, scripts_dir="auto", home=None):
+    """ct-setup uninstall --client: the ct commands, the startup-file lines and (unless --keep-data) the configuration and keys on THIS computer. A preview by default; one question before --apply."""
+    from ..admin import workers as workers_mod
+    from .uninstall_client import ClientUninstall
+    if a.worker or a.here or a.remove_account:
+        emit("--client cannot be combined with those options", ("Option", "--client"), "It acts only on this computer; to remove a worker use --worker NAME on its own.", tag="ERROR", color=RED)
+        return 2
+    cfg = config.load()
+    if not cfg.source:
+        emit("There is nothing to remove on this computer", "No configuration was found, so no install was made here.", tag="STOPPED", color=YELLOW)
+        return 0
+    interactive = not a.yes and sys.stdin.isatty()
+    run = ClientUninstall(cfg, home=home, scripts_dir=scripts_dir, say=say, dry_run=not a.apply, keep_data=a.keep_data,
+                          confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
+    listed = sorted(workers_mod.load_list(run.workers_file)) if run.workers_file else []
+    still = [("Workers still set up", ", ".join(listed))] if listed else []
+    if not a.apply:
+        emit("What removing the ct commands from this computer does", *still, *run.rows(), tag="PREVIEW", color=YELLOW,
+             run_label="Remove them", run="ct-setup uninstall --client --apply" + (" --keep-data" if a.keep_data else ""))
+        return 0
+    status = run.run_all()[-1][1]
+    if status == "declined":
+        emit("Not removed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
+        return 1
+    env = run.environment_command()
+    emit("The ct commands are removed from this computer", *still, "Your GitHub repositories and any worker computer were not touched.", tag="DONE", color=GREEN,
+         **({"run_label": "Remove the Python environment they lived in", "run": env} if env else {}))
+    return 0
+
+
+def windows_uninstall_command(a, cfg, ask, say, runner=None):
+    """ct-setup uninstall --worker NAME for a Windows worker: preview by default, one question before --apply removes anything."""
+    from .winuninstall import WindowsUninstall
+    if a.remove_account:
+        emit("That option is for Linux workers", ("Option", "--remove-account"), "On Windows the worker account is always removed with its folders.", tag="ERROR", color=RED)
+        return 2
+    interactive = not a.yes and sys.stdin.isatty()
+    run = WindowsUninstall(cfg, Path(cfg.source).parent / "workers.toml", run=runner, say=say, dry_run=not a.apply, keep_data=a.keep_data,
+                           confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
+    facts = [("Worker", cfg.identity.name), ("Computer", cfg.server.host)]
+    if not a.apply:
+        emit("What removing this Windows worker does", *facts, *run.rows(), tag="PREVIEW", color=YELLOW,
+             run_label="Remove it", run="ct-setup uninstall --worker " + cfg.identity.name + " --apply" + (" --keep-data" if a.keep_data else ""))
+        return 0
+    status = run.run_all()[-1][1]
+    if status == "declined":
+        emit("Not removed", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
+        return 1
+    if status == "partial":
+        emit("The Windows worker is removed except its profile folder", *facts, "Windows keeps the worker account's profile in use until the computer restarts, so that one folder is still there. Nothing on this computer was forgotten yet, so the same command finishes the job.",
+             tag="WARNING", color=YELLOW, steps=["Restart the Windows computer.", "Run the command again."], steps_label="What to do", run_label="Finish the removal", run="ct-setup uninstall --worker " + cfg.identity.name + " --apply" + (" --keep-data" if a.keep_data else ""))
+        return 1
+    emit("The Windows worker is removed", *facts, "Your GitHub repositories, Windows itself and the administrator account were not touched.", tag="DONE", color=GREEN, run_label="Set it up again", run="ct-setup add-worker " + cfg.server.host)
     return 0
 
 

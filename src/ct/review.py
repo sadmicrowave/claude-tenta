@@ -24,10 +24,10 @@ def _labels(product):
 def review_text(job, facts=None, package_text=None, glance=None, width=None, product="the worker"):
     """The approval screen as plain text: every label on its own line, its content indented under it, one blank line between sections,
     input files as an aligned vertical list, and any WARNING set apart at the end."""
-    width = width or max(60, min(shutil.get_terminal_size((100, 24)).columns, 110))
+    width = width or max(20, min(shutil.get_terminal_size((100, 24)).columns, 110))
     argv = [str(x) for x in job.get("argv", [])]
-    L = [f"PROFILE RUN. If you approve, {product} will run exactly this command once, as its unprivileged",
-         "worker user, in an empty folder, with hard limits on time, memory, heat and disk:", "",
+    L = [*(textwrap.wrap(f"PROFILE RUN. If you approve, {product} will run exactly this command once, as its unprivileged worker user, in an empty folder, with hard limits on time, memory, heat "       # nochip: the approval screen is plain text for a person to read before approving, not a card with commands to copy
+                         "and disk:", width, break_on_hyphens=False)), "",
          "    " + " ".join(shlex.quote(x) for x in argv), ""]
 
     def section(label, lines, note="", as_list=False):
@@ -83,6 +83,12 @@ def review_text(job, facts=None, package_text=None, glance=None, width=None, pro
         L += [f"({product} has not published its own facts about this command yet; run again in a minute for them.)", ""]
     if glance:
         L += [glance, ""]
+    def fit(line):                                                                          # a line wider than the pane wraps under itself at a word; a command or file name (indented four) is never cut, so it can be copied whole
+        if len(line) <= width or line.startswith("    "):
+            return [line]
+        indent = " " * (len(line) - len(line.lstrip()))
+        return textwrap.wrap(line, width, subsequent_indent=indent, break_long_words=False, break_on_hyphens=False) or [""]       # nochip: the approval screen is plain text for a person to read before approving, not a card with commands to copy
+    L = [piece for line in L for piece in fit(line)]
     return "\n".join(L).rstrip("\n") + "\n"
 
 

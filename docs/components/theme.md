@@ -60,3 +60,7 @@ When no theme was chosen (no `CT_THEME`, no `theme.toml`), the first colour a co
 ### Code inside a sentence
 
 A command or name written exactly as typed inside a message is wrapped in backticks, and it is shown in the `code` role (a filled background; `src/ct/cards.py` `inline`, used by every card's notes, facts and steps and by the wizard's question text): "run `ct-setup install` again" is never lost in the prose. The backticks stay, inside the coloured span, so output with colour off still shows what is code. A span may run over a line break. Where a message is a whole command to copy, it is still shown in its own "Run this" block.
+
+## Narrow terminals
+
+A card is drawn inside the width the terminal has (`cards.width`, read at each use, at most 100). From 60 columns it is framed; below that it is the rail (a left border only, which costs two columns instead of four), whatever the caller asked for; below 44 each label stands above its value, and a table too wide for its pane becomes labelled lines per row. A command longer than the pane is drawn alone and never cut, so it can be copied whole. `tests/test_narrow_width.py` draws every kind of card at eight widths from 30 to 100 and fails on any line wider than the terminal: a new kind of card is added to its `KINDS` list.

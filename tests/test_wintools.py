@@ -114,5 +114,17 @@ class Result(unittest.TestCase):
         self.assertFalse(r["changed"])
 
 
+class StalePythonRegistration(unittest.TestCase):
+    def test_a_python_left_registered_for_the_tools_folder_is_undone_before_the_installer_runs(self):
+        s = wintools.installer_script()
+        self.assertLess(s.index("OurPythonUninstallers $pydir"), s.index("Start-Process -FilePath $exe"))
+        self.assertIn("/uninstall", s)
+        self.assertNotIn("foreach ($u ", s)
+
+    def test_the_registration_lookup_only_follows_a_key_that_points_at_the_tools_folder(self):
+        self.assertIn("-ieq $pydir", wintools.PY_REGISTRATION)
+        self.assertIn("if (-not $ours) { return @() }", wintools.PY_REGISTRATION)
+
+
 if __name__ == "__main__":
     unittest.main()

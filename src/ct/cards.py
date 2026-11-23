@@ -81,9 +81,16 @@ def vlen(text):
     return len(ANSI.sub("", text))
 
 
+MIN_W, MAX_W = 20, 100          # a card is never wider than 100 columns, and never narrower than is readable
+FRAME_MIN = 60                  # from this width up a card is drawn in a frame; below it, as the rail (a left border only), which costs two columns instead of four
+STACK_BELOW = 44                # below this width a label sits above its value instead of beside it, so a short pane is not spent on a label column
+
+
 def width(stream=None, cols=None):
+    """How wide a card may be: the terminal's own width (read at each use, so a resized pane is followed), at most MAX_W. There is no fixed minimum above MIN_W: a card draws itself
+    inside whatever it is given, so a narrow pane never wraps a frame."""
     cols = cols or shutil.get_terminal_size((80, 24)).columns
-    return max(50, min(cols, 100))
+    return max(MIN_W, min(cols, MAX_W))
 
 
 PROGRAMS = ("ct-setup", "ct-admin", "ct-run", "ct-worker", "ct-update")
@@ -325,7 +332,10 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
         body += [("blank", None), ("fact", (steps_label, None))] + [("step", s) for s in steps]
     if not rows and not steps:                                          # nothing to put in a frame: a heading, drawn as one line
         return [rule(title, tag, color, cols)]
-    framed = True if framed is None else framed                         # every card has the same outline, in the colour of its kind (green, purple, yellow, red): one look, not two
+    framed = (True if framed is None else framed) and w >= FRAME_MIN      # every card has the same outline in the colour of its kind; below FRAME_MIN columns the rail instead, whatever the caller asked for
+    stacked = w < STACK_BELOW
+    if stacked:
+        lw = 0                                                          # no label column: each label stands above its value
     inner = w - 4 if framed else w - 2
 
     def label(text):
@@ -360,7 +370,7 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     else:
         rail = lambda text="": p("┃ ", role) + text                      # noqa: E731
         row = rail
-        out += [rail(p(f" {tag.upper()} ", CHIP.get(role, "primary_chip"))), rail(), rail(p(title, "strong"))]
+        out += [rail(p(f" {tag.upper()} ", CHIP.get(role, "primary_chip"))), rail()] + [rail(p(t, "strong")) for t in (wrap(title, inner) or [""])]
         if body and body[0][0] != "note":                              # context hugs its subject; facts and sections are set apart from it
             out.append(rail())
     fact_room = inner - (lw + 2 if lw else 0)
@@ -379,6 +389,12 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out += [row(item)] if vlen(item) <= inner else [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
             out.append(row(p(item[0].upper(), role if framed else "label")))
+        elif kind == "fact" and item[1] is not None and stacked:
+            out.append(row(label(item[0])))                                       # a narrow pane: the label, then its value under it, indented two
+            if isinstance(item[1], Styled):
+                out += [row("  " + line) for line in item[1].lines(inner - 2)]
+            else:
+                out += [row("  " + line) for line in inline(wrap(lift(item[1], inner - 2, found), inner - 2))]
         elif kind == "fact" and item[1] is not None and (len(item[0]) + (2 if isinstance(item[0], (Cmd, Chip)) else 0)) > lw and lw and not isinstance(item[1], Styled):
             out.append(row(label(item[0])))                                       # the long label on its own line, the value under it where the values start
             first, *rest = inline(wrap(lift(item[1], fact_room, found), fact_room))
@@ -418,6 +434,18 @@ def table_lines(header, rows, room, color=True):
     if over > 0:
         widest = max(range(n), key=lambda i: widths[i])
         widths[widest] = max(8, widths[widest] - over)
+    if sum(widths) + 2 * (n - 1) > room:                                                      # still too wide for a pane this narrow: each row stands as labelled lines, never columns cut to nothing
+        out = []
+        for k, r in enumerate(rows):
+            for i in range(n):
+                text, role = (r[i] if i < len(r) and isinstance(r[i], tuple) else (r[i] if i < len(r) else "", None))
+                text = str(text)
+                text = text if len(text) <= room - 2 else text[:max(1, room - 3)] + "…"
+                out.append(theme.sgr(header[i].upper(), "label") if color else header[i].upper())
+                out.append("  " + (theme.sgr(text, role) if role and color else text))
+            if k < len(rows) - 1:
+                out.append("")
+        return out
     def cell(c, i):
         text, role = (c if isinstance(c, tuple) else (c, None))
         text = str(text)
@@ -441,6 +469,10 @@ def meta(sections, cols=None):
             continue
         lw = max(len(k) for k, _ in rows)
         out += ["", "  " + p(heading.upper())]
+        if w < STACK_BELOW:                                                                  # a narrow pane: the label, then its value under it
+            for k, v in rows:
+                out += ["  " + p(k.upper())] + ["    " + p(line) for line in wrap(v, w - 4)]
+            continue
         for k, v in rows:
             first, *rest = wrap(v, w - lw - 6)
             out.append("  " + p(k.upper().ljust(lw)) + "  " + p(first))

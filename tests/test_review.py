@@ -24,7 +24,7 @@ class Layout(unittest.TestCase):
     def test_the_command_comes_first_exactly_as_it_will_run_and_quoted(self):
         t = text({**JOB, "argv": ["echo", "a b", "$(id)"]})
         self.assertTrue(t.startswith("PROFILE RUN. If you approve, the worker will run exactly this command once"))
-        self.assertIn("    echo 'a b' '$(id)'", t.splitlines()[3])                           # shell-quoted: nothing is hidden or interpreted
+        self.assertIn("    echo 'a b' '$(id)'", t.splitlines())                           # shell-quoted: nothing is hidden or interpreted, and alone on its own line
 
     def test_sections_labels_and_alignment(self):
         t = text(facts={"binary": "/usr/bin/eslint", "size_kb": 12, "package": "eslint", "summary": "a   linter\n tool"})
@@ -57,7 +57,7 @@ class Layout(unittest.TestCase):
         t = text({**JOB, "packages": ["apt:jq"]}, package_text="INSTALL REQUIRED. ...", glance="AT A GLANCE\n  Time ~1 s")
         self.assertIn("INSTALL REQUIRED. ...", t)
         self.assertTrue(t.rstrip().endswith("Time ~1 s"))
-        self.assertIn("has not published the plan yet", text({**JOB, "packages": ["apt:jq"]}))
+        self.assertIn("has not published the plan yet", " ".join(text({**JOB, "packages": ["apt:jq"]}).split()))       # (a long line wraps at a word)
 
     def test_the_product_name_is_an_argument_and_the_old_one_never_appears(self):
         t = text(product="homect", facts={"binary": "/x"})
