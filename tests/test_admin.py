@@ -64,6 +64,11 @@ class SshTests(unittest.TestCase):
         self.assertNotIn("-t", a)
         self.assertIn("-t", Ssh("h", control_dir="/tmp/ct-test-ctl").argv("x", tty=True))
 
+    def test_a_session_sends_keep_alives_so_a_stalled_path_is_noticed_or_woken(self):
+        a = Ssh("h", control_dir="/tmp/ct-test-ctl").argv("x", tty=True)
+        self.assertIn("ServerAliveInterval=10", a)
+        self.assertIn("ServerAliveCountMax=6", a)
+
     def test_the_control_socket_path_fits_a_unix_socket_even_with_macos_style_temp_folders(self):
         import tempfile
         long_tmp = "/var/folders/k7/nb4y713s0dx6nd0d_zvfcqt40000gp/T"

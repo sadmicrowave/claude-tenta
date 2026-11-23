@@ -263,6 +263,15 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("ufw --force enable", plan)
         self.assertFalse(any("fc00::/7" in p for p in plan))
 
+    def test_the_firewall_keeps_the_installing_session_alive_then_removes_its_rule(self):
+        mod = hardening.MODULES["ufw-lan-egress"]
+        h = FakeHost(env={"SSH_CONNECTION": "192.0.2.9 5000 192.0.2.1 22"})
+        plan = [a.show() for a in mod.plan(h, cfg_of(network={"ssh_from": ["192.0.2.0/24"]}))]
+        keep, enable = "ufw allow out from any port 22 to 192.0.2.9 proto tcp", plan.index("ufw --force enable")
+        self.assertLess(plan.index(keep), min(i for i, p in enumerate(plan) if p.startswith("ufw deny out")))
+        self.assertEqual(plan[enable + 1], "ufw delete " + keep[4:])
+        self.assertFalse(any("from any port 22" in p for p in [a.show() for a in mod.plan(self.h, cfg_of())]))      # no SSH session, no rule
+
     def test_the_tripwire_explains_a_machine_with_no_kernel_audit(self):
         mod, h = hardening.MODULES["auditd-canaries"], self.h
         h.replies["systemctl is-active"] = Result(3, "inactive\n")

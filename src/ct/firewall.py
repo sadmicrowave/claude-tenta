@@ -43,12 +43,14 @@ def ipv6_enabled(cfg):
     return cfg.network.ipv6 == "enabled"
 
 
-def rules(cfg, gateway=None, ipv6=None):
+def rules(cfg, gateway=None, ipv6=None, session=None):
     """The ufw rules, in the order they must be applied: a list of argument lists (each starts after `ufw`). `ipv6` defaults to the
     configuration (network.ipv6); when IPv6 is disabled on the server there is nothing to block, so no IPv6 rule is written."""
     ipv6 = ipv6_enabled(cfg) if ipv6 is None else ipv6
     n, port = cfg.network, str(cfg.server.ssh_port)
     out = [["default", "deny", "incoming"], ["default", "allow", "outgoing"]]
+    if session:
+        out.append(session_rule(session, port))
     for net in n.ssh_from:
         out.append(["allow", "in", "from", net, "to", "any", "port", port, "proto", "tcp"])
     dns = list(n.dns_servers) or ([gateway] if gateway else [])
@@ -62,6 +64,20 @@ def rules(cfg, gateway=None, ipv6=None):
         for net in PRIVATE_V4 + (PRIVATE_V6 if ipv6 else ()):
             out.append(["deny", "out", "to", net])
     return out
+
+
+def session_rule(client_ip, port):
+    """Let the SSH server's replies to the connection in use go out while the firewall starts. That connection began before the firewall existed, so it is
+    not tracked yet and its replies would meet the rule that blocks the LAN: the session froze for minutes. Removed again once the firewall runs."""
+    return ["allow", "out", "from", "any", "port", str(port), "to", client_ip, "proto", "tcp"]
+
+
+def session_address(ssh_connection):
+    """The client address in SSH_CONNECTION ('client_ip client_port server_ip server_port'), only when it is a real IP address; otherwise None."""
+    try:
+        return str(ipaddress.ip_address((ssh_connection or "").split()[0]))
+    except (ValueError, IndexError):
+        return None
 
 
 def commands(rule_list):
