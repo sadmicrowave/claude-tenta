@@ -98,6 +98,14 @@ def human_age(seconds):
     return "just now" if m < 1 else f"{m} min ago" if m < 120 else f"{m // 60} h ago"
 
 
+def profile_time_text(pt):
+    """What a profile run's time limit is built from, in one line ('' when the worker does not say)."""
+    if not isinstance(pt, dict) or "factor" not in pt:
+        return ""
+    ceiling = f"ceiling {pt['ceiling_s']:g} s (shared computer)" if pt.get("ceiling_s") else "no ceiling"
+    return f"estimate x {pt['factor']:g} x {pt.get('margin', 3):g}; {ceiling}; from {pt.get('basis', 'none yet')}"
+
+
 def row_for(name, doc, now=None):
     """The cells of one worker's row (plain text; the caller adds colour)."""
     if doc is None:
@@ -115,7 +123,7 @@ def row_for(name, doc, now=None):
             "cpu": f"{plural(hw.get('cores', '?'), 'core')}" + ("" if hw.get("native_claude", True) else ", old CPU"),
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
             "claude": text, "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
-            "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "platform": doc.get("platform") or "",
+            "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "profile_time": profile_time_text(doc.get("profile_time")), "platform": doc.get("platform") or "",
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" STALE" if age is None or age > STALE_S else ""),
             "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S,
@@ -136,6 +144,8 @@ def fact_rows(r, upper=False):
         rows.insert([k for _, k in ROWS].index("memory") + 1, ("LARGEST JOB" if upper else "Largest job", r["ceiling"]))
     if r.get("purpose"):
         rows.insert([k for _, k in ROWS].index("state") + 1 + bool(r.get("ceiling")), ("PURPOSE" if upper else "Purpose", r["purpose"]))
+    if r.get("profile_time"):                                                          # how long a profile run may take here, and why that long
+        rows.insert([k for _, k in ROWS].index("state") + 1 + bool(r.get("ceiling")) + bool(r.get("purpose")), ("PROFILE LIMIT" if upper else "Profile limit", r["profile_time"]))
     if r.get("platform") not in (None, "", "linux"):                                       # only when it is not the usual Linux worker
         rows.insert([k for _, k in ROWS].index("state") + 1, ("PLATFORM" if upper else "Platform", r["platform"]))
     if r.get("held"):                                                                   # a shared computer that is not available right now, as it last said

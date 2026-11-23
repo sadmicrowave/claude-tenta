@@ -107,6 +107,26 @@ class LargestJob(unittest.TestCase):
         self.assertNotIn("Largest job", [k for k, _ in workers.fact_rows(workers.row_for("tenta2", doc))])        # an older worker does not say: no row
 
 
+class ProfileTimeRow(unittest.TestCase):
+    PT = {"factor": 1.59, "basis": "install, 4 of 4 steps + 2 profile runs", "margin": 3, "ceiling_s": None, "shared": False}
+
+    def doc(self, pt):
+        env, doc = workerstate.build(snapshot={}, registry={"classes": {}}, extra={"profile_time": pt}, jail=type("J", (), {"ready": lambda s: True, "name": "bwrap"})(), locked=False, now_iso="2999-01-01T00:00:00Z")
+        return doc
+
+    def test_the_state_carries_what_a_profile_runs_limit_is_built_from(self):
+        self.assertEqual(self.doc(self.PT)["profile_time"], self.PT)
+        self.assertNotIn("profile_time", self.doc(None))                        # an older worker does not say
+
+    def test_the_workers_list_shows_the_limit_its_basis_and_the_ceiling(self):
+        from ct.admin import workers
+        rows = dict(workers.fact_rows(workers.row_for("x", self.doc(self.PT))))
+        self.assertEqual(rows["Profile limit"], "estimate x 1.59 x 3; no ceiling; from install, 4 of 4 steps + 2 profile runs")
+        shared = dict(workers.fact_rows(workers.row_for("x", self.doc({**self.PT, "ceiling_s": 600, "shared": True, "factor": 1.0, "basis": "none yet"}))))
+        self.assertEqual(shared["Profile limit"], "estimate x 1 x 3; ceiling 600 s (shared computer); from none yet")
+        self.assertNotIn("Profile limit", [k for k, _ in workers.fact_rows(workers.row_for("x", self.doc(None)))])
+
+
 if __name__ == "__main__":
     unittest.main()
 
