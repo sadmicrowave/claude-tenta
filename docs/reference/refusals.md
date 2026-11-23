@@ -199,6 +199,78 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Run it in a terminal and answer the question.
 
+### `win.arg.url`: That is not a release source the installer will fetch from
+
+- **Text:** not an https release source this will fetch from: {value!r}
+- **Protects:** A release source is an https address, so nothing else is ever fetched from by the installer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.commit`: That is not a full commit id
+
+- **Text:** not a full commit id: {value!r}
+- **Protects:** A release is pinned to a full commit id, never a name that could move.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.folder`: That is not a folder the installer will write to
+
+- **Text:** not a folder this will write to: {value!r}
+- **Protects:** Only a plain folder under the install root is written to; nothing that could carry PowerShell syntax is accepted.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.tools_folder`: That is not a folder the tools installer will write to
+
+- **Text:** not a folder this installer will write to: {value!r}
+- **Protects:** Only a plain tools folder is written to by the tools installer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.account`: That is not an account name the installer will create
+
+- **Text:** not an account name this will create: {value!r}
+- **Protects:** An account name is plain, so it is safe inside a PowerShell script.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.mailbox_account`: That is not a mailbox account name that fits Windows
+
+- **Text:** not a mailbox account name that fits Windows (3 to 20 lowercase letters, digits or -): {value!r}
+- **Protects:** A mailbox account name fits Windows (3 to 20 lowercase letters, digits or dashes).
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.public_key`: That is not one public key line
+
+- **Text:** not one public key line (ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp256)
+- **Protects:** Only one public key line of a known type is written to the mailbox account's authorized keys.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.task`: That is not a task name the installer will register
+
+- **Text:** not a task name this will register: {value!r}
+- **Protects:** A task name is plain, so it is safe inside a PowerShell script.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.arguments`: Those are not arguments the task will run
+
+- **Text:** not arguments this will run: {value!r}
+- **Protects:** A task's arguments are plain text: nothing a shell or PowerShell would read as more.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -571,6 +643,30 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Text:** Give at least one of --tier, --network or --tools.
 - **Protects:** A change names what to change.
 - **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `packages.list.invalid`: The package list is not valid
+
+- **Text:** packages must be a list of at most {limit} entries like 'apt:jq', 'npm:eslint', 'pip:pyflakes'
+- **Protects:** A job's packages are a short list of fully named packages, so what the worker installs is known before it runs.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `packages.spec.invalid`: A package is not valid
+
+- **Text:** bad package {name!r}: use apt:<name>, npm:<name>[@version] or pip:<name>[==version]
+- **Protects:** A package is named by where it comes from and what it is called.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `approval.key.not_ssh`: That is not an SSH public key
+
+- **Text:** that is not an SSH public key
+- **Protects:** An approval key is an SSH public key, so nothing else is trusted as one.
+- **Decided by:** both
 - **Depends on:** nothing
 - **Configured:** not configurable
 
@@ -1418,3 +1514,99 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again.
+
+### `win.step.failed`: A step of the Windows setup failed
+
+- **Text:** {what}: {detail}
+- **Protects:** The real error text of the step that failed, with the computer, so a rerun continues from there.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again: it continues from where it stopped.
+
+### `win.removal.step_failed`: A step of the Windows removal failed
+
+- **Text:** {what}: {detail}
+- **Protects:** The real error text of the removal step that failed; each step only removes what is still there, so a rerun is safe.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again: each step only removes what is still there.
+
+### `win.key.not_made`: The mailbox key could not be made
+
+- **Text:** {reason}
+- **Protects:** The mailbox key is made on this computer; if ssh-keygen fails here nothing is sent to the worker.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run: ssh-keygen -t ed25519 -N '' -f /tmp/ct-test-key (it must make a key without an error)
+
+### `win.release.lookup_failed`: The Windows release could not be looked up
+
+- **Text:** {reason}
+- **Protects:** The real error text of a Windows release that could not be looked up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the release source in a browser on this computer; if it does not load, the connection to it is the problem.
+
+### `win.release.none`: No Windows release has been published yet
+
+- **Text:** A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.
+- **Protects:** A Windows worker is installed from a release tag, so without one there is nothing to install.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>
+
+### `win.unreachable`: The Windows computer cannot be reached over SSH
+
+- **Text:** {said}
+- **Protects:** A computer that cannot be reached over SSH is named as that before any step runs, so it is not reported as a failure of a later step.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ssh USER@HOST hostname to see whether it answers, then run the same command again.
+
+### `win.mailbox.unreachable`: This computer could not reach the worker's mailbox
+
+- **Text:** {reason}
+- **Protects:** The worker's mailbox is reached over SSH from this computer; the real error and how to test the key by hand are shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Test the key by hand with ssh -i KEY USER@HOST true.
+
+### `win.first_job.failed`: The worker is set up, but its first job did not come back
+
+- **Text:** The test job {job} ended as {status}.
+- **Protects:** The first job proves the whole loop works; if it does not come back the setup is not called done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again once it is fixed: nothing is set up twice.
+
+### `registry.file.unreadable`: The registry file cannot be read
+
+- **Text:** cannot read {path}: {reason}
+- **Protects:** The real error text of a registry file that cannot be read.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `registry.file.yaml`: The registry file is not valid YAML
+
+- **Text:** {path} is not valid YAML: {reason}
+- **Protects:** The real error text of a registry file that is not valid YAML.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `config.host.missing`: The configuration has no server.host line
+
+- **Text:** no server.host line in {path}
+- **Protects:** A configuration without a server.host line cannot be re-pointed at a new address.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable

@@ -402,3 +402,45 @@ define("class.network.needs_terminal", "security", "A class that uses the networ
        steps=["Run it in a terminal and answer the question."])
 define("apply.install_failed", "error", "The real step that failed during an install, with the host and exit code.", "The install failed", "The update tool restores what it changed when it can. Read the messages above.",
        who="client", steps=["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."])
+
+# ---- the Windows setup, and the small checks that keep a value from reaching PowerShell as anything but a plain value ----
+define("win.step.failed", "error", "The real error text of the step that failed, with the computer, so a rerun continues from there.", "A step of the Windows setup failed", "{what}: {detail}", who="client",
+       steps=["Run the same command again: it continues from where it stopped."])
+define("win.removal.step_failed", "error", "The real error text of the removal step that failed; each step only removes what is still there, so a rerun is safe.", "A step of the Windows removal failed", "{what}: {detail}", who="client",
+       steps=["Run the same command again: each step only removes what is still there."])
+define("win.key.not_made", "error", "The mailbox key is made on this computer; if ssh-keygen fails here nothing is sent to the worker.", "The mailbox key could not be made", "{reason}", who="client",
+       steps=["Run: ssh-keygen -t ed25519 -N '' -f /tmp/ct-test-key (it must make a key without an error)"])
+define("win.release.lookup_failed", "error", "The real error text of a Windows release that could not be looked up.", "The Windows release could not be looked up", "{reason}", who="client",
+       steps=["Open the release source in a browser on this computer; if it does not load, the connection to it is the problem."])
+define("win.release.none", "error", "A Windows worker is installed from a release tag, so without one there is nothing to install.", "No Windows release has been published yet",
+       "A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.", who="client",
+       steps=["Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>"])
+define("win.unreachable", "error", "A computer that cannot be reached over SSH is named as that before any step runs, so it is not reported as a failure of a later step.", "The Windows computer cannot be reached over SSH",
+       "{said}", who="client", steps=["Run ssh USER@HOST hostname to see whether it answers, then run the same command again."])
+define("win.mailbox.unreachable", "error", "The worker's mailbox is reached over SSH from this computer; the real error and how to test the key by hand are shown.", "This computer could not reach the worker's mailbox",
+       "{reason}", who="client", steps=["Test the key by hand with ssh -i KEY USER@HOST true."])
+define("win.first_job.failed", "error", "The first job proves the whole loop works; if it does not come back the setup is not called done.", "The worker is set up, but its first job did not come back",
+       "The test job {job} ended as {status}.", who="client", steps=["Run the same command again once it is fixed: nothing is set up twice."])
+define("win.arg.url", "security", "A release source is an https address, so nothing else is ever fetched from by the installer.", "That is not a release source the installer will fetch from",
+       "not an https release source this will fetch from: {value!r}", who="client")
+define("win.arg.commit", "security", "A release is pinned to a full commit id, never a name that could move.", "That is not a full commit id", "not a full commit id: {value!r}", who="client")
+define("win.arg.folder", "security", "Only a plain folder under the install root is written to; nothing that could carry PowerShell syntax is accepted.", "That is not a folder the installer will write to",
+       "not a folder this will write to: {value!r}", who="client")
+define("win.arg.tools_folder", "security", "Only a plain tools folder is written to by the tools installer.", "That is not a folder the tools installer will write to",
+       "not a folder this installer will write to: {value!r}", who="client")
+define("win.arg.account", "security", "An account name is plain, so it is safe inside a PowerShell script.", "That is not an account name the installer will create",
+       "not an account name this will create: {value!r}", who="client")
+define("win.arg.mailbox_account", "security", "A mailbox account name fits Windows (3 to 20 lowercase letters, digits or dashes).", "That is not a mailbox account name that fits Windows",
+       "not a mailbox account name that fits Windows (3 to 20 lowercase letters, digits or -): {value!r}", who="client")
+define("win.arg.public_key", "security", "Only one public key line of a known type is written to the mailbox account's authorized keys.", "That is not one public key line",
+       "not one public key line (ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp256)", who="client")
+define("win.arg.task", "security", "A task name is plain, so it is safe inside a PowerShell script.", "That is not a task name the installer will register", "not a task name this will register: {value!r}", who="client")
+define("win.arg.arguments", "security", "A task's arguments are plain text: nothing a shell or PowerShell would read as more.", "Those are not arguments the task will run", "not arguments this will run: {value!r}", who="client")
+define("packages.list.invalid", "format", "A job's packages are a short list of fully named packages, so what the worker installs is known before it runs.", "The package list is not valid",
+       "packages must be a list of at most {limit} entries like 'apt:jq', 'npm:eslint', 'pip:pyflakes'", who="both")
+define("packages.spec.invalid", "format", "A package is named by where it comes from and what it is called.", "A package is not valid",
+       "bad package {name!r}: use apt:<name>, npm:<name>[@version] or pip:<name>[==version]", who="both")
+define("registry.file.unreadable", "error", "The real error text of a registry file that cannot be read.", "The registry file cannot be read", "cannot read {path}: {reason}", who="both")
+define("registry.file.yaml", "error", "The real error text of a registry file that is not valid YAML.", "The registry file is not valid YAML", "{path} is not valid YAML: {reason}", who="both")
+define("approval.key.not_ssh", "format", "An approval key is an SSH public key, so nothing else is trusted as one.", "That is not an SSH public key", "that is not an SSH public key", who="both")
+define("config.host.missing", "error", "A configuration without a server.host line cannot be re-pointed at a new address.", "The configuration has no server.host line", "no server.host line in {path}", who="client")

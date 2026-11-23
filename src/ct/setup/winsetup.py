@@ -3,6 +3,7 @@
 `WindowsInstaller` has the interface the add-worker flow already uses for any worker (`run_all()` returns the report rows, a `SetupError` says what failed and what to do): it writes this computer's own
 configuration for the worker, makes the mailbox key, then runs the steps on the Windows computer (tools, layout, release, mailbox, the worker's files, the start task), clones the two mailbox repositories here
 and proves the whole loop with a first job sent the way `ct-run` sends one. Every step is idempotent, so running it again continues from where it stopped."""
+from . import refuse
 import os
 import subprocess
 import time
@@ -38,7 +39,7 @@ class WindowsInstaller:
             return fn()
         except wintools.WinToolsError as e:
             self.report.append((what, "failed", f"{e.what}: {e.detail}"))
-            raise SetupError("A step of the Windows setup failed", f"{e.what}: {e.detail}", fix + ["Run the same command again: it continues from where it stopped."], facts=[("Step", what), ("Computer", self.host)])
+            raise refuse.error("win.step.failed", ("Step", what), ("Computer", self.host), steps=fix + ["Run the same command again: it continues from where it stopped."], what=e.what, detail=e.detail)
 
     # ---- this computer ----
     def client_config(self):
@@ -58,7 +59,7 @@ class WindowsInstaller:
             key.parent.mkdir(parents=True, exist_ok=True)
             r = subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key), "-C", f"{cfg.identity.name} mailbox"], capture_output=True, text=True)
             if r.returncode:
-                raise SetupError("The mailbox key could not be made", (r.stderr or r.stdout).strip(), ["Run: ssh-keygen -t ed25519 -N '' -f /tmp/ct-test-key  (it must make a key without an error)"])
+                raise refuse.error("win.key.not_made", reason=(r.stderr or r.stdout).strip())
             key.chmod(0o600)
             self.note("mailbox key", "made", str(key))
         else:
@@ -70,9 +71,9 @@ class WindowsInstaller:
             return "(given)", self.release_commit
         entry = self.find_release(cfg.updates.source, platform="windows")
         if entry.get("error"):
-            raise SetupError("The Windows release could not be looked up", entry["error"], [f"Open {cfg.updates.source} in a browser on this computer; if it does not load, the connection to it is the problem"])
+            raise refuse.error("win.release.lookup_failed", steps=[f"Open {cfg.updates.source} in a browser on this computer; if it does not load, the connection to it is the problem"], reason=entry["error"])
         if not entry.get("tag"):
-            raise SetupError("No Windows release has been published yet", "A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.", ["Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>"])
+            raise refuse.error("win.release.none")
         return entry["tag"], entry["commit"]
 
     def reach(self):
@@ -83,10 +84,10 @@ class WindowsInstaller:
         except wintools.WinToolsError as e:
             said = e.detail
             denied = any(w in said.lower() for w in ("permission denied", "publickey"))
-            raise SetupError("The Windows computer cannot be reached over SSH", said.strip()[-300:] or "no answer",
-                             [f"Is it on, awake and on this network? Try: ssh {self.user}@{self.host} hostname",
-                              *([f"Key login is not set up for that account: ssh-copy-id {self.user}@{self.host}  (on Windows the key goes in C:\\ProgramData\\ssh\\administrators_authorized_keys for an administrator)"] if denied else []),
-                              "Run the same command again once that works: nothing was changed on it."], facts=[("Computer", self.host), ("Account", self.user)])
+            raise refuse.error("win.unreachable", ("Computer", self.host), ("Account", self.user), said=said.strip()[-300:] or "no answer",
+                             steps=[f"Is it on, awake and on this network? Try: ssh {self.user}@{self.host} hostname",
+                                    *([f"Key login is not set up for that account: ssh-copy-id {self.user}@{self.host}  (on Windows the key goes in C:\\ProgramData\\ssh\\administrators_authorized_keys for an administrator)"] if denied else []),
+                                    "Run the same command again once that works: nothing was changed on it."])
 
     # ---- the whole job ----
     def run_all(self):
@@ -116,7 +117,7 @@ class WindowsInstaller:
         try:
             rows = repos.clone_all(self.home)
         except Exception as e:                       # ClientError carries a title and steps; say them plainly
-            raise SetupError("This computer could not reach the worker's mailbox", str(getattr(e, "why", None) or e), list(getattr(e, "steps", []) or []) + [f"Try: ssh -i {transport.for_config(cfg).client_key(cfg)} {transport.for_config(cfg).mail_user(cfg)}@{self.host} true  (it must print the mail shell's refusal, not a password prompt)"])
+            raise refuse.error("win.mailbox.unreachable", steps=list(getattr(e, "steps", []) or []) + [f"Try: ssh -i {transport.for_config(cfg).client_key(cfg)} {transport.for_config(cfg).mail_user(cfg)}@{self.host} true  (it must print the mail shell's refusal, not a password prompt)"], reason=str(getattr(e, "why", None) or e))
         self.note("your copies of the mailbox", "ready", ", ".join(r[0] for r in rows))
         self.repos = repos
 
@@ -135,6 +136,5 @@ class WindowsInstaller:
                 break
         if not res or res.get("status") != "ok":
             self.report.append(("first job", "failed", f"{FIRST_JOB}: {(res or {}).get('status', 'no result yet')}"))
-            raise SetupError("The worker is set up, but its first job did not come back", f"The test job {FIRST_JOB} ended as {(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds')}.",
-                             [f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\claude-tenta\\state\\worker.log", "Run the same command again once it is fixed: nothing is set up twice."])
+            raise refuse.error("win.first_job.failed", steps=[f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\claude-tenta\\state\\worker.log", "Run the same command again once it is fixed: nothing is set up twice."], job=FIRST_JOB, status=(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds'))
         self.note("first job", "ok", f"{FIRST_JOB} ran on the Windows computer and came back")

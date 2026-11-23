@@ -2,6 +2,7 @@
 
 `ensure` creates them (idempotent, reports `changed`), `check` only reads, and `ensure(..., probe=True)` also proves the rules LIVE: it gives the account a throwaway password, runs a few commands AS that account and
 reports what they could and could not do, then sets another throwaway password, so no password is kept anywhere. Same transport as wintools: the script on standard input, one `CT-RESULT {json}` or `CT-ERROR {json}` line."""
+from .. import refusals
 import re
 
 from .wintools import POWERSHELL, TOOLS_RE, WinToolsError, parse_result
@@ -15,9 +16,9 @@ WRITABLE = ("state", r"state\jobs")                                # and may cha
 
 def _check_args(root, user):
     if not TOOLS_RE.match(root) or ".." in root:
-        raise ValueError(f"not a folder this will write to: {root!r}")
+        raise refusals.refuse("win.arg.folder", value=root)
     if not USER_RE.match(user):
-        raise ValueError(f"not an account name this will create: {user!r}")
+        raise refusals.refuse("win.arg.account", value=user)
 
 
 _PRE = """$ErrorActionPreference = 'Stop'

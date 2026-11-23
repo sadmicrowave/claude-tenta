@@ -13,7 +13,8 @@ from ct import refusals  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
 POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py",
-                  "admin/cli.py", "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
+                  "pkgspec.py", "registry.py", "approvals.py", "rediscover.py", "setup/winsetup.py", "setup/winrelease.py", "setup/winlayout.py", "setup/winmailbox.py", "setup/wintask.py",
+                  "setup/winuninstall.py", "admin/cli.py", "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 
@@ -72,7 +73,7 @@ class Guard(unittest.TestCase):
         self.assertEqual(bad, [], "define it in ct/refusals.py and raise refusals.refuse(code, ...)")
 
 
-OPERATIONAL = {"client/cli.py": set(), "client/offload.py": set(), "client/repo.py": set()}       # the client's operational errors are all in the catalog: a new literal one fails the guard below
+OPERATIONAL = {"client/cli.py": set(), "client/offload.py": set(), "client/repo.py": set(), "setup/wintools.py": {"script"}}      # (WinToolsError("script", ...) is the installer's own exception type: its fields are what/detail)       # the client's operational errors are all in the catalog: a new literal one fails the guard below
 
 
 class OperationalErrors(unittest.TestCase):
@@ -90,7 +91,7 @@ class OperationalErrors(unittest.TestCase):
             self.assertTrue(e.title and e.title == refusals.CATALOG[code].title)
 
     def test_the_client_modules_hold_no_literal_error_any_more(self):
-        self.assertEqual({k: v for k, v in OPERATIONAL.items() if v}, {})                       # the list is empty: every client error is in the catalog
+        self.assertEqual({k: v for k, v in OPERATIONAL.items() if k.startswith("client/") and v}, {})        # every client error is in the catalog
 
 
 class EveryClientEntry(unittest.TestCase):

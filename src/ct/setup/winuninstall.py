@@ -3,6 +3,7 @@
 From this computer, over SSH with PowerShell: the start task, then the mailbox account, then the Python, rights, worker account and folders (winremove). Then this computer's own side of that worker: its entry in
 workers.toml, its configuration file and its client folder. A preview (no --apply) lists every step and changes nothing; --keep-data leaves the state folders on the Windows computer, as on Linux. Your GitHub
 repositories, Windows itself, OpenSSH and the administrator account are never touched."""
+from . import refuse
 import shutil
 from pathlib import Path
 
@@ -43,7 +44,7 @@ class WindowsUninstall:
             return fn()
         except wintools.WinToolsError as e:
             self.report.append((what, "failed", f"{e.what}: {e.detail}"))
-            raise SetupError("A step of the Windows removal failed", f"{e.what}: {e.detail}", ["Run the same command again: each step only removes what is still there."], facts=[("Step", what), ("Computer", self.host)])
+            raise refuse.error("win.removal.step_failed", ("Step", what), ("Computer", self.host), what=e.what, detail=e.detail)
 
     def run_all(self):
         if self.dry_run:

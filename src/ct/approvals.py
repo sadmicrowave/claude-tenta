@@ -9,6 +9,7 @@ So GitHub access alone can never approve anything: whoever can push a job to the
 
 The signature is an ordinary SSH signature (`ssh-keygen -Y sign`), so there is nothing new to install on either side.
 """
+from . import refusals
 import base64
 import hashlib
 import json
@@ -201,7 +202,7 @@ def signers_line(pubkey):
     """The line for the worker's approvers file: `approver <type> <key>` (a comment on the public key is dropped)."""
     parts = pubkey.strip().split()
     if len(parts) < 2 or not parts[0].startswith(("ssh-", "ecdsa-", "sk-")):
-        raise ValueError("that is not an SSH public key")
+        raise refusals.refuse("approval.key.not_ssh")
     return f'{PRINCIPAL} namespaces="{NAMESPACE},{REGISTRY_NAMESPACE},{CONTROL_NAMESPACE}" {parts[0]} {parts[1]}'
 
 

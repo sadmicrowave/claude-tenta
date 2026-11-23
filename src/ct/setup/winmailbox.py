@@ -5,6 +5,7 @@ with the access each side needs (the mail account writes the queue and reads the
 may run (it puts the tools' git first on a PATH of its own and starts `ct.mailshell`), the account's key file, and a `Match User` block in sshd_config that points OpenSSH at that key file (a Windows account
 that has never logged in has no profile to keep a key in). The sshd_config edit is bracketed by marker lines, kept in a backup, checked with `sshd -t` before it is used, and put back if the check fails.
 `remove` undoes all of it. Same transport as wintools: the script on standard input, one `CT-RESULT {json}` or `CT-ERROR {json}` line."""
+from .. import refusals
 import re
 
 from .winlayout import ROOT, USER, USER_RE, _PRE as _LAYOUT_PRE, _check_args
@@ -18,7 +19,7 @@ def mail_user(name):
     """The account name for an install name: `<name>-mail`, which must fit a Windows account name (20 characters)."""
     user = f"{name}-mail"
     if not USER_RE.match(user):
-        raise ValueError(f"not a mailbox account name that fits Windows (3 to 20 lowercase letters, digits or -): {user!r}")
+        raise refusals.refuse("win.arg.mailbox_account", value=user)
     return user
 
 
@@ -26,7 +27,7 @@ def _check(root, name, worker, key=None):
     _check_args(root, worker)
     mail_user(name)
     if key is not None and not KEY_RE.match(key.strip()):
-        raise ValueError("not one public key line (ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp256)")
+        raise refusals.refuse("win.arg.public_key")
 
 
 def _script(root, name, worker, body, key=""):

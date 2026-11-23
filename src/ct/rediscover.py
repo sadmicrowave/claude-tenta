@@ -4,6 +4,7 @@ A worker is identified by its SSH host key, which this computer recorded the fir
 wherever it is now. A name (mDNS or otherwise) is only a hint and is never accepted without the key. Nothing is logged in to: the keys are the ones a machine volunteers to anyone
 (`ssh-keyscan`), and the recorded ones come from this computer's own known_hosts (`ssh-keygen -F`). Standard library only; every outside effect is injectable.
 """
+from . import refusals
 import re
 from pathlib import Path
 import subprocess
@@ -95,7 +96,7 @@ def save_address(path, new, old=None):
             line, done = f'host = "{new}"  # was: {was}', True
         out.append(line)
     if not done:
-        raise ValueError(f"no server.host line in {path}")
+        raise refusals.refuse("config.host.missing", path=path)
     Path(path).write_text("\n".join(out) + "\n", encoding="utf-8")
     return was
 

@@ -3,6 +3,7 @@
 `ensure` registers it (idempotent: a hash of the definition is kept in the task's description, and a matching task is left alone, so the account's password is not touched again), `start`, `stop`, `status` and
 `remove` do what they say. The password is set at registration and not kept; Task Scheduler holds it, so the account's password must not be changed afterwards (the layout's live probe refuses to run while
 this task exists). Same transport as wintools: the script on standard input, one `CT-RESULT {json}` or `CT-ERROR {json}` line."""
+from .. import refusals
 import re
 
 from .winlayout import ROOT, USER, _check_args
@@ -17,9 +18,9 @@ ARGS_RE = re.compile(r'^[A-Za-z0-9 _.:=,;()"-]{1,200}$')          # no single qu
 def _args(root, user, task, args):
     _check_args(root, user)
     if not TASK_RE.match(task):
-        raise ValueError(f"not a task name this will register: {task!r}")
+        raise refusals.refuse("win.arg.task", value=task)
     if not ARGS_RE.match(args):
-        raise ValueError(f"not arguments this will run: {args!r}")
+        raise refusals.refuse("win.arg.arguments", value=args)
 
 
 _PRE = """$ErrorActionPreference = 'Stop'

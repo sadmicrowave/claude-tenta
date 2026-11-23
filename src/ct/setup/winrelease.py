@@ -4,6 +4,7 @@ The release is the commit a `release-win-X.Y.Z` tag points to, found on THIS com
 commit from the release source into its own folder and the script compares the commit it ended up with to the one it was told: any difference is refused. Nothing in it is run here.
 Same transport as wintools: the script on standard input, one `CT-RESULT {json}` or `CT-ERROR {json}` line. Standard library only.
 """
+from .. import refusals
 import re
 
 from .wintools import DEFAULT_TOOLS, POWERSHELL, TOOLS_RE, WinToolsError, parse_result
@@ -15,12 +16,12 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 def fetch_script(url, commit, dest=DEFAULT_RELEASE, tools_dir=DEFAULT_TOOLS):
     if not URL_RE.match(url or ""):
-        raise ValueError(f"not an https release source this will fetch from: {url!r}")
+        raise refusals.refuse("win.arg.url", value=url)
     if not SHA_RE.match(commit or ""):
-        raise ValueError(f"not a full commit id: {commit!r}")
+        raise refusals.refuse("win.arg.commit", value=commit)
     for d in (dest, tools_dir):
         if not TOOLS_RE.match(d) or ".." in d:
-            raise ValueError(f"not a folder this will write to: {d!r}")
+            raise refusals.refuse("win.arg.folder", value=d)
     return f"""$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Fail($what, $detail) {{ Write-Output ('CT-ERROR ' + (@{{what = $what; detail = [string]$detail}} | ConvertTo-Json -Compress)); exit 1 }}
