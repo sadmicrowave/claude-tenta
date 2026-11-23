@@ -87,7 +87,7 @@ Run on your computer. Sends work to the worker and reads the results.
 ## ct-setup
 
 ```
-ct-setup add-worker | audit | client | demo | install | rename | server | transport | tripwire-test | uninstall
+ct-setup add-worker | audit | client | demo | install | rename | rotate-key | server | transport | tripwire-test | uninstall
 
   add-worker      find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
   audit           read-only: check a server against its configuration and report anything that drifted
@@ -95,6 +95,7 @@ ct-setup add-worker | audit | client | demo | install | rename | server | transp
   demo            try the question and protection screens with sample questions; nothing is saved or changed
   install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
   rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
+  rotate-key      replace a Direct worker's mailbox key (the only key that lets this computer queue jobs on it): a new key, the worker trusts only it, then the old one is deleted (preview first)
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
