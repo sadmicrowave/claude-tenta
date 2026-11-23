@@ -28,19 +28,44 @@ class FilesAndBatches(unittest.TestCase):
                                ("ab.js", "?.js", False), ("src/x.min.js", "src/**/*.js", True)):
             self.assertEqual(submit.glob_match(rel, pat), want, (rel, pat))
 
-    def test_collecting_skips_hidden_build_and_oversized_files_and_says_so(self):
+    def tree(self):
         d = Path(tempfile.mkdtemp())
-        for rel, text in {"a.py": "x", "sub/b.py": "y", ".git/config": "no", ".env": "no", "node_modules/m/i.js": "no", "dist/out.js": "no",
-                          "big.txt": "x" * 2000, "bad name.txt": "no", "keep.md": "z"}.items():
+        for rel, text in {"a.py": "x", "sub/b.py": "y", ".git/config": "no", ".git/HEAD": "no", ".env": "no", ".gitignore": "ig", "node_modules/m/i.js": "no", "dist/out.js": "no",
+                          "big.txt": "x" * 2000, "bad name.txt": "ok", "tmpl/helper@.service.in": "t", "keep.md": "z"}.items():
             f = d / rel
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(text)
         (d / "binary.bin").write_bytes(b"\xff\xfe\x00")
-        noted = []
-        files = submit.collect_dir(d, {**LIMITS, "max_file_kb": 1}, note=lambda n, why: noted.append(n))
-        self.assertEqual(sorted(files), ["a.py", "keep.md", "sub/b.py"])
-        self.assertEqual(sorted(noted), ["bad name.txt", "big.txt"])
+        return d
+
+    def test_collecting_sends_what_can_be_sent_and_accounts_for_every_file_it_does_not(self):
+        d = self.tree()
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, {**LIMITS, "max_file_kb": 1}, left=left)
+        self.assertEqual(sorted(files), ["a.py", "bad name.txt", "keep.md", "sub/b.py", "tmpl/helper@.service.in"])         # a space and an @ are fine now
+        self.assertEqual(sorted(left.excluded), [".env", ".git", ".gitignore", "dist", "node_modules"])                       # left out by rule, each named
+        self.assertEqual(sorted((n, c) for n, c, _ in left.unsent), [("big.txt", "files.too_big"), ("binary.bin", "files.not_text")])
         self.assertEqual(sorted(submit.collect_dir(d, LIMITS, include=["*.py"])), ["a.py", "sub/b.py"])
+
+    def test_a_hidden_file_or_folder_is_sent_when_the_include_names_it(self):
+        d = self.tree()
+        files = submit.collect_dir(d, LIMITS, include=[".gitignore", ".git/HEAD"], left=submit.LeftOut())
+        self.assertEqual(sorted(files), [".git/HEAD", ".gitignore"])
+        self.assertEqual(sorted(submit.collect_dir(d, LIMITS, include=["**/*.js"])), [])                                       # a wildcard does not reach into a skipped folder
+
+    def test_a_job_that_would_run_on_an_incomplete_set_is_refused_unless_the_person_chooses(self):
+        d = self.tree()
+        left = submit.LeftOut()
+        submit.collect_dir(d, {**LIMITS, "max_file_kb": 1}, left=left)
+        with self.assertRaises(ClientError) as cm:
+            submit.check_complete(left, allow=False)
+        self.assertEqual(cm.exception.title, "Some files could not be sent")
+        self.assertIn("--send-incomplete", " ".join(cm.exception.steps))
+        self.assertEqual(cm.exception.facts[-1], ("Code", "files.incomplete"))
+        submit.check_complete(left, allow=True)
+        clean = submit.LeftOut()
+        clean.exclude(".git")
+        submit.check_complete(clean, allow=False)                                                                              # left out by rule is not incomplete
 
     def test_batches_follow_the_workers_published_limits(self):
         files = {f"f{i}.txt": "x" for i in range(120)}
@@ -334,6 +359,26 @@ class EndToEnd(RepoFixture):
         (d / "in.txt").write_text("hello")
         code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--no-wait")
         self.assertEqual(code, 0)
+        self.w.fetch()
+        self.w.execute(out.strip())
+        self.assertEqual(self.runner.calls[0]["files"], ["in.txt"])
+
+    def test_the_command_lists_what_it_left_out_and_stops_on_a_file_it_could_not_send(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "in.txt").write_text("hello")
+        (d / ".git").mkdir()
+        (d / ".git" / "HEAD").write_text("ref")
+        (d / "blob.bin").write_bytes(b"\xff\xfe\x00")
+        code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--no-wait")
+        self.assertEqual(code, 2)
+        text = out + err
+        self.assertIn("Files left out by rule", text)
+        self.assertIn(".git", text)
+        self.assertIn("Some files could not be sent", text)
+        self.assertIn("blob.bin", text)
+        self.assertIn("files.incomplete", text)
+        code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--send-incomplete", "--no-wait")
+        self.assertEqual(code, 0, out + err)
         self.w.fetch()
         self.w.execute(out.strip())
         self.assertEqual(self.runner.calls[0]["files"], ["in.txt"])

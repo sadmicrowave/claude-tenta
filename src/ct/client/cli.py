@@ -211,6 +211,17 @@ def cmd_where(ctx, cfg, a):
     return 0 if ch.worker else 1
 
 
+def show_left_out(left):
+    """Say what was not sent, so nothing is dropped silently: what was left out by rule (and how to send one anyway), and each file that could not be sent with the reason and its code."""
+    if left.excluded:
+        names = sorted(left.excluded)
+        rows = [("Left out", n) for n in names[:8]] + ([("And", plural(len(names) - 8, "more item"))] if len(names) > 8 else [])
+        emit("Files left out by rule", *rows, "Hidden files and folders, build output and dependency folders are not sent. To send one, name it: --include '.gitignore'.", tag="NOTE", color=YELLOW)
+    if left.unsent:
+        rows = [row for n, code, text in left.unsent[:10] for row in (("File", n), ("Reason", text), ("Code", code))]
+        emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
+
+
 def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
@@ -221,8 +232,11 @@ def cmd_submit(ctx, a):
         files[p.name] = p.read_text()
     info = r.registry_info()
     limits = sub.file_limits(info)
+    left = sub.LeftOut()
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit("Skipped a file", ("File", n), cards.Why(why), tag="NOTE", color=YELLOW)))
+        files.update(sub.collect_dir(a.dir, limits, a.include, left=left))
+    show_left_out(left)
+    sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
     if files:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
@@ -630,8 +644,11 @@ def cmd_profile(ctx, a):
         p = Path(f).expanduser()
         files[p.name] = p.read_text()
     limits = sub.file_limits(r.registry_info())
+    left = sub.LeftOut()
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, note=lambda n, why: emit("Skipped a file", ("File", n), cards.Why(why), tag="NOTE", color=YELLOW)))
+        files.update(sub.collect_dir(a.dir, limits, a.include, left=left))
+    show_left_out(left)
+    sub.check_complete(left, getattr(a, "send_incomplete", False))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
         raise ClientError("Too many input files", f"One job can carry at most {plural(limits['max_count'], 'file')} and {limits['max_total_kb']} KB of text.",
                           ["Attach only the files the command needs: --include 'src/**/*.js'"])
@@ -768,6 +785,7 @@ def build_parser():
     s.add_argument("--file", action="append", metavar="F", help="attach one text file; repeat for more")
     s.add_argument("--dir", metavar="D", help="attach the text files under a folder")
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")
+    s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
     s.add_argument("--id", help="choose the job id (4 to 64 lowercase letters, digits and dashes)")
     s.add_argument("--wait", action="store_true", help="block until it finishes (the default in a terminal)")
     s.add_argument("--no-wait", action="store_true", help="queue it and return the id")
@@ -832,6 +850,7 @@ def build_parser():
     pf.add_argument("--flag", action="append", metavar="-x=meaning", help="explain a flag; one per flag")
     pf.add_argument("--package", action="append", metavar="apt:name", help="software the worker lacks: apt:, npm: or pip:")
     pf.add_argument("--file", action="append", metavar="F"), pf.add_argument("--dir", metavar="D"), pf.add_argument("--include", action="append", metavar="GLOB")
+    pf.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be")
     pf.add_argument("--timeout-s", dest="timeout_s", type=int, help="the hard time limit for this run")
     pf.add_argument("--id"), pf.add_argument("--retry", action="store_true", help="profile again even if it was excluded before")
     pf.add_argument("--wait", action="store_true", help="stay until it finishes (needs your approval from another terminal)")
