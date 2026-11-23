@@ -1143,6 +1143,29 @@ class ProfileTime(Base):
         pt = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["profile_time"]
         self.assertEqual((pt["factor"], pt["basis"]), (2.0, f"install, {len(slow)} of 4 steps"))
 
+    def finish_profile(self, jid, est, wall, status="ok"):
+        self.job(jid, "profile-run", argv=["ls"], what="w", expect="e", est_time_s=est, est_mem_mb=1)
+        self.w.fetch()
+        self.assertEqual(self.w.approve(jid), (True, ""))
+        self.w.fetch()
+        self.runner.reply = (status, 0 if status == "ok" else 1, "out", {"wall_s": wall, "peak_rss_mb": 5, "mem_total_mb": 8000}, "")
+        self.w.execute(jid)
+
+    def test_a_finished_profile_run_teaches_the_worker_how_it_compares_with_the_estimate(self):
+        self.worker_with(isolation_purpose="special-use")
+        self.assertEqual(self.w.speed(), (1.0, "none yet"))
+        self.finish_profile("profile-aaa111", est=10, wall=40)
+        factor, basis = self.w.speed()
+        self.assertEqual((factor, basis), (1.59, "1 profile run"))
+        reg = self.w.load_registry()
+        self.assertEqual(self.w.time_limit(reg["classes"]["profile-run"], {"est_time_s": 100}, reg), 480)             # 100 x 1.59 x 3, to the next ten
+
+    def test_a_run_that_did_not_finish_cleanly_or_was_too_short_teaches_nothing(self):
+        self.worker_with(isolation_purpose="special-use")
+        self.finish_profile("profile-bbb222", est=10, wall=40, status="error")
+        self.finish_profile("profile-ccc333", est=10, wall=0.2)
+        self.assertEqual(self.w.speed(), (1.0, "none yet"))
+
     def test_the_published_registry_says_what_the_limit_is_built_from(self):
         self.worker_with(isolation_purpose="special-use")
         self.w.publish_registry_info(self.w.load_registry())
