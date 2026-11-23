@@ -99,6 +99,39 @@ class FilesAndBatches(unittest.TestCase):
         self.assertIn("CC0", (t / "LICENSE").read_text())
         self.assertRegex((t / "SOURCE").read_text(), r"commit [0-9a-f]{40}")
 
+    def test_a_link_is_never_followed_so_a_file_outside_the_project_is_never_sent(self):
+        outside = Path(tempfile.mkdtemp())
+        (outside / "secret.txt").write_text("OUTSIDE-SECRET")
+        for git in (False, True):
+            d = self.repo() if git else Path(tempfile.mkdtemp())
+            (d / "real.txt").write_text("hello")
+            (d / "notes.txt").symlink_to(outside / "secret.txt")                              # a link whose target is outside the folder
+            (d / "linkdir").symlink_to(outside)                                                # and a link to a whole folder outside
+            (d / "inside.txt").symlink_to(d / "real.txt")                                      # even a link that points at something inside is not followed
+            left = submit.LeftOut()
+            files = submit.collect_dir(d, LIMITS, left=left)
+            self.assertNotIn("notes.txt", files, git)
+            self.assertNotIn("inside.txt", files, git)
+            self.assertFalse(any("OUTSIDE-SECRET" in v for v in files.values()), git)
+            self.assertFalse(any(k.startswith("linkdir") for k in files), git)
+            self.assertIn("real.txt", files)
+            self.assertIn("notes.txt", [n for n, _, _ in left.links])                          # said, not silent
+            self.assertTrue(all(c == "files.link.skipped" for _, c, _ in left.links))
+
+    def test_git_is_run_with_its_command_options_switched_off_so_a_hostile_repository_cannot_run_one(self):
+        import subprocess
+        d = self.repo()
+        marker = d.parent / (d.name + "-PWNED")
+        hook = d.parent / (d.name + "-hook.sh")
+        hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        hook.chmod(0o755)
+        subprocess.run(["git", "config", "core.fsmonitor", str(hook)], cwd=d, check=True)
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertFalse(marker.exists(), "the repository's own core.fsmonitor ran a command")
+        self.assertIn("a.py", files)                                                           # and the project's own ignore rules still decide what is sent
+        self.assertEqual(sorted(left.excluded), ["dist", "x.log"])
+
     def test_a_file_that_usually_holds_a_secret_is_held_back_unless_an_include_names_it(self):
         d = Path(tempfile.mkdtemp())
         for rel in ("ok.py", "server.pem", "deploy/id_rsa", "creds/.npmrc", "app.env.example", "keys.tfstate"):
@@ -429,6 +462,20 @@ class EndToEnd(RepoFixture):
         self.assertEqual(self.runner.calls[0]["argv"], ["/bin/echo", "hello"])
         code, out, err = self.run_cli("result", jid, "--json")
         self.assertEqual(json.loads(out)["status"], "ok")
+
+    def test_the_command_says_which_links_it_did_not_follow_and_still_runs(self):
+        outside = Path(tempfile.mkdtemp())
+        (outside / "s.txt").write_text("OUTSIDE-SECRET")
+        d = Path(tempfile.mkdtemp())
+        (d / "in.txt").write_text("hello")
+        (d / "link.txt").symlink_to(outside / "s.txt")
+        code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--no-wait")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("Links not followed", out + err)
+        self.assertIn("link.txt", out + err)
+        self.w.fetch()
+        self.w.execute(out.strip())
+        self.assertEqual(self.runner.calls[0]["files"], ["in.txt"])
 
     def test_the_command_says_what_was_held_back_and_still_runs(self):
         d = Path(tempfile.mkdtemp())
