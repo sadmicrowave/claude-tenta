@@ -212,6 +212,14 @@ class EndToEnd(RepoFixture):
         self.w.execute(jid)
         return jid
 
+    def test_a_time_limit_over_the_workers_cap_is_refused_here_not_after_the_trip(self):
+        self.w.fetch()                                                                              # publishes the registry, with the profile-run cap
+        code, out, err = self.profile("--timeout-s", "999999")
+        self.assertNotEqual(code, 0)
+        self.assertIn("profile.timeout.range", out + err)
+        self.assertIn("Worker's cap", out + err)
+        self.assertEqual(self.profile("--timeout-s", "60")[0], 0)
+
     def test_fit_answers_registered_unknown_excluded_and_retry_with_the_right_exit_codes(self):
         self.w.fetch()                                                                              # publishes the registry (classes and RAM)
         code, out, err = self.run_cli("offload", "fit", "--", "/bin/echo", "hello")

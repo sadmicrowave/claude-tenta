@@ -161,7 +161,8 @@ define("profile.estimate.range", "limit", "An estimate must be a plausible numbe
 define("profile.flags.invalid", "limit", "The flag explanations are shown on the approval screen, which has room for a few short ones.", "The flag explanations are not usable",
        "flags must map each flag to a short explanation (at most 20)", depends="a profile run that needs approval", steps=["Shorten them with --flag on ct-run offload profile."])
 define("profile.timeout.range", "limit", "A profile run's time limit stays between a floor that lets it start and the cap the owner set.", "The time limit is out of range",
-       "timeout_s must be an integer from 10 to {cap}", config="the class's max_timeout_s", steps=["Give a value in range with --timeout on ct-run offload profile."])
+       "timeout_s must be an integer from 10 to {cap}", config="the class's max_timeout_s", steps=["Give a value in range with --timeout-s on ct-run offload profile.",
+              "A command that needs longer than the cap cannot be measured whole: profile a smaller part of it, or ask the worker's owner to raise max_timeout_s for profile-run."])
 
 # ---- placement: why a worker cannot take a job, and why a job cannot be placed (the client decides; every reason is reported, not the first) ----
 define("placement.unreachable", "placement", "A worker that cannot be reached cannot be asked anything, so nothing else about it can be known: this reason stands alone.", "A worker cannot be reached",
