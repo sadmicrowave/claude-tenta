@@ -2,6 +2,7 @@
 """Renew the vendored language ignore templates (src/ct/client/ignore_templates) from github/gitignore at one pinned commit. CC0: the licence is copied beside them.
   scripts/refresh-gitignore COMMIT_SHA        (find the newest with:  gh api repos/github/gitignore/commits/main -q .sha)
 Run it by hand, review the diff, commit. Nothing is fetched when a job is sent."""
+import hashlib
 import sys
 import urllib.request
 from pathlib import Path
@@ -29,6 +30,8 @@ def main(argv):
             (out / sub / f"{n}.gitignore").write_text(get(sha, f"{prefix}{n}.gitignore"))
     (out / "LICENSE").write_text(get(sha, "LICENSE"))
     (out / "SOURCE").write_text(f"github/gitignore at commit {sha}\nhttps://github.com/github/gitignore/tree/{sha}\nLicence: CC0 1.0 Universal (see LICENSE)\nRenewed with scripts/refresh-gitignore\n")
+    sums = sorted((p.relative_to(out).as_posix(), hashlib.sha256(p.read_bytes()).hexdigest()) for p in out.rglob("*") if p.is_file() and p.name != "SHA256SUMS")
+    (out / "SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in sums))                  # every file pinned: a later edit fails tests/test_ignore_templates.py
     print(f"wrote {len(names) + len(submit.GLOBALS)} templates at {sha}")
     return 0
 

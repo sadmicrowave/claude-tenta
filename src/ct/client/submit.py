@@ -4,6 +4,7 @@ The size limits are not decided here: the worker publishes the limits it actuall
 exactly those, so a job is never sent that the worker would refuse. (Until a worker publishes them, the conservative old defaults apply.)
 """
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -91,12 +92,37 @@ def detect_languages(base):
     return [lang for lang, markers in LANGUAGES.items() if any(next(Path(base).glob(m), None) for m in markers)]
 
 
+def templates_problems(folder=None):
+    """What is wrong with the vendored templates, as a list (empty when they are exactly what scripts/refresh-gitignore wrote): every file is pinned by hash in SHA256SUMS, none may be missing, added or changed. They are
+    third-party data the privacy check does not scan, and they decide what is sent, so a template edited to hide files (or to show them) is refused before it is used."""
+    folder = Path(folder or TEMPLATES)
+    try:
+        pinned = {}
+        for line in (folder / "SHA256SUMS").read_text().splitlines():
+            digest, _, name = line.partition("  ")
+            if digest and name:
+                pinned[name] = digest
+    except OSError:
+        return ["SHA256SUMS is missing"]
+    problems = []
+    present = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and p.name != "SHA256SUMS"}
+    for name in sorted(present - set(pinned)):
+        problems.append(f"{name} is not in SHA256SUMS")
+    for name, digest in sorted(pinned.items()):
+        path = folder / name
+        if not path.is_file():
+            problems.append(f"{name} is missing")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            problems.append(f"{name} changed")
+    return problems
+
+
 def template_candidates(base):
     """(files, ignored, languages) for a folder that is not a git work tree but is recognisably a project (a language marker at its top): git's own matcher is run over the vendored templates, so the rules mean exactly
     what they mean in a repository. None when no language is recognised (the interim rule applies)."""
     langs = detect_languages(base)
-    if not langs:
-        return None
+    if not langs or templates_problems():
+        return None                                                              # no language recognised, or the templates are not what was vendored: the interim rule decides
     text = "\n".join((TEMPLATES / "lang" / f"{lang}.gitignore").read_text() for lang in langs) + "\n" + "\n".join((TEMPLATES / "global" / f"{g}.gitignore").read_text() for g in GLOBALS) + "\n.git/\n"
     try:
         with tempfile.TemporaryDirectory() as tmp:
