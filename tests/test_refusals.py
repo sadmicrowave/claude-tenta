@@ -71,10 +71,25 @@ class Guard(unittest.TestCase):
         self.assertEqual(bad, [], "define it in ct/refusals.py and raise refusals.refuse(code, ...)")
 
 
-# What these modules still write as a literal is an OPERATIONAL error or a state ("no result yet", a git command failed): the follow-on task moves them to the same catalog method and empties this list.
-OPERATIONAL = {"client/cli.py": {"No result yet", "That job returned no patch", "The patch does not fit this folder", "git could not apply the patch", "No profile result yet"},
-               "client/offload.py": {"No profile result yet", "Nothing to propose: the profiling run was inconclusive", "registry.yaml has no `classes:` section"},
-               "client/repo.py": {"Could not push to the branch", "A git command failed", "This computer is not set up yet", "Could not clone a repository", "A file did not arrive on the branch"}}
+OPERATIONAL = {"client/cli.py": set(), "client/offload.py": set(), "client/repo.py": set()}       # the client's operational errors are all in the catalog: a new literal one fails the guard below
+
+
+class OperationalErrors(unittest.TestCase):
+    """The errors of the client that are not rules but things that went wrong or are not ready: the same catalog method, kind `error`, the code as the last row."""
+    CODES = ("result.not_ready", "profile.result.not_ready", "patch.none", "patch.misfit", "patch.apply_failed", "profile.inconclusive", "registry.shape", "repo.git_failed",
+             "repo.not_set_up", "repo.clone_failed", "repo.file_missing", "repo.push_failed")
+
+    def test_every_one_is_in_the_catalog_as_an_error_and_builds_a_client_error_with_its_code_last(self):
+        from ct.client import refuse
+        self.assertIn("error", refusals.KINDS)
+        for code in self.CODES:
+            self.assertEqual(refusals.CATALOG[code].kind, "error", code)
+            e = refuse.error(code, ("Job", "j-1"))
+            self.assertEqual(e.facts[-1], ("Code", code), code)
+            self.assertTrue(e.title and e.title == refusals.CATALOG[code].title)
+
+    def test_the_client_modules_hold_no_literal_error_any_more(self):
+        self.assertEqual({k: v for k, v in OPERATIONAL.items() if v}, {})                       # the list is empty: every client error is in the catalog
 
 
 class StillLiteral(unittest.TestCase):

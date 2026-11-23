@@ -496,10 +496,10 @@ def cmd_patch(ctx, a):
     r.pull_results()
     res = r.read_result(a.id)
     if res is None:
-        raise ClientError("No result yet", "The job has not finished, or the id is wrong.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
+        raise refuse.error("result.not_ready", ("Job", a.id), example=f"ct-run result {a.id} --wait")
     p = res.get("patch")
     if not p:
-        raise ClientError("That job returned no patch", f"Its status is {res.get('status')}. Only a job of a class that returns a patch, and that ended ok, has one.", [f"See what it did: ct-run result {a.id}"], facts=[("Job", a.id)])
+        raise refuse.error("patch.none", ("Job", a.id), steps=[f"See what it did: ct-run result {a.id}"], status=res.get("status"))
     text, notes = p.get("text") or "", list(p.get("notes") or [])
     bad = patch_mod.problems(text)
     if a.out:
@@ -518,14 +518,13 @@ def cmd_patch(ctx, a):
         return 0
     check = subprocess.run(["git", "apply", "--check", "-"], input=text, text=True, capture_output=True)
     if check.returncode:
-        raise ClientError("The patch does not fit this folder", check.stderr.strip()[-300:] or "git apply --check refused it.",
-                          ["Go to the folder the job was sent from (the files must be where they were), then run this again."])
+        raise refuse.error("patch.misfit", reason=check.stderr.strip()[-300:] or "git apply --check refused it.")
     if not (a.yes or (ctx.is_tty() and ctx.ask(_ui.confirm_prompt(f"Apply {plural(len(p.get('files') or []), 'file')} of changes to {Path.cwd()}?")).strip().lower() == "y")):
         emit("Not applied", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
         return 1
     done = subprocess.run(["git", "apply", "-"], input=text, text=True, capture_output=True)
     if done.returncode:
-        raise ClientError("git could not apply the patch", done.stderr.strip()[-300:])
+        raise refuse.error("patch.apply_failed", steps=[f"Save the patch and read it: ct-run patch {a.id} --out patch.diff"], reason=done.stderr.strip()[-300:])
     emit("Applied", f"{plural(len(p.get('files') or []), 'file')} changed in {Path.cwd()}. Nothing was committed.", tag="DONE", color=GREEN, run="git diff")
     return 0
 
@@ -688,7 +687,7 @@ def cmd_propose(ctx, a):
     r.fetch_queue()
     res = r.read_result(a.id)
     if res is None:
-        raise ClientError("No profile result yet", "The worker may still be running it, or it was never approved.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
+        raise refuse.error("profile.result.not_ready", ("Job", a.id), example=f"ct-run result {a.id} --wait")
     out = off.propose(r, a.id, res, name=a.name, tier=a.tier, batchable=a.batchable, dry_run=a.dry_run, names=ctx.names)
     kind = out["kind"]
     if kind == "excluded":

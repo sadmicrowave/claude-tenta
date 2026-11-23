@@ -735,3 +735,113 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
+
+## Error
+
+### `result.not_ready`: No result yet
+
+- **Text:** The job has not finished, or the id is wrong.
+- **Protects:** Says plainly that there is nothing to read yet, so an empty result is never mistaken for a finished job.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait, or list your jobs with ct-run jobs.
+
+### `profile.result.not_ready`: No profile result yet
+
+- **Text:** The worker may still be running it, or it was never approved.
+- **Protects:** Says plainly that a profile run has no result yet, so the person does not adopt something that was never measured.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait.
+
+### `patch.none`: That job returned no patch
+
+- **Text:** Its status is {status}. Only a job of a class that returns a patch, and that ended ok, has one.
+- **Protects:** Only a job of a class that returns a patch, and that ended ok, has one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See what it did with ct-run result JOB.
+
+### `patch.misfit`: The patch does not fit this folder
+
+- **Text:** {reason}
+- **Protects:** A patch is checked against the folder before it is applied, so nothing is half-changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Go to the folder the job was sent from (the files must be where they were), then run this again.
+
+### `patch.apply_failed`: git could not apply the patch
+
+- **Text:** {reason}
+- **Protects:** git refused the patch after the check passed; the real reason is shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Save the patch and read it with ct-run patch JOB --out patch.diff.
+
+### `profile.inconclusive`: Nothing to propose: the profiling run was inconclusive
+
+- **Text:** The command did not complete cleanly.
+- **Protects:** A profile run that did not complete cleanly proves nothing, so no class is proposed from it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command by hand to see why it fails, correct it, then profile it again.
+
+### `registry.shape`: registry.yaml has no `classes:` section
+
+- **Text:** The registry proposal on main is not in the expected shape.
+- **Protects:** A registry that is not in the expected shape is reported, never edited blind.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open registry.yaml on the main branch of your queue repository and check it has a classes: section.
+
+### `repo.git_failed`: A git command failed
+
+- **Text:** {reason}
+- **Protects:** The real error text of a git command that failed on one of the two repositories, with the command, so it is never guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command shown above by hand in that folder to see the same error.
+
+### `repo.not_set_up`: This computer is not set up yet
+
+- **Text:** The two repository clones are not on this computer.
+- **Protects:** Nothing can be sent or read until this computer has its two repository clones.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-run setup.
+
+### `repo.clone_failed`: Could not clone a repository
+
+- **Text:** {url}: {detail}
+- **Protects:** The real error text of a clone that failed, with a plain meaning and the steps for that cause.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check that this computer can reach the repository, then run ct-run setup again.
+
+### `repo.file_missing`: A file did not arrive on the branch
+
+- **Text:** It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.
+- **Protects:** A push that succeeded is not proof the file is there: say so loudly rather than report a job sent that the worker will never see.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send it again with the same command.
+
+### `repo.push_failed`: Could not push to the branch
+
+- **Text:** Check your connection and access, then try again.
+- **Protects:** A branch that could not be pushed is reported with how to reach it, never as a job sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check your connection and access, then run the same command again.

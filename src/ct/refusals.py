@@ -2,7 +2,8 @@
 
 A refusal is a typed thing, not a sentence written where it is raised. Each entry says what it is for, so a rule can be questioned against the app's objective instead of being accepted because the code has it:
   code      a stable name, `area.thing.problem`, shown to the person as the last row and carried in the published result
-  kind      security (protects the worker or its owner), format (the job is malformed), limit (a size or count), placement (this worker cannot take it), policy (a choice)
+  kind      security (protects the worker or its owner), format (the job is malformed), limit (a size or count), placement (this worker cannot take it), policy (a choice),
+            error (something went wrong or is not ready: the real cause and what to do, never a bare failure)
   who       worker (decided on the worker, the authority), client (a courtesy check before sending) or both
   protects  what the rule is for, in one sentence, and from whom
   depends   what it depends on: nothing, a class kind, the transport, trust
@@ -16,7 +17,7 @@ Operational errors (a step that failed, a file that cannot be read) are not here
 """
 from dataclasses import dataclass
 
-KINDS = ("security", "format", "limit", "placement", "policy")
+KINDS = ("security", "format", "limit", "placement", "policy", "error")
 WHO = ("worker", "client", "both")
 
 
@@ -258,3 +259,29 @@ define("pin.file.unreadable", "format", "A folder's .tenta.toml is read as TOML,
 define("pin.file.bad_value", "format", "A pin names workers, so every value in the file must be a worker name.", "A .tenta.toml file has a value that is not a worker name",
        "Check: {bad}. A worker name is letters, digits, dot, dash or underscore.", who="client", steps=["Open the file and fix it, or run ct-run use --clear to start again."])
 define("name.invalid", "format", "A worker or command name is plain, so it is safe in a file and on a command line.", "Not a valid name", "Letters, digits, dot, dash and underscore only.", who="client")
+
+# ---- errors on this computer: something went wrong, or is not ready yet ----
+define("result.not_ready", "error", "Says plainly that there is nothing to read yet, so an empty result is never mistaken for a finished job.", "No result yet", "The job has not finished, or the id is wrong.", who="client",
+       steps=["Wait for it with ct-run result JOB --wait, or list your jobs with ct-run jobs."])
+define("profile.result.not_ready", "error", "Says plainly that a profile run has no result yet, so the person does not adopt something that was never measured.", "No profile result yet",
+       "The worker may still be running it, or it was never approved.", who="client", steps=["Wait for it with ct-run result JOB --wait."])
+define("patch.none", "error", "Only a job of a class that returns a patch, and that ended ok, has one.", "That job returned no patch",
+       "Its status is {status}. Only a job of a class that returns a patch, and that ended ok, has one.", who="client", steps=["See what it did with ct-run result JOB."])
+define("patch.misfit", "error", "A patch is checked against the folder before it is applied, so nothing is half-changed.", "The patch does not fit this folder", "{reason}", who="client",
+       steps=["Go to the folder the job was sent from (the files must be where they were), then run this again."])
+define("patch.apply_failed", "error", "git refused the patch after the check passed; the real reason is shown.", "git could not apply the patch", "{reason}", who="client",
+       steps=["Save the patch and read it with ct-run patch JOB --out patch.diff."])
+define("profile.inconclusive", "error", "A profile run that did not complete cleanly proves nothing, so no class is proposed from it.", "Nothing to propose: the profiling run was inconclusive",
+       "The command did not complete cleanly.", who="client", steps=["Run the command by hand to see why it fails, correct it, then profile it again."])
+define("registry.shape", "error", "A registry that is not in the expected shape is reported, never edited blind.", "registry.yaml has no `classes:` section", "The registry proposal on main is not in the expected shape.", who="client",
+       steps=["Open registry.yaml on the main branch of your queue repository and check it has a classes: section."])
+define("repo.git_failed", "error", "The real error text of a git command that failed on one of the two repositories, with the command, so it is never guessed at.", "A git command failed", "{reason}", who="client",
+       steps=["Run the command shown above by hand in that folder to see the same error."])
+define("repo.not_set_up", "error", "Nothing can be sent or read until this computer has its two repository clones.", "This computer is not set up yet", "The two repository clones are not on this computer.", who="client",
+       steps=["Run ct-run setup."])
+define("repo.clone_failed", "error", "The real error text of a clone that failed, with a plain meaning and the steps for that cause.", "Could not clone a repository", "{url}: {detail}", who="client",
+       steps=["Check that this computer can reach the repository, then run ct-run setup again."])
+define("repo.file_missing", "error", "A push that succeeded is not proof the file is there: say so loudly rather than report a job sent that the worker will never see.", "A file did not arrive on the branch",
+       "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.", who="client", steps=["Send it again with the same command."])
+define("repo.push_failed", "error", "A branch that could not be pushed is reported with how to reach it, never as a job sent.", "Could not push to the branch", "Check your connection and access, then try again.", who="client",
+       steps=["Check your connection and access, then run the same command again."])

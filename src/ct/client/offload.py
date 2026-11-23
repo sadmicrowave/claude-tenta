@@ -349,7 +349,7 @@ def add_class_to_registry(text, lines):
     try:
         ci = next(i for i, l in enumerate(text) if re.match(r"^classes:\s*$", l))
     except StopIteration:
-        raise ClientError("registry.yaml has no `classes:` section", "The registry proposal on main is not in the expected shape.")
+        raise refuse.error("registry.shape")
     end = next((i for i in range(ci + 1, len(text)) if re.match(r"^\S", text[i]) and not text[i].startswith("#")), len(text))
     while end > ci + 1 and (not text[end - 1].strip() or text[end - 1].startswith("#")):      # a comment above the next section belongs to that section
         end -= 1
@@ -362,11 +362,11 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     A command that does not fit is recorded as an exclusion; one that fits becomes the branch registry/<name> (never main)."""
     pr = res.get("profile")
     if not pr:
-        raise ClientError("No profile result yet", "The worker may still be running it, or it was never approved.", example=f"ct-run result {jid} --wait", facts=[("Job", jid)])
+        raise refuse.error("profile.result.not_ready", ("Job", jid), example=f"ct-run result {jid} --wait")
     argv, ex = pr["argv"], read_exclusions(repos)
     ex.setdefault("excluded", [])
     if pr["verdict"] == "inconclusive":
-        raise ClientError("Nothing to propose: the profiling run was inconclusive", "The command did not complete cleanly.", pr["reasons"] + ["Run the command by hand to see why it fails, correct it, then profile it again."])
+        raise refuse.error("profile.inconclusive", steps=pr["reasons"] + ["Run the command by hand to see why it fails, correct it, then profile it again."])
     if pr["verdict"] == "does-not-fit":
         ex["excluded"] = [e for e in ex["excluded"] if e["argv"] != argv] + [exclusion_entry(res, jid)]
         repos.push_files("data", {"exclusions.json": json.dumps(ex, indent=2) + "\n"}, f"exclude: {' '.join(argv)[:60]} (profile {jid})")
