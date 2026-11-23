@@ -190,8 +190,8 @@ class Running(unittest.TestCase):
         self.assertIn("the answer", out)                                       # a failed claude job returns its raw stdout
 
     def test_the_timeout_is_capped(self):
-        # a job cannot ask for more than MAX_TIMEOUT; checked through the constant the runner applies
-        self.assertEqual(runner.MAX_TIMEOUT, 3600)
+        # a job cannot ask for more than MAX_TIMEOUT, a one-day watchdog: the real limits come from the class and, for a profile run, from the person's estimate
+        self.assertEqual(runner.MAX_TIMEOUT, 86400)
 
 
 class Groups(unittest.TestCase):

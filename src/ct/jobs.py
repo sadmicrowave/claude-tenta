@@ -169,8 +169,16 @@ def check_files(files, cls, limits):
     return files
 
 
-def job_timeout(cls, job):
+def job_timeout(cls, job, rules=None, shared=False, factor=1.0):
     kind = cls.get("kind", "command")
+    if kind == "profile" and rules is not None:
+        # the limit follows the person's own estimate, scaled by how fast this worker has proved to be and by the margin; only a shared computer has an owner's ceiling
+        ceiling = int(cls.get("max_timeout_s", 1800)) if shared else None
+        t, est = job.get("timeout_s"), job.get("est_time_s")
+        if isinstance(t, int) and not isinstance(t, bool) and t >= 10:
+            return min(t, ceiling) if ceiling else t
+        derived = max(30, -(-int(float(est) * factor * rules["margin"]["time"]) // 10) * 10) if isinstance(est, (int, float)) and not isinstance(est, bool) and est > 0 else ceiling or 1800
+        return min(derived, ceiling) if ceiling else derived
     if kind == "profile":
         cap = int(cls.get("max_timeout_s", 1800))
         t = job.get("timeout_s", cap)
@@ -178,7 +186,7 @@ def job_timeout(cls, job):
     return int(cls.get("timeout_s", 600 if kind == "claude" else 60))
 
 
-def build_profile(job, cls, limits, find_program=None, is_executable=None, policy=None):
+def build_profile(job, cls, limits, find_program=None, is_executable=None, policy=None, shared=True):
     """Validate a profile-run job: one exact command (argv list), optional small input files, optional timeout.
     Returns (argv, files, meta). `find_program` and `is_executable` default to looking at this machine."""
     find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
@@ -227,7 +235,7 @@ def build_profile(job, cls, limits, find_program=None, is_executable=None, polic
         meta["flags"] = flags
     t = job.get("timeout_s")
     if t is not None:
-        cap = int(cls.get("max_timeout_s", 1800))
+        cap = int(cls.get("max_timeout_s", 1800)) if shared else 10 ** 9      # the owner's ceiling exists only on a shared computer
         if isinstance(t, bool) or not isinstance(t, int) or not 10 <= t <= cap:
-            raise refusals.refuse("profile.timeout.range", cap=cap)
+            raise refusals.refuse("profile.timeout.range", cap=int(cls.get("max_timeout_s", 1800)))
     return argv, check_files(job.get("files"), cls, limits), meta

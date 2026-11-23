@@ -15,7 +15,7 @@ from . import plat
 from .jail import Refused, Unshare, isolate, netns_flags  # noqa: F401  (re-exported)
 from .util import SAFE_PATH
 
-MAX_TIMEOUT = 3600
+MAX_TIMEOUT = 86400      # a day: only a watchdog. The real limits come from the class, and for a profile run from the person's estimate
 FSIZE_LIMIT = 200 * 1024 * 1024        # no single file a job writes (including its output) may pass this
 
 
