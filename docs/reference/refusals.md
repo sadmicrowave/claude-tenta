@@ -128,6 +128,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `pack.recipe.unsafe`: This class's saved packaging is not safe to use
+
+- **Text:** {reason}
+- **Protects:** A saved packaging recipe may only name folders below the one you run the command in, so a registry cannot make a job read files elsewhere on your computer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send the files yourself: ct-run submit <class> --dir <folder>
+
 ### `patch.refused`: This patch will not be applied
 
 - **Text:** {reasons}

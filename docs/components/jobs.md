@@ -73,3 +73,8 @@ failed command stays on the worker (mode 0600, 30 days) and is read with `ct-adm
 
 A class (or profile run) may list `apt:`, `npm:` or `pip:` packages. They must be pinned to an exact version unless the install turns pinning off, are fetched
 into a throwaway tools folder with install scripts disabled, and never put on the search path of other jobs.
+
+## Files a class was profiled with
+
+When a profiling run is sent with `--dir`, `--include` or `--file`, the packaging (folder, patterns, files, relative to where the command was typed) is kept on this computer. `ct-admin adopt` writes it into the proposed class as a `submit:` section. The worker never acts on it; it only publishes it. `ct-run submit CLASS` then packages the same files when no `--dir`, `--file` or `--include` is given. Anything typed wins, `--no-pack` sends none, and a recipe with an absolute folder or `..` is refused (`pack.recipe.unsafe`). A folder outside the one you were in is not saved, and the profile output says so.
+

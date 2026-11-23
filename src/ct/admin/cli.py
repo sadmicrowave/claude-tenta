@@ -1039,16 +1039,16 @@ def cmd_adopt(ctx, a):
     res = r.read_result(a.id)
     if not res:
         raise refuse.error("adopt.result.missing", ("Job", a.id), example=f"ct-run result {a.id} --wait")
-    names = off.NameBook(ctx.home)
-    preview = off.propose(r, a.id, res, name=a.name, tier=a.tier, dry_run=True, names=names) if res.get("profile", {}).get("verdict") != "does-not-fit" else None
+    names, packs = off.NameBook(ctx.home), off.PackBook(ctx.home)
+    preview = off.propose(r, a.id, res, name=a.name, tier=a.tier, dry_run=True, names=names, packs=packs) if res.get("profile", {}).get("verdict") != "does-not-fit" else None
     if preview is None:
-        out = off.propose(r, a.id, res, names=names)
+        out = off.propose(r, a.id, res, names=names, packs=packs)
         emit("It does not fit the worker", "It was recorded as an exclusion; nothing was added to the registry.", *out["reasons"], tag="EXCLUDED", color=YELLOW)
         return 0
     emit("Adopt a class", ("Class", preview["name"]), ("Tier", preview["tier"]), ("Cost", preview["entry"]["cost"]), ("Branch", preview["branch"]), tag="PREVIEW", color=CYAN)
     if not ctx.confirm(f"Add {preview['name']} to the registry and install it on {ctx.ssh.host}?", a.yes):
         stop("Not adopted", "You answered no. Nothing was changed.")
-    out = off.propose(r, a.id, res, name=preview["name"], tier=a.tier, names=names)
+    out = off.propose(r, a.id, res, name=preview["name"], tier=a.tier, names=names, packs=packs)
     merge_branch(ctx, out["branch"], yes=True)
     rc = install_registry_change(ctx, a, name=preview["name"], present=True)
     if rc == 0:

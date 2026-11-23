@@ -72,6 +72,14 @@ class Validation(unittest.TestCase):
         self.assertEqual(errs({"run": ["a", "{p}"], "params": {"p": {"int": [1, 2]}}, "max_rss_mb": 100}), [])
         self.assertEqual(errs({"run": ["a"], "accepts_files": True, "batchable": True}), [])
 
+    def test_a_class_may_carry_a_submit_recipe_and_only_a_safe_one(self):
+        ok = {"run": ["a"], "accepts_files": True}
+        self.assertEqual(errs({**ok, "submit": {"dir": "src", "include": ["**/*.js"], "files": ["a.txt"]}}), [])
+        for bad in ({"dir": "/etc"}, {"dir": "../x"}, {"dir": "a/../../x"}, {"files": ["/etc/passwd"]}, {"include": "x"}, {"dir": 3},
+                    {"bogus": 1}, {"include": ["x"] * 99}, "src"):
+            self.assertTrue(errs({**ok, "submit": bad}), bad)
+        self.assertTrue(errs({"run": ["a"], "submit": {"dir": "src"}}))                 # needs accepts_files
+
     def test_catches_mistakes(self):
         self.assertTrue(errs({"cost": "huge", "run": ["a"]}))
         self.assertTrue(errs({"run": []}))

@@ -421,3 +421,58 @@ class EndToEnd(RepoFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PackRecipe(unittest.TestCase):
+    """List item 0b: an adopted class keeps how its files were packaged, so `ct-run submit CLASS` repeats the profiled invocation."""
+
+    def test_a_recipe_is_relative_to_where_the_command_was_typed(self):
+        cwd = Path(tempfile.mkdtemp()).resolve()
+        (cwd / "src").mkdir()
+        recipe, note = off.make_recipe(str(cwd / "src"), ["**/*.js"], ["notes.txt"], cwd)
+        self.assertEqual(recipe, {"dir": "src", "include": ["**/*.js"], "files": ["notes.txt"]})
+        self.assertIsNone(note)
+        self.assertEqual(off.make_recipe(".", None, None, cwd)[0], {"dir": "."})
+
+    def test_a_folder_outside_the_working_folder_is_not_saved_and_says_so(self):
+        cwd = Path(tempfile.mkdtemp()).resolve()
+        other = Path(tempfile.mkdtemp()).resolve()
+        recipe, note = off.make_recipe(str(other), None, None, cwd)
+        self.assertIsNone(recipe)
+        self.assertIn("outside", note)
+
+    def test_no_files_means_no_recipe(self):
+        self.assertEqual(off.make_recipe(None, None, None, Path("."))[0], None)
+
+    def test_the_pack_book_keeps_a_recipe_per_run(self):
+        pb = off.PackBook(Path(tempfile.mkdtemp()))
+        self.assertIsNone(pb.get("profile-aaa111"))
+        pb.remember("profile-aaa111", {"dir": "src"})
+        self.assertEqual(pb.get("profile-aaa111"), {"dir": "src"})
+
+    def test_the_class_lines_carry_the_recipe_and_the_worker_ignores_it(self):
+        entry = {"tier": "auto", "run": ["x"], "accepts_files": True, "submit": {"dir": "src", "include": ["*.js"]}}
+        lines = off.class_yaml_lines("lint", entry, {"reasons": ["ok"]}, "profile-aaa111")
+        self.assertIn('    submit: {"dir": "src", "include": ["*.js"]}', lines)
+
+    def test_a_proposal_adds_the_recipe_only_to_a_class_that_takes_files(self):
+        pb = off.PackBook(Path(tempfile.mkdtemp()))
+        pb.remember("profile-aaa111", {"dir": "src"})
+        self.assertEqual(off.with_recipe({"accepts_files": True}, "profile-aaa111", pb), {"accepts_files": True, "submit": {"dir": "src"}})
+        self.assertNotIn("submit", off.with_recipe({}, "profile-aaa111", pb))
+        self.assertNotIn("submit", off.with_recipe({"accepts_files": True}, "profile-zzz999", pb))
+
+    def test_a_submit_uses_the_saved_recipe_only_when_nothing_was_typed(self):
+        cwd = Path(tempfile.mkdtemp()).resolve()
+        r = {"dir": "src", "include": ["*.js"], "files": ["a.txt"]}
+        d, f, inc, used = off.use_recipe(r, None, None, None, cwd)
+        self.assertEqual((d, f, inc, used), (str(cwd / "src"), [str(cwd / "a.txt")], ["*.js"], True))
+        self.assertEqual(off.use_recipe(r, "other", None, None, cwd), ("other", None, None, False))
+        self.assertEqual(off.use_recipe(r, None, ["x"], None, cwd)[3], False)
+        self.assertEqual(off.use_recipe(None, None, None, None, cwd)[3], False)
+
+    def test_an_unsafe_recipe_is_refused_not_followed(self):
+        for bad in ({"dir": "/etc"}, {"dir": "../x"}, {"files": ["../../secret"]}):
+            with self.assertRaises(ClientError) as cm:
+                off.use_recipe(bad, None, None, None, Path("."))
+            self.assertIn("not safe", str(cm.exception))
