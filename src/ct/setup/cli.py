@@ -1,4 +1,4 @@
-"""ct-setup add-worker | audit | client | demo | install | rename | server | transport | tripwire-test | uninstall
+"""ct-setup add-worker | audit | client | demo | install | rename | rotate-key | server | transport | tripwire-test | uninstall
 
   add-worker      find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
   audit           read-only: check a server against its configuration and report anything that drifted
@@ -6,6 +6,7 @@
   demo            try the question and protection screens with sample questions; nothing is saved or changed
   install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
   rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
+  rotate-key      replace a Direct worker's mailbox key (the only key that lets this computer queue jobs on it): a new key, the worker trusts only it, then the old one is deleted (preview first)
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
@@ -62,7 +63,7 @@ def load_answers(path, sets):
 
 # Which computer each command acts on (the standing rule, checked in tests/test_setup_targets.py: a command added here must say which).
 PICKS = ("install",)                                  # one worker, chosen from the network scan (existing ones too) or named with --worker or by address
-PICK_COMMANDS = ("uninstall", "rename", "transport")   # one worker: your first install, or the one named with --worker
+PICK_COMMANDS = ("uninstall", "rename", "transport", "rotate-key")   # one worker: your first install, or the one named with --worker
 NEW_COMMANDS = ("add-worker",)                        # a computer that is not a worker yet
 LOCAL_COMMANDS = ("client", "server", "audit", "demo", "tripwire-test")     # the computer it runs on; no --worker
 
@@ -70,7 +71,7 @@ LOCAL_COMMANDS = ("client", "server", "audit", "demo", "tripwire-test")     # th
 def build_parser():
     ap = clihelp.Parser(prog="ct-setup", add_help=False)
     sp = ap.add_subparsers(dest="cmd")
-    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport", "add-worker"):
+    for n in ("client", "server", "audit", "install", "uninstall", "demo", "tripwire-test", "rename", "transport", "add-worker", "rotate-key"):
         s = sp.add_parser(n, add_help=False)
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--apply", action="store_true")
@@ -222,6 +223,47 @@ def client_uninstall_command(a, ask, say, scripts_dir="auto", home=None):
     return 0
 
 
+def rotate_command(a, host, ask, ssh_factory, say, verify=None, keygen=None):
+    """ct-setup rotate-key. On the worker (--here, as root, Linux): write the new public key as the mailbox's only key. From this computer: preview by default; --apply makes the new key, has the worker trust only it,
+    swaps the local key file and checks it (src/ct/setup/rotate.py explains the order that keeps you from being locked out)."""
+    from . import rotate
+    if a.here:
+        cfg = load_config()
+        pub = Path(a.mailbox_key_file).read_text() if a.mailbox_key_file else ""
+        if not pub.strip().startswith("ssh-"):
+            emit("No public key was given", "The worker half needs the new public key: --mailbox-key-file FILE.", tag="ERROR", color=RED)
+            return 2
+        setup = ServerSetup(host, a.source, say=say, dry_run=False, rev=a.rev, mailbox_pubkey=pub)
+        setup.cfg = cfg
+        setup.mailbox()
+        emit("The worker trusts only the new key", "The old key no longer works.", tag="DONE", color=GREEN)
+        return 0
+    cfg = config.load()
+    cfg.require("server.host", "server.admin_user")
+    if str(cfg.paths.code)[1:3] == ":/":                                               # a Windows worker: through its mailbox script over SSH
+        from . import winuninstall, wintools
+        run = wintools.ssh_runner(cfg.server.admin_user, cfg.server.host, int(cfg.server.ssh_port or 22))
+        install = lambda pub: rotate.windows_install(run, winuninstall.windows_root(cfg), cfg.identity.name, cfg.server.worker_user, pub)      # noqa: E731
+    else:
+        from ..admin.ssh import Ssh, family_for
+        ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
+        install = rotate.linux_install(ssh, cfg, a.source, deliver_source, remove_remote_dir)
+    interactive = not a.yes and sys.stdin.isatty()
+    r = rotate.Rotation(cfg, install=install, verify=verify or rotate.git_verify(cfg), say=say, dry_run=not a.apply, keygen=keygen or rotate.keygen,
+                        confirm=None if a.yes else (lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: False))
+    facts = [("Worker", cfg.identity.name), ("Computer", cfg.server.host)]
+    r.check()
+    if not a.apply:
+        emit("What replacing the mailbox key does", *facts, *r.plan_rows(), tag="PREVIEW", color=YELLOW, run_label="Replace it", run=f"ct-setup rotate-key --worker {cfg.identity.name} --apply")
+        return 0
+    status = r.run_all()[-1][1]
+    if status == "declined":
+        emit("Not replaced", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
+        return 1
+    emit("The mailbox key was replaced", *facts, "The worker trusts only the new key, and it works. The old key is deleted.", tag="DONE", color=GREEN, run_label="See the worker", run="ct-admin check")
+    return 0
+
+
 def windows_uninstall_command(a, cfg, ask, say, runner=None):
     """ct-setup uninstall --worker NAME for a Windows worker: preview by default, one question before --apply removes anything."""
     from .winuninstall import WindowsUninstall
@@ -363,6 +405,8 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             with ui.session():
                 demo(ui, say)
             return 0
+        if a.cmd == "rotate-key":
+            return rotate_command(a, host, ask, ssh_factory, say, verify=verify)
         if a.cmd == "uninstall":
             return uninstall_command(a, host, ask, ssh_factory, say)
         given = load_answers(a.answers, a.set) if a.cmd != "audit" else {}

@@ -39,6 +39,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `kind` | `github` | `direct` , `github` | how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2) |
+| `profile_approval` | `required` | `required` , `none` | Direct only: required (the default) means a profile run waits for your approval; none lets a worker start one without it, but only while its jail really isolates jobs (never on a Windows worker) |
 
 ## [paths]
 

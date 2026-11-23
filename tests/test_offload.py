@@ -369,6 +369,19 @@ class EndToEnd(RepoFixture):
         self.assertEqual(self.ctx.names.get(jid), "my-ls")                                          # remembered for the job list and the proposal
         self.assertIn("my-ls", self.run_cli("jobs")[1])
 
+    def test_a_worker_that_starts_profile_runs_without_approval_is_not_waited_on_for_one(self):
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"profile_approval": "none"}))
+        code, out, err = self.profile("--name", "my-ls")
+        self.assertEqual(code, 0, out + err)
+        jid = out.strip()
+        self.assertNotIn("needs YOUR approval", err)
+        self.assertNotIn(f"tct-admin approve {jid}", err)
+        self.assertIn("without approval", err)
+        self.assertIn(jid, err)
+        (self.repos.results / "worker-state.json").write_text(json.dumps({"profile_approval": "required"}))
+        code, out, err = self.profile("--name", "my-ls2")
+        self.assertIn("needs YOUR approval", err)                                                      # a worker that did not say, or says required, is unchanged
+
     def test_a_taken_or_bad_name_is_refused_up_front(self):
         self.w.fetch()
         code, out, err = self.profile("--name", "echo")

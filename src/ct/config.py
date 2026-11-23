@@ -218,6 +218,7 @@ SCHEMA = {
     },
     "transport": {
         "kind": ("github", _enum("direct", "github"), "how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2)"),
+        "profile_approval": ("required", _enum("required", "none"), "Direct only: required (the default) means a profile run waits for your approval; none lets a worker start one without it, but only while its jail really isolates jobs (never on a Windows worker)"),
     },
     "paths": {
         "code": ("/opt/{name}", _path, "where the code is installed on the server"),
@@ -361,6 +362,8 @@ def validate(raw, require_alert_url=True):
     srv = clean["server"]
     if srv["admin_user"] and srv["admin_user"] == srv["worker_user"]:
         problems.append("server.admin_user and server.worker_user must be different accounts")
+    if clean["transport"]["profile_approval"] == "none" and clean["transport"]["kind"] != "direct":
+        problems.append("transport.profile_approval = none is a setting of the Direct connection only: on GitHub a job file can be put in the queue by anyone who can write to the repository, so a profile run keeps needing your approval")
     if require_alert_url and clean["alerts"]["kind"] != "none" and not clean["alerts"]["url"]:
         problems.append(f"alerts.url is required when alerts.kind is {clean['alerts']['kind']!r}")
     if not clean["isolation"]["require_netns"] and os.environ.get("CT_ALLOW_UNSAFE") != "1":

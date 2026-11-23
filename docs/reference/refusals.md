@@ -1297,6 +1297,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `rotate.not_direct`: Only a Direct worker has a mailbox key
+
+- **Text:** This worker uses {connection}, which has no mailbox key.
+- **Protects:** Only the Direct connection has a mailbox key to replace: GitHub workers use deploy keys that ct-setup install manages.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to see how the worker is connected.
+
 ## Error
 
 ### `result.not_ready`: No result yet
@@ -2020,3 +2029,30 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
+
+### `rotate.no_key`: This computer has no mailbox key for that worker
+
+- **Text:** The key file is missing.
+- **Protects:** There is no key to replace on this computer; a first key is made by the install.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install --worker NAME to make one.
+
+### `rotate.install_failed`: The worker did not take the new key
+
+- **Text:** {reason}
+- **Protects:** The worker did not take the new key, so nothing was changed: the old key still works and the new one was deleted.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup rotate-key again once the worker answers: nothing was changed.
+
+### `rotate.verify_failed`: The new key is installed but the check failed
+
+- **Text:** The worker now trusts only the new key, which is in place here; the check said: {reason}
+- **Protects:** The worker was given the new key but the check that it works failed; the worker now trusts only the new key, so it is kept as the key in use and the old one is kept aside.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Try the connection again with ct-admin check. If it still fails, restore the old key from the file shown and run ct-setup install again.

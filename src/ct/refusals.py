@@ -502,3 +502,14 @@ define("files.link.skipped", "security", "A link is never followed: it can point
 define("job.too_big_for_worker", "limit", "A worker accepts only a job it can hold: its file is refused, unread, when it is over the ceiling (a quarter of free disk and memory, at most 1024 MB, or hardware.max_job_mb), so one job cannot fill the disk or the memory.",
        "The job is too big for this worker", "this job file is {size} MB, over the {ceiling} MB this worker accepts right now; it was not read", depends="the worker's free disk and memory, or hardware.max_job_mb",
        config="the worker's hardware.max_job_mb (unset: automatic)", steps=["Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room."])
+
+# ---- replacing a Direct worker's mailbox key (ct-setup rotate-key) ----
+define("rotate.not_direct", "policy", "Only the Direct connection has a mailbox key to replace: GitHub workers use deploy keys that ct-setup install manages.", "Only a Direct worker has a mailbox key",
+       "This worker uses {connection}, which has no mailbox key.", who="client", steps=["Run ct-setup install to see how the worker is connected."])
+define("rotate.no_key", "error", "There is no key to replace on this computer; a first key is made by the install.", "This computer has no mailbox key for that worker", "The key file is missing.", who="client",
+       steps=["Run ct-setup install --worker NAME to make one."])
+define("rotate.install_failed", "error", "The worker did not take the new key, so nothing was changed: the old key still works and the new one was deleted.", "The worker did not take the new key", "{reason}", who="client",
+       steps=["Run ct-setup rotate-key again once the worker answers: nothing was changed."])
+define("rotate.verify_failed", "error", "The worker was given the new key but the check that it works failed; the worker now trusts only the new key, so it is kept as the key in use and the old one is kept aside.",
+       "The new key is installed but the check failed", "The worker now trusts only the new key, which is in place here; the check said: {reason}", who="client",
+       steps=["Try the connection again with ct-admin check.", "If it still fails, restore the old key from the file shown and run ct-setup install again."])

@@ -22,6 +22,7 @@ main_branch = "main"
 
 [transport]
 kind = "github"                 # how jobs reach the worker and results come back: github is a private repository on GitHub each way (direct: a mailbox on the worker that your computer reaches over SSH)
+profile_approval = "required"   # Direct only: required = a profile run waits for your approval; none = a worker starts one without it, only while its jail really isolates jobs (never on a Windows worker)
 
 [paths]                         # {name} and {worker_user} are filled in from the settings above
 code = "/opt/{name}"            # where the code is installed on the server
