@@ -1098,6 +1098,12 @@ class Profile(Base):
 
 
 class RegistryInfo(Base):
+    def test_a_classs_submit_recipe_is_published_for_the_client_and_never_acted_on(self):
+        self.registry_path.write_text(REGISTRY + '  packed:\n    tier: auto\n    run: [/bin/true]\n    accepts_files: true\n    submit: {"dir": "src", "include": ["*.js"]}\n')
+        self.w.publish_registry_info(self.w.load_registry())
+        info = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))
+        self.assertEqual(info["classes"]["packed"]["submit"], {"dir": "src", "include": ["*.js"]})
+
     def test_the_installed_registry_is_published_once_and_again_when_it_changes(self):
         reg = self.w.load_registry()
         self.assertTrue(self.w.publish_registry_info(reg))

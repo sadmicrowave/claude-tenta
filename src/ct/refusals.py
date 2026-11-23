@@ -244,6 +244,8 @@ define("profile.command.sudo", "security", "A profile run never uses privilege t
 define("profile.details.missing", "format", "Whoever approves a profile run sees these details next to the worker's hard limits, so they are required.", "This profiling run is missing required details",
        "Whoever approves it sees these next to the worker's hard limits, so they are required.\n  The command below is yours with the missing flags added. Change the example values to your own before running it.",
        who="client", depends="a profile run that needs approval (not on Direct, once that setting exists)")
+define("pack.recipe.unsafe", "security", "A saved packaging recipe may only name folders below the one you run the command in, so a registry cannot make a job read files elsewhere on your computer.",
+       "This class's saved packaging is not safe to use", "{reason}", who="client", steps=["Send the files yourself: ct-run submit <class> --dir <folder>"])
 define("class.name.invalid", "format", "A class name is short, lowercase and plain, so it is safe as a file name and easy to type.", "That class name is not allowed", "Use lowercase letters, digits and dashes, 2 to 41 characters.", who="client")
 define("class.name.unusable", "format", "A class name must not collide with a command word or an existing class.", "That name cannot be used", "{reason}", who="client")
 define("class.name.taken", "policy", "A class name names one class, so a second with the same name would replace it.", "A class with that name already exists", "Another class already has this name.", who="client",

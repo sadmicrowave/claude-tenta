@@ -180,6 +180,28 @@ def platform_problems(classes, platform):
     return errs
 
 
+PACK_KEYS = ("dir", "include", "files")
+
+
+def pack_problem(recipe):
+    """Why a class's `submit` recipe (how `ct-run submit` packages its files by default) is not acceptable, or None. The worker never acts on it; it is
+    checked so a registry cannot carry a folder outside the one the person is in (absolute or `..`), or an unbounded list."""
+    if not isinstance(recipe, dict) or not recipe or any(k not in PACK_KEYS for k in recipe):
+        return f"submit may only set {', '.join(PACK_KEYS)}"
+    def bad_path(v):
+        return not isinstance(v, str) or not v or len(v) > 200 or "\0" in v or v.startswith(("/", "~")) or "\\" in v or ".." in v.split("/")
+    if "dir" in recipe and bad_path(recipe["dir"]):
+        return "submit dir must be a folder below the one you run it in (not absolute, no `..`)"
+    for k in ("include", "files"):
+        if k in recipe:
+            v = recipe[k]
+            if not isinstance(v, list) or not v or len(v) > 20 or any(not isinstance(x, str) or not x or len(x) > 200 or "\0" in x for x in v):
+                return f"submit {k} must be a list of 1 to 20 short strings"
+            if k == "files" and any(bad_path(x) for x in v):
+                return "submit files must be below the folder you run it in (not absolute, no `..`)"
+    return None
+
+
 def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None):
     """Return a list of problems (empty = fine). `tools_root` is the folder a class's `env` paths must stay under. `allow_empty` accepts a
     registry with no classes of its own (your private layer: the packs provide the rest)."""
@@ -236,6 +258,11 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
                 errs.append(f"{w}: env may only set {', '.join(ENV_KEYS)} to folders under {tools_root}")
         if "tools" in c:
             errs += tools_problems(w, c["tools"], kind, tool_roots)
+        if "submit" in c:
+            if not c.get("accepts_files"):
+                errs.append(f"{w}: submit needs accepts_files: true (it says how the files are packaged)")
+            elif pack_problem(c["submit"]):
+                errs.append(f"{w}: {pack_problem(c['submit'])}")
         if "batchable" in c and not isinstance(c["batchable"], bool):
             errs.append(f"{w}: batchable must be true or false")
         if "returns" in c and kind != "claude":
@@ -287,7 +314,7 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
                 errs.append(f"{w}: action must name one of the registry's actions ({', '.join(sorted(reg.get('actions') or {})) or 'none are defined'})")
             if c.get("tier", "approve") != "approve":
                 errs.append(f"{w}: a privileged class always needs approval (tier: approve); it runs as root")
-            for forbidden in ("run", "params", "packages", "network", "env", "accepts_files", "batchable", "kind_extra"):
+            for forbidden in ("run", "params", "packages", "network", "env", "accepts_files", "batchable", "submit", "kind_extra"):
                 if forbidden in c:
                     errs.append(f"{w}: a privileged class takes its program, parameters and limits from its action, so it must not set {forbidden}")
     return errs
