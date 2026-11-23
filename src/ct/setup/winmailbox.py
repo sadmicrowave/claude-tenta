@@ -133,6 +133,7 @@ def remove_script(root=ROOT, name="claude-tenta", worker=USER):
   }
   if (Get-LocalUser -Name $u -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $u; $was = $true }
   foreach ($r in @('queue.git', 'results.git')) {
+    if (-not (Test-Path -LiteralPath $git)) { break }                 # the tools folder is already gone (a removal that was run before): there is no git trust left to take out
     $p = ((Join-Path $box $r) -replace '\\', '/')
     if (@(& $git config --system --get-all safe.directory 2>$null) -contains $p) { & $git config --system --unset-all safe.directory ([regex]::Escape($p)); $was = $true }
   }

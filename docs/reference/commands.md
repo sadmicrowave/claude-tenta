@@ -98,7 +98,7 @@ ct-setup add-worker | audit | client | demo | install | rename | server | transp
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
-  uninstall       remove an install from the server, completely and on purpose (preview first); your repositories and your computer's own configuration stay
+  uninstall       remove an install, completely and on purpose (preview first): a Linux worker, a Windows worker (--worker NAME), or the ct commands on this computer (--client); your GitHub repositories stay
 
 Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address; client, server, audit, tripwire-test, demo: the computer they run on.
 

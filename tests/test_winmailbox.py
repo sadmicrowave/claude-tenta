@@ -107,6 +107,12 @@ class Calls(unittest.TestCase):
             winmailbox.ensure(lambda a, t: (1, 'CT-ERROR {"what": "sshd", "detail": "sshd_config did not pass sshd -t, so it was put back: line 3"}'), key=KEY)
         self.assertEqual((e.exception.what, "line 3" in e.exception.detail), ("sshd", True))
 
+class RemoveAfterTheToolsAreGone(unittest.TestCase):
+    def test_taking_out_the_git_trust_is_skipped_when_git_is_already_gone_so_a_second_removal_does_not_fail(self):
+        s = winmailbox.remove_script()
+        self.assertLess(s.index("Test-Path -LiteralPath $git"), s.index("config --system --get-all"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

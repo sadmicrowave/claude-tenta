@@ -30,6 +30,21 @@ POWERSHELL = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
 TOOLS_RE = re.compile(r"^(%[A-Za-z]+%|[A-Za-z]:)[\\A-Za-z0-9 ._()-]*$")                                         # a folder: letters, digits, space . _ ( ) - and backslashes; no quote can get into the script
 
 
+# PowerShell shared by the installer and the removal: the per-user Python bundle that registered itself for THIS target folder. Python's bundle entry has no install location, so it is found through the PythonCore key
+# (whose InstallPath is the folder) and then the bundle's own uninstall entry. Returns the uninstaller paths, or nothing when no registration points at the folder.
+PY_REGISTRATION = r"""function OurPythonUninstallers($pydir) {
+  $ours = $false
+  foreach ($k in (Get-ChildItem 'HKCU:\SOFTWARE\Python\PythonCore' -ErrorAction SilentlyContinue)) {
+    $ip = (Get-ItemProperty -LiteralPath (Join-Path $k.PSPath 'InstallPath') -ErrorAction SilentlyContinue).'(default)'
+    if ($ip -and $ip.TrimEnd('\') -ieq $pydir) { $ours = $true }
+  }
+  if (-not $ours) { return @() }
+  @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
+    Where-Object { $_.DisplayName -match '^Python 3\.\d+\.\d+ \((32|64)-bit\)$' -and $_.UninstallString -match '^"([^"]+)"' } | ForEach-Object { $Matches[1] })
+}
+"""
+
+
 class WinToolsError(Exception):
     def __init__(self, what, detail):
         super().__init__(f"{what}: {detail}")
@@ -46,7 +61,7 @@ def installer_script(tools_dir=DEFAULT_TOOLS):
 $ProgressPreference = 'SilentlyContinue'
 $tools = [Environment]::ExpandEnvironmentVariables('{tools_dir}')
 $changed = $false
-function Fail($what, $detail) {{ Write-Output ('CT-ERROR ' + (@{{what = $what; detail = "$detail"}} | ConvertTo-Json -Compress)); exit 1 }}
+{PY_REGISTRATION}function Fail($what, $detail) {{ Write-Output ('CT-ERROR ' + (@{{what = $what; detail = "$detail"}} | ConvertTo-Json -Compress)); exit 1 }}
 try {{
   $py = $null; $pyv = ''
   foreach ($name in (Join-Path $tools 'python\\python.exe'), 'python', 'py') {{
@@ -67,6 +82,9 @@ try {{
       $sig = Get-AuthenticodeSignature $exe
       if (($sig.Status -ne 'Valid') -or ($sig.SignerCertificate.Subject -notlike '*{p["signer"]}*')) {{ Remove-Item $exe -Force; Fail 'python' "the installer's signature is $($sig.Status), not a valid one from {p["signer"]}: refused, nothing was run" }}
       $pydir = Join-Path $tools 'python'
+      if (-not (Test-Path (Join-Path $pydir 'python.exe'))) {{                                  # a removal that left Python registered makes the installer do nothing: undo that registration first (it points at this folder only)
+        foreach ($un in (OurPythonUninstallers $pydir)) {{ if (Test-Path -LiteralPath $un) {{ Start-Process -FilePath $un -ArgumentList '/uninstall', '/quiet' -Wait | Out-Null; $changed = $true }} }}
+      }}
       $proc = Start-Process -FilePath $exe -ArgumentList '/quiet', 'InstallAllUsers=0', 'PrependPath=0', 'Include_launcher=0', 'Include_test=0', "TargetDir=$pydir" -Wait -PassThru
       Remove-Item $exe -Force
       if ($proc.ExitCode -ne 0) {{ Fail 'python' "the Python installer exited with $($proc.ExitCode)" }}

@@ -57,6 +57,7 @@ H=/home; slug=""; file=""; write=0
 args=("$@"); i=0
 while [ $i -lt ${#args[@]} ]; do a=${args[$i]}; case "$a" in -R) i=$((i+1)); slug=${args[$i]};; -t|--json|--description) i=$((i+1));; --allow-write) write=1;; --private) ;; -*) ;; *) if [ -z "$sub" ]; then :; fi; last=$a;; esac; i=$((i+1)); done
 case "$1 $2 $3" in
+  "auth status"*) echo "Logged in to github.com (stand-in)" ;;
   "repo view"*) [ -d $H/git/$3.git ] ;;
   "repo create"*) sudo -n -u git git init -q --bare -b main $H/git/$3.git && echo "https://github.com/$3" ;;
   "repo rename"*) newn=$3; oldslug=""; for ((j=1;j<=$#;j++)); do if [ "${!j}" = "--repo" ]; then k=$((j+1)); oldslug=${!k}; fi; done
