@@ -117,6 +117,32 @@ class EveryReason(unittest.TestCase):
             self.assertEqual(refusals.CATALOG[code].kind, "placement")
 
 
+class WrongChannel(unittest.TestCase):
+    """A worker that listens on a different connection than this computer sends over can never see a job sent now (item 7: a real mismatch on a real fleet was shown only as a warning and the job went anyway)."""
+
+    def listening(self, name, listens, sends):
+        v = w(name, connection=sends)
+        v.state["transport"] = listens
+        return v
+
+    def test_a_worker_that_listens_on_another_connection_is_left_out_with_the_reason_and_the_code(self):
+        c = pick([self.listening("lost", "direct", "github"), w("ok")])
+        self.assertEqual(c.worker, "ok")
+        self.assertEqual([code for code, _ in c.reasons["lost"]], ["placement.transport.mismatch"])
+        self.assertIn("sends over github, but the worker listens on direct", dict((n, r) for n, _, r in c.lines)["lost"])
+        self.assertIn("never be picked up", dict((n, r) for n, _, r in c.lines)["lost"])
+
+    def test_a_worker_that_agrees_or_does_not_say_is_not_left_out(self):
+        self.assertEqual(pick([self.listening("same", "direct", "direct")]).worker, "same")
+        self.assertEqual(pick([w("silent", connection="github")]).worker, "silent")                  # an older worker publishes no transport: nothing to compare
+
+    def test_it_stands_beside_the_other_reasons(self):
+        v = self.listening("bad", "direct", "github")
+        v.state["locked"] = True
+        c = pick([v, w("ok")])
+        self.assertEqual([code for code, _ in c.reasons["bad"]], ["placement.locked", "placement.transport.mismatch"])
+
+
 class Preferences(unittest.TestCase):
     def test_a_dedicated_worker_takes_only_its_classes_and_is_left_out_of_everything_else(self):
         prefs = Prefs(dedicated={"lab": ["claude-read"]})
@@ -217,7 +243,7 @@ class TheWorkerKnowsBest(unittest.TestCase):
         return worker_view(name, believed, s, {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 5)
 
     def test_the_wait_the_worker_publishes_beats_what_this_computer_assumes_and_decides_between_equals(self):
-        mini = self.listening("mini", "github", 300)                         # believed to be Direct here: 5 s assumed, 300 s real
+        mini = self.listening("mini", "github", 300, believed="github")      # a GitHub worker: it polls, so 300 s real, where a Direct one would be assumed 5 s
         vmx = self.listening("vmx", "direct", 5)
         self.assertEqual((mini.wait_s, vmx.wait_s), (300, 5))
         c = pick([mini, vmx])
@@ -225,9 +251,11 @@ class TheWorkerKnowsBest(unittest.TestCase):
         self.assertIn("notices a job sooner (5 s against 300 s)", dict((n, r) for n, _, r in c.lines)["mini"])
 
     def test_a_worker_whose_real_connection_differs_from_the_setting_here_is_flagged_in_the_explanation(self):
-        mini = self.listening("mini", "github", 300)
-        c = pick([mini])
+        mini = self.listening("mini", "github", 300)                         # believed to be Direct here, but it listens on GitHub: a job sent now would never arrive, so it is left out
+        c = pick([mini, self.listening("ok", "direct", 5)])
+        self.assertEqual(c.worker, "ok")
         self.assertIn("listens on github", dict((n, r) for n, _, r in c.lines)["mini"])
+        self.assertIn("listens on github", mini.mismatch)
         self.assertEqual(self.listening("ok", "direct", 5).mismatch, "")
 
     def test_an_older_worker_that_publishes_neither_falls_back_to_what_this_computer_knows(self):

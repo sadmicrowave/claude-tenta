@@ -83,6 +83,14 @@ def pending_sent(home, name, repos, now=None):
     return n
 
 
+def channel_problem(c, repos):
+    """(connection this computer sends over, connection the worker says it listens on) when they differ, else None: a job sent now would never be picked up. A worker that does not say (an older release) is not a mismatch."""
+    from ..admin import workers as workers_mod
+    sends = actual_connection(repos, transport.for_config(c).kind)
+    listens = (workers_mod.read_state(repos.results) or {}).get("transport")
+    return (sends, listens) if listens and listens != sends else None
+
+
 def view_of(name, c, repos, fetch=None, now=None, home=None):
     """What is known about one worker, after one look over its own connection. A look that fails is a worker that is not reachable now, with what was said."""
     from ..admin import workers as workers_mod
@@ -239,6 +247,9 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         if forced not in by_name:
             raise refuse.error("placement.unknown_worker", ("Name", forced), ("Yours", ", ".join(by_name)))
         e = by_name[forced]
+        wrong = channel_problem(e[1], repos_of(e))
+        if wrong:                                                       # naming a worker does not make a job arrive: refused, not sent into the void
+            raise refuse.error("placement.transport.mismatch", ("Worker", forced), connection=wrong[0], listens=wrong[1])
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
         views = gather_shared(ents, repos_of, fetch, home=ctx.home)

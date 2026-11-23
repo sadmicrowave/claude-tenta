@@ -188,6 +188,10 @@ define("placement.ai.no_tool", "placement", "An AI class runs only where its too
        steps=["Install it with ct-setup install --worker NAME."])
 define("placement.ai.paused", "placement", "An AI worker stops taking AI jobs for the day when its limit is reached, so the person's usage is bounded.", "A worker paused AI jobs for today",
        "has paused Claude jobs for today (its daily limit)", who="client", depends="the class kind: claude", config="the worker's daily limits", steps=["See its usage with ct-admin status."])
+define("placement.transport.mismatch", "placement", "A job sent over a connection the worker does not listen on is never picked up (this computer pushes to GitHub, the worker reads its own mailbox, or the other way round), so it is not sent: "
+       "the worker is left out, and a worker named with --worker is refused, instead of the job disappearing.", "This computer and the worker use different connections",
+       "this computer sends over {connection}, but the worker listens on {listens}, so a job sent now would never be picked up", who="client", depends="the transport",
+       steps=["Point this computer at the worker again: ct-setup install --worker NAME", "Or move the worker to the connection this computer uses: ct-setup transport direct --worker NAME (or github)"])
 define("placement.none_available", "placement", "A job with no worker that can take it is not sent: the person is told why for each worker.", "No worker can take this job right now",
        "Each one, and why it cannot:", who="client", steps=["Compare the workers with ct-admin workers."])
 define("placement.unknown_worker", "placement", "A job sent to a named worker needs the name to be one of the person's workers.", "There is no such worker",

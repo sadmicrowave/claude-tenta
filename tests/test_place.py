@@ -116,6 +116,7 @@ class Routing(Setup):
         self.assertIn("connect timed out", dict((n, r) for n, _, r in ch.lines)["vmx"])
 
     def test_a_forced_worker_is_used_without_reading_the_others_and_an_unknown_name_is_refused(self):
+        self.add("ghx")                                                       # only the named worker's own copy is looked at (locally) to see that it listens on the connection used here
         (ctx, ch), _, made = self.route(forced="ghx")
         self.assertEqual((ctx.product, ch), ("ghx", None))
         with self.assertRaises(ClientError):
@@ -248,6 +249,27 @@ class TheJobsList(Setup):
         self.assertIn("could not be read", text)
         self.assertIn("vmx", text)
         self.assertIn("job-ccc333", text)
+
+
+class ForcedChannel(unittest.TestCase):
+    def test_naming_a_worker_does_not_send_a_job_down_a_channel_it_does_not_listen_on(self):
+        from ct.client.repo import ClientError
+        class Repos:
+            pass
+        d = Path(tempfile.mkdtemp())
+        (d / "worker-state.json").write_text(json.dumps({"updated": "2999-01-01T00:00:00Z", "transport": "direct", "hardware": {}, "observed": {}}))
+        repos = Repos()
+        repos.results, repos.queue = d, d
+        cfg = cfg_file(d, "box", kind="github")
+        self.assertEqual(place.channel_problem(cfg, repos), ("github", "direct"))
+        cfg2 = cfg_file(d, "box2", kind="direct")
+        with mock.patch.object(place, "actual_connection", return_value="direct"):
+            self.assertIsNone(place.channel_problem(cfg2, repos))
+        with self.assertRaises(ClientError) as e:
+            main = type("Ctx", (), {"home": d, "repos": repos})()
+            place.route(main, cfg, "sys-status", "box", entries_fn=lambda c: [("box", cfg, None)], repos_of=lambda e: repos, make_ctx=lambda e: main)
+        self.assertEqual(e.exception.facts[-1], ("Code", "placement.transport.mismatch"))
+        self.assertIn("ct-setup", " ".join(e.exception.steps))
 
 
 class EveryReasonShown(unittest.TestCase):
