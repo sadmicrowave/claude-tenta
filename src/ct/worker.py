@@ -131,10 +131,16 @@ class Worker:
     def time_limit(self, cls, job, reg):
         """A job's time limit: the class's own, or for a profile run the person's estimate x speed factor x margin (the owner's ceiling only where the computer is shared)."""
         profile = cls.get("kind") == "profile"
-        return jobs.job_timeout(cls, job, rules=registry.profiling_rules(reg) if profile else None, shared=self.shared())
+        return jobs.job_timeout(cls, job, rules=registry.profiling_rules(reg) if profile else None, shared=self.shared(), factor=self.speed()[0])
 
     def shared(self):
         return self.s.isolation_purpose == "shared"
+
+    def speed(self):
+        """(factor, basis): how slow this worker is against the shipped reference (2.0 = twice as slow), from the install's own timings; 1.0 until measured."""
+        from . import calibration, calibration_reference
+        got = calibration.load(self._p("calibration.json")).get("phases")
+        return calibration.speed_factor(got, calibration_reference.REFERENCE) if isinstance(got, dict) else (1.0, "none yet")
 
     def effective_limits(self, reg):
         """The registry's limits, except that on the Direct connection the file limits follow this worker's ceiling (what it can really hold) instead of the GitHub-era defaults, unless the owner set them in the registry."""
@@ -767,7 +773,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}:{self.s.isolation_purpose}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -793,7 +799,7 @@ class Worker:
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
                 "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "profile_time": {"ceiling_s": int((reg.get("classes") or {}).get("profile-run", {}).get("max_timeout_s", 1800)) if self.shared() else None,
-                                 "factor": 1.0, "basis": "none yet", "shared": self.shared()},       # what a profile run's time limit is built from (the client checks a request against it)
+                                 "factor": self.speed()[0], "basis": self.speed()[1], "shared": self.shared()},       # what a profile run's time limit is built from (the client checks a request against it)
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)

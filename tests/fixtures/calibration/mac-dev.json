@@ -1,0 +1,12 @@
+{
+ "label": "mac-dev",
+ "phases": {
+  "compile": 0.779,
+  "import": 0.293,
+  "hash": 0.098,
+  "git": 1.741
+ },
+ "os": "macOS-26.7-x86_64-i386-64bit-Mach-O",
+ "python": "3.15.2",
+ "reference": false
+}

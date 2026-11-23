@@ -1131,6 +1131,18 @@ class ProfileTime(Base):
         meta = json.loads((self.w._p("queued", "profile-aaa111.meta")).read_text())
         self.assertEqual(meta.get("est_time_s"), 100)
 
+    def test_a_worker_that_was_measured_at_install_gets_a_longer_limit_and_publishes_why(self):
+        from ct import calibration, calibration_reference
+        self.worker_with(isolation_purpose="special-use")
+        slow = {p: v * 2 for p, v in calibration_reference.REFERENCE.items()}
+        calibration.store(self.w._p("calibration.json"), slow)
+        reg = self.w.load_registry()
+        self.assertEqual(self.w.speed(), (2.0, f"install, {len(slow)} of 4 steps"))
+        self.assertEqual(self.w.time_limit(reg["classes"]["profile-run"], {"est_time_s": 100}, reg), 600)       # 100 s x 2.0 x margin 3
+        self.assertTrue(self.w.publish_registry_info(reg))
+        pt = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["profile_time"]
+        self.assertEqual((pt["factor"], pt["basis"]), (2.0, f"install, {len(slow)} of 4 steps"))
+
     def test_the_published_registry_says_what_the_limit_is_built_from(self):
         self.worker_with(isolation_purpose="special-use")
         self.w.publish_registry_info(self.w.load_registry())
