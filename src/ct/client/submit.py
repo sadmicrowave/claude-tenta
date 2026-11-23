@@ -4,12 +4,14 @@ The size limits are not decided here: the worker publishes the limits it actuall
 exactly those, so a job is never sent that the worker would refuse. (Until a worker publishes them, the conservative old defaults apply.)
 """
 import json
+import os
 import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..jobs import FILE_NAME_RE
+from .. import refusals
+from ..jobs import file_name_problem
 from . import refuse
 from .repo import ClientError
 from ..words import plural
@@ -44,28 +46,81 @@ def glob_match(rel, pat):
     return re.fullmatch(rx, rel) is not None
 
 
-def collect_dir(d, limits, include=None, note=None):
-    """Text files under `d`. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. Hidden files and folders,
-    build output and dependency folders are never attached. `note(name, why)` is told about each file that was skipped."""
+class LeftOut:
+    """What was NOT sent, and why, so nothing is dropped silently. `excluded`: left out by rule (hidden files and folders, build and dependency folders) as {path: files counted}; the person is told and can name
+    one with --include. `unsent`: files that could not be sent (not text, too big, an unusable name, unreadable) as (name, catalog code, text): they make the set incomplete, so the job does not start unless the person
+    chooses (--send-incomplete)."""
+
+    def __init__(self):
+        self.excluded, self.unsent = {}, []
+
+    def exclude(self, path, count=0):
+        self.excluded[path] = self.excluded.get(path, 0) + count
+
+    def unsend(self, name, code, **facts):
+        self.unsent.append((name, code, str(refusals.refuse(code, name=name, **facts))))
+
+
+def by_rule(part):
+    return part.startswith(".") or part in SKIP_DIRS
+
+
+def named_by_include(rel, include):
+    """True when an --include pattern NAMES the hidden or skipped part of `rel` literally ('.gitignore', '.github/**'): a wildcard never reaches into a skipped folder."""
+    parts = rel.split("/")
+    for i, part in enumerate(parts):
+        if by_rule(part):
+            return any(len(segs := pat.split("/")) >= i + 1 and all(s == p and not set("*?") & set(s) for s, p in zip(segs, parts[:i + 1])) for pat in include or ())
+    return False
+
+
+def collect_dir(d, limits, include=None, left=None):
+    """Text files under `d`. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. Hidden files and folders, build output and dependency folders are left out unless an include names them,
+    and every file that is left out or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
     base = Path(d).expanduser().resolve()
+    left = left if left is not None else LeftOut()
     files = {}
-    for p in sorted(base.rglob("*")):
-        rel = p.relative_to(base)
-        if any(part.startswith(".") or part in SKIP_DIRS for part in rel.parts) or not p.is_file():
-            continue
-        if include and not any(glob_match(rel.as_posix(), pat) for pat in include):
-            continue
-        try:
-            text = p.read_text()
-        except (UnicodeDecodeError, OSError):
-            continue
-        name = rel.as_posix()
-        if not FILE_NAME_RE.fullmatch(name) or len(text) > limits["max_file_kb"] * 1000:
-            if note:
-                note(name, f"its name is not allowed, or it is over {limits['max_file_kb']} KB")
-            continue
-        files[name] = text
+    for root, dirs, names in os.walk(base):
+        rel_root = Path(root).relative_to(base).as_posix()
+        prefix = "" if rel_root == "." else rel_root + "/"
+        keep = []
+        for dname in sorted(dirs):
+            if by_rule(dname) and not named_by_include(prefix + dname, include):
+                left.exclude(prefix + dname)
+            else:
+                keep.append(dname)
+        dirs[:] = keep
+        for fname in sorted(names):
+            rel = prefix + fname
+            if by_rule(fname) and not named_by_include(rel, include):
+                left.exclude(rel, 1)
+                continue
+            if include and not any(glob_match(rel, pat) for pat in include):
+                continue                                                          # the person's own filter: not a file that failed
+            problem = file_name_problem(rel)
+            if problem:
+                left.unsend(rel, problem[0], reason=problem[1])
+                continue
+            try:
+                text = (Path(root) / fname).read_text()
+            except UnicodeDecodeError:
+                left.unsend(rel, "files.not_text")
+                continue
+            except OSError as e:
+                left.unsend(rel, "files.unreadable", reason=e.strerror or "it cannot be read")
+                continue
+            if len(text) > limits["max_file_kb"] * 1000:
+                left.unsend(rel, "files.too_big", limit=limits["max_file_kb"])
+                continue
+            files[rel] = text
     return files
+
+
+def check_complete(left, allow=False):
+    """A set with files that could not be sent is an incomplete set: refuse, unless the person chose to send the rest (--send-incomplete). Left out by rule is not incomplete."""
+    if left.unsent and not allow:
+        entry = refusals.CATALOG["files.incomplete"]
+        raise ClientError(entry.title, str(refusals.refuse("files.incomplete", count=plural(len(left.unsent), "file"))), list(entry.steps), facts=[("Code", entry.code)])
 
 
 def plan_batches(files, batchable, limits):

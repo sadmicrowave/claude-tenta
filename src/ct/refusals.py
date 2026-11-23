@@ -120,9 +120,17 @@ define("files.not_accepted", "policy", "Only classes that were registered to tak
 define("files.too_many", "limit", "Bounds how much one job asks of the worker and of the channel that carries it.", "Too many files are attached", "files must be an object with at most {limit} entries",
        depends="the transport (these limits were written for GitHub)", config="the worker's registry: limits.files.max_count (moving to the transport config)",
        steps=["Attach fewer files with --include on ct-run submit."])
-define("files.name.unsafe", "policy", "Keeps a file name inside the job's work folder. The character list goes beyond that: it was written as a defensive default, and it is under review.",
-       "A file name is not allowed", "bad file name: {name!r}", depends="nothing (under review: only the path checks protect anything)",
-       steps=["Rename the file, or leave it out with --include on ct-run submit."])
+define("files.name.path", "security", "Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. "
+       "Nothing else about a name is checked: an earlier character list refused names like helper@.service.in and protected nothing.", "A file name could leave the job's folder",
+       "bad file name: {name!r} ({reason})", steps=["Rename the file, or leave it out with --include on ct-run submit."])
+define("files.name.hidden", "policy", "A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.",
+       "This kind of class takes no file whose name starts with a dot", "a name may not start with a dot for this kind of class: {name!r}",
+       depends="the class kind: claude (decided by the kind, never by a setting the person makes)", steps=["Leave the file out with --include on ct-run submit."])
+define("files.not_text", "limit", "A job file carries file contents as text, so a file that is not text cannot be sent yet. It is reported and never dropped silently; archive transfer is a later design.",
+       "A file is not text", "file {name!r} is not text, so it cannot be sent in a job", who="client", depends="the carrier (text inside the job file)",
+       steps=["Leave it out with --include on ct-run submit."])
+define("files.unreadable", "format", "A file that cannot be read cannot be sent, and the person is told which one and why, not left to find a missing file in the result.",
+       "A file could not be read", "file {name!r} could not be read: {reason}", who="client", steps=["Run ls -l on the file to see its permissions, then run the same command again."])
 define("files.too_big", "limit", "Bounds one file's size so a single file cannot fill the job file.", "A file is too big", "file {name!r}: content must be text under {limit} KB",
        depends="the transport (written for GitHub)", config="the worker's registry: limits.files.max_file_kb (moving to the transport config)",
        steps=["Leave the file out with --include on ct-run submit."])
@@ -204,3 +212,8 @@ define("job.kind.unknown", "format", "A class of a kind this worker does not kno
        steps=["Update the worker with ct-admin apply."])
 define("job.packages.plan", "placement", "The packages a job asks for must be installable here, or the job would start and fail.", "The requested packages cannot be installed", "{problems}",
        steps=["Check the package names with ct-run offload profile."])
+
+# ---- what the client does before sending ----
+define("files.incomplete", "policy", "A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.",
+       "Some files could not be sent", "{count} could not be sent, so the job would run on an incomplete set of files", who="client",
+       steps=["Make the files listed above sendable or leave them out with --include, then run the same command again.", "Or run the same command again with --send-incomplete to send the rest."])
