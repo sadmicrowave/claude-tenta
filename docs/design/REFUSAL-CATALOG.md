@@ -11,7 +11,7 @@ A test fails on a refusal written as a literal string in a module listed in `tes
 ## Slices
 
 1. This branch: the catalog and the 41 job-validation refusals in `jobs.py` and `worker.py`. No rule changes: the same jobs are refused with the same text. The three in `registry.py` read a registry file, which is an operational error and goes with the follow-on.
-2. Attachment rules: a name rule that checks only the path, the leading-dot rule for classes whose tool reads settings from its working folder (`kind: claude` for now, by kind, never a setting), never dropping a file silently, a default skip list from the project's own ignore rules.
+2. Attachment rules (merged as slice 2): a name rule that checks only the path, the leading-dot rule for classes whose tool reads settings from its working folder (`kind: claude` for now, by kind, never a setting), never dropping a file silently, a default skip list from the project's own ignore rules.
 3. Placement refusals: every reason a worker was passed over, not the first.
 4. The remaining client refusals.
 5. Follow-on: the operational errors, by the same method.
@@ -19,3 +19,7 @@ A test fails on a refusal written as a literal string in a module listed in `tes
 ## Decisions this rests on
 
 Direct has no size limit, only a notice above 1 GB; limits belong to the transport, not to a worker's registry; no approval for a profile run on Direct (a Direct setting, default none); the refusal code is shown as a last row. See the working notes in the conversation record.
+
+## Slice 2b-i (attachment: what is sent from a project folder)
+
+In a git folder the project's own ignore rules decide what is sent: tracked files and untracked ones that are not ignored (`git ls-files --cached --others --exclude-standard`); what the rules ignore is named in the left-out card and `.git` is never part of it. Elsewhere the interim rule stays (hidden files and folders, build and dependency folders left out unless an `--include` names them). A file whose name usually holds a secret (`.env`, `*.pem`, `id_rsa`, `.npmrc` ...) is held back unless an `--include` names it exactly; a wildcard never sends one. A file whose TEXT looks like a private key or token is sent with a warning, not held: 23 of this project's own 283 files match the output scanner's rules (key fixtures, a test that builds a token), so holding them would stop the suite from being offloaded. Not in 2b-i: language ignore templates for folders that are not git repositories (they need a vendored, licence-checked snapshot of github/gitignore, which needs your go-ahead to download).
