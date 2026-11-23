@@ -16,6 +16,7 @@ import shlex
 import time
 from pathlib import Path
 
+from .. import registry
 from ..jobs import PROFILE_DENY
 from . import refuse
 from .repo import ClientError
@@ -331,13 +332,59 @@ def exclusion_entry(res, jid):
             "profiled": {"job": jid, "date": (res.get("finished") or "")[:10], "mem_total_mb": (res.get("metrics") or {}).get("mem_total_mb")}}
 
 
+class PackBook(NameBook):
+    """How a profiling run's files were packaged (folder, include patterns, files), kept on this computer so `propose` can save it in the class."""
+
+    def __init__(self, home):
+        self.path = Path(home) / "profile-packs.json"
+
+
+def make_recipe(dir_arg, includes, file_args, cwd):
+    """(recipe, note): the packaging of a profile run, relative to `cwd` so it still means something when someone else runs `ct-run submit`. A folder
+    outside `cwd` is not saved (the note says why); no files means no recipe."""
+    recipe, note, cwd = {}, None, Path(cwd).resolve()
+    if dir_arg:
+        try:
+            recipe["dir"] = ((cwd / Path(dir_arg).expanduser()).resolve().relative_to(cwd).as_posix() or ".")
+        except ValueError:
+            return None, f"The folder {dir_arg} is outside the one you are in, so how it was packaged was not saved with the class."
+    if includes:
+        recipe["include"] = list(includes)
+    rel = []
+    for f in file_args or []:
+        try:
+            rel.append((cwd / Path(f).expanduser()).resolve().relative_to(cwd).as_posix())
+        except ValueError:
+            return None, f"The file {f} is outside the folder you are in, so how it was packaged was not saved with the class."
+    if rel:
+        recipe["files"] = rel
+    return (recipe or None), note
+
+
+def with_recipe(entry, jid, packs):
+    """`entry` plus the saved packaging of profile run `jid`, only for a class that takes files."""
+    recipe = packs.get(jid) if packs else None
+    return {**entry, "submit": recipe} if recipe and entry.get("accepts_files") else entry
+
+
+def use_recipe(recipe, dir_arg, file_args, include, cwd):
+    """(dir, files, include, used): what `ct-run submit` packages. Anything typed wins; the class's saved recipe fills in only when nothing was typed."""
+    if dir_arg or file_args or include or not recipe:
+        return dir_arg, file_args, include, False
+    problem = registry.pack_problem(recipe)
+    if problem:
+        raise refuse.error("pack.recipe.unsafe", reason=problem)
+    cwd = Path(cwd)
+    return (str(cwd / recipe["dir"]) if "dir" in recipe else None), [str(cwd / f) for f in recipe.get("files", [])] or None, recipe.get("include"), True
+
+
 def class_yaml_lines(name, entry, pr, jid):
     """The registry lines for a proposed class: a comment saying where it came from, then the class itself."""
     lines = [f"  # {pr['what']}" if pr.get("what") else f"  # adopted from profile run {jid}", f"  # profile run {jid}: " + "; ".join(pr["reasons"]), f"  {name}:"]
-    for k in ("tier", "cost", "run", "timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "accepts_files", "batchable", "packages", "env"):
+    for k in ("tier", "cost", "run", "timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "accepts_files", "batchable", "submit", "packages", "env"):
         if k in entry:
             v = entry[k]
-            lines.append(f"    {k}: " + (json.dumps(v) if k in ("run", "packages", "env") else str(v).lower() if isinstance(v, bool) else str(v)))
+            lines.append(f"    {k}: " + (json.dumps(v) if k in ("run", "packages", "env", "submit") else str(v).lower() if isinstance(v, bool) else str(v)))
     if pr.get("files"):
         lines.insert(2, f"  # profiled with input files: {', '.join(pr['files'])} (the command expects files with these names)")
     return lines
@@ -357,7 +404,7 @@ def add_class_to_registry(text, lines):
     return "\n".join(text) + "\n"
 
 
-def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run=False, names=None):
+def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run=False, names=None, packs=None):
     """Act on a finished profile run. Returns a dict describing what happened: {'kind': 'excluded'|'proposed'|'preview', ...}.
     A command that does not fit is recorded as an exclusion; one that fits becomes the branch registry/<name> (never main)."""
     pr = res.get("profile")
@@ -377,7 +424,7 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
         raise refuse.error("class.name.invalid", example="--name npm-lint")
     if name in taken:
         raise refuse.error("class.name.taken", ("Class", name))
-    entry = {**pr["entry"], "tier": tier}
+    entry = with_recipe({**pr["entry"], "tier": tier}, jid, packs)
     if batchable:
         if not entry.get("accepts_files"):
             raise refuse.error("class.batchable.needs_files")

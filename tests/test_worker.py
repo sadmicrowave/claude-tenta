@@ -668,6 +668,15 @@ class JobCeiling(Base):
         self.assertEqual(self.w.limits["files"]["max_total_kb"], 2000)                            # GitHub keeps the old defaults
         self.assertEqual(self.w.limits["files"]["max_file_kb"], 500)
 
+    def test_a_changed_connection_republishes_the_limits_though_the_registry_did_not_change(self):
+        pub = lambda: json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["limits"]["files"]["max_total_kb"]       # noqa: E731
+        self.worker_with(transport="github", max_job_mb=50)
+        self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
+        self.assertEqual(pub(), 2000)
+        self.worker_with(transport="direct", max_job_mb=50)
+        self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
+        self.assertEqual(pub(), 50_000)
+
     def test_a_limit_the_owner_set_in_the_registry_still_wins_on_direct(self):
         self.registry_path.write_text(REGISTRY + "limits:\n  files:\n    max_total_kb: 100\n")
         self.worker_with(transport="direct", max_job_mb=50)
@@ -1098,6 +1107,12 @@ class Profile(Base):
 
 
 class RegistryInfo(Base):
+    def test_a_classs_submit_recipe_is_published_for_the_client_and_never_acted_on(self):
+        self.registry_path.write_text(REGISTRY + '  packed:\n    tier: auto\n    run: [/bin/true]\n    accepts_files: true\n    submit: {"dir": "src", "include": ["*.js"]}\n')
+        self.w.publish_registry_info(self.w.load_registry())
+        info = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))
+        self.assertEqual(info["classes"]["packed"]["submit"], {"dir": "src", "include": ["*.js"]})
+
     def test_the_installed_registry_is_published_once_and_again_when_it_changes(self):
         reg = self.w.load_registry()
         self.assertTrue(self.w.publish_registry_info(reg))

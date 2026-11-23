@@ -48,6 +48,7 @@ class Context:
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
+        self.packs = off.PackBook(self.home)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -242,8 +243,16 @@ def cmd_submit(ctx, a):
     info = r.registry_info()
     limits = sub.file_limits(info)
     left = sub.LeftOut()
-    if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, left=left))
+    recipe = None if a.no_pack else (((info or {}).get("classes") or {}).get(a.cls) or {}).get("submit")
+    a_dir, a_files, a_include, used = off.use_recipe(recipe, a.dir, a.file, a.include, Path.cwd())
+    if used:
+        emit("Using how this class was profiled", *[(k.capitalize(), ", ".join(v) if isinstance(v, list) else v) for k, v in recipe.items()],
+             "Give --dir or --file to choose other files, or --no-pack to send none.", tag="NOTE", color=CYAN)
+        for f in a_files or []:
+            p = Path(f)
+            files[p.name] = p.read_text()
+    if a_dir:
+        files.update(sub.collect_dir(a_dir, limits, a_include, left=left))
     show_left_out(left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
@@ -670,6 +679,11 @@ def cmd_profile(ctx, a):
     sub.push_job(r, jid, job)
     if name:
         ctx.names.remember(jid, name)
+    recipe, recipe_note = off.make_recipe(a.dir, a.include, a.file, Path.cwd()) if files else (None, None)
+    if recipe:
+        ctx.packs.remember(jid, recipe)
+    elif recipe_note:
+        emit("How the files were packaged is not saved", recipe_note, "A class adopted from this run will need --dir or --file when you submit.", tag="NOTE", color=YELLOW)
     shown = [("command", " ".join(argv)), ("job", jid)] + ([("name", name)] if name else []) + (
         [("needs", ", ".join(job["packages"]) + "  (fetched into a throwaway folder, deleted unless it fits)")] if job.get("packages") else [])
     if (r.worker_state() or {}).get("profile_approval") == "none":      # this worker starts a profile run without approval (Direct, and only while its jail isolates): nothing to approve, so the card says it was sent
@@ -701,7 +715,7 @@ def cmd_propose(ctx, a):
     res = r.read_result(a.id)
     if res is None:
         raise refuse.error("profile.result.not_ready", ("Job", a.id), example=f"ct-run result {a.id} --wait")
-    out = off.propose(r, a.id, res, name=a.name, tier=a.tier, batchable=a.batchable, dry_run=a.dry_run, names=ctx.names)
+    out = off.propose(r, a.id, res, name=a.name, tier=a.tier, batchable=a.batchable, dry_run=a.dry_run, names=ctx.names, packs=ctx.packs)
     kind = out["kind"]
     if kind == "excluded":
         emit("Recorded: this command does not fit", ("Worker", alias.show(ctx.product)), ("Command", " ".join(out["argv"])), ("Reasons", "; ".join(out["reasons"])), "\n",
@@ -796,6 +810,7 @@ def build_parser():
     s.add_argument("--file", action="append", metavar="F", help="attach one text file; repeat for more")
     s.add_argument("--dir", metavar="D", help="attach the text files under a folder")
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")
+    s.add_argument("--no-pack", action="store_true", help="do not use the files this class was profiled with")
     s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
     s.add_argument("--id", help="choose the job id (4 to 64 lowercase letters, digits and dashes)")
     s.add_argument("--wait", action="store_true", help="block until it finishes (the default in a terminal)")
