@@ -10,6 +10,7 @@ The server half (`Migrate`, run as root on the worker) does the worker's part; t
 Going back (`ct-setup transport github`, from your computer) is the client's job: it pushes the history your clones hold into your GitHub repositories (new commits only, nothing there is deleted or
 rewritten), sets the worker up again for GitHub with the ordinary installer (its clones follow the connection; deploy keys are checked and added if missing), and points your own clones back.
 """
+from . import refuse
 import json
 import shlex
 import sys
@@ -37,7 +38,7 @@ def with_transport(text, kind, github_owner=None):
 def load_new_config(text, kind, github_owner=None):
     clean, problems = config.validate(tomllib.loads(with_transport(text, kind, github_owner)), require_alert_url=False)
     if problems:
-        raise SetupError("The new connection does not make a valid configuration", "\n".join(problems[:5]))
+        raise refuse.error("migrate.config.invalid", problems="\n".join(problems[:5]))
     return config.Config(clean)
 
 
@@ -67,29 +68,26 @@ class Migrate:
     # ---- checks, before anything is touched ----
     def check(self):
         if self.to not in transport.TRANSPORTS:
-            raise SetupError("That is not a connection method", f"Choose one of: {', '.join(transport.TRANSPORTS)}.", facts=[("Method", str(self.to))])
+            raise refuse.error("migrate.method.unknown", ("Method", str(self.to)), methods=", ".join(transport.TRANSPORTS))
         if self.to == self.old:
-            raise SetupError("The install already uses that method", "There is nothing to move.", facts=[("Method", str(self.old))])
+            raise refuse.error("migrate.method.same", ("Method", str(self.old)))
         if self.to != "direct":
-            raise SetupError("Moving back to GitHub is not done by this command yet", "Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.",
-                             ["Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again."])
+            raise refuse.error("migrate.to_github.unsupported", steps=["Run ct-setup install and answer GitHub to the connection question: it sets the worker up for GitHub again."])
         w = self.cfg.server.worker_user
         if not self.host.run(["id", w]).ok:
-            raise SetupError("The worker account does not exist on this machine", "Nothing was changed.",
-                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."], facts=[("Account", str(w))])
+            raise refuse.error("setup.worker_account.missing", ("Account", str(w)), steps=["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.conf_path} under [server]: worker_user = \"<that account>\", and run this again."])
         for which in ("queue", "results"):
             if self.dry_run:
                 break                       # the preview runs as the administrator, who cannot see the worker's private folders (found on a real machine); the real run is root and checks
             if not self.host.exists(self.cfg.path(f"{which}_clone") + "/.git"):
-                raise SetupError("The worker has no clone of that repository", f"{self.cfg.path(which + '_clone')} is missing, so there is nothing to copy into the mailbox.",
-                                 ["Run ct-setup install again; it makes the clones."], facts=[("Repository", str(which))])
+                raise refuse.error("migrate.clone.missing", ("Repository", str(which)), steps=["Run ct-setup install again; it makes the clones."], path=self.cfg.path(which + "_clone"))
         running = self.host.run(["sh", "-c", f"ls {self.cfg.path('state')}/running 2>/dev/null | head -1"]).out.strip()
         if running:
-            raise SetupError("A job is running", f"{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.")
+            raise refuse.error("setup.job.running", running=running)
         if not self.host.exists(f"{self.source}/src/ct/__init__.py"):
-            raise SetupError("The release to install is missing", f"{self.source} is not a release checkout.")
+            raise refuse.error("migrate.release.missing", source=self.source)
         if not self.dry_run and not (self.mailbox_pubkey or "").strip().startswith("ssh-") and not self.host.exists(f"{self.cfg.paths.config}/mailbox-client.pub"):
-            raise SetupError("Your computer's mailbox key did not arrive", "Without it nothing could use the mailbox, so nothing was changed.", ["Run ct-setup transport direct from your computer; it sends the key."])
+            raise refuse.error("migrate.key.not_arrived", steps=["Run ct-setup transport direct from your computer; it sends the key."])
         self.cfg2 = load_new_config(self.text, self.to)
 
     # ---- the plan ----
@@ -155,9 +153,8 @@ class Migrate:
                     continue
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "start")):
-                    raise SetupError("A migration step failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
-                                     ["Run the failing command by hand to see its full error and clear the cause, then run the same ct-setup transport command again: it carries on and skips what is already done.",
-                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."], facts=[("Step", title)])
+                    raise refuse.error("migrate.step.failed", ("Step", title), steps=["Run the failing command by hand to see its full error and clear the cause, then run the same ct-setup transport command again: it carries on and skips what is already done.",
+                                      "The job loop may be paused: the same command starts it again when it finishes, or run `systemctl start " + self.cfg.unit("fetch.timer") + " " + self.cfg.unit("step.timer") + "` to start it by hand."], command=a.show().splitlines()[0][:160], said=r.out.strip()[:240])
             self.say(STYLER.note("done", title))
         self.report.append(("transport", "done", f"{self.old} -> {self.to}"))
         return self.report
@@ -263,7 +260,7 @@ def ensure_key(host, cfg2):
         Path(host.path(key)).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         r = host.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ct-mailbox", "-f", str(host.path(key))])
         if not r.ok:
-            raise SetupError("The mailbox key could not be made", r.out.strip()[-200:] or "ssh-keygen did not make it.", [f"Run: ssh-keygen -t ed25519 -N '' -f {key}", "Then run ct-setup transport direct again."])
+            raise refuse.error("setup.mailbox_key.not_made", steps=[f"Run: ssh-keygen -t ed25519 -N '' -f {key}", "Then run ct-setup transport direct again."], reason=r.out.strip()[-200:] or "ssh-keygen did not make it.")
     return (host.read(str(key) + ".pub") or "").strip()
 
 

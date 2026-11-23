@@ -10,6 +10,7 @@ quoting or command-line length limit of the default cmd shell applies). It print
           silently for this user into <tools>\\python (no administrator rights, nothing on PATH). python.org publishes only MD5 for the embeddable zip, which also has no venv, so it is not used.
 Standard library only.
 """
+from .. import refusals
 import json
 import re
 
@@ -53,7 +54,7 @@ class WinToolsError(Exception):
 
 def installer_script(tools_dir=DEFAULT_TOOLS):
     if not TOOLS_RE.match(tools_dir) or ".." in tools_dir:
-        raise ValueError(f"not a folder this installer will write to: {tools_dir!r}")
+        raise refusals.refuse("win.arg.tools_folder", value=tools_dir)
     g = GIT
     p = PYTHON
     req = f"PyYAML=={PYYAML['version']} " + " ".join(f"--hash=sha256:{h}" for h in PYYAML["hashes"].values())

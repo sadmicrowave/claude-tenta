@@ -4,6 +4,7 @@ Run as root on the server. Every step prints what it will do; --dry-run changes 
 machine first and does only what is missing. The order is fixed so that nothing is ever half-secured: accounts and folders, then code,
 then the repository keys, then the hardening modules, then a check.
 """
+from . import refuse
 import json
 import re
 import shlex
@@ -118,7 +119,7 @@ class ServerSetup:
             return Result(0)
         r = self.host.run(argv)
         if not r.ok:
-            raise SetupError(f"{step} failed", f"`{shlex.join(argv)}` said: {r.out.strip()[:300]}")
+            raise refuse.error("setup.command.failed", ("Step", step), command=shlex.join(argv), said=r.out.strip()[:300])
         return r
 
     # ---- steps ----
@@ -129,9 +130,9 @@ class ServerSetup:
             self.say(self.r.kv(what, value))
         problem = facts.os_problem()
         if problem:
-            raise SetupError("This machine is not supported", problem)
+            raise refuse.error("server.machine.unsupported", problem=problem)
         if not self.dry_run and not self.is_root():
-            raise SetupError("Run this as root", "It creates accounts and installs system files.", [assess_mod.as_admin("debian" if facts.os_id == "debian" else "ubuntu", "python3 -m ct.setup server")])
+            raise refuse.error("server.not_root", steps=[assess_mod.as_admin("debian" if facts.os_id == "debian" else "ubuntu", "python3 -m ct.setup server")])
         self.note("checked the machine", "ok", f"{facts.os_id} {facts.os_version}")
         self.prerequisites()
         return facts
@@ -152,17 +153,17 @@ class ServerSetup:
         if self.ui is not None:
             self.ui.finish()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
+            raise refuse.error("setup.answers.missing", steps=missing_steps(missing), missing=", ".join(missing))
         uses_claude = (nested.get("claude") or {}).get("auth", "none") != "none"
         if uses_claude or "registry" in nested:                   # the read-only Claude class comes with the install exactly when Claude is used
             reg = nested.setdefault("registry", {})
             reg["packs"] = [p for p in (reg.get("packs") or ["core"]) if p != "claude"] + (["claude"] if uses_claude else [])
         clean, problems = questions.validate_answers(nested)
         if problems:
-            raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
+            raise refuse.error("setup.config.invalid", problems="\n".join(problems))
         unknown = [m for m in clean["hardening"]["modules"] if m not in hardening.MODULES]
         if unknown:
-            raise SetupError("Unknown hardening module", ", ".join(unknown), [f"Remove {', '.join(unknown)} from hardening.modules in your answers or ct.toml, or use one of: {', '.join(hardening.MODULES)}."])
+            raise refuse.error("server.hardening.unknown", steps=[f"Remove {', '.join(unknown)} from hardening.modules in your answers or ct.toml, or use one of: {', '.join(hardening.MODULES)}."], names=", ".join(unknown))
         self.cfg = config.Config(clean)
         self.alert_url = (nested.get("alerts") or {}).get("url") or ""
         public = {sec: {k: v for k, v in vals.items() if not (sec == "alerts" and k == "url")} for sec, vals in nested.items()}
@@ -182,13 +183,11 @@ class ServerSetup:
     def accounts_and_folders(self):
         cfg = self.cfg
         if not self.host.run(["id", cfg.server.admin_user]).ok and not self.dry_run:
-            raise SetupError(f"The account {cfg.server.admin_user!r} does not exist", "It is the account you log in as; create it first.", [f"adduser {cfg.server.admin_user}"])
+            raise refuse.error("server.admin_account.missing", ("Account", cfg.server.admin_user), steps=[f"adduser {cfg.server.admin_user}"])
         owner = self.host.run(["stat", "-c", "%U", cfg.path("queue_clone")])             # an install that already exists belongs to the account it was made for
         have = owner.out.strip() if owner.ok else ""
         if have and have not in ("root", "UNKNOWN", cfg.server.worker_user) and self.host.run(["id", have]).ok:
-            raise SetupError(f"This machine's worker already runs as {have}, but this install would use {cfg.server.worker_user}",
-                             f"Creating a second account would leave {have}'s repositories and state unreadable and every job stuck. Nothing was changed by this check.",
-                             [f"Keep the existing account: ct-setup install --set server.worker_user={have}"])
+            raise refuse.error("server.worker_account.differs", ("Existing", have), ("This install", cfg.server.worker_user), steps=[f"Keep the existing account: ct-setup install --set server.worker_user={have}"], have=have)
         if not self.host.run(["id", cfg.server.worker_user]).ok:
             self.run(["useradd", "--system", "--create-home", "--home-dir", cfg.paths.worker_home, "--shell", "/usr/sbin/nologin", cfg.server.worker_user], step="create the worker account")
             self.note("worker account", "created", cfg.server.worker_user)
@@ -248,7 +247,7 @@ class ServerSetup:
         cfg = self.cfg
         rev = self.rev or self.host.run(["git", "-C", str(self.source), "rev-parse", "HEAD"]).out.strip()
         if not update.REV_RE.match(rev):
-            raise SetupError("Cannot tell which release this is", f"{self.source} is not a git checkout; pass --rev <commit> if you know it.")
+            raise refuse.error("server.release.unknown", source=self.source)
         where = f"release {rev[:9]} into {cfg.paths.code}"
         if self.dry_run:
             files = update.desired_files(self.source, cfg)
@@ -256,7 +255,7 @@ class ServerSetup:
             return
         report = self.install(self.source, cfg, rev, prefix=str(self.host.root), sandbox=self.sandbox, systemctl=self.systemctl, sysctl=self.sysctl, out=self.say)
         if not report.ok:
-            raise SetupError("The install was refused", "; ".join(report.errors))
+            raise refuse.error("server.install.refused", errors="; ".join(report.errors))
         self.note("code, units and wrappers", "installed", f"{plural(len(report.updated), 'file')}, {where}")
 
     def mailbox(self):
@@ -405,17 +404,15 @@ class ServerSetup:
                                              install_packages=self.install_packages, out=self.say)
         except update.FetchError as e:                                     # the worker could not even read the queue repository: not a problem with its contents
             c = self.cfg
-            raise SetupError("The worker could not read the queue repository, so the job registry was not installed", str(e),
-                             [f"See the real reason: ssh -t {c.server.admin_user}@{c.server.host} 'sudo -u {c.server.worker_user} git -C {c.path('queue_clone')} fetch origin'",
+            raise refuse.error("server.queue.unreadable", steps=[f"See the real reason: ssh -t {c.server.admin_user}@{c.server.host} 'sudo -u {c.server.worker_user} git -C {c.path('queue_clone')} fetch origin'",
                               "If it says Permission denied (publickey): run ct-setup install again; it adds the missing deploy key on GitHub.",
                               "If it says could not resolve host, or timed out: check the server's internet connection, then run ct-setup install again.",
-                              "If it says cannot change to the folder, Permission denied: the folder belongs to another account. ls -l shows the owner; run ct-setup install --set server.worker_user=<that owner>."])
+                              "If it says cannot change to the folder, Permission denied: the folder belongs to another account. ls -l shows the owner; run ct-setup install --set server.worker_user=<that owner>."], reason=str(e))
         except update.InstallError as e:
             g = self.cfg.github
-            raise SetupError("The job registry was not installed", str(e),
-                             [f"Open registry.yaml on the main branch of https://github.com/{g.owner}/{g.queue_repo}",
+            raise refuse.error("server.registry.not_installed", steps=[f"Open registry.yaml on the main branch of https://github.com/{g.owner}/{g.queue_repo}",
                               "In registry.yaml, change the line or setting the message above names, and commit it to main.",
-                              "Then run ct-setup install again."])
+                              "Then run ct-setup install again."], reason=str(e))
         self.note("job registry", result)
 
     def hardening_step(self):
@@ -459,7 +456,7 @@ class ServerSetup:
                 else:
                     self.install_claude_legacy(w, home)
                 if not self.dry_run and not self.host.run(["runuser", "-u", w, "--", f"{home}/.local/bin/claude", "--version"]).ok:
-                    raise SetupError("The Claude tool does not run on this machine", "It installed but `claude --version` failed.")
+                    raise refuse.error("server.ai_tool.not_running")
             except SetupError as e:                      # a Claude tool that cannot be installed must never stop the rest of the worker from starting
                 self.note("Claude tool", "failed", f"{e.title}: {e.why}"[:240])
                 self.note("Claude sign-in", "skipped", "Claude jobs will not run on this worker; set claude.auth to none, or try a newer machine")
@@ -529,7 +526,7 @@ class ServerSetup:
             self.note("Claude sign-in", "skipped", "nothing was entered; Claude jobs fail until you add it (run ct-setup install again)")
             return
         if len(value) < 20 or any(c.isspace() for c in value):
-            raise SetupError("That does not look like a token", "It should be one long line with no spaces. Run ct-setup install again to enter it.")
+            raise refuse.error("server.token.invalid")
         other = next(k for a, k in config.CLAUDE_SECRET_KEYS.items() if a != auth)
         text = config.set_env_var(config.set_env_var(text, other, None), key, value)
         self.host.write(path, text, 0o640)
@@ -583,9 +580,8 @@ class ServerSetup:
         failed = {m: r["detail"] for m, r in results.items() if r["status"] == "failed"}
         if failed and not self.dry_run:
             self.hold_timers()
-            raise SetupError("A protection could not be applied, so the worker was not started", "; ".join(f"{m}: {d}" for m, d in failed.items()),
-                             ["Nothing is running: the job timers are off, and no job can be sent to it.", "Read the reason above and fix it, then run the same command again: it continues from here.",
-                              "A protection that says 'applied, but the check still fails' is one the setup could not make work on this machine; the reason is the machine's own message."])
+            raise refuse.error("server.protection.failed", steps=["Nothing is running: the job timers are off, and no job can be sent to it.", "Read the reason above and fix it, then run the same command again: it continues from here.",
+                              "A protection that says 'applied, but the check still fails' is one the setup could not make work on this machine; the reason is the machine's own message."], failed="; ".join(f"{m}: {d}" for m, d in failed.items()))
         self.say(self.r.head("Claude"))
         self.claude_step()
         self.say(self.r.head("Starting"))

@@ -3,6 +3,7 @@
 The worker trusts ONLY its installed, root-owned copy. Everything here is pure checking of that data, so a typo can be refused before a
 registry is installed instead of breaking every pass afterwards. PyYAML is imported only when a file is actually read.
 """
+from . import refusals
 import json
 import re
 from pathlib import Path
@@ -303,9 +304,9 @@ def load(path, tools_root):
     try:
         reg = parse(Path(path).read_text(encoding="utf-8"))
     except OSError as e:
-        raise ValueError(f"cannot read {path}: {e.strerror}")
+        raise refusals.refuse("registry.file.unreadable", path=path, reason=e.strerror)
     except Exception as e:                                   # yaml.YAMLError, without importing yaml at module level
-        raise ValueError(f"{path} is not valid YAML: {e}")
+        raise refusals.refuse("registry.file.yaml", path=path, reason=e)
     problems = validate(reg, tools_root)
     if problems:
         raise ValueError("; ".join(problems))

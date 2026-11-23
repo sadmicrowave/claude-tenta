@@ -9,6 +9,7 @@ the protections wrote, points the worker's GitHub access at the new aliases, rem
 The client half (`rename_command`, on your computer) runs that over SSH, renames the GitHub repositories when they carry the install's name first (the worker's clones are pointed at the new names), then, after the server half, replaces the
 deploy keys' titles and rewrites your own configuration and clones. Job history, secrets, keys and the approver key are all kept: nothing is reinstalled.
 """
+from . import refuse
 import json
 import re
 import shlex
@@ -56,7 +57,7 @@ def with_name(text, new, old=None, legacy=False):
 def load_new_config(text, new, old=None, legacy=False):
     clean, problems = config.validate(tomllib.loads(with_name(text, new, old, legacy)), require_alert_url=False)
     if problems:
-        raise SetupError("The new name does not make a valid configuration", "\n".join(problems[:5]))
+        raise refuse.error("rename.config.invalid", problems="\n".join(problems[:5]))
     return config.Config(clean)
 
 
@@ -79,24 +80,23 @@ class Rename:
     # ---- checks, before anything is touched ----
     def check(self):
         if not config.NAME_RE.match(self.new or ""):
-            raise SetupError("That is not a valid install name", "3 to 24 lowercase letters, digits or -, starting with a letter.")
+            raise refuse.error("rename.name.invalid")
         if self.new == self.old:
-            raise SetupError("The install already has that name", f"{self.old} is what its configuration says, so there is nothing to rename.")
+            raise refuse.error("rename.name.same", old=self.old)
         if not self.host.run(["id", self.cfg.server.worker_user]).ok:                  # before anything is touched: a plan written for an account that does not exist stops halfway
-            raise SetupError("The worker account does not exist on this machine", "Nothing was changed.",
-                             ["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."], facts=[("Account", str(self.cfg.server.worker_user))])
+            raise refuse.error("setup.worker_account.missing", ("Account", str(self.cfg.server.worker_user)), steps=["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."])
         self.cfg2 = load_new_config(self.text, self.new, self.old, self.legacy)
         for label, before, after in self.moves():
             if self.host.exists(after):
-                raise SetupError("That name already exists", "Something else is using the new name's folder, so nothing was changed.", facts=[("Name", str(after))])
+                raise refuse.error("rename.folder.exists", ("Name", str(after)))
         for part in render.UNITS:
             if self.host.exists(f"/etc/systemd/system/{self.cfg2.unit(part)}"):
-                raise SetupError("A service with that name already exists", "Something else is using the new name, so nothing was changed.", facts=[("Service", str(self.cfg2.unit(part)))])
+                raise refuse.error("rename.service.exists", ("Service", str(self.cfg2.unit(part))))
         running = self.host.run(["sh", "-c", f"ls {self.cfg.path('state')}/running 2>/dev/null | head -1"]).out.strip()
         if running:
-            raise SetupError("A job is running", f"{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.")
+            raise refuse.error("setup.job.running", running=running)
         if not self.host.exists(f"{self.source}/src/ct/__init__.py"):
-            raise SetupError("The release to install under the new name is missing", f"{self.source} is not a release checkout.")
+            raise refuse.error("rename.release.missing", source=self.source)
 
     def moves(self):
         """[(what, old path, new path)] for each folder whose path follows the name (a folder with a custom path is left where it is)."""
@@ -188,10 +188,9 @@ class Rename:
             for a in actions:
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] == "systemctl" and a.argv[1] in ("stop", "disable")):
-                    raise SetupError("A rename step failed", f"`{a.show().splitlines()[0][:160]}` said: {r.out.strip()[:240]}",
-                                     ["Run the failing command by hand to see its full error and clear the cause (the message above shows the command), then run the same ct-setup rename command again: it carries on from where it stopped and skips what is already done.",
+                    raise refuse.error("rename.step.failed", ("Step", title), steps=["Run the failing command by hand to see its full error and clear the cause (the message above shows the command), then run the same ct-setup rename command again: it carries on from where it stopped and skips what is already done.",
                                       "The folders may already be under the new name; that is expected and the command copes with it.",
-                                      f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."], facts=[("Step", title)])
+                                      f"Do not run `ct-setup rename {self.old}` to undo it: the folders are no longer where the old name expects them."], command=a.show().splitlines()[0][:160], said=r.out.strip()[:240])
             self.say(STYLER.note("done", title))
         self.report.append(("rename", "done", f"{self.old} -> {self.new}"))
         return self.report

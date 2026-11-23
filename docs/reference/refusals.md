@@ -30,7 +30,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check this computer's clock, then send the job again with ct-run submit.
+- **What to do:** Run date to see this computer's clock, then send the job again with ct-run submit.
 
 ### `job.class.unknown`: The job names a class the worker does not have
 
@@ -120,6 +120,31 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `profile.command.sudo`: That command cannot be profiled
+
+- **Text:** A profile run never uses sudo, su, doas or pkexec.
+- **Protects:** A profile run never uses privilege tools. The worker refuses them too (profile.command.denied); this tells the person before anything is sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `patch.refused`: This patch will not be applied
+
+- **Text:** {reasons}
+- **Protects:** A patch from a worker is applied only after it passes the checks on the paths it touches, so a worker cannot write outside the folder it was sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `action.path.invalid`: That path cannot be a root-level action
+
+- **Text:** {problem}
+- **Protects:** A program that runs as root must be a plain file owned by root, in a system folder, that nobody else can write.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** The program must be a plain file owned by root, in a system folder, that nobody else can write.
+
 ### `files.held.secret_name`: A file that usually holds a secret was held back
 
 - **Text:** {name!r} was held back: its name is one that usually holds a secret
@@ -137,6 +162,114 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** If it is real, leave the file out with --include on ct-run submit.
+
+### `approval.key.untrusted`: A worker does not trust your approval key yet
+
+- **Text:** Approvals are signed here and checked on the worker against a key it was set up with. This worker has {has}.
+- **Protects:** Approvals are signed here and checked on the worker against the key it was set up with, so a worker that trusts another key (or none) will not run the job.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the install again; it gives the worker your key: ct-setup install Or approve this one by logging in to the worker: add --ssh
+
+### `job.expired.approve`: That job has expired
+
+- **Text:** It was sent more than a day ago, and {name} does not run a job that old, so it cannot be approved. Send it again.
+- **Protects:** A job older than the worker's age limit is refused by the worker, so it is never approved here: replay protection seen from this side.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send it again with ct-run submit.
+
+### `action.definition.refused`: That definition would be refused
+
+- **Text:** {problems}
+- **Protects:** A definition that the worker would refuse is stopped here, before anything is sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Edit the YAML file to correct each problem listed above, then run the same command again. Nothing was sent anywhere.
+
+### `class.network.needs_terminal`: This needs your answer at a terminal
+
+- **Text:** A class that uses the network without your approval can only be set by answering this question yourself; --yes does not answer it.
+- **Protects:** A class that uses the network without approval is only set by the person answering the question themselves; --yes does not answer it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run it in a terminal and answer the question.
+
+### `win.arg.url`: That is not a release source the installer will fetch from
+
+- **Text:** not an https release source this will fetch from: {value!r}
+- **Protects:** A release source is an https address, so nothing else is ever fetched from by the installer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.commit`: That is not a full commit id
+
+- **Text:** not a full commit id: {value!r}
+- **Protects:** A release is pinned to a full commit id, never a name that could move.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.folder`: That is not a folder the installer will write to
+
+- **Text:** not a folder this will write to: {value!r}
+- **Protects:** Only a plain folder under the install root is written to; nothing that could carry PowerShell syntax is accepted.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.tools_folder`: That is not a folder the tools installer will write to
+
+- **Text:** not a folder this installer will write to: {value!r}
+- **Protects:** Only a plain tools folder is written to by the tools installer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.account`: That is not an account name the installer will create
+
+- **Text:** not an account name this will create: {value!r}
+- **Protects:** An account name is plain, so it is safe inside a PowerShell script.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.mailbox_account`: That is not a mailbox account name that fits Windows
+
+- **Text:** not a mailbox account name that fits Windows (3 to 20 lowercase letters, digits or -): {value!r}
+- **Protects:** A mailbox account name fits Windows (3 to 20 lowercase letters, digits or dashes).
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.public_key`: That is not one public key line
+
+- **Text:** not one public key line (ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp256)
+- **Protects:** Only one public key line of a known type is written to the mailbox account's authorized keys.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.task`: That is not a task name the installer will register
+
+- **Text:** not a task name this will register: {value!r}
+- **Protects:** A task name is plain, so it is safe inside a PowerShell script.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `win.arg.arguments`: Those are not arguments the task will run
+
+- **Text:** not arguments this will run: {value!r}
+- **Protects:** A task's arguments are plain text: nothing a shell or PowerShell would read as more.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
 
 ## Format
 
@@ -227,7 +360,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Correct the class with ct-admin class.
+- **What to do:** Open the class with ct-admin class show CLASS and declare the parameter.
 
 ### `files.unreadable`: A file could not be read
 
@@ -282,6 +415,340 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Update the worker with ct-admin apply.
+
+### `param.unreadable`: Unreadable -p value
+
+- **Text:** Write each job parameter as a name, an equals sign, then a value.
+- **Protects:** A job parameter is a name and a value, so each one can be checked against its declared type.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.flag.unreadable`: Unreadable --flag
+
+- **Text:** Write each flag as the flag, an equals sign, then what it means.
+- **Protects:** A flag explanation is a flag and what it means, shown to the person who approves.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.package.unreadable`: Unreadable --package
+
+- **Text:** Start with where the package comes from, then a colon, then its name.
+- **Protects:** A package is named by where it comes from and what it is called, so the worker knows how to fetch it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** apt:openssh-client npm:eslint   or   npm:eslint@8 pip:requests   or   pip:requests==2.31.0
+
+### `profile.spec.line`: A line is not `key: value`
+
+- **Text:** Write each line of the description file as a key, a colon, then the value.
+- **Protects:** A description file is lines of key: value.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.spec.field`: Unknown field
+
+- **Text:** Fields: {fields}, and `flag -x: meaning`
+- **Protects:** A description file may only use the fields a profile run knows.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.spec.number`: A value must be a number
+
+- **Text:** Give a number for this field in the description file.
+- **Protects:** An estimate in a description file is a number.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.command.missing`: No command to profile
+
+- **Text:** Put the command after a double dash, exactly as you would type it.
+- **Protects:** A profile run describes exactly one command, given after a double dash.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.details.missing`: This profiling run is missing required details
+
+- **Text:** Whoever approves it sees these next to the worker's hard limits, so they are required.
+  The command below is yours with the missing flags added. Change the example values to your own before running it.
+- **Protects:** Whoever approves a profile run sees these details next to the worker's hard limits, so they are required.
+- **Decided by:** client
+- **Depends on:** a profile run that needs approval (not on Direct, once that setting exists)
+- **Configured:** not configurable
+
+### `class.name.invalid`: That class name is not allowed
+
+- **Text:** Use lowercase letters, digits and dashes, 2 to 41 characters.
+- **Protects:** A class name is short, lowercase and plain, so it is safe as a file name and easy to type.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.name.unusable`: That name cannot be used
+
+- **Text:** {reason}
+- **Protects:** A class name must not collide with a command word or an existing class.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `pin.file.unreadable`: A .tenta.toml file cannot be read
+
+- **Text:** {reason}
+- **Protects:** A folder's .tenta.toml is read as TOML, so a broken file is named and not guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open it and fix the line named above, or run ct-run use --clear to start again.
+
+### `pin.file.bad_value`: A .tenta.toml file has a value that is not a worker name
+
+- **Text:** Check: {bad}. A worker name is letters, digits, dot, dash or underscore.
+- **Protects:** A pin names workers, so every value in the file must be a worker name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the file and fix it, or run ct-run use --clear to start again.
+
+### `name.invalid`: Not a valid name
+
+- **Text:** Letters, digits, dot, dash and underscore only.
+- **Protects:** A worker or command name is plain, so it is safe in a file and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `action.file.shape`: That is not an action definition
+
+- **Text:** It may only contain an `actions:` and a `classes:` section.
+- **Protects:** A definition holds only actions and the classes that use them, so nothing else is silently ignored.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Remove every other section from the definition.
+
+### `action.duplicate`: An action is defined twice
+
+- **Text:** in {kind}
+- **Protects:** An action name names one program that runs as root, so a second definition would silently replace it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give each action its own name in the definition.
+
+### `action.none`: That defines no action
+
+- **Text:** An action says which program runs as root; without one there is nothing to register.
+- **Protects:** An action says which program runs as root; without one there is nothing to register.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Add an action to the definition.
+
+### `action.class.unlinked`: A class does not use one of these actions
+
+- **Text:** A class here must say `kind: privileged` and `action:` the name of an action in the same definition.
+- **Protects:** A class that runs as root must name one action in the same definition, so what it runs can be checked.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Add kind: privileged and action: NAME to the class.
+
+### `job.id.not_an_id`: That is not a job id
+
+- **Text:** Job ids are lowercase letters, digits and dashes.
+- **Protects:** A job id is plain, so it is safe as a file name and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your jobs with ct-run jobs.
+
+### `worker.name.invalid`: A worker name is not allowed
+
+- **Text:** a worker name is lowercase letters, digits and dashes, starting with a letter
+- **Protects:** A worker name is short and plain, so it is safe in a file and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `approve.which`: Say which job to approve
+
+- **Text:** Give a job id, or --all for every job you have already viewed.
+- **Protects:** An approval names the job it covers.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give a job id, or run ct-admin approve --all.
+
+### `worker.rename.name_missing`: Say the new name
+
+- **Text:** ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.
+- **Protects:** A rename needs the new name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give the name: ct-admin workers rename WORKER NAME
+
+### `worker.rename.unusable`: That name cannot be used
+
+- **Text:** {problem}
+- **Protects:** A name must not collide with another worker or a command word.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.add.args`: Say the worker's name and its configuration file
+
+- **Text:** Each worker is a complete install with its own configuration.
+- **Protects:** A worker is added with its own name and configuration file.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give both: ct-admin workers add NAME --config FILE
+
+### `action.argument`: That command needs an argument
+
+- **Text:** It needs {need}.
+- **Protects:** A root-level action command names what it acts on.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `proposal.which_branch`: Say which branch to merge
+
+- **Text:** Or use --all.
+- **Protects:** A merge names the branch it merges, or all of them.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Name the branch, or run ct-admin proposals merge --all.
+
+### `proposal.action.unknown`: Unknown action
+
+- **Text:** Use list, merge or tidy.
+- **Protects:** proposals takes one of three actions.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See the actions with ct-admin help proposals.
+
+### `class.set.nothing`: Say what to change
+
+- **Text:** Give at least one of --tier, --network or --tools.
+- **Protects:** A change names what to change.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `packages.list.invalid`: The package list is not valid
+
+- **Text:** packages must be a list of at most {limit} entries like 'apt:jq', 'npm:eslint', 'pip:pyflakes'
+- **Protects:** A job's packages are a short list of fully named packages, so what the worker installs is known before it runs.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `packages.spec.invalid`: A package is not valid
+
+- **Text:** bad package {name!r}: use apt:<name>, npm:<name>[@version] or pip:<name>[==version]
+- **Protects:** A package is named by where it comes from and what it is called.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `approval.key.not_ssh`: That is not an SSH public key
+
+- **Text:** that is not an SSH public key
+- **Protects:** An approval key is an SSH public key, so nothing else is trusted as one.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.answers.missing`: Some answers are needed
+
+- **Text:** No default exists for: {missing}
+- **Protects:** A setup that needs an answer with no default asks for it; it never invents one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.config.invalid`: The answers do not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A configuration that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.hardening.unknown`: Unknown hardening module
+
+- **Text:** {names}
+- **Protects:** Only protections the setup knows are applied.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.token.invalid`: That does not look like a token
+
+- **Text:** It should be one long line with no spaces. Run ct-setup install again to enter it.
+- **Protects:** A token is one long line with no spaces.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.config.stale`: The configuration from the earlier run is not valid
+
+- **Text:** {problems}
+- **Protects:** A saved configuration that no longer validates is not reused.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.config.invalid`: The new connection does not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A connection change that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.method.unknown`: That is not a connection method
+
+- **Text:** Choose one of: {methods}.
+- **Protects:** Only known connection methods are moved to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.config.invalid`: The new name does not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A rename that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.name.invalid`: That is not a valid install name
+
+- **Text:** 3 to 24 lowercase letters, digits or -, starting with a letter.
+- **Protects:** An install name is short and plain, so it is safe as a folder and a service name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `addworker.question.unanswered`: That question was not answered
+
+- **Text:** {problem}
+- **Protects:** A question with no answer stops the setup; it never guesses.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
 
 ## Limit
 
@@ -375,6 +842,42 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Shorten the prompt, or attach the text as a file.
 
+### `files.set.too_big`: These files do not fit in one job
+
+- **Text:** {count} / {kb} KB is over the {limit} KB limit for one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').
+- **Protects:** Bounds the size of one job for the channel that carries it: a set over the limit is never split. Written for GitHub; the Direct transport will not have it.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files.max_total_kb (moving to the transport config)
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.not_batchable`: These files do not fit in one job
+
+- **Text:** {count} is over the {limit}-file limit, and this class needs its files together so it cannot be split. Attach only the files it needs (--include), or run it yourself.
+- **Protects:** A class that needs its files together cannot be split across jobs, so a set over the count limit cannot be sent.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub) and the class: batchable
+- **Configured:** the worker's registry: limits.files.max_count
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.batches`: These files do not fit in one job
+
+- **Text:** {count} would need {jobs} (limit {limit}). Attach fewer files (--include).
+- **Protects:** Bounds how many jobs one set of files may become.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files.max_batches
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.profile_too_many`: Too many input files
+
+- **Text:** One job can carry at most {files} and {kb} KB of text.
+- **Protects:** Bounds the input files of one profile run for the channel that carries them.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files
+- **What to do:** Attach only the files the command needs: --include 'src/**/*.js'
+
 ## Placement
 
 ### `profile.command.not_installed`: The worker does not have that command
@@ -393,7 +896,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check it with ct-admin check.
+- **What to do:** Run ct-admin check to see why it does not answer.
 
 ### `placement.no_state`: A worker has published no state
 
@@ -537,7 +1040,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check the package names with ct-run offload profile.
+- **What to do:** Name each package like apt:jq, npm:eslint or pip:requests on ct-run offload profile.
 
 ## Policy
 
@@ -567,3 +1070,935 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Make the files listed above sendable or leave them out with --include, then run the same command again. Or run the same command again with --send-incomplete to send the rest.
+
+### `class.name.taken`: A class with that name already exists
+
+- **Text:** Another class already has this name.
+- **Protects:** A class name names one class, so a second with the same name would replace it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Pick another name with --name
+
+### `class.batchable.needs_files`: --batchable only makes sense for a command profiled with input files
+
+- **Text:** The profile run had no input files.
+- **Protects:** A class takes its files in several jobs only if it was profiled with input files, which is how its files are known to be independent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Profile the command again with --dir or --file, then adopt it.
+
+### `class.proposal.waiting`: A proposal for that class is already waiting
+
+- **Text:** Branch {branch} exists. Install it, or pick another name with --name.
+- **Protects:** One proposal per class at a time, so two proposals cannot overwrite each other.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `proposal.branch.protected`: That is not a branch you can merge
+
+- **Text:** main, jobs and data are managed by the system.
+- **Protects:** main, jobs and data are managed by the system, so they are never merged as a proposal.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `proposal.branch.nothing_new`: A branch has nothing that is not already in main
+
+- **Text:** Its changes are already in main.
+- **Protects:** A branch whose changes are all in main has nothing to merge.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `release.commit.off_branch`: A commit is not on the release branch
+
+- **Text:** The worker only installs commits that are on the release branch.
+- **Protects:** The worker only installs commits that are on the release branch, so what it runs has been through that branch.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Merge it first, then try again.
+
+### `prompt.no_terminal`: This needs your answer
+
+- **Text:** It asks a question, and nobody is at the keyboard.
+- **Protects:** A question that needs the person's answer is never answered for them when nobody is at the keyboard.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run it in a terminal, or add --yes if you are sure.
+
+### `review.none_viewed`: None of the waiting jobs have been viewed
+
+- **Text:** Review them first; that is what lets them be approved together.
+- **Protects:** Jobs are approved together only after they have been looked at, so nothing is approved unseen.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Look at them with ct-admin review.
+
+### `worker.rename.no_terminal`: Naming every worker needs a terminal
+
+- **Text:** It asks about each one in turn.
+- **Protects:** Naming every worker asks about each one, which needs a person at a terminal.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Name one worker without a terminal: ct-admin workers rename WORKER NAME
+
+### `action.program.duplicate`: That program is already registered
+
+- **Text:** The same program under a second name would be two ways to run it as root.
+- **Protects:** The same program under a second name would be two ways to run it as root.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `proposal.registry.invalid`: A branch would leave an invalid registry
+
+- **Text:** {problems}
+- **Protects:** A branch that would leave an invalid registry is not merged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.retire.protected`: That class cannot be retired
+
+- **Text:** It is what profiling runs on; without it nothing new can be tested on the worker.
+- **Protects:** The class profiling runs on is never retired: without it nothing new could be tested on the worker.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.from_pack`: That class comes from a pack
+
+- **Text:** Its settings are changed in the pack, not here.
+- **Protects:** A class that comes from a pack is changed in the pack, so the change survives the next pack update.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.set.invalid`: That would leave an invalid registry
+
+- **Text:** {problems}
+- **Protects:** A change that would leave an invalid registry is not made.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.job.running`: A job is running
+
+- **Text:** {running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.
+- **Protects:** A running job is never interrupted by a move or a rename.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.machine.unsupported`: This machine is not supported
+
+- **Text:** {problem}
+- **Protects:** Only machines the worker is known to run on are set up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.not_root`: Run this as root
+
+- **Text:** It creates accounts and installs system files.
+- **Protects:** The server half creates accounts and installs system files, so it runs as root.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.worker_account.differs`: This machine's worker already runs as another account
+
+- **Text:** Creating a second account would leave {have}'s repositories and state unreadable and every job stuck. Nothing was changed by this check.
+- **Protects:** A second worker account would leave the first one's repositories and state unreadable.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.server.unsupported`: The server is not supported
+
+- **Text:** {problem}
+- **Protects:** Only servers the worker is known to run on are set up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.method.same`: The install already uses that method
+
+- **Text:** There is nothing to move.
+- **Protects:** Moving to the method already in use changes nothing.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.to_github.unsupported`: Moving back to GitHub is not done by this command yet
+
+- **Text:** Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.
+- **Protects:** Moving back to GitHub is not done by this command yet.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.name.same`: The install already has that name
+
+- **Text:** {old} is what its configuration says, so there is nothing to rename.
+- **Protects:** Renaming to the same name changes nothing.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.github.not_yours`: That GitHub account is not yours
+
+- **Text:** You are signed in to GitHub as {login}, but the repositories would be created under {owner}, which is neither your account nor an organisation you belong to.
+- **Protects:** Repositories are created only under the signed-in account or an organisation it belongs to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.name.taken`: That worker name cannot be used
+
+- **Text:** {reason}
+- **Protects:** A worker name names one worker on this computer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `addworker.windows.direct_only`: A Windows worker uses the Direct connection only
+
+- **Text:** The GitHub connection is not available for a Windows worker in this version.
+- **Protects:** A Windows worker uses the Direct connection only in this version.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+## Error
+
+### `result.not_ready`: No result yet
+
+- **Text:** The job has not finished, or the id is wrong.
+- **Protects:** Says plainly that there is nothing to read yet, so an empty result is never mistaken for a finished job.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait, or list your jobs with ct-run jobs.
+
+### `profile.result.not_ready`: No profile result yet
+
+- **Text:** The worker may still be running it, or it was never approved.
+- **Protects:** Says plainly that a profile run has no result yet, so the person does not adopt something that was never measured.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait.
+
+### `patch.none`: That job returned no patch
+
+- **Text:** Its status is {status}. Only a job of a class that returns a patch, and that ended ok, has one.
+- **Protects:** Only a job of a class that returns a patch, and that ended ok, has one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See what it did with ct-run result JOB.
+
+### `patch.misfit`: The patch does not fit this folder
+
+- **Text:** {reason}
+- **Protects:** A patch is checked against the folder before it is applied, so nothing is half-changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Go to the folder the job was sent from (the files must be where they were), then run this again.
+
+### `patch.apply_failed`: git could not apply the patch
+
+- **Text:** {reason}
+- **Protects:** git refused the patch after the check passed; the real reason is shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Save the patch and read it with ct-run patch JOB --out patch.diff.
+
+### `profile.inconclusive`: Nothing to propose: the profiling run was inconclusive
+
+- **Text:** The command did not complete cleanly.
+- **Protects:** A profile run that did not complete cleanly proves nothing, so no class is proposed from it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command by hand to see why it fails, correct it, then profile it again.
+
+### `registry.shape`: registry.yaml has no `classes:` section
+
+- **Text:** The registry proposal on main is not in the expected shape.
+- **Protects:** A registry that is not in the expected shape is reported, never edited blind.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open registry.yaml on the main branch of your queue repository and check it has a classes: section.
+
+### `repo.git_failed`: A git command failed
+
+- **Text:** {reason}
+- **Protects:** The real error text of a git command that failed on one of the two repositories, with the command, so it is never guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command shown above by hand in that folder to see the same error.
+
+### `repo.not_set_up`: This computer is not set up yet
+
+- **Text:** The two repository clones are not on this computer.
+- **Protects:** Nothing can be sent or read until this computer has its two repository clones.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-run setup.
+
+### `repo.clone_failed`: Could not clone a repository
+
+- **Text:** {url}: {detail}
+- **Protects:** The real error text of a clone that failed, with a plain meaning and the steps for that cause.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run git ls-remote on the repository address to test that it can be reached, then run ct-run setup again.
+
+### `repo.file_missing`: A file did not arrive on the branch
+
+- **Text:** It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.
+- **Protects:** A push that succeeded is not proof the file is there: say so loudly rather than report a job sent that the worker will never see.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send it again with the same command.
+
+### `repo.push_failed`: Could not push to the branch
+
+- **Text:** Check your connection and access, then try again.
+- **Protects:** A branch that could not be pushed is reported with how to reach it, never as a job sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check your connection and access, then run the same command again.
+
+### `action.source.missing`: Cannot find a definition
+
+- **Text:** Give a YAML file, or a pack folder with an actions/ folder in it.
+- **Protects:** A root-level action is added from a definition file or a pack folder, so a path that is neither is said plainly.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give the path of a definition file or a pack folder.
+
+### `action.file.unreadable`: Cannot read a definition file
+
+- **Text:** {reason}
+- **Protects:** The real error text of a definition file that cannot be read.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the file named above and correct it.
+
+### `action.worker.silent`: The worker did not answer
+
+- **Text:** {reason}
+- **Protects:** The worker checks a program before it may run as root; no answer means it was not checked.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Is the worker up to date? Run: ct-admin update
+
+### `proposal.branch.missing`: No such branch on GitHub
+
+- **Text:** The branch is not in your queue repository on GitHub.
+- **Protects:** A proposal is a branch in your queue repository; one that is not there cannot be merged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `proposal.merge.conflict`: A branch does not merge cleanly into main
+
+- **Text:** {detail}
+- **Protects:** A branch that does not merge cleanly is not merged: the conflict is for the person to resolve.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Rebase the branch on main in your copy of the queue repository, then run this again.
+
+### `proposal.push.private_email`: GitHub refused: the commit would publish a private email address
+
+- **Text:** Your GitHub account blocks pushes that expose your email.
+- **Protects:** GitHub refuses a push that would publish a private email address; the real cause is said, not 'main moved'.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Use your GitHub noreply address in this clone: git config user.email <id>+<handle>@users.noreply.github.com
+
+### `proposal.push.main_moved`: main moved while you were reviewing
+
+- **Text:** GitHub refused the push because main has new commits.
+- **Protects:** A push refused because main has new commits is retried by running the command again.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again.
+
+### `proposal.push.refused`: GitHub refused the push
+
+- **Text:** {detail}
+- **Protects:** The real text of a push GitHub refused, in plain words.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Read the reason above, then run the same command again.
+
+### `release.source.missing`: No release source is configured
+
+- **Text:** updates.source is empty.
+- **Protects:** An update needs a release source to read from.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup client.
+
+### `release.fetch_failed`: Could not fetch the release source
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release source that could not be fetched.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
+
+### `release.commit.missing`: A commit was not found in the release source
+
+- **Text:** Has it been pushed?
+- **Protects:** A commit that is not in the release source cannot be installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Push the commit to the release source, then run this again.
+
+### `update.dirty`: Your checkout has uncommitted changes
+
+- **Text:** {root} was not touched.
+- **Protects:** A checkout with uncommitted changes is never touched by an update.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Commit or stash them, then run ct-admin update again.
+
+### `update.fetch_failed`: Could not fetch the release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be fetched.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
+
+### `update.not_fast_forward`: Your checkout cannot be fast-forwarded to that release
+
+- **Text:** It has commits the release does not (or the history differs), so nothing was changed.
+- **Protects:** A checkout that has commits the release does not is not rewound or merged for the person.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Merge the release into your checkout yourself with git merge.
+
+### `update.pip_failed`: pip could not install that release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a pip install that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the pip command shown to see the error.
+
+### `ssh.control_folder.long`: The SSH control folder is too long
+
+- **Text:** the SSH control folder {path} is too long for a unix socket
+- **Protects:** A unix socket path has a short limit; a folder that exceeds it cannot be used for the connection.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Set CT_SSH_DIR to a shorter folder.
+
+### `ssh.address.missing`: No server address is configured
+
+- **Text:** server.host is empty or not an address.
+- **Protects:** A connection needs a server address.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup client.
+
+### `ssh.connect_failed`: Could not connect
+
+- **Text:** {reason}
+- **Protects:** The real error text of a connection that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ssh USER@HOST true to test key login from this computer.
+
+### `worker.config.missing`: There is no configuration file there
+
+- **Text:** there is no configuration file at {path}
+- **Protects:** A worker is added from its configuration file, so a path with none is said plainly.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `review.show_failed`: Could not show those jobs
+
+- **Text:** They were NOT marked as viewed.
+- **Protects:** Jobs that could not be shown are not marked as viewed, so they cannot be approved unseen.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-admin check to see why the worker cannot be read.
+
+### `approval.sign_failed`: Could not sign the approval
+
+- **Text:** {reason}
+- **Protects:** The real error text of an approval that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `registry.none_on_main`: There is no registry.yaml on main to sign
+
+- **Text:** Nothing has been merged into your registry yet.
+- **Protects:** A registry that has not been merged yet cannot be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `registry.sign_failed`: Could not sign the registry
+
+- **Text:** {reason}
+- **Protects:** The real error text of a registry that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `order.sign_failed`: Could not sign the order
+
+- **Text:** {reason}
+- **Protects:** The real error text of an order that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `job.unknown`: No such job
+
+- **Text:** Its file is not on the jobs branch, and {name} does not show it waiting for approval.
+- **Protects:** A job that is neither on the jobs branch nor waiting on the worker cannot be approved.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your jobs with ct-run jobs.
+
+### `update.check_failed`: Could not look for a newer release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release check that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
+
+### `worker.add.failed`: Could not add that worker
+
+- **Text:** {reason}
+- **Protects:** The real error text of a worker that could not be added.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.unlisted`: There is no such worker in the list
+
+- **Text:** The worker in your main configuration is always listed and is not removed here.
+- **Protects:** Only workers in the list can be removed from it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your workers with ct-admin workers.
+
+### `action.unknown`: There is no such root-level action
+
+- **Text:** Registered: {known}.
+- **Protects:** Only a registered root-level action can be removed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `adopt.result.missing`: No result yet
+
+- **Text:** Profile it first, then adopt it.
+- **Protects:** A class is adopted from a finished profile run.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait.
+
+### `class.unknown_on_main`: There is no such class on main
+
+- **Text:** Nothing to retire.
+- **Protects:** Only a class in your registry can be retired.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the classes with ct-run classes.
+
+### `class.unknown`: No such class
+
+- **Text:** It is neither in your registry nor installed on the worker.
+- **Protects:** Only a class in your registry or on the worker can be changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the classes with ct-run classes.
+
+### `apply.install_failed`: The install failed
+
+- **Text:** The update tool restores what it changed when it can. Read the messages above.
+- **Protects:** The real step that failed during an install, with the host and exit code.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again.
+
+### `win.step.failed`: A step of the Windows setup failed
+
+- **Text:** {what}: {detail}
+- **Protects:** The real error text of the step that failed, with the computer, so a rerun continues from there.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again: it continues from where it stopped.
+
+### `win.removal.step_failed`: A step of the Windows removal failed
+
+- **Text:** {what}: {detail}
+- **Protects:** The real error text of the removal step that failed; each step only removes what is still there, so a rerun is safe.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again: each step only removes what is still there.
+
+### `win.key.not_made`: The mailbox key could not be made
+
+- **Text:** {reason}
+- **Protects:** The mailbox key is made on this computer; if ssh-keygen fails here nothing is sent to the worker.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run: ssh-keygen -t ed25519 -N '' -f /tmp/ct-test-key (it must make a key without an error)
+
+### `win.release.lookup_failed`: The Windows release could not be looked up
+
+- **Text:** {reason}
+- **Protects:** The real error text of a Windows release that could not be looked up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the release source in a browser on this computer; if it does not load, the connection to it is the problem.
+
+### `win.release.none`: No Windows release has been published yet
+
+- **Text:** A Windows worker is installed from a release-win-X.Y.Z tag of the project, and there is none.
+- **Protects:** A Windows worker is installed from a release tag, so without one there is nothing to install.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Ask the project's owner to publish one, or give a commit with --set updates.source=<your fork>
+
+### `win.unreachable`: The Windows computer cannot be reached over SSH
+
+- **Text:** {said}
+- **Protects:** A computer that cannot be reached over SSH is named as that before any step runs, so it is not reported as a failure of a later step.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ssh USER@HOST hostname to see whether it answers, then run the same command again.
+
+### `win.mailbox.unreachable`: This computer could not reach the worker's mailbox
+
+- **Text:** {reason}
+- **Protects:** The worker's mailbox is reached over SSH from this computer; the real error and how to test the key by hand are shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Test the key by hand with ssh -i KEY USER@HOST true.
+
+### `win.first_job.failed`: The worker is set up, but its first job did not come back
+
+- **Text:** The test job {job} ended as {status}.
+- **Protects:** The first job proves the whole loop works; if it does not come back the setup is not called done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the same command again once it is fixed: nothing is set up twice.
+
+### `registry.file.unreadable`: The registry file cannot be read
+
+- **Text:** cannot read {path}: {reason}
+- **Protects:** The real error text of a registry file that cannot be read.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `registry.file.yaml`: The registry file is not valid YAML
+
+- **Text:** {path} is not valid YAML: {reason}
+- **Protects:** The real error text of a registry file that is not valid YAML.
+- **Decided by:** both
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `config.host.missing`: The configuration has no server.host line
+
+- **Text:** no server.host line in {path}
+- **Protects:** A configuration without a server.host line cannot be re-pointed at a new address.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.command.failed`: A setup command failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text a setup command printed when it failed, so the cause is never guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.worker_account.missing`: The worker account does not exist on this machine
+
+- **Text:** Nothing was changed.
+- **Protects:** The worker runs as an account that must exist before anything is moved.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.mailbox_key.not_made`: The mailbox key could not be made
+
+- **Text:** {reason}
+- **Protects:** The mailbox key is made here; if ssh-keygen fails nothing can use the mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.admin_account.missing`: The admin account does not exist
+
+- **Text:** It is the account you log in as; create it first.
+- **Protects:** The admin account is the one you log in as; it must exist first.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.release.unknown`: Cannot tell which release this is
+
+- **Text:** {source} is not a git checkout; pass --rev <commit> if you know it.
+- **Protects:** The release a worker runs is recorded, so one that cannot be identified is not installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.install.refused`: The install was refused
+
+- **Text:** {errors}
+- **Protects:** The install's own checks refused it; the reasons are shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.queue.unreadable`: The worker could not read the queue repository, so the job registry was not installed
+
+- **Text:** {reason}
+- **Protects:** The worker must read the queue repository before the registry is installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.registry.not_installed`: The job registry was not installed
+
+- **Text:** {reason}
+- **Protects:** A registry with a problem is not installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.ai_tool.not_running`: The Claude tool does not run on this machine
+
+- **Text:** It installed but `claude --version` failed.
+- **Protects:** An AI tool that was installed but does not run is reported, not left half-working.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.protection.failed`: A protection could not be applied, so the worker was not started
+
+- **Text:** {failed}
+- **Protects:** A protection that could not be applied stops the worker from starting.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.package.failed`: Could not package the release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be packaged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.workdir.failed`: Could not make a working folder on the server
+
+- **Text:** {reason}
+- **Protects:** The real error text of a working folder that could not be made on the server.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.send.failed`: Could not send the release to the server
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.ssh.login_failed`: Cannot log in over SSH
+
+- **Text:** {why}
+- **Protects:** The real reason SSH login to the server failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.deploy_keys.waiting`: The server is still waiting for its deploy keys
+
+- **Text:** They were not added in time.
+- **Protects:** The server half stops until its two deploy keys are on GitHub, and continues when run again.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.server.stopped`: The server setup stopped
+
+- **Text:** Read the messages above. Running ct-setup install again continues where it left off.
+- **Protects:** The server half stopped; its messages are above and a rerun continues.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.clone.missing`: The worker has no clone of that repository
+
+- **Text:** {path} is missing, so there is nothing to copy into the mailbox.
+- **Protects:** A clone that is missing cannot be copied into the mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.release.missing`: The release to install is missing
+
+- **Text:** {source} is not a release checkout.
+- **Protects:** The release to install must be a release checkout.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.key.not_arrived`: Your computer's mailbox key did not arrive
+
+- **Text:** Without it nothing could use the mailbox, so nothing was changed.
+- **Protects:** Without the mailbox key nothing could use the mailbox, so nothing is changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.step.failed`: A migration step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the migration step that failed; a rerun carries on and skips what is done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.folder.exists`: That name already exists
+
+- **Text:** Something else is using the new name's folder, so nothing was changed.
+- **Protects:** A folder already using the new name is never overwritten.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.service.exists`: A service with that name already exists
+
+- **Text:** Something else is using the new name, so nothing was changed.
+- **Protects:** A service already using the new name is never overwritten.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.release.missing`: The release to install under the new name is missing
+
+- **Text:** {source} is not a release checkout.
+- **Protects:** The release to install under the new name must be a release checkout.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.step.failed`: A rename step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the rename step that failed; a rerun carries on and skips what is done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.tools.missing`: Missing tools
+
+- **Text:** {missing} must be installed first
+- **Protects:** The setup needs git and ssh on this computer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.mailbox.unreadable`: This computer cannot read the worker's mailbox
+
+- **Text:** {why}
+- **Protects:** The real reason this computer cannot read the worker's mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `uninstall.step.failed`: A removal step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the removal step that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `uninstall.config.unreadable`: Cannot read this install's configuration
+
+- **Text:** {problems}
+- **Protects:** A removal needs the install's own configuration to find what to remove.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable

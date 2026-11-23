@@ -238,17 +238,14 @@ def plan_batches(files, batchable, limits):
     max_files, max_total = limits["max_count"], limits["max_total_kb"] * 1000
     total = sum(len(v) for v in files.values())
     if total > max_total:
-        raise ClientError("These files do not fit in one job",
-                          f"{plural(len(files), 'file')} / {total // 1000} KB is over the {max_total // 1000} KB limit for one job, and a bigger tree is never split. "
-                          "Attach only the files the command needs (--include 'src/**/*.js').")
+        raise refuse.error("files.set.too_big", count=plural(len(files), "file"), kb=total // 1000, limit=max_total // 1000)
     if len(files) <= max_files:
         return [files]
     n = -(-len(files) // max_files)
     if not batchable:
-        raise ClientError("These files do not fit in one job", f"{plural(len(files), 'file')} is over the {max_files}-file limit, and this class needs its files "
-                          "together so it cannot be split. Attach only the files it needs (--include), or run it yourself.")
+        raise refuse.error("files.set.not_batchable", count=plural(len(files), "file"), limit=max_files)
     if n > limits["max_batches"]:
-        raise ClientError("These files do not fit in one job", f"{plural(len(files), 'file')} would need {plural(n, 'job')} (limit {limits['max_batches']}). Attach fewer files (--include).")
+        raise refuse.error("files.set.batches", count=plural(len(files), "file"), jobs=plural(n, "job"), limit=limits["max_batches"])
     names = sorted(files)
     size = -(-len(names) // n)
     return [{k: files[k] for k in names[i:i + size]} for i in range(0, len(names), size)]
@@ -268,7 +265,7 @@ def parse_params(pairs):
     params = {}
     for kv in pairs or []:
         if "=" not in kv:
-            raise ClientError("Unreadable -p value", "Write each job parameter as a name, an equals sign, then a value.", example="-p dir=src", facts=[("Value", kv)])
+            raise refuse.error("param.unreadable", ("Value", kv), example="-p dir=src")
         k, v = kv.split("=", 1)
         params[k] = int(v) if re.fullmatch(r"-?\d+", v) else v
     return params

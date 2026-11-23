@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..client import refuse
 from ..client.repo import ClientError
 
 
@@ -23,14 +24,13 @@ def update_checkout(root, url, tag, run=subprocess.run):
     def git(*a):
         return run(["git", "-C", str(root), *a], capture_output=True, text=True)
     if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
-        raise ClientError("Your checkout has uncommitted changes", f"{root} was not touched.", ["Commit or stash them, then run ct-admin update again."])
+        raise refuse.error("update.dirty", root=root)
     r = git("fetch", "--quiet", url, f"refs/tags/{tag}:refs/tags/{tag}")
     if r.returncode:
-        raise ClientError("Could not fetch the release", (r.stderr or "").strip()[-200:], [f"Check that you can reach {url}"], facts=[("Release", str(tag))])
+        raise refuse.error("update.fetch_failed", ("Release", str(tag)), steps=[f"Run git ls-remote {url} to test that it can be reached."], reason=(r.stderr or "").strip()[-200:])
     r = git("merge", "--ff-only", f"{tag}^{{commit}}")
     if r.returncode:
-        raise ClientError("Your checkout cannot be fast-forwarded to that release", "It has commits the release does not (or the history differs), so nothing was changed.",
-                          [f"Merge it yourself: git -C {root} merge {tag}"])
+        raise refuse.error("update.not_fast_forward", steps=[f"Merge it yourself: git -C {root} merge {tag}"])
     return git("rev-parse", "HEAD").stdout.strip()
 
 
@@ -41,4 +41,4 @@ def pip_argv(url, tag):
 def update_package(url, tag, run=subprocess.run):
     r = run(pip_argv(url, tag), capture_output=True, text=True)
     if r.returncode:
-        raise ClientError("pip could not install that release", ((r.stderr or "") + (r.stdout or "")).strip()[-300:], [" ".join(pip_argv(url, tag))])
+        raise refuse.error("update.pip_failed", steps=[" ".join(pip_argv(url, tag))], reason=((r.stderr or "") + (r.stdout or "")).strip()[-300:])

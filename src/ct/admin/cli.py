@@ -22,6 +22,7 @@ from pathlib import Path
 from .. import alias, cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
 from ..client import offload as off
+from ..client import refuse
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -87,7 +88,7 @@ class Context:
             return self
         path = workers.load_list(self.workers_file).get(name)
         if not path:
-            raise ClientError("There is no such worker", "Workers are named once, in ct-admin workers add.", example="ct-admin workers", facts=[("Name", name)])
+            raise refuse.error("placement.unknown_worker", ("Name", name))
         c = Context.from_config(config.load(path, env={"CT_CONFIG": ""}))
         c.ask, c.sleep, c.is_tty = self.ask, self.sleep, self.is_tty
         return c
@@ -106,7 +107,7 @@ class Context:
         if yes:
             return True
         if not self.is_tty():
-            raise ClientError("This needs your answer", "It asks a question, and nobody is at the keyboard.", ["Run it in a terminal, or add --yes if you are sure."])
+            raise refuse.error("prompt.no_terminal")
         return self.ask(_ui.confirm_prompt(prompt)).strip().lower() == "y"
 
 
@@ -165,7 +166,7 @@ def cmd_review(ctx, a):
     if gone:
         emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
         if ctx.remote("review", *gone):
-            raise ClientError("Could not show those jobs", "They were NOT marked as viewed.", example="ct-admin check")
+            raise refuse.error("review.show_failed", example="ct-admin check")
         for jid in gone:
             ctx.viewed.mark(jid, "")
     emit("Viewed", f"{plural(len(todo), 'job')} noted as viewed.", tag="DONE", color=GREEN, run_label="Approve the ones you viewed", run="ct-admin approve --all")
@@ -205,9 +206,7 @@ def use_signed(ctx, a):
     pub = Path(str(approval_key(ctx)) + ".pub")
     mine = approvals.fingerprint(pub.read_text()) if pub.exists() else None
     if mine not in info["approvers"]:
-        raise ClientError("A worker does not trust your approval key yet",
-                          "Approvals are signed here and checked on the worker against a key it was set up with. This worker has " + ("a different one" if info["approvers"] else "none") + ".",
-                          ["Run the install again; it gives the worker your key: ct-setup install", "Or approve this one by logging in to the worker: add --ssh"], example="ct-setup install", facts=[("Worker", alias.show(ctx.name))])
+        raise refuse.error("approval.key.untrusted", ("Worker", alias.show(ctx.name)), example="ct-setup install", has="a different one" if info["approvers"] else "none")
     return True
 
 
@@ -220,7 +219,7 @@ def sign_and_publish(ctx, items):
         try:
             files[approvals.path_in_repo(jid)] = approvals.bundle(record, approvals.sign(record, approval_key(ctx)))
         except ValueError as e:
-            raise ClientError("Could not sign the approval", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"])
+            raise refuse.error("approval.sign_failed", steps=["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"], reason=str(e))
     ctx.repos.push_files(approvals.BRANCH, files, "approve " + ", ".join(j for j, _ in items))
 
 
@@ -230,14 +229,14 @@ def publish_registry(ctx):
     ctx.repos.fetch_queue()
     text = ctx.repos.show_file(ctx.props.base, "registry.yaml")
     if text is None:
-        raise ClientError("There is no registry.yaml on main to sign", "Nothing has been merged into your registry yet.", example="ct-admin proposals")
+        raise refuse.error("registry.none_on_main", example="ct-admin proposals")
     import hashlib
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     record = approvals.make_registry_record(digest)
     try:
         signature = approvals.sign(record, approval_key(ctx), namespace=approvals.REGISTRY_NAMESPACE)
     except ValueError as e:
-        raise ClientError("Could not sign the registry", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"])
+        raise refuse.error("registry.sign_failed", steps=["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"], reason=str(e))
     ctx.repos.push_files(approvals.BRANCH, {approvals.REGISTRY_PATH: approvals.bundle(record, signature)}, f"registry: approve {digest[:12]}")
     return digest
 
@@ -278,7 +277,7 @@ def send_order(ctx, action, job=None, hard=False, lock=None):
     try:
         signature = approvals.sign(record, approval_key(ctx), namespace=approvals.CONTROL_NAMESPACE)
     except ValueError as e:
-        raise ClientError("Could not sign the order", str(e), ["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"])
+        raise refuse.error("order.sign_failed", steps=["Is the key at " + str(approval_key(ctx)) + " the one ct-setup made? Run: ct-setup install"], reason=str(e))
     nonce = json.loads(record)["nonce"]
     ctx.repos.push_files(approvals.BRANCH, {approvals.control_path(nonce): approvals.bundle(record, signature)}, f"control: {action}" + (f" {job}" if job else ""))
 
@@ -306,7 +305,7 @@ def approve_all(ctx, a):
     _ui.say("Waiting jobs", *cards.job_blocks([(jid, [("STATE", cards.Styled([("SKIPPED", "warn")])), ("WHY", why)]) for jid, why in skipped] + [(jid, [("STATE", cards.Styled([("READY", "ok")])), ("WHY", "viewed")]) for jid, _ in ready]),
             tag="APPROVE", color=_ui.PRIMARY, stream=sys.stdout)
     if not ready:
-        raise ClientError("None of the waiting jobs have been viewed", "Review them first; that is what lets them be approved together.", example="ct-admin review")
+        raise refuse.error("review.none_viewed", example="ct-admin review")
     if not ctx.confirm(f"Approve these {plural(len(ready), 'job')}?", a.yes):
         stop("Not approved", "You answered no. They stay waiting.")
     if use_signed(ctx, a):
@@ -324,14 +323,13 @@ def approve_one(ctx, a):
     import json
     jid = jobs.require_id(a.id) if a.id else None
     if not jid:
-        raise ClientError("Say which job to approve", "Give a job id, or --all for every job you have already viewed.", example="ct-admin approve --all")
+        raise refuse.error("approve.which", example="ct-admin approve --all")
     raw = jobs.job_bytes(ctx.repos, jid)
     if raw is None:
         return approve_on_worker(ctx, a, jid)
     digest, job = jobs.digest_of(raw), json.loads(raw)
     if jobs.is_expired(raw):                                                     # before anything is shown or signed: the worker would refuse it, so do not let a person approve it
-        raise ClientError("That job has expired", f"It was sent more than a day ago, and {ctx.name} does not run a job that old, so it cannot be approved. Send it again.",
-                          example=f"ct-run submit {job.get('class') or '<class>'}", facts=[("Job", jid), ("Sent", str(job.get("created") or "unknown"))])
+        raise refuse.error("job.expired.approve", ("Job", jid), ("Sent", str(job.get("created") or "unknown")), example=f"ct-run submit {job.get('class') or '<class>'}", name=ctx.name)
     banner = ctx.repos.pull_results()
     if banner:
         emit("A worker is LOCKED", ("Worker", alias.show(ctx.name)), ("What happened", banner.get("kind")), ("Job", banner.get("job")), tag="LOCKED", color=RED, run_label="Review it, then unlock it",
@@ -354,7 +352,7 @@ def approve_on_worker(ctx, a, jid):
     """The file is gone from GitHub but the worker kept its own first-seen copy: review and approve it THERE, so what you read is what runs."""
     pub = ctx.repos.read_result(jid)
     if not pub or pub.get("status") != "awaiting_approval":
-        raise ClientError("No such job", f"Its file is not on the jobs branch, and {ctx.name} does not show it waiting for approval.", example="ct-run jobs", facts=[("Job", jid)])
+        raise refuse.error("job.unknown", ("Job", jid), example="ct-run jobs", name=ctx.name)
     emit(f"The job file is no longer on {ctx.store}", f"{ctx.name} kept its own copy, so you review and approve it there.", tag="NOTE", color=YELLOW)
     rc = ctx.remote("approve", jid, *(["--yes"] if a.yes else []))
     ctx.viewed.mark(jid, "")
@@ -409,7 +407,7 @@ def cmd_update(ctx, a):
     """Is there a newer release? Show what changed, then (only if you say yes) update this computer and, separately, the worker."""
     entry = updatecheck.check_now(ctx.source.url)
     if "error" in entry:
-        raise ClientError("Could not look for a newer release", entry["error"], [f"Is {ctx.source.url} reachable? Try: git ls-remote --tags {ctx.source.url}"])
+        raise refuse.error("update.check_failed", steps=[f"Is {ctx.source.url} reachable? Try: git ls-remote --tags {ctx.source.url}"], reason=entry["error"])
     old = updatecheck.load(ctx.home)
     updatecheck.save(ctx.home, {**old, **entry})
     state = workers.read_state(ctx.repos.results) or {}
@@ -558,15 +556,15 @@ def workers_rename(ctx, a):
     if a.name:
         real = alias.resolve(a.name, names)
         if real not in names:
-            raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"], facts=[("Name", a.name)])
+            raise refuse.error("placement.unknown_worker", ("Name", a.name), ("Yours", ", ".join(names)))
         if a.clear:
             aliases.pop(real, None)
         else:
             if not a.new:
-                raise ClientError("Say the new name", "ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.", facts=[("Worker", alias.show(real))], example=f"ct-admin workers rename {real} <name>")
+                raise refuse.error("worker.rename.name_missing", ("Worker", alias.show(real)), example=f"ct-admin workers rename {real} <name>")
             problem = alias.check(a.new, real, names)
             if problem:
-                raise ClientError("That name cannot be used", problem, facts=[("Name", a.new)])
+                raise refuse.error("worker.rename.unusable", ("Name", a.new), problem=problem)
             aliases[real] = a.new
         alias.save(aliases, show_real)
         emit("The name was cleared" if a.clear else "The worker has a new name", ("Worker", alias.show(real)), ("File", str(alias.path())), "Only this computer knows the name; the worker and its hostname are unchanged.", tag="DONE", color=GREEN,
@@ -578,7 +576,7 @@ def workers_rename(ctx, a):
 def workers_rename_all(ctx, names, aliases, show_real):
     """The fleet wizard: each worker in turn, its current name beside the question. Enter keeps it, `-` removes it, anything else is the new name."""
     if not ctx.is_tty:
-        raise ClientError("Naming every worker needs a terminal", "It asks about each one in turn.", ["Name one worker without a terminal: ct-admin workers rename WORKER NAME"])
+        raise refuse.error("worker.rename.no_terminal")
     emit("Name your workers", "Each worker is asked about in turn. Enter keeps its name, - removes the name, anything else is the new name.",
          "The names live on this computer only: the workers and their hostnames are not touched.", tag="RENAME", color=CYAN)
     changed = 0
@@ -633,16 +631,16 @@ def cmd_workers(ctx, a):
     wfile = ctx.workers_file
     if action == "add":
         if not a.name or not a.config:
-            raise ClientError("Say the worker's name and its configuration file", "Each worker is a complete install with its own configuration.", example="ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")
+            raise refuse.error("worker.add.args", example="ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")
         try:
             workers.add(wfile, a.name, a.config)
         except ValueError as e:
-            raise ClientError("Could not add that worker", str(e))
+            raise refuse.error("worker.add.failed", reason=str(e))
         emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
         return 0
     if action == "remove":
         if not a.name or not workers.remove(wfile, a.name):
-            raise ClientError("There is no such worker in the list", "The worker in your main configuration is always listed and is not removed here.", example="ct-admin workers", facts=[("Name", a.name)])
+            raise refuse.error("worker.unlisted", ("Name", a.name), example="ct-admin workers")
         emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
         return 0
     if action == "use":
@@ -694,8 +692,7 @@ def cmd_action(ctx, a):
     if a.verb == "list":
         return action_list(ctx)
     if not a.source:
-        raise ClientError("That command needs an argument", "It needs " + ("a definition file or a pack folder" if a.verb == "add" else "the name of an action, or the pack folder it came from") + ".", facts=[("Command", f"ct-admin action {a.verb}")],
-                          example="ct-admin action add packs/fan-control" if a.verb == "add" else "ct-admin action remove fan-profile")
+        raise refuse.error("action.argument", ("Command", f"ct-admin action {a.verb}"), example="ct-admin action add packs/fan-control" if a.verb == "add" else "ct-admin action remove fan-profile", need="a definition file or a pack folder" if a.verb == "add" else "the name of an action, or the pack folder it came from")
     return action_add(ctx, a) if a.verb == "add" else action_remove(ctx, a)
 
 
@@ -728,15 +725,14 @@ def action_add(ctx, a):
     defn = actionadd.load_definition(a.source)
     problems = actionadd.check_definition(defn)
     if problems:
-        raise ClientError("That definition would be refused", "\n".join(problems[:6]), ["Edit the YAML file to correct each problem listed above, then run the same command again. Nothing was sent anywhere."])
+        raise refuse.error("action.definition.refused", problems="\n".join(problems[:6]))
     text = registry_text(ctx)
     have = (registry.parse(text) or {}).get("actions") or {} if text else {}
     have_actions, have_classes = regedit.action_names(text), regedit.class_names(text)
     for name, action in defn["actions"].items():
         twin = next((n for n, x in have.items() if n != name and (x.get("run") or [None])[0] == actionadd.program_of(action)), None)
         if twin:
-            raise ClientError("That program is already registered", "The same program under a second name would be two ways to run it as root.",
-                              [f"Use the existing one, or remove it first: ct-admin action remove {twin}"], example=f"ct-admin action remove {twin}", facts=[("Program", actionadd.program_of(action)), ("Registered as", str(twin))])
+            raise refuse.error("action.program.duplicate", ("Program", actionadd.program_of(action)), ("Registered as", str(twin)), steps=[f"Use the existing one, or remove it first: ct-admin action remove {twin}"], example=f"ct-admin action remove {twin}")
     plan, pins = [], {}
     screen = None if a.yes else tui.make()
     for name, action in defn["actions"].items():
@@ -785,8 +781,7 @@ def action_remove(ctx, a):
     if missing:
         import difflib
         close = difflib.get_close_matches(missing[0], known, n=1, cutoff=0.5)
-        raise ClientError("There is no such root-level action", "Registered: " + (", ".join(known) or "none") + ".",
-                          example=f"ct-admin action remove {close[0]}" if close else "ct-admin action list", facts=[("Action", str(missing[0]))])
+        raise refuse.error("action.unknown", ("Action", str(missing[0])), example=f"ct-admin action remove {close[0]}" if close else "ct-admin action list", known=", ".join(known) or "none")
     removed_classes = []
     have = (registry.parse(text) or {}).get("actions") or {}
     screen = None if a.yes else tui.make()
@@ -953,7 +948,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
             problems = [f"not valid YAML: {e}"]
         problems = [x for x in problems if "tools" not in x]
         if problems:
-            raise ClientError("A branch would leave an invalid registry", "\n".join(problems[:5]), [f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."], facts=[("Branch", branch)])
+            raise refuse.error("proposal.registry.invalid", ("Branch", branch), steps=[f"Open the {branch} branch of the queue repository, change what the problems above name, push it, then run this again. Nothing was merged."], problems="\n".join(problems[:5]))
     subject_line, _, rest = msg.partition("\n")
     emit("Merge a branch into main", ("Branch", branch), ("Adds", f"{plural(len(p.commits(branch)), 'commit')}, squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", diffview.counts(path, add, gone)) for path, add, gone in p.files(branch)], ("Becomes", subject_line),
@@ -985,7 +980,7 @@ def cmd_proposals(ctx, a):
         if a.all:
             return merge_all(ctx, a)
         if not a.branch:
-            raise ClientError("Say which branch to merge", "Or use --all.", example="ct-admin proposals merge --all")
+            raise refuse.error("proposal.which_branch", example="ct-admin proposals merge --all")
         merge_branch(ctx, a.branch, yes=a.yes, subject=a.message)
         return after_merge(ctx, a)
     if act == "publish":
@@ -1000,7 +995,7 @@ def cmd_proposals(ctx, a):
         gone = [b for b in done if p.delete(b)]
         emit(f"Deleted {len(gone)} branch(es)", tag="DONE", color=GREEN)
         return 0 if len(gone) == len(done) else 1
-    raise ClientError("Unknown action", "Use list, merge or tidy.", example="ct-admin help proposals", facts=[("Action", str(act))])
+    raise refuse.error("proposal.action.unknown", ("Action", str(act)), example="ct-admin help proposals")
 
 
 def after_merge(ctx, a):
@@ -1043,7 +1038,7 @@ def cmd_adopt(ctx, a):
     jobs.require_id(a.id)
     res = r.read_result(a.id)
     if not res:
-        raise ClientError("No result yet", "Profile it first, then adopt it.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
+        raise refuse.error("adopt.result.missing", ("Job", a.id), example=f"ct-run result {a.id} --wait")
     names = off.NameBook(ctx.home)
     preview = off.propose(r, a.id, res, name=a.name, tier=a.tier, dry_run=True, names=names) if res.get("profile", {}).get("verdict") != "does-not-fit" else None
     if preview is None:
@@ -1068,9 +1063,9 @@ def cmd_retire(ctx, a):
     text = r.show_file(p.base, "registry.yaml") or ""
     where = regedit.class_block(text, a.cls)
     if not where:
-        raise ClientError("There is no such class on main", "Nothing to retire.", [f"Classes: {', '.join(regedit.class_names(text))}"] if regedit.class_names(text) else None, example="ct-run classes", facts=[("Class", a.cls)])
+        raise refuse.error("class.unknown_on_main", ("Class", a.cls), steps=([f"Classes: {', '.join(regedit.class_names(text))}"] if regedit.class_names(text) else []), example="ct-run classes")
     if regedit.is_profile_kind(text, a.cls):
-        raise ClientError("That class cannot be retired", "It is what profiling runs on; without it nothing new can be tested on the worker.", facts=[("Class", a.cls)])
+        raise refuse.error("class.retire.protected", ("Class", a.cls))
     block = text.splitlines()[where[0]:where[1]]
     emit("Retire a class", ("Class", a.cls), *[("Removes", line.strip()) for line in block if line.strip() and not line.strip().startswith("#")], tag="RETIRE", color=RED)
     emit("What happens", ("Registry", "the class is removed; the worker refuses new jobs of this class"), ("Queued jobs", "any still waiting for it are rejected"),
@@ -1103,9 +1098,9 @@ def cmd_class(ctx, a):
     name = a.cls
     from_pack = name not in mine and name in published
     if name not in mine and not from_pack:
-        raise ClientError("No such class", "It is neither in your registry nor installed on the worker.", [f"Your classes: {', '.join(sorted(mine))}"] if mine else None, example="ct-run classes", facts=[("Class", name)])
+        raise refuse.error("class.unknown", ("Class", name), steps=([f"Your classes: {', '.join(sorted(mine))}"] if mine else []), example="ct-run classes")
     if from_pack and a.verb == "set":
-        raise ClientError("That class comes from a pack", "Its settings are changed in the pack, not here.", example=f"ct-admin class show {name}", facts=[("Class", name)])
+        raise refuse.error("class.from_pack", ("Class", name), example=f"ct-admin class show {name}")
     tier, network, tools = class_facts(mine[name] if name in mine else published[name])
     if a.verb == "show":
         state = workers.read_state(r.results) or {}
@@ -1131,7 +1126,7 @@ def cmd_class(ctx, a):
         flat = [t for group in a.tools for t in group]
         changes["tools"] = None if flat == ["none"] else flat
     if not changes:
-        raise ClientError("Say what to change", "Give at least one of --tier, --network or --tools.", example=f"ct-admin class set {name} --tier approve", facts=[("Class", name)])
+        raise refuse.error("class.set.nothing", ("Class", name), example=f"ct-admin class set {name} --tier approve")
     new_tier = changes.get("tier", tier)
     new_net = changes.get("network", network)
     if new_net and new_tier == "auto" and "tier" not in changes:                          # never end up silently with a network class that runs unapproved
@@ -1140,7 +1135,7 @@ def cmd_class(ctx, a):
     new_text = regedit.set_class_fields(text, name, {k: v for k, v in changes.items()})
     problems = registry.validate(registry.parse(new_text), "/nonexistent-tools-root", allow_empty=True)
     if problems:
-        raise ClientError("That would leave an invalid registry", "\n".join(problems[:5]), facts=[("Class", name)])
+        raise refuse.error("class.set.invalid", ("Class", name), problems="\n".join(problems[:5]))
     now_tier, now_net, now_tools = class_facts(registry.parse(new_text)["classes"][name])
     if (now_tier, now_net, now_tools) == (tier, network, tools):
         emit("Nothing to change", ("Class", name), "It already is that way.", tag="NOTE", color=YELLOW)
@@ -1157,8 +1152,7 @@ def cmd_class(ctx, a):
     if dangerous:
         emit("This class would run with the network and without your approval", "Anyone who can send this job will run it with the network, each time, without you seeing it first.", tag="WARNING", color=RED)
         if not ctx.is_tty():                                                                       # never taken from --yes: a security choice is answered by a person at a terminal
-            raise ClientError("This needs your answer at a terminal", "A class that uses the network without your approval can only be set by answering this question yourself; --yes does not answer it.",
-                              facts=[("Class", name)])
+            raise refuse.error("class.network.needs_terminal", ("Class", name))
         if ctx.ask(_ui.confirm_prompt(f"Allow {name} to use the network without approval?")).strip().lower() != "y":
             stop("Not changed", "You answered no. Nothing was changed.")
     elif not ctx.confirm(f"Change {name} and install the new registry on {ctx.ssh.host} now?", a.yes):
@@ -1248,7 +1242,7 @@ def apply(ctx, a):
     prev = release.installed_rev(ctx.ssh, ctx.name)
     rc = ctx.ssh.interactive(f"sudo {render.UPDATE_CMD} --rev {sha}")
     if rc:
-        raise ClientError("The install failed", "The update tool restores what it changed when it can. Read the messages above.", ["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."], facts=[("Host", ctx.ssh.host), ("Exit code", str(rc))])
+        raise refuse.error("apply.install_failed", ("Host", ctx.ssh.host), ("Exit code", str(rc)))
     if not a.no_verify and not verify(ctx, sha, prev, a.yes):
         return 1
     if outcomes is not None:

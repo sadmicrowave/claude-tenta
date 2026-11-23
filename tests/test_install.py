@@ -630,7 +630,7 @@ class Failures(InstallBase):
         ssh = FakeSsh(rc=3)
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=ssh).run_all()
-        self.assertIn("exit 3", e.exception.args[0])
+        self.assertIn(("Exit code", "3"), e.exception.facts)                                 # (a fixed title; the exit code is a labelled row)
         self.assertIn(f"rm -rf {REMOTE}", ssh.calls)
         self.assertEqual(self.verified, [])
 

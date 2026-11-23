@@ -6,6 +6,7 @@ so a branch is recognised as done for good. A registry change is validated befor
 import re
 import subprocess
 
+from ..client import refuse
 from ..client.repo import ClientError
 
 from .. import approvals
@@ -56,9 +57,9 @@ class Proposals:
 
     def check_name(self, branch):
         if branch in RESERVED or not BRANCH_OK.match(branch):
-            raise ClientError("That is not a branch you can merge", "main, jobs and data are managed by the system.", example="ct-admin proposals", facts=[("Branch", branch)])
+            raise refuse.error("proposal.branch.protected", ("Branch", branch), example="ct-admin proposals")
         if not self.repos.remote_branch_exists(branch):
-            raise ClientError("No such branch on GitHub", example="ct-admin proposals", facts=[("Branch", branch)])
+            raise refuse.error("proposal.branch.missing", ("Branch", branch), example="ct-admin proposals")
 
     def files(self, branch):
         return self.git("diff", "--name-only", f"{self.base}...origin/{branch}").stdout.split()
@@ -84,11 +85,11 @@ class Proposals:
         ref = f"origin/{branch}"
         t = self.git("merge-tree", "--write-tree", self.base, ref, check=False)
         if t.returncode:
-            raise ClientError("A branch does not merge cleanly into main", t.stdout.strip() or None, [f"In your copy of the queue repository: git fetch origin && git checkout {branch} && git rebase origin/main, resolve any conflict it stops at, then git push --force-with-lease.", "Then run this again."], facts=[("Branch", branch)])
+            raise refuse.error("proposal.merge.conflict", ("Branch", branch), steps=[f"In your copy of the queue repository: git fetch origin && git checkout {branch} && git rebase origin/main, resolve any conflict it stops at, then git push --force-with-lease.", "Then run this again."], detail=t.stdout.strip() or "git reported a conflict.")
         tree = t.stdout.split()[0]
         subjects = self.git("log", "--reverse", "--format=%s", f"{self.base}..{ref}").stdout.strip().splitlines()
         if not subjects:
-            raise ClientError("A branch has nothing that is not already in main", facts=[("Branch", branch)])
+            raise refuse.error("proposal.branch.nothing_new", ("Branch", branch))
         body = self.git("log", "-1", "--format=%b", ref).stdout.strip() if len(subjects) == 1 else "\n".join(f"- {x}" for x in subjects)
         body = "\n".join(line for line in body.splitlines() if not line.lower().startswith("co-authored-by:")).strip()
         trailers = sorted({line for line in self.git("log", f"{self.base}..{ref}", "--format=%(trailers:key=Co-Authored-By,valueonly,separator=%x0a)").stdout.splitlines() if line.strip()})
@@ -109,7 +110,8 @@ class Proposals:
     def push_main(self, sha):
         r = self.git("push", "-q", "origin", f"{sha}:refs/heads/{self.main}", check=False)
         if r.returncode:
-            raise ClientError(*explain_refused_push(r.stderr))
+            code, more = explain_refused_push(r)
+            raise refuse.error(code, **more)
         return sha
 
     def delete(self, branch):
@@ -117,13 +119,12 @@ class Proposals:
         return self.git("push", "-q", "origin", "--delete", branch, check=False).returncode == 0
 
 
-def explain_refused_push(stderr):
-    """(title, why, steps) for a push GitHub refused, in plain words (it is not always because main moved)."""
-    text = stderr or ""
+def explain_refused_push(r):
+    """(catalog code, variables for its text) for a push GitHub refused, in plain words (it is not always because main moved)."""
+    text = r.stderr or ""
     if "GH007" in text or "email privacy" in text:
-        return ("GitHub refused: the commit would publish a private email address", "Your GitHub account blocks pushes that expose your email.",
-                ["Use your GitHub noreply address in this clone: git config user.email <id>+<handle>@users.noreply.github.com"])
+        return "proposal.push.private_email", {}
     if re.search(r"non-fast-forward|fetch first|stale info|\[rejected\]", text):
-        return ("main moved while you were reviewing", "GitHub refused the push because main has new commits.", ["Run the same command again."])
+        return "proposal.push.main_moved", {}
     lines = [line.replace("remote: ", "").strip() for line in text.splitlines() if line.strip()]
-    return ("GitHub refused the push", "\n".join(lines[-4:]) or "No reason was given.", ["Fix the cause above, then run the same command again."])
+    return "proposal.push.refused", {"detail": "\n".join(lines[-4:]) or "No reason was given."}

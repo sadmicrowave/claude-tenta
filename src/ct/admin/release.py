@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from ..client import refuse
 from ..client.repo import ClientError
 
 HEX_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -31,17 +32,17 @@ class Source:
     def git(self, *args, check=True):
         r = self._run(["git", "-C", str(self.path), *args], capture_output=True, text=True)
         if check and r.returncode:
-            raise ClientError("A git command failed", (r.stderr or "").strip()[:300], facts=[("Command", "git " + " ".join(args))])
+            raise refuse.error("repo.git_failed", ("Command", "git " + " ".join(args)), reason=(r.stderr or "").strip()[:300])
         return r
 
     def update(self):
         if not self.url:
-            raise ClientError("No release source is configured", "updates.source is empty.", example="ct-setup client")
+            raise refuse.error("release.source.missing", example="ct-setup client")
         if not (self.path / "HEAD").exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
             r = self._run(["git", "clone", "--bare", "--quiet", self.url, str(self.path)], capture_output=True, text=True)
             if r.returncode:
-                raise ClientError("Could not fetch the release source", (r.stderr or "").strip()[:300], example=f"git ls-remote {self.url}")
+                raise refuse.error("release.fetch_failed", example=f"git ls-remote {self.url}", reason=(r.stderr or "").strip()[:300])
         else:
             self.git("fetch", "--quiet", "--prune", "--force", "--tags", self.url, "+refs/heads/*:refs/heads/*")
 
@@ -67,11 +68,10 @@ class Source:
         target = f"{rev}^{{commit}}" if rev else f"refs/heads/{self.branch}"
         r = self.git("rev-parse", "--verify", "-q", target, check=False)
         if r.returncode:
-            raise ClientError("A commit was not found in the release source", "Has it been pushed?", example=f"git ls-remote {self.url}", facts=[("Commit", str(rev))])
+            raise refuse.error("release.commit.missing", ("Commit", str(rev)), example=f"git ls-remote {self.url}")
         sha = r.stdout.strip()
         if self.git("merge-base", "--is-ancestor", sha, f"refs/heads/{self.branch}", check=False).returncode:
-            raise ClientError("A commit is not on the release branch", "The worker only installs commits that are on the release branch.",
-                              ["Merge it first, then try again."], facts=[("Commit", short(sha)), ("Branch", self.branch)])
+            raise refuse.error("release.commit.off_branch", ("Commit", short(sha)), ("Branch", self.branch))
         return sha
 
     def changed_files(self, old, new):

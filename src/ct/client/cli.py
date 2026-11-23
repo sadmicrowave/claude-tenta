@@ -149,7 +149,7 @@ def use_set(cfg, a, pins, scope):
     names = [e[0] for e in place.entries(cfg)] if cfg is not None else []
     a.worker = alias.resolve(a.worker, names)                          # an alias means its worker; the file keeps the real name
     if names and a.worker not in names:
-        raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(names)}"], facts=[("Name", a.worker)])
+        raise refuse.error("placement.unknown_worker", ("Name", a.worker), ("Yours", ", ".join(names)))
     here.check_name("worker", a.worker)
     if a.command:
         here.check_name("command", a.command)
@@ -438,7 +438,7 @@ def cmd_classes(ctx, cfg=None, a=None):
     ents = place.entries(cfg) if cfg is not None else []
     named = alias.resolve(getattr(a, "worker", None), [e[0] for e in ents])
     if named and named not in [e[0] for e in ents] and not (cfg is None):
-        raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(e[0] for e in ents)}"], facts=[("Name", named)])
+        raise refuse.error("placement.unknown_worker", ("Name", named), ("Yours", ", ".join(e[0] for e in ents)))
     if len(ents) > 1 and not named:
         return fleet_classes(ctx, ents)
     if named and ents and named != ents[0][0]:
@@ -502,10 +502,10 @@ def cmd_patch(ctx, a):
     r.pull_results()
     res = r.read_result(a.id)
     if res is None:
-        raise ClientError("No result yet", "The job has not finished, or the id is wrong.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
+        raise refuse.error("result.not_ready", ("Job", a.id), example=f"ct-run result {a.id} --wait")
     p = res.get("patch")
     if not p:
-        raise ClientError("That job returned no patch", f"Its status is {res.get('status')}. Only a job of a class that returns a patch, and that ended ok, has one.", [f"See what it did: ct-run result {a.id}"], facts=[("Job", a.id)])
+        raise refuse.error("patch.none", ("Job", a.id), steps=[f"See what it did: ct-run result {a.id}"], status=res.get("status"))
     text, notes = p.get("text") or "", list(p.get("notes") or [])
     bad = patch_mod.problems(text)
     if a.out:
@@ -518,20 +518,19 @@ def cmd_patch(ctx, a):
         emit("Nothing was changed", "That was only a look.", tag="NEXT", color=GREEN, run_label="Apply it to this folder", run=f"ct-run patch {a.id} --apply")
         return 0
     if bad:
-        raise ClientError("This patch will not be applied", "; ".join(bad), [f"Save it and read it: ct-run patch {a.id} --out patch.diff"])
+        raise refuse.error("patch.refused", steps=[f"Save it and read it: ct-run patch {a.id} --out patch.diff"], reasons="; ".join(bad))
     if not text.strip():
         emit("The patch is empty", "The job changed nothing, so there is nothing to apply.", tag="NOTE", color=YELLOW)
         return 0
     check = subprocess.run(["git", "apply", "--check", "-"], input=text, text=True, capture_output=True)
     if check.returncode:
-        raise ClientError("The patch does not fit this folder", check.stderr.strip()[-300:] or "git apply --check refused it.",
-                          ["Go to the folder the job was sent from (the files must be where they were), then run this again."])
+        raise refuse.error("patch.misfit", reason=check.stderr.strip()[-300:] or "git apply --check refused it.")
     if not (a.yes or (ctx.is_tty() and ctx.ask(_ui.confirm_prompt(f"Apply {plural(len(p.get('files') or []), 'file')} of changes to {Path.cwd()}?")).strip().lower() == "y")):
         emit("Not applied", "You answered no, or there was nobody to ask.", tag="STOPPED", color=YELLOW)
         return 1
     done = subprocess.run(["git", "apply", "-"], input=text, text=True, capture_output=True)
     if done.returncode:
-        raise ClientError("git could not apply the patch", done.stderr.strip()[-300:])
+        raise refuse.error("patch.apply_failed", steps=[f"Save the patch and read it: ct-run patch {a.id} --out patch.diff"], reason=done.stderr.strip()[-300:])
     emit("Applied", f"{plural(len(p.get('files') or []), 'file')} changed in {Path.cwd()}. Nothing was committed.", tag="DONE", color=GREEN, run="git diff")
     return 0
 
@@ -638,7 +637,7 @@ def cmd_profile(ctx, a):
             try:
                 v = float(spec[k])
             except ValueError:
-                raise ClientError("A value must be a number", facts=[("File", a.spec), ("Field", k), ("Got", repr(spec[k]))])
+                raise refuse.error("profile.spec.number", ("File", a.spec), ("Field", k), ("Got", repr(spec[k])))
         est[k] = v
     r.pull_results()
     if not a.retry:
@@ -656,12 +655,11 @@ def cmd_profile(ctx, a):
     show_left_out(left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
-        raise ClientError("Too many input files", f"One job can carry at most {plural(limits['max_count'], 'file')} and {limits['max_total_kb']} KB of text.",
-                          ["Attach only the files the command needs: --include 'src/**/*.js'"])
+        raise refuse.error("files.set.profile_too_many", files=plural(limits["max_count"], "file"), kb=limits["max_total_kb"])
     if name:
         bad = off.class_name_problem(name, off.taken_names(r))
         if bad:
-            raise ClientError("That name cannot be used", bad, example=off.own_command_with(a.raw, "").replace(f"--name {name}", "--name <another-name>"), facts=[("Name", name)])
+            raise refuse.error("class.name.unusable", ("Name", name), example=off.own_command_with(a.raw, "").replace(f"--name {name}", "--name <another-name>"), reason=bad)
     job = off.build_profile_job(argv, what, expect, est, flags={**spec["flags"], **off.parse_flags(a.flag)}, packages=spec["packages"] + (a.package or []), why=why,
                                 side_effects=side, watch_for=watch, timeout_s=timeout_s, files=files, retry_example=lambda extra: off.own_command_with(a.raw, extra))
     jid = a.id or sub.new_job_id("profile", r.result_ids())
@@ -695,7 +693,7 @@ def cmd_propose(ctx, a):
     r.fetch_queue()
     res = r.read_result(a.id)
     if res is None:
-        raise ClientError("No profile result yet", "The worker may still be running it, or it was never approved.", example=f"ct-run result {a.id} --wait", facts=[("Job", a.id)])
+        raise refuse.error("profile.result.not_ready", ("Job", a.id), example=f"ct-run result {a.id} --wait")
     out = off.propose(r, a.id, res, name=a.name, tier=a.tier, batchable=a.batchable, dry_run=a.dry_run, names=ctx.names)
     kind = out["kind"]
     if kind == "excluded":

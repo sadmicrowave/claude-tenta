@@ -9,6 +9,7 @@
 
 Nothing is left behind on the server: the folder it received the release in, which also holds your answers, is removed when it finishes.
 """
+from . import refuse
 import hashlib
 import io
 import json
@@ -55,7 +56,7 @@ def archive_source(source, run=subprocess.run):
     if (src / ".git").exists():
         r = run(["git", "-C", str(src), "archive", "--format=tar", "HEAD"], capture_output=True)
         if r.returncode:
-            raise SetupError("Could not package the release", (r.stderr or b"").decode("utf-8", "replace")[:200])
+            raise refuse.error("install.package.failed", reason=(r.stderr or b"").decode("utf-8", "replace")[:200])
         rev = run(["git", "-C", str(src), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         dirty = bool(run(["git", "-C", str(src), "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip())
         return r.stdout, rev, dirty
@@ -73,7 +74,7 @@ def remote_dir(ssh):
     r = ssh.capture("umask 077; mktemp -d /tmp/ct-install.XXXXXX")
     d = (r.stdout or "").strip()
     if r.returncode or not REMOTE_DIR.match(d):
-        raise SetupError("Could not make a working folder on the server", (r.stderr or d)[:200])
+        raise refuse.error("install.workdir.failed", reason=(r.stderr or d)[:200])
     return d
 
 
@@ -117,7 +118,7 @@ def deliver_source(ssh, source, archive=archive_source, say=None, published=None
     d = remote_dir(ssh)
     r = ssh.send(f"tar -xf - -C {d}", data)
     if r.returncode:
-        raise SetupError("Could not send the release to the server", (r.stderr or b"").decode("utf-8", "replace")[:200])
+        raise refuse.error("install.send.failed", reason=(r.stderr or b"").decode("utf-8", "replace")[:200])
     return d, rev, len(data)
 
 
@@ -215,7 +216,7 @@ class Installer:
     def resume_first_job(self):
         clean, problems = config.validate(tomllib.loads(self.machine.read(self.config_file()) or ""))
         if problems:
-            raise SetupError("The configuration from the earlier run is not valid", "\n".join(problems), ["Run ct-setup install again and answer the questions."])
+            raise refuse.error("install.config.stale", steps=["Run ct-setup install again and answer the questions."], problems="\n".join(problems))
         self.cfg = config.Config(clean, self.config_file())
         self.first_job()
         return self.report
@@ -249,20 +250,20 @@ class Installer:
         conn, missing = questions.collect("client", ask=self.ask, say=self.say, given=self.given, use_defaults=self.use_defaults, only=CONNECTION, ui=self.ui, advanced=self.advanced,
                                           suggestions={**self.suggest, **self.previous_answers()})
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
+            raise refuse.error("setup.answers.missing", steps=missing_steps(missing), missing=", ".join(missing))
         c = conn.get("server", {})
         self.ssh = self.ssh_factory(c["host"], c["admin_user"], c.get("ssh_port", 22))
         try:
             self.ssh.capture("true")
         except ClientError as e:
-            raise SetupError(f"Cannot log in to {c['host']} over SSH", e.why, ["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}",
-                                                                      "If SSH is not on port 22, run this again with --advanced, which asks for the port."])
+            raise refuse.error("install.ssh.login_failed", ("Host", c["host"]), steps=["Install your SSH key on the server first (this asks for its password once):", f"ssh-copy-id {self.ssh.target}",
+                                                                      "If SSH is not on port 22, run this again with --advanced, which asks for the port."], why=e.why)
         self.facts = detect.detect(RemoteHost(self.ssh))
         for what, value in self.facts.summary():
             self.out(self.r.kv(what, value))
         problem = self.facts.os_problem()
         if problem:
-            raise SetupError("The server is not supported", problem)
+            raise refuse.error("install.server.unsupported", problem=problem)
         self.note("connected to the server", "ok", f"{self.ssh.target}, {self.facts.os_id} {self.facts.os_version}")
         self.existing_worker = self.server_worker_account()
         return conn
@@ -296,11 +297,11 @@ class Installer:
         self.asked = True
         self.flush()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
+            raise refuse.error("setup.answers.missing", steps=missing_steps(missing), missing=", ".join(missing))
         nested = merge(conn, rest)
         clean, problems = questions.validate_answers(nested)
         if problems:
-            raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
+            raise refuse.error("setup.config.invalid", problems="\n".join(problems))
         self.cfg = config.Config(clean)
         try:                                                           # from here on the worker's own IPv6 setting decides how this computer connects to it (see admin.ssh.family_for)
             from ..admin.ssh import family_for
@@ -496,12 +497,11 @@ class Installer:
             self._left_edge()
             self.note("deploy keys", "present", "; ".join(quiet))
         if rc == EXIT_WAITING:
-            raise SetupError("The server is still waiting for its deploy keys", "They were not added in time.",
-                             [f"Add the queue key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.queue_repo}/settings/keys (leave write access OFF).",
+            raise refuse.error("install.deploy_keys.waiting", steps=[f"Add the queue key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.queue_repo}/settings/keys (leave write access OFF).",
                               f"Add the results key at https://github.com/{self.cfg.github.owner}/{self.cfg.github.results_repo}/settings/keys (tick Allow write access).",
                               "The keys themselves were printed above. Then run ct-setup install again; it continues from here."])
         if rc != 0:
-            raise SetupError(f"The server setup stopped (exit {rc})", "Read the messages above. Running ct-setup install again continues where it left off.")
+            raise refuse.error("install.server.stopped", ("Exit code", str(rc)))
         self.note("server setup", "done")
         self.mark("server", rev=rev)
 

@@ -4,6 +4,7 @@ A registry class installs software for real, so npm and pip entries must name an
 package decide what runs tomorrow. apt entries are exempt because the distribution archive is signed and drops old versions, so an apt
 pin would stop installing after a security update.
 """
+from . import refusals
 import re
 
 PKG_RES = {
@@ -21,12 +22,12 @@ def check_packages(value):
     if value is None:
         return []
     if not isinstance(value, list) or len(value) > MAX_PACKAGES:
-        raise ValueError(f"packages must be a list of at most {MAX_PACKAGES} entries like 'apt:jq', 'npm:eslint', 'pip:pyflakes'")
+        raise refusals.refuse("packages.list.invalid", limit=MAX_PACKAGES)
     out = set()
     for p in value:
         mgr, sep, name = p.partition(":") if isinstance(p, str) else ("", "", "")
         if not sep or mgr not in PKG_RES or not PKG_RES[mgr].fullmatch(name):
-            raise ValueError(f"bad package {p!r}: use apt:<name>, npm:<name>[@version] or pip:<name>[==version]")
+            raise refusals.refuse("packages.spec.invalid", name=p)
         out.add(f"{mgr}:{name}")
     return sorted(out)
 

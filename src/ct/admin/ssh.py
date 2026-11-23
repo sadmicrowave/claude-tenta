@@ -8,6 +8,8 @@ import os
 import shlex
 import subprocess
 
+from .. import refusals
+from ..client import refuse
 from ..client.repo import ClientError
 
 CONNECT_TIMEOUT_S = 10
@@ -20,7 +22,7 @@ SOCKET_BUDGET = 103 - 17 - 1 - 40
 def default_control_dir():
     d = f"/tmp/ct-ssh-{os.getuid()}"
     if len(d) > SOCKET_BUDGET:
-        raise ValueError(f"the SSH control folder {d} is too long for a unix socket")
+        raise refusals.refuse("ssh.control_folder.long", path=d)
     return d
 
 
@@ -33,7 +35,7 @@ def family_for(cfg):
 class Ssh:
     def __init__(self, host, user=None, port=22, *, run=subprocess.run, popen=subprocess.Popen, control_dir=None, family=None):
         if not host or host.startswith("-"):
-            raise ClientError("No server address is configured", "server.host is empty or not an address.", example="ct-setup client")
+            raise refuse.error("ssh.address.missing", example="ct-setup client")
         self.host, self.user, self.port, self._run, self._popen = host, user, int(port), run, popen
         self.control_dir = control_dir or default_control_dir()
         self.family = family                              # "inet": IPv4 only (see family_for)
@@ -66,15 +68,14 @@ class Ssh:
         """Run `remote` (one command line) with no terminal. Returns the CompletedProcess; raises ClientError if SSH itself failed."""
         r = self._run(self.argv(remote, batch=True), capture_output=True, text=True)
         if r.returncode == 255:
-            raise ClientError("Could not connect", (r.stderr or "").strip().splitlines()[-1:] and (r.stderr or "").strip().splitlines()[-1] or None,
-                              ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true", facts=[("Host", self.host)])
+            raise refuse.error("ssh.connect_failed", ("Host", self.host), example=f"ssh {self.target} true", reason=((r.stderr or "").strip().splitlines()[-1:] or ["No error text was returned."])[-1])
         return r
 
     def send(self, remote, data):
         """Run `remote` with `data` (bytes) on its standard input, no terminal. Returns the CompletedProcess; raises ClientError if SSH itself failed."""
         r = self._run(self.argv(remote, batch=True), input=data, capture_output=True)
         if r.returncode == 255:
-            raise ClientError("Could not connect", None, ["Check that SSH key login works from this computer."], example=f"ssh {self.target} true", facts=[("Host", self.host)])
+            raise refuse.error("ssh.connect_failed", ("Host", self.host), example=f"ssh {self.target} true", reason="No error text was returned.")
         return r
 
     def popen(self, remote, tty=True):

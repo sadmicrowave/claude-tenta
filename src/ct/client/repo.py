@@ -60,7 +60,8 @@ class ClientRepos:
     def git(self, repo, *args, check=True, env=None, input=None):
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=self._net_env(env), input=input)
         if check and r.returncode:
-            raise ClientError("A git command failed", r.stderr.strip(), facts=[("Command", "git " + " ".join(args)), ("Folder", str(repo))])
+            from . import refuse                                            # (refuse imports this module, so it is imported where it is used)
+            raise refuse.error("repo.git_failed", ("Command", "git " + " ".join(args)), ("Folder", str(repo)), reason=r.stderr.strip())
         return r
 
     def is_set_up(self):
@@ -68,7 +69,8 @@ class ClientRepos:
 
     def need_setup(self):
         if not self.is_set_up():
-            raise ClientError("This computer is not set up yet", example="ct-run setup")
+            from . import refuse
+            raise refuse.error("repo.not_set_up", example="ct-run setup")
 
     def clone_all(self, home):
         """Clone whichever of the two repos is missing. Returns [(what, path)] for each that was cloned or already there."""
@@ -87,7 +89,8 @@ class ClientRepos:
             if r.returncode:
                 from .. import clonediag
                 cause, meaning, steps = clonediag.classify(r.stderr, kind=self.kind, admin=self.admin_target, path=urlparse(url).path, host=urlparse(url).hostname or "")
-                raise ClientError("Could not clone a repository", f"{url}: {' '.join(r.stderr.split())[:400]}" + (f" ({meaning})" if meaning else ""), steps or self.unreachable_steps, facts=[("From", self.where)])
+                from . import refuse
+                raise refuse.error("repo.clone_failed", ("From", self.where), steps=steps or self.unreachable_steps, url=url, detail=" ".join(r.stderr.split())[:400] + (f" ({meaning})" if meaning else ""))
             rows.append(("cloned", str(path)))
         return rows
 
@@ -136,7 +139,8 @@ class ClientRepos:
     def _plumb(self, env, *a, **kw):
         r = subprocess.run(["git", "-C", str(self.queue), *a], env=env, capture_output=True, text=True, **kw)
         if r.returncode:
-            raise ClientError("A git command failed", r.stderr.strip(), facts=[("Command", "git " + " ".join(a))])
+            from . import refuse
+            raise refuse.error("repo.git_failed", ("Command", "git " + " ".join(a)), reason=r.stderr.strip())
         return r.stdout.strip()
 
     def push_files(self, branch, files, msg, base=None, retries=8, remove=()):
@@ -165,10 +169,12 @@ class ClientRepos:
                 self.fetch_queue()
                 missing = [p for p in files if self.git(self.queue, "cat-file", "-e", f"origin/{branch}:{p}", check=False).returncode]
                 if missing:                                          # a push that succeeded is not proof it is there: say so loudly rather than report a job sent that the worker will never see
-                    raise ClientError("A file did not arrive on the branch", "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.", facts=[("Files", ", ".join(missing)), ("Branch", branch), ("On", self.where)])
+                    from . import refuse
+                    raise refuse.error("repo.file_missing", ("Files", ", ".join(missing)), ("Branch", branch), ("On", self.where))
                 return commit
             self._sleep(random.uniform(0.2, 1.5) if self._sleep is time.sleep else 2)          # a rejected push means someone else pushed first: a short random pause so a burst does not retry in step
-        raise ClientError("Could not push to the branch", "Check your connection and access, then try again.", self.unreachable_steps, facts=[("Branch", branch), ("On", self.where)])
+        from . import refuse
+        raise refuse.error("repo.push_failed", ("Branch", branch), ("On", self.where), steps=self.unreachable_steps)
 
     # ---- the results repo ----
     def pull_results(self, max_age=0):
