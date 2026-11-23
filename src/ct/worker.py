@@ -133,6 +133,16 @@ class Worker:
         profile = cls.get("kind") == "profile"
         return jobs.job_timeout(cls, job, rules=registry.profiling_rules(reg) if profile else None, shared=self.shared(), factor=self.speed()[0])
 
+    def learn_speed(self, status, metrics, meta):
+        """A profile run that finished cleanly shows how long this worker took against the person's estimate; keep that, so the next limit starts from evidence."""
+        from . import calibration
+        est, wall = (meta.get("estimates") or {}).get("time_s"), (metrics or {}).get("wall_s")
+        if status == "ok" and isinstance(est, (int, float)) and est > 0 and isinstance(wall, (int, float)) and wall >= 1:
+            try:
+                calibration.observe(self._p("profile-evidence.json"), wall / est)
+            except OSError:
+                pass                                          # the evidence is extra; a full disk must not fail a result
+
     def shared(self):
         return self.s.isolation_purpose == "shared"
 
@@ -140,7 +150,11 @@ class Worker:
         """(factor, basis): how slow this worker is against the shipped reference (2.0 = twice as slow), from the install's own timings; 1.0 until measured."""
         from . import calibration, calibration_reference
         got = calibration.load(self._p("calibration.json")).get("phases")
-        return calibration.speed_factor(got, calibration_reference.REFERENCE) if isinstance(got, dict) else (1.0, "none yet")
+        prior, basis = calibration.speed_factor(got, calibration_reference.REFERENCE) if isinstance(got, dict) else (1.0, "none yet")
+        factor, runs = calibration.combine(prior, calibration.load(self._p("profile-evidence.json")).get("ratios", []))
+        if runs:
+            basis = f"{runs} profile {'run' if runs == 1 else 'runs'}" if basis in ("none yet", "no reference") else f"{basis} + {runs} profile {'run' if runs == 1 else 'runs'}"
+        return factor, basis
 
     def effective_limits(self, reg):
         """The registry's limits, except that on the Direct connection the file limits follow this worker's ceiling (what it can really hold) instead of the GitHub-era defaults, unless the owner set them in the registry."""
@@ -559,6 +573,7 @@ class Worker:
             rules = registry.profiling_rules(reg)
             res["profile"] = {"argv": argv, **meta, "files": sorted(files),
                               **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product)}
+            self.learn_speed(st, metrics, meta)
             shutil.rmtree(wd, ignore_errors=True)            # a profiled command may leave a lot behind
             if meta.get("packages"):
                 pv, env_dir = res["profile"], self.pkgs.env_root / jid

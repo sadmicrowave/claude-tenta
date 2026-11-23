@@ -87,6 +87,35 @@ def reference_from(recordings):
     return {p: round(statistics.median(r[p] for r in recordings if r.get(p)), 3) for p in PHASES if any(r.get(p) for r in recordings)}
 
 
+EVIDENCE_KEEP = 20          # the most recent profile runs that count
+STEP_LIMIT = 2.0            # one more run moves the factor by at most this much, up or down
+
+
+def observe(path, ratio):
+    """Keep one profile run's measured seconds over the person's estimate: how this computer compares with the one the estimate was made on."""
+    doc = load(path)
+    ratios = [r for r in doc.get("ratios", []) if isinstance(r, (int, float))] + [round(float(ratio), 3)]
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps({"ratios": ratios[-EVIDENCE_KEEP:]}) + "\n")
+
+
+def combine(prior, ratios):
+    """(factor, runs used): the install's prior, moved toward what profile runs showed. Replayed run by run, so the result needs no stored state:
+    each run adds weight n/(n+2) to the median of what was seen (a geometric blend, since a ratio is a multiple), and no single run moves the factor
+    by more than STEP_LIMIT. A run far from the others (over 10 times or under a tenth of their median, once there are three) is ignored."""
+    ratios = [r for r in ratios if isinstance(r, (int, float)) and r > 0]
+    if len(ratios) >= 3:
+        mid = statistics.median(ratios)
+        ratios = [r for r in ratios if mid / 10 <= r <= mid * 10]
+    factor, seen = prior, []
+    for r in ratios:
+        seen.append(r)
+        w = len(seen) / (len(seen) + 2)
+        target = prior ** (1 - w) * statistics.median(seen) ** w
+        factor = min(max(target, factor / STEP_LIMIT), factor * STEP_LIMIT)
+    return round(factor, 2), len(ratios)
+
+
 def load(path):
     try:
         doc = json.loads(Path(path).read_text())

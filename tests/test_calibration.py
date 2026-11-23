@@ -31,6 +31,35 @@ class Factor(unittest.TestCase):
         self.assertEqual(calibration.reference_from([{"compile": 1.0}, {"compile": 3.0}, {"compile": 2.0, "git": 5.0}]), {"compile": 2.0, "git": 5.0})
 
 
+class Evidence(unittest.TestCase):
+    def test_no_runs_keep_the_prior(self):
+        self.assertEqual(calibration.combine(1.7, []), (1.7, 0))
+
+    def test_runs_move_the_factor_toward_what_they_showed_and_converge(self):
+        one = calibration.combine(1.0, [4.0])
+        self.assertEqual(one, (1.59, 1))                                              # 4 ** (1/3): one run is only a third of the weight
+        many = calibration.combine(1.0, [3.0] * 12)[0]
+        self.assertGreater(many, 2.5)
+        self.assertLess(many, 3.0)
+        self.assertGreater(many, calibration.combine(1.0, [3.0] * 3)[0])                 # more runs, closer
+
+    def test_no_single_run_moves_the_factor_more_than_the_step_limit(self):
+        self.assertEqual(calibration.combine(1.0, [1000.0])[0], calibration.STEP_LIMIT)               # 1000 ** (1/3) is 10: held to a doubling
+        self.assertLessEqual(calibration.combine(2.0, [0.001])[0], 2.0)
+        self.assertGreaterEqual(calibration.combine(2.0, [0.001])[0], 2.0 / calibration.STEP_LIMIT)
+
+    def test_a_run_far_from_the_others_is_ignored(self):
+        self.assertEqual(calibration.combine(1.0, [2.0, 2.0, 2.0, 400.0])[1], 3)
+        self.assertEqual(calibration.combine(1.0, [0, -1, "x"])[1], 0)
+
+    def test_observe_keeps_the_most_recent_runs_only(self):
+        f = Path(tempfile.mkdtemp()) / "state" / "profile-evidence.json"
+        for i in range(30):
+            calibration.observe(f, 1 + i)
+        ratios = json.loads(f.read_text())["ratios"]
+        self.assertEqual((len(ratios), ratios[-1]), (calibration.EVIDENCE_KEEP, 30.0))
+
+
 class Measure(unittest.TestCase):
     def test_the_real_steps_run_here_and_each_takes_a_measurable_time(self):
         got = calibration.measure(ROOT / "src" / "ct")                  # the real thing once, so the fakes elsewhere are trusted
