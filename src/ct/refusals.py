@@ -89,7 +89,7 @@ define("job.expired", "security", "Replay protection: a job file that was captur
        "job expired: it is more than {hours} old when the worker looked at it, so it is not run; send it again", config="the worker's max_age_s (default 24 hours)",
        steps=["Send the job again with ct-run submit."])
 define("job.created.future", "security", "A job dated in the future would stay valid longer than the age limit allows.", "The job claims to be from the future",
-       "job timestamp is in the future", steps=["Check this computer's clock, then send the job again with ct-run submit."])
+       "job timestamp is in the future", steps=["Run date to see this computer's clock, then send the job again with ct-run submit."])
 define("job.class.unknown", "security", "Only classes the owner installed may run: a job can never name a command of its own, except a profile run, which needs approval.",
        "The job names a class the worker does not have", "class not in installed registry: {name!r}", steps=["List what the worker offers with ct-run classes."])
 define("job.params.not_object", "format", "Parameters must be named values so each one can be checked against its declared type.", "The job's parameters are not an object",
@@ -113,7 +113,7 @@ define("param.unknown", "format", "A parameter the class did not declare is neve
 define("param.missing", "format", "A required parameter that is absent would leave a placeholder in the command.", "A required parameter is missing", "missing param: {name}",
        steps=["Give it as -p {name}=value on ct-run submit."])
 define("template.undeclared", "format", "A class whose command template names a parameter it never declared is a mistake in the class, so it is refused.",
-       "The class's command uses an undeclared parameter", "template uses undeclared param {name}", steps=["Correct the class with ct-admin class."])
+       "The class's command uses an undeclared parameter", "template uses undeclared param {name}", steps=["Open the class with ct-admin class show CLASS and declare the parameter."])
 
 # ---- attached files ----
 define("files.not_accepted", "policy", "Only classes that were registered to take input files get any, so files cannot influence a command that was not made for them.",
@@ -165,7 +165,7 @@ define("profile.timeout.range", "limit", "A profile run's time limit stays betwe
 
 # ---- placement: why a worker cannot take a job, and why a job cannot be placed (the client decides; every reason is reported, not the first) ----
 define("placement.unreachable", "placement", "A worker that cannot be reached cannot be asked anything, so nothing else about it can be known: this reason stands alone.", "A worker cannot be reached",
-       "cannot be reached now ({reason})", who="client", steps=["Check it with ct-admin check."])
+       "cannot be reached now ({reason})", who="client", steps=["Run ct-admin check to see why it does not answer."])
 define("placement.no_state", "placement", "A worker that has published no state cannot be described, so no job is placed on it blind.", "A worker has published no state",
        "has published no state (an older release, or not set up yet), so nothing can be said about it", who="client", steps=["Update it with ct-admin apply."])
 define("placement.locked", "placement", "The worker locked itself after a security event and runs nothing until the owner has looked.", "A worker is locked",
@@ -212,7 +212,7 @@ define("job.prompt.length", "limit", "Bounds what one AI job can spend; the cap 
 define("job.kind.unknown", "format", "A class of a kind this worker does not know cannot be run safely.", "The class is of an unknown kind", "unknown kind {kind!r}",
        steps=["Update the worker with ct-admin apply."])
 define("job.packages.plan", "placement", "The packages a job asks for must be installable here, or the job would start and fail.", "The requested packages cannot be installed", "{problems}",
-       steps=["Check the package names with ct-run offload profile."])
+       steps=["Name each package like apt:jq, npm:eslint or pip:requests on ct-run offload profile."])
 
 # ---- what the client does before sending ----
 define("files.incomplete", "policy", "A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.",
@@ -280,7 +280,7 @@ define("repo.git_failed", "error", "The real error text of a git command that fa
 define("repo.not_set_up", "error", "Nothing can be sent or read until this computer has its two repository clones.", "This computer is not set up yet", "The two repository clones are not on this computer.", who="client",
        steps=["Run ct-run setup."])
 define("repo.clone_failed", "error", "The real error text of a clone that failed, with a plain meaning and the steps for that cause.", "Could not clone a repository", "{url}: {detail}", who="client",
-       steps=["Check that this computer can reach the repository, then run ct-run setup again."])
+       steps=["Run git ls-remote on the repository address to test that it can be reached, then run ct-run setup again."])
 define("repo.file_missing", "error", "A push that succeeded is not proof the file is there: say so loudly rather than report a job sent that the worker will never see.", "A file did not arrive on the branch",
        "It was pushed, but is not on the branch afterwards. Nothing was lost on your side: send it again.", who="client", steps=["Send it again with the same command."])
 define("repo.push_failed", "error", "A branch that could not be pushed is reported with how to reach it, never as a job sent.", "Could not push to the branch", "Check your connection and access, then try again.", who="client",
@@ -320,21 +320,21 @@ define("proposal.push.refused", "error", "The real text of a push GitHub refused
        steps=["Read the reason above, then run the same command again."])
 define("release.source.missing", "error", "An update needs a release source to read from.", "No release source is configured", "updates.source is empty.", who="client", steps=["Run ct-setup client."])
 define("release.fetch_failed", "error", "The real error text of a release source that could not be fetched.", "Could not fetch the release source", "{reason}", who="client",
-       steps=["Check that this computer can reach the release source."])
+       steps=["Run git ls-remote on the release source to test that it can be reached."])
 define("release.commit.missing", "error", "A commit that is not in the release source cannot be installed.", "A commit was not found in the release source", "Has it been pushed?", who="client",
        steps=["Push the commit to the release source, then run this again."])
 define("release.commit.off_branch", "policy", "The worker only installs commits that are on the release branch, so what it runs has been through that branch.", "A commit is not on the release branch",
        "The worker only installs commits that are on the release branch.", who="client", steps=["Merge it first, then try again."])
 define("update.dirty", "error", "A checkout with uncommitted changes is never touched by an update.", "Your checkout has uncommitted changes", "{root} was not touched.", who="client",
        steps=["Commit or stash them, then run ct-admin update again."])
-define("update.fetch_failed", "error", "The real error text of a release that could not be fetched.", "Could not fetch the release", "{reason}", who="client", steps=["Check that this computer can reach the release source."])
+define("update.fetch_failed", "error", "The real error text of a release that could not be fetched.", "Could not fetch the release", "{reason}", who="client", steps=["Run git ls-remote on the release source to test that it can be reached."])
 define("update.not_fast_forward", "error", "A checkout that has commits the release does not is not rewound or merged for the person.", "Your checkout cannot be fast-forwarded to that release",
        "It has commits the release does not (or the history differs), so nothing was changed.", who="client", steps=["Merge the release into your checkout yourself with git merge."])
 define("update.pip_failed", "error", "The real error text of a pip install that failed.", "pip could not install that release", "{reason}", who="client", steps=["Run the pip command shown to see the error."])
 define("ssh.control_folder.long", "error", "A unix socket path has a short limit; a folder that exceeds it cannot be used for the connection.", "The SSH control folder is too long",
        "the SSH control folder {path} is too long for a unix socket", who="client", steps=["Set CT_SSH_DIR to a shorter folder."])
 define("ssh.address.missing", "error", "A connection needs a server address.", "No server address is configured", "server.host is empty or not an address.", who="client", steps=["Run ct-setup client."])
-define("ssh.connect_failed", "error", "The real error text of a connection that failed.", "Could not connect", "{reason}", who="client", steps=["Check that SSH key login works from this computer."])
+define("ssh.connect_failed", "error", "The real error text of a connection that failed.", "Could not connect", "{reason}", who="client", steps=["Run ssh USER@HOST true to test key login from this computer."])
 define("worker.name.invalid", "format", "A worker name is short and plain, so it is safe in a file and on a command line.", "A worker name is not allowed",
        "a worker name is lowercase letters, digits and dashes, starting with a letter", who="client")
 define("worker.config.missing", "error", "A worker is added from its configuration file, so a path with none is said plainly.", "There is no configuration file there", "there is no configuration file at {path}", who="client")
@@ -350,7 +350,7 @@ define("files.warn.secret_content", "security", "Tells the person that a file be
 define("prompt.no_terminal", "policy", "A question that needs the person's answer is never answered for them when nobody is at the keyboard.", "This needs your answer", "It asks a question, and nobody is at the keyboard.", who="client",
        steps=["Run it in a terminal, or add --yes if you are sure."])
 define("review.show_failed", "error", "Jobs that could not be shown are not marked as viewed, so they cannot be approved unseen.", "Could not show those jobs", "They were NOT marked as viewed.", who="client",
-       steps=["Check the connection with ct-admin check."])
+       steps=["Run ct-admin check to see why the worker cannot be read."])
 define("approval.key.untrusted", "security", "Approvals are signed here and checked on the worker against the key it was set up with, so a worker that trusts another key (or none) will not run the job.",
        "A worker does not trust your approval key yet", "Approvals are signed here and checked on the worker against a key it was set up with. This worker has {has}.", who="client",
        steps=["Run the install again; it gives the worker your key: ct-setup install", "Or approve this one by logging in to the worker: add --ssh"])
@@ -367,7 +367,7 @@ define("job.expired.approve", "security", "A job older than the worker's age lim
        "It was sent more than a day ago, and {name} does not run a job that old, so it cannot be approved. Send it again.", who="client", steps=["Send it again with ct-run submit."])
 define("job.unknown", "error", "A job that is neither on the jobs branch nor waiting on the worker cannot be approved.", "No such job",
        "Its file is not on the jobs branch, and {name} does not show it waiting for approval.", who="client", steps=["List your jobs with ct-run jobs."])
-define("update.check_failed", "error", "The real error text of a release check that failed.", "Could not look for a newer release", "{reason}", who="client", steps=["Check that this computer can reach the release source."])
+define("update.check_failed", "error", "The real error text of a release check that failed.", "Could not look for a newer release", "{reason}", who="client", steps=["Run git ls-remote on the release source to test that it can be reached."])
 define("worker.rename.name_missing", "format", "A rename needs the new name.", "Say the new name", "ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.", who="client",
        steps=["Give the name: ct-admin workers rename WORKER NAME"])
 define("worker.rename.unusable", "format", "A name must not collide with another worker or a command word.", "That name cannot be used", "{problem}", who="client")
@@ -444,3 +444,54 @@ define("registry.file.unreadable", "error", "The real error text of a registry f
 define("registry.file.yaml", "error", "The real error text of a registry file that is not valid YAML.", "The registry file is not valid YAML", "{path} is not valid YAML: {reason}", who="both")
 define("approval.key.not_ssh", "format", "An approval key is an SSH public key, so nothing else is trusted as one.", "That is not an SSH public key", "that is not an SSH public key", who="both")
 define("config.host.missing", "error", "A configuration without a server.host line cannot be re-pointed at a new address.", "The configuration has no server.host line", "no server.host line in {path}", who="client")
+
+# ---- the setup commands (ct-setup): server, install, migrate, rename, client, add-worker, uninstall ----
+define('setup.command.failed', 'error', 'The real text a setup command printed when it failed, so the cause is never guessed at.', 'A setup command failed', '`{command}` said: {said}', who="client")
+define('setup.answers.missing', 'format', 'A setup that needs an answer with no default asks for it; it never invents one.', 'Some answers are needed', 'No default exists for: {missing}', who="client")
+define('setup.config.invalid', 'format', 'A configuration that does not validate is never written.', 'The answers do not make a valid configuration', '{problems}', who="client")
+define('setup.worker_account.missing', 'error', 'The worker runs as an account that must exist before anything is moved.', 'The worker account does not exist on this machine', 'Nothing was changed.', who="client")
+define('setup.job.running', 'policy', 'A running job is never interrupted by a move or a rename.', 'A job is running', '{running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.', who="client")
+define('setup.mailbox_key.not_made', 'error', 'The mailbox key is made here; if ssh-keygen fails nothing can use the mailbox.', 'The mailbox key could not be made', '{reason}', who="client")
+define('server.machine.unsupported', 'policy', 'Only machines the worker is known to run on are set up.', 'This machine is not supported', '{problem}', who="client")
+define('server.not_root', 'policy', 'The server half creates accounts and installs system files, so it runs as root.', 'Run this as root', 'It creates accounts and installs system files.', who="client")
+define('server.hardening.unknown', 'format', 'Only protections the setup knows are applied.', 'Unknown hardening module', '{names}', who="client")
+define('server.admin_account.missing', 'error', 'The admin account is the one you log in as; it must exist first.', 'The admin account does not exist', 'It is the account you log in as; create it first.', who="client")
+define('server.worker_account.differs', 'policy', "A second worker account would leave the first one's repositories and state unreadable.", "This machine's worker already runs as another account", "Creating a second account would leave {have}'s repositories and state unreadable and every job stuck. Nothing was changed by this check.", who="client")
+define('server.release.unknown', 'error', 'The release a worker runs is recorded, so one that cannot be identified is not installed.', 'Cannot tell which release this is', '{source} is not a git checkout; pass --rev <commit> if you know it.', who="client")
+define('server.install.refused', 'error', "The install's own checks refused it; the reasons are shown.", 'The install was refused', '{errors}', who="client")
+define('server.queue.unreadable', 'error', 'The worker must read the queue repository before the registry is installed.', 'The worker could not read the queue repository, so the job registry was not installed', '{reason}', who="client")
+define('server.registry.not_installed', 'error', 'A registry with a problem is not installed.', 'The job registry was not installed', '{reason}', who="client")
+define('server.ai_tool.not_running', 'error', 'An AI tool that was installed but does not run is reported, not left half-working.', 'The Claude tool does not run on this machine', 'It installed but `claude --version` failed.', who="client")
+define('server.token.invalid', 'format', 'A token is one long line with no spaces.', 'That does not look like a token', 'It should be one long line with no spaces. Run ct-setup install again to enter it.', who="client")
+define('server.protection.failed', 'error', 'A protection that could not be applied stops the worker from starting.', 'A protection could not be applied, so the worker was not started', '{failed}', who="client")
+define('install.package.failed', 'error', 'The real error text of a release that could not be packaged.', 'Could not package the release', '{reason}', who="client")
+define('install.workdir.failed', 'error', 'The real error text of a working folder that could not be made on the server.', 'Could not make a working folder on the server', '{reason}', who="client")
+define('install.send.failed', 'error', 'The real error text of a release that could not be sent.', 'Could not send the release to the server', '{reason}', who="client")
+define('install.config.stale', 'format', 'A saved configuration that no longer validates is not reused.', 'The configuration from the earlier run is not valid', '{problems}', who="client")
+define('install.ssh.login_failed', 'error', 'The real reason SSH login to the server failed.', 'Cannot log in over SSH', '{why}', who="client")
+define('install.server.unsupported', 'policy', 'Only servers the worker is known to run on are set up.', 'The server is not supported', '{problem}', who="client")
+define('install.deploy_keys.waiting', 'error', 'The server half stops until its two deploy keys are on GitHub, and continues when run again.', 'The server is still waiting for its deploy keys', 'They were not added in time.', who="client")
+define('install.server.stopped', 'error', 'The server half stopped; its messages are above and a rerun continues.', 'The server setup stopped', 'Read the messages above. Running ct-setup install again continues where it left off.', who="client")
+define('migrate.config.invalid', 'format', 'A connection change that does not validate is never written.', 'The new connection does not make a valid configuration', '{problems}', who="client")
+define('migrate.method.unknown', 'format', 'Only known connection methods are moved to.', 'That is not a connection method', 'Choose one of: {methods}.', who="client")
+define('migrate.method.same', 'policy', 'Moving to the method already in use changes nothing.', 'The install already uses that method', 'There is nothing to move.', who="client")
+define('migrate.to_github.unsupported', 'policy', 'Moving back to GitHub is not done by this command yet.', 'Moving back to GitHub is not done by this command yet', 'Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.', who="client")
+define('migrate.clone.missing', 'error', 'A clone that is missing cannot be copied into the mailbox.', 'The worker has no clone of that repository', '{path} is missing, so there is nothing to copy into the mailbox.', who="client")
+define('migrate.release.missing', 'error', 'The release to install must be a release checkout.', 'The release to install is missing', '{source} is not a release checkout.', who="client")
+define('migrate.key.not_arrived', 'error', 'Without the mailbox key nothing could use the mailbox, so nothing is changed.', "Your computer's mailbox key did not arrive", 'Without it nothing could use the mailbox, so nothing was changed.', who="client")
+define('migrate.step.failed', 'error', 'The real text of the migration step that failed; a rerun carries on and skips what is done.', 'A migration step failed', '`{command}` said: {said}', who="client")
+define('rename.config.invalid', 'format', 'A rename that does not validate is never written.', 'The new name does not make a valid configuration', '{problems}', who="client")
+define('rename.name.invalid', 'format', 'An install name is short and plain, so it is safe as a folder and a service name.', 'That is not a valid install name', '3 to 24 lowercase letters, digits or -, starting with a letter.', who="client")
+define('rename.name.same', 'policy', 'Renaming to the same name changes nothing.', 'The install already has that name', '{old} is what its configuration says, so there is nothing to rename.', who="client")
+define('rename.folder.exists', 'error', 'A folder already using the new name is never overwritten.', 'That name already exists', "Something else is using the new name's folder, so nothing was changed.", who="client")
+define('rename.service.exists', 'error', 'A service already using the new name is never overwritten.', 'A service with that name already exists', 'Something else is using the new name, so nothing was changed.', who="client")
+define('rename.release.missing', 'error', 'The release to install under the new name must be a release checkout.', 'The release to install under the new name is missing', '{source} is not a release checkout.', who="client")
+define('rename.step.failed', 'error', 'The real text of the rename step that failed; a rerun carries on and skips what is done.', 'A rename step failed', '`{command}` said: {said}', who="client")
+define('client.tools.missing', 'error', 'The setup needs git and ssh on this computer.', 'Missing tools', '{missing} must be installed first', who="client")
+define('client.github.not_yours', 'policy', 'Repositories are created only under the signed-in account or an organisation it belongs to.', 'That GitHub account is not yours', 'You are signed in to GitHub as {login}, but the repositories would be created under {owner}, which is neither your account nor an organisation you belong to.', who="client")
+define('client.mailbox.unreadable', 'error', "The real reason this computer cannot read the worker's mailbox.", "This computer cannot read the worker's mailbox", '{why}', who="client")
+define('addworker.question.unanswered', 'format', 'A question with no answer stops the setup; it never guesses.', 'That question was not answered', '{problem}', who="client")
+define('worker.name.taken', 'policy', 'A worker name names one worker on this computer.', 'That worker name cannot be used', '{reason}', who="client")
+define('addworker.windows.direct_only', 'policy', 'A Windows worker uses the Direct connection only in this version.', 'A Windows worker uses the Direct connection only', 'The GitHub connection is not available for a Windows worker in this version.', who="client")
+define('uninstall.step.failed', 'error', 'The real text of the removal step that failed.', 'A removal step failed', '`{command}` said: {said}', who="client")
+define('uninstall.config.unreadable', 'error', "A removal needs the install's own configuration to find what to remove.", "Cannot read this install's configuration", '{problems}', who="client")

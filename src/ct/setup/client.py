@@ -4,6 +4,7 @@ private GitHub repositories under your account, seeds the registry with the core
 It never types a password and never touches your GitHub login: repository creation goes through the `gh` command you already signed in
 to, and without it the exact steps are printed for you to do by hand.
 """
+from . import refuse
 import os
 import shlex
 import sys
@@ -62,13 +63,13 @@ class ClientSetup:
             return Result(0)
         r = self.host.run(argv)
         if check and not r.ok:
-            raise SetupError("A setup step failed", f"`{shlex.join(argv)}` said: {r.out.strip()[:300]}", facts=[("Step", step)])
+            raise refuse.error("setup.command.failed", ("Step", step), command=shlex.join(argv), said=r.out.strip()[:300])
         return r
 
     def prerequisites(self):
         missing = [t for t in ("git", "ssh") if not self.host.which(t)]
         if missing:
-            raise SetupError("Missing tools", ", ".join(missing) + " must be installed first", ["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."])
+            raise refuse.error("client.tools.missing", steps=["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."], missing=", ".join(missing))
         self.gh = bool(self.host.which("gh"))
         self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found (it is offered at the repository step)"))
         for what, fix in legacy.find(self.host):                           # nothing is removed here: these are the person's shell and Claude Code settings
@@ -82,14 +83,14 @@ class ClientSetup:
         if self.ui is not None:
             self.ui.finish()
         if missing:
-            raise SetupError("Some answers are needed", "No default exists for: " + ", ".join(missing), missing_steps(missing))
+            raise refuse.error("setup.answers.missing", steps=missing_steps(missing), missing=", ".join(missing))
         for key in ALSO_FOR_THE_CLIENT:                                      # a worker's setting that decides how THIS computer must connect to it
             if key in self.given:
                 section, _, name = key.partition(".")
                 nested.setdefault(section, {})[name] = self.given[key]
         clean, problems = questions.validate_answers(nested)
         if problems:
-            raise SetupError("The answers do not make a valid configuration", "\n".join(problems))
+            raise refuse.error("setup.config.invalid", problems="\n".join(problems))
         self.cfg = config.Config(clean)
         path = self.config_path()
         if self.ui is not None and not self.dry_run:
@@ -144,9 +145,8 @@ class ClientSetup:
         orgs = self.host.run(["gh", "api", "user/orgs", "--jq", ".[].login"])
         allowed = {login.lower()} | {o.strip().lower() for o in (orgs.out.splitlines() if orgs.ok else []) if o.strip()}
         if self.cfg.github.owner.lower() not in allowed:
-            raise SetupError("That GitHub account is not yours", f"You are signed in to GitHub as {login}, but the repositories would be created under {self.cfg.github.owner}, which is neither your account nor an organisation you belong to.",
-                             [f"Run ct-setup install again and answer {login} to the GitHub account question (it is your GitHub username, not the login on the server).",
-                              "Or sign in as that account first: gh auth login"])
+            raise refuse.error("client.github.not_yours", steps=[f"Run ct-setup install again and answer {login} to the GitHub account question (it is your GitHub username, not the login on the server).",
+                              "Or sign in as that account first: gh auth login"], login=login, owner=self.cfg.github.owner)
         self.note("GitHub account", "ok", f"signed in as {login}; repositories go under {self.cfg.github.owner}")
 
     GH_PAGE = "https://cli.github.com"
@@ -236,7 +236,7 @@ class ClientSetup:
             why = getattr(e, "why", None) or str(e)
             self.note("clone", "waiting", why)
             if strict:                                   # Direct: the mailbox is already made, so nothing is "yet to come": this computer cannot read it
-                raise SetupError("This computer cannot read the worker's mailbox", why, list(getattr(e, "steps", None) or []) or ["Run ct-setup install again once the cause above is fixed."])
+                raise refuse.error("client.mailbox.unreadable", steps=list(getattr(e, "steps", None) or []) or ["Run ct-setup install again once the cause above is fixed."], why=why)
             return
         repos.fetch_queue()
         if repos.remote_branch_exists(self.cfg.github.main_branch):
@@ -261,7 +261,7 @@ class ClientSetup:
             return
         os.makedirs(self.host.path(key.parent), mode=0o700, exist_ok=True)
         if not self.host.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ct-mailbox", "-f", str(self.host.path(key))]).ok:
-            raise SetupError("The mailbox key could not be made", "ssh-keygen did not make it.", [f"Run: ssh-keygen -t ed25519 -N '' -f {key}", "Then run ct-setup install again."])
+            raise refuse.error("setup.mailbox_key.not_made", steps=[f"Run: ssh-keygen -t ed25519 -N '' -f {key}", "Then run ct-setup install again."], reason="ssh-keygen did not make it.")
         self.note("mailbox key", "created", f"{key}")
 
     def approval_key(self):

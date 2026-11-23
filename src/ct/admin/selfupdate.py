@@ -27,7 +27,7 @@ def update_checkout(root, url, tag, run=subprocess.run):
         raise refuse.error("update.dirty", root=root)
     r = git("fetch", "--quiet", url, f"refs/tags/{tag}:refs/tags/{tag}")
     if r.returncode:
-        raise refuse.error("update.fetch_failed", ("Release", str(tag)), steps=[f"Check that you can reach {url}"], reason=(r.stderr or "").strip()[-200:])
+        raise refuse.error("update.fetch_failed", ("Release", str(tag)), steps=[f"Run git ls-remote {url} to test that it can be reached."], reason=(r.stderr or "").strip()[-200:])
     r = git("merge", "--ff-only", f"{tag}^{{commit}}")
     if r.returncode:
         raise refuse.error("update.not_fast_forward", steps=[f"Merge it yourself: git -C {root} merge {tag}"])

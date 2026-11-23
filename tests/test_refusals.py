@@ -14,7 +14,7 @@ from ct import refusals  # noqa: E402
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
 POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py",
                   "pkgspec.py", "registry.py", "approvals.py", "rediscover.py", "setup/winsetup.py", "setup/winrelease.py", "setup/winlayout.py", "setup/winmailbox.py", "setup/wintask.py",
-                  "setup/winuninstall.py", "admin/cli.py", "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
+                  "setup/winuninstall.py", "setup/server.py", "setup/install.py", "setup/migrate.py", "setup/rename.py", "setup/client.py", "setup/addworker.py", "setup/uninstall.py", "admin/cli.py", "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 

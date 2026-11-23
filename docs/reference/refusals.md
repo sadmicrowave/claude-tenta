@@ -30,7 +30,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check this computer's clock, then send the job again with ct-run submit.
+- **What to do:** Run date to see this computer's clock, then send the job again with ct-run submit.
 
 ### `job.class.unknown`: The job names a class the worker does not have
 
@@ -360,7 +360,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Correct the class with ct-admin class.
+- **What to do:** Open the class with ct-admin class show CLASS and declare the parameter.
 
 ### `files.unreadable`: A file could not be read
 
@@ -670,6 +670,86 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `setup.answers.missing`: Some answers are needed
+
+- **Text:** No default exists for: {missing}
+- **Protects:** A setup that needs an answer with no default asks for it; it never invents one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.config.invalid`: The answers do not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A configuration that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.hardening.unknown`: Unknown hardening module
+
+- **Text:** {names}
+- **Protects:** Only protections the setup knows are applied.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.token.invalid`: That does not look like a token
+
+- **Text:** It should be one long line with no spaces. Run ct-setup install again to enter it.
+- **Protects:** A token is one long line with no spaces.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.config.stale`: The configuration from the earlier run is not valid
+
+- **Text:** {problems}
+- **Protects:** A saved configuration that no longer validates is not reused.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.config.invalid`: The new connection does not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A connection change that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.method.unknown`: That is not a connection method
+
+- **Text:** Choose one of: {methods}.
+- **Protects:** Only known connection methods are moved to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.config.invalid`: The new name does not make a valid configuration
+
+- **Text:** {problems}
+- **Protects:** A rename that does not validate is never written.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.name.invalid`: That is not a valid install name
+
+- **Text:** 3 to 24 lowercase letters, digits or -, starting with a letter.
+- **Protects:** An install name is short and plain, so it is safe as a folder and a service name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `addworker.question.unanswered`: That question was not answered
+
+- **Text:** {problem}
+- **Protects:** A question with no answer stops the setup; it never guesses.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Limit
 
 ### `files.too_many`: Too many files are attached
@@ -816,7 +896,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check it with ct-admin check.
+- **What to do:** Run ct-admin check to see why it does not answer.
 
 ### `placement.no_state`: A worker has published no state
 
@@ -960,7 +1040,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check the package names with ct-run offload profile.
+- **What to do:** Name each package like apt:jq, npm:eslint or pip:requests on ct-run offload profile.
 
 ## Policy
 
@@ -1111,6 +1191,94 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `setup.job.running`: A job is running
+
+- **Text:** {running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.
+- **Protects:** A running job is never interrupted by a move or a rename.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.machine.unsupported`: This machine is not supported
+
+- **Text:** {problem}
+- **Protects:** Only machines the worker is known to run on are set up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.not_root`: Run this as root
+
+- **Text:** It creates accounts and installs system files.
+- **Protects:** The server half creates accounts and installs system files, so it runs as root.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.worker_account.differs`: This machine's worker already runs as another account
+
+- **Text:** Creating a second account would leave {have}'s repositories and state unreadable and every job stuck. Nothing was changed by this check.
+- **Protects:** A second worker account would leave the first one's repositories and state unreadable.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.server.unsupported`: The server is not supported
+
+- **Text:** {problem}
+- **Protects:** Only servers the worker is known to run on are set up.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.method.same`: The install already uses that method
+
+- **Text:** There is nothing to move.
+- **Protects:** Moving to the method already in use changes nothing.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.to_github.unsupported`: Moving back to GitHub is not done by this command yet
+
+- **Text:** Nothing was changed. Your GitHub repositories were never touched, so they still hold the history up to the move.
+- **Protects:** Moving back to GitHub is not done by this command yet.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.name.same`: The install already has that name
+
+- **Text:** {old} is what its configuration says, so there is nothing to rename.
+- **Protects:** Renaming to the same name changes nothing.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.github.not_yours`: That GitHub account is not yours
+
+- **Text:** You are signed in to GitHub as {login}, but the repositories would be created under {owner}, which is neither your account nor an organisation you belong to.
+- **Protects:** Repositories are created only under the signed-in account or an organisation it belongs to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.name.taken`: That worker name cannot be used
+
+- **Text:** {reason}
+- **Protects:** A worker name names one worker on this computer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `addworker.windows.direct_only`: A Windows worker uses the Direct connection only
+
+- **Text:** The GitHub connection is not available for a Windows worker in this version.
+- **Protects:** A Windows worker uses the Direct connection only in this version.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Error
 
 ### `result.not_ready`: No result yet
@@ -1201,7 +1369,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check that this computer can reach the repository, then run ct-run setup again.
+- **What to do:** Run git ls-remote on the repository address to test that it can be reached, then run ct-run setup again.
 
 ### `repo.file_missing`: A file did not arrive on the branch
 
@@ -1309,7 +1477,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check that this computer can reach the release source.
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
 
 ### `release.commit.missing`: A commit was not found in the release source
 
@@ -1336,7 +1504,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check that this computer can reach the release source.
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
 
 ### `update.not_fast_forward`: Your checkout cannot be fast-forwarded to that release
 
@@ -1381,7 +1549,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check that SSH key login works from this computer.
+- **What to do:** Run ssh USER@HOST true to test key login from this computer.
 
 ### `worker.config.missing`: There is no configuration file there
 
@@ -1398,7 +1566,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check the connection with ct-admin check.
+- **What to do:** Run ct-admin check to see why the worker cannot be read.
 
 ### `approval.sign_failed`: Could not sign the approval
 
@@ -1452,7 +1620,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check that this computer can reach the release source.
+- **What to do:** Run git ls-remote on the release source to test that it can be reached.
 
 ### `worker.add.failed`: Could not add that worker
 
@@ -1607,6 +1775,230 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 
 - **Text:** no server.host line in {path}
 - **Protects:** A configuration without a server.host line cannot be re-pointed at a new address.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.command.failed`: A setup command failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text a setup command printed when it failed, so the cause is never guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.worker_account.missing`: The worker account does not exist on this machine
+
+- **Text:** Nothing was changed.
+- **Protects:** The worker runs as an account that must exist before anything is moved.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `setup.mailbox_key.not_made`: The mailbox key could not be made
+
+- **Text:** {reason}
+- **Protects:** The mailbox key is made here; if ssh-keygen fails nothing can use the mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.admin_account.missing`: The admin account does not exist
+
+- **Text:** It is the account you log in as; create it first.
+- **Protects:** The admin account is the one you log in as; it must exist first.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.release.unknown`: Cannot tell which release this is
+
+- **Text:** {source} is not a git checkout; pass --rev <commit> if you know it.
+- **Protects:** The release a worker runs is recorded, so one that cannot be identified is not installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.install.refused`: The install was refused
+
+- **Text:** {errors}
+- **Protects:** The install's own checks refused it; the reasons are shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.queue.unreadable`: The worker could not read the queue repository, so the job registry was not installed
+
+- **Text:** {reason}
+- **Protects:** The worker must read the queue repository before the registry is installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.registry.not_installed`: The job registry was not installed
+
+- **Text:** {reason}
+- **Protects:** A registry with a problem is not installed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.ai_tool.not_running`: The Claude tool does not run on this machine
+
+- **Text:** It installed but `claude --version` failed.
+- **Protects:** An AI tool that was installed but does not run is reported, not left half-working.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `server.protection.failed`: A protection could not be applied, so the worker was not started
+
+- **Text:** {failed}
+- **Protects:** A protection that could not be applied stops the worker from starting.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.package.failed`: Could not package the release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be packaged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.workdir.failed`: Could not make a working folder on the server
+
+- **Text:** {reason}
+- **Protects:** The real error text of a working folder that could not be made on the server.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.send.failed`: Could not send the release to the server
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release that could not be sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.ssh.login_failed`: Cannot log in over SSH
+
+- **Text:** {why}
+- **Protects:** The real reason SSH login to the server failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.deploy_keys.waiting`: The server is still waiting for its deploy keys
+
+- **Text:** They were not added in time.
+- **Protects:** The server half stops until its two deploy keys are on GitHub, and continues when run again.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `install.server.stopped`: The server setup stopped
+
+- **Text:** Read the messages above. Running ct-setup install again continues where it left off.
+- **Protects:** The server half stopped; its messages are above and a rerun continues.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.clone.missing`: The worker has no clone of that repository
+
+- **Text:** {path} is missing, so there is nothing to copy into the mailbox.
+- **Protects:** A clone that is missing cannot be copied into the mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.release.missing`: The release to install is missing
+
+- **Text:** {source} is not a release checkout.
+- **Protects:** The release to install must be a release checkout.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.key.not_arrived`: Your computer's mailbox key did not arrive
+
+- **Text:** Without it nothing could use the mailbox, so nothing was changed.
+- **Protects:** Without the mailbox key nothing could use the mailbox, so nothing is changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `migrate.step.failed`: A migration step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the migration step that failed; a rerun carries on and skips what is done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.folder.exists`: That name already exists
+
+- **Text:** Something else is using the new name's folder, so nothing was changed.
+- **Protects:** A folder already using the new name is never overwritten.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.service.exists`: A service with that name already exists
+
+- **Text:** Something else is using the new name, so nothing was changed.
+- **Protects:** A service already using the new name is never overwritten.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.release.missing`: The release to install under the new name is missing
+
+- **Text:** {source} is not a release checkout.
+- **Protects:** The release to install under the new name must be a release checkout.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `rename.step.failed`: A rename step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the rename step that failed; a rerun carries on and skips what is done.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.tools.missing`: Missing tools
+
+- **Text:** {missing} must be installed first
+- **Protects:** The setup needs git and ssh on this computer.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `client.mailbox.unreadable`: This computer cannot read the worker's mailbox
+
+- **Text:** {why}
+- **Protects:** The real reason this computer cannot read the worker's mailbox.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `uninstall.step.failed`: A removal step failed
+
+- **Text:** `{command}` said: {said}
+- **Protects:** The real text of the removal step that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `uninstall.config.unreadable`: Cannot read this install's configuration
+
+- **Text:** {problems}
+- **Protects:** A removal needs the install's own configuration to find what to remove.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable

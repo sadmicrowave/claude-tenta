@@ -948,7 +948,7 @@ def merge_branch(ctx, branch, *, yes=False, subject=None):
             problems = [f"not valid YAML: {e}"]
         problems = [x for x in problems if "tools" not in x]
         if problems:
-            raise refuse.error("proposal.registry.invalid", ("Branch", branch), steps=[f"Correct the problem listed above on the {branch} branch of the queue repository, push it, then run this again. Nothing was merged."], problems="\n".join(problems[:5]))
+            raise refuse.error("proposal.registry.invalid", ("Branch", branch), steps=[f"Open the {branch} branch of the queue repository, change what the problems above name, push it, then run this again. Nothing was merged."], problems="\n".join(problems[:5]))
     subject_line, _, rest = msg.partition("\n")
     emit("Merge a branch into main", ("Branch", branch), ("Adds", f"{plural(len(p.commits(branch)), 'commit')}, squashed into ONE"), *[("Commit", f"{h}  {s}  ({who}, {when})") for h, s, who, when in p.commits(branch)],
          *[("File", diffview.counts(path, add, gone)) for path, add, gone in p.files(branch)], ("Becomes", subject_line),

@@ -11,6 +11,7 @@ is shared (a link to the one you already have, so one signature works everywhere
 PATH are not written. After the install the files that must not change are compared with how they were before, and any difference is shown. The only thing added elsewhere is the worker's
 line in `workers.toml`, which is how `ct-admin workers` and `ct-admin watch` find it.
 """
+from . import refuse
 import hashlib
 import os
 import re
@@ -55,7 +56,7 @@ def ask_one(ui, ask, say, q, default="", options=(), validate=None):
         if not problem and not (q.get("required") and not text):
             return text
         problem = problem or "this one needs an answer"
-    raise SetupError("That question was not answered", problem)
+    raise refuse.error("addworker.question.unanswered", problem=problem)
 
 
 def yes_no(ui, ask, say, title, why, default="yes"):
@@ -226,7 +227,7 @@ def windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, int
     name = a.worker_name or (ask_one(ui, ask, say, {"key": "worker.name", "title": "What should this worker be called?", "why": "Its install name, its configuration file and its folder on this computer are named after it. It must differ from your other workers.",
                                                       "examples": [name_default], "required": True}, name_default, (), validate=taken) if interactive else name_default)
     if taken(name):
-        raise SetupError("That worker name cannot be used", taken(name), [f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"])
+        raise refuse.error("worker.name.taken", steps=[f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"], reason=taken(name))
     conf, home = paths_for(cfg, name)
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, ask=ask, interactive=interactive)
 
@@ -335,7 +336,7 @@ def rerun(a, cfg, wfile, ex, target, ui, ask, say, notice, installer_factory, in
         return 1
     kind = dict(kv.split("=", 1) for kv in (getattr(a, "set", None) or []) if "=" in kv).get("transport.kind") or (raw.get("transport") or {}).get("kind")      # --set transport.kind=github is how a worker is moved back
     if windows and kind and kind != "direct":
-        raise SetupError("A Windows worker uses the Direct connection only", "The GitHub connection is not available for a Windows worker in this version.", [f"Run: ct-setup install --worker {name}  (without --set transport.kind)"], facts=[("Worker", name)])
+        raise refuse.error("addworker.windows.direct_only", ("Worker", name), steps=[f"Run: ct-setup install --worker {name}  (without --set transport.kind)"])
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, target, user, again=True, extra={"transport.kind": kind} if kind else None)      # its own connection, not the first install's
 
 
@@ -438,7 +439,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     name = a.worker_name or (ask_one(ui, ask, say, {"key": "worker.name", "title": "What should this worker be called?", "why": "Its install name, its configuration file and its folder on this computer are named after it. It must differ from your other workers.",
                                             "examples": [name_default], "required": True}, name_default, (), validate=taken) if interactive else name_default)
     if taken(name):
-        raise SetupError("That worker name cannot be used", taken(name), [f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"])
+        raise refuse.error("worker.name.taken", steps=[f"Choose another with --worker-name, for example --worker-name {worker_name(name, names)}"], reason=taken(name))
     conf, home = paths_for(cfg, name)
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, ask=ask, interactive=interactive)
 

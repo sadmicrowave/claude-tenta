@@ -10,6 +10,7 @@ What it does NOT do, on purpose:
   * with --keep-data the state folder (the clones of the two repositories, the security log, kept outputs) stays.
 Your GitHub repositories and your computer's own configuration are never touched.
 """
+from . import refuse
 from .. import config, render
 from . import hardening
 from .host import Result
@@ -94,7 +95,7 @@ class Uninstall:
             for a in actions:
                 r = a.do(self.host)
                 if not r.ok and not (a.argv and a.argv[0] in ("pkill", "systemctl")):           # stopping something that is not running is not a failure
-                    raise SetupError(f"{title} failed", f"`{a.show().splitlines()[0]}` said: {r.out.strip()[:200]}")
+                    raise refuse.error("uninstall.step.failed", ("Step", title), command=a.show().splitlines()[0], said=r.out.strip()[:200])
         self.report.append(("uninstall", "removed", self.cfg.identity.name))
         return self.report
 
@@ -103,4 +104,4 @@ def load_config(path=None):
     try:
         return config.load(path)
     except config.ConfigError as e:
-        raise SetupError("Cannot read this install's configuration", "; ".join(e.problems))
+        raise refuse.error("uninstall.config.unreadable", problems="; ".join(e.problems))

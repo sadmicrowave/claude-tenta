@@ -1,4 +1,4 @@
-"""Every instruction shown under WHAT TO DO (a SetupError's steps) is something a person can follow: it names the command, the file or the page, never a bare "fix it"."""
+"""Every instruction shown under WHAT TO DO (a catalog entry's steps, and the steps a caller gives a refusal) is something a person can follow: it names the command, the file or the page, never a bare "fix it"."""
 import ast
 import re
 import unittest
@@ -20,10 +20,16 @@ def step_strings(call):
 
 class Steps(unittest.TestCase):
     def test_no_step_is_a_bare_instruction_to_fix_something(self):
+        from ct import refusals
         found, bad = 0, []
-        for path in sorted(ROOT.rglob("*.py")):
+        for code, entry in refusals.CATALOG.items():                                   # the steps every refusal carries by default
+            for text in entry.steps:
+                found += 1
+                if VAGUE.search(text.strip()):
+                    bad.append(f"{code}: {text[:80]}")
+        for path in sorted(ROOT.rglob("*.py")):                                        # and the steps a caller gives (SetupError, or the catalog builders, with steps=...)
             for node in ast.walk(ast.parse(path.read_text())):
-                if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", "")) == "SetupError":
+                if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", "")) in ("SetupError", "error"):
                     for text in step_strings(node):
                         found += 1
                         if VAGUE.search(text.strip()):
