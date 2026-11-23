@@ -669,8 +669,12 @@ def cmd_profile(ctx, a):
         ctx.names.remember(jid, name)
     shown = [("command", " ".join(argv)), ("job", jid)] + ([("name", name)] if name else []) + (
         [("needs", ", ".join(job["packages"]) + "  (fetched into a throwaway folder, deleted unless it fits)")] if job.get("packages") else [])
-    emit("This profiling run needs YOUR approval", *[(k.capitalize(), v) for k, v in shown], tag="APPROVAL", color=YELLOW, steps=[f"Review and approve it on your computer: {ctx.admin} approve {jid}", f"Then watch for the result: ct-run result {jid}"],
-         steps_label="What to do", run=[f"{ctx.admin} approve {jid}", f"ct-run result {jid}"], run_label="Run these")
+    if (r.worker_state() or {}).get("profile_approval") == "none":      # this worker starts a profile run without approval (Direct, and only while its jail isolates): nothing to approve, so the card says it was sent
+        emit("The profiling run was sent", *[(k.capitalize(), v) for k, v in shown], "This worker starts profile runs without approval, inside its jail.", tag="SENT", color=GREEN,
+             steps=[f"Read the result when it is done: ct-run result {jid} --wait"], steps_label="Next")
+    else:
+        emit("This profiling run needs YOUR approval", *[(k.capitalize(), v) for k, v in shown], tag="APPROVAL", color=YELLOW, steps=[f"Review and approve it on your computer: {ctx.admin} approve {jid}", f"Then watch for the result: ct-run result {jid}"],
+             steps_label="What to do", run=[f"{ctx.admin} approve {jid}", f"ct-run result {jid}"], run_label="Run these")
     if not a.wait:                                           # a profiling run always needs approval, usually from another terminal: never block on it
         if not ctx.is_tty():
             print(jid)                                       # output: data (the bare id is for scripts and Claude)
