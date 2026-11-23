@@ -65,4 +65,4 @@ def lines(text, room, mode=None):
 
 def room(framed=True):
     """How many characters wide a card's inside is, so a band can reach both edges."""
-    return cards.width() - (4 if framed else 2)
+    return cards.width() - (4 if framed and cards.width() >= cards.FRAME_MIN else 2)
