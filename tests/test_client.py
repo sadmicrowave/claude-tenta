@@ -66,6 +66,39 @@ class FilesAndBatches(unittest.TestCase):
         self.assertEqual(sorted(left.excluded), ["dist", "x.log"])                                           # what the project's own rules ignore is named, never silent
         self.assertNotIn(".git", left.excluded)                                                              # git's own folder is never part of the project
 
+    def test_a_project_that_is_not_a_git_folder_is_cut_by_its_languages_ignore_template(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("pyproject.toml", "app.py", "__pycache__/x.pyc", ".venv/lib/z.py", "build/out.txt", ".DS_Store", ".gitignore", ".tenta.toml", "docs/readme.md", ".idea/workspace.xml"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertEqual(sorted(files), [".gitignore", ".tenta.toml", "app.py", "docs/readme.md", "pyproject.toml"])          # dotfiles the template does not ignore are the project's own
+        self.assertEqual(sorted(left.excluded), [".DS_Store", ".idea", ".venv", "__pycache__", "build"])
+        self.assertIn("Python", left.source)
+        self.assertIn("not a git repository", left.source)
+
+    def test_a_folder_with_no_recognisable_language_keeps_the_interim_rule(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("notes.txt", ".hidden", "node_modules/m.js"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        self.assertEqual(sorted(submit.collect_dir(d, LIMITS, left=left)), ["notes.txt"])
+        self.assertEqual(sorted(left.excluded), [".hidden", "node_modules"])
+        self.assertEqual(left.source, "")
+
+    def test_the_templates_are_vendored_with_their_licence_and_every_named_one_exists(self):
+        t = submit.TEMPLATES
+        for lang in {n for n in submit.LANGUAGES}:
+            self.assertGreater(len((t / "lang" / f"{lang}.gitignore").read_text()), 20, lang)
+        for g in submit.GLOBALS:
+            self.assertGreater(len((t / "global" / f"{g}.gitignore").read_text()), 5, g)
+        self.assertIn("CC0", (t / "LICENSE").read_text())
+        self.assertRegex((t / "SOURCE").read_text(), r"commit [0-9a-f]{40}")
+
     def test_a_file_that_usually_holds_a_secret_is_held_back_unless_an_include_names_it(self):
         d = Path(tempfile.mkdtemp())
         for rel in ("ok.py", "server.pem", "deploy/id_rsa", "creds/.npmrc", "app.env.example", "keys.tfstate"):

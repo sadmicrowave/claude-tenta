@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,6 +64,47 @@ def named_exactly(rel, include):
     return any(not set("*?[") & set(pat) and pat in (rel, rel.rsplit("/", 1)[-1]) for pat in include or ())
 
 
+def outermost(names):
+    """Sorted, with a name left out when a folder that holds it is already in the list (a folder git reports whole, and a file inside it, is one thing to say)."""
+    return sorted(n for n in names if not any(n.startswith(m + "/") for m in names))
+
+
+TEMPLATES = Path(__file__).parent / "ignore_templates"          # GitHub's language ignore templates (github/gitignore, CC0), vendored: nothing is fetched when a job is sent (scripts/refresh-gitignore renews them)
+LANGUAGES = {"Python": ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"), "Node": ("package.json",), "Go": ("go.mod",), "Rust": ("Cargo.toml",), "Ruby": ("Gemfile",),
+             "Composer": ("composer.json",), "Maven": ("pom.xml",), "Gradle": ("build.gradle", "build.gradle.kts", "settings.gradle"), "Java": ("pom.xml", "build.gradle"),
+             "Kotlin": ("build.gradle.kts",), "Swift": ("Package.swift",), "Dart": ("pubspec.yaml",), "Elixir": ("mix.exs",), "Terraform": ("*.tf",), "Dotnet": ("*.csproj", "*.fsproj"),
+             "VisualStudio": ("*.sln", "*.csproj"), "C": ("CMakeLists.txt",), "C++": ("CMakeLists.txt",)}
+GLOBALS = ("macOS", "Linux", "Windows", "JetBrains", "VisualStudioCode", "Vim")                 # editor and operating-system junk, always applied with a language
+
+
+def detect_languages(base):
+    """The language templates that apply to a folder, from the files at its top level."""
+    return [lang for lang, markers in LANGUAGES.items() if any(next(Path(base).glob(m), None) for m in markers)]
+
+
+def template_candidates(base):
+    """(files, ignored, languages) for a folder that is not a git work tree but is recognisably a project (a language marker at its top): git's own matcher is run over the vendored templates, so the rules mean exactly
+    what they mean in a repository. None when no language is recognised (the interim rule applies)."""
+    langs = detect_languages(base)
+    if not langs:
+        return None
+    text = "\n".join((TEMPLATES / "lang" / f"{lang}.gitignore").read_text() for lang in langs) + "\n" + "\n".join((TEMPLATES / "global" / f"{g}.gitignore").read_text() for g in GLOBALS) + "\n.git/\n"
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            exclude, gitdir = Path(tmp) / "exclude", Path(tmp) / "g"
+            exclude.write_text(text)
+            subprocess.run(["git", "init", "-q", "--bare", str(gitdir)], check=True, capture_output=True, timeout=30)
+            run = lambda *more: subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "--git-dir", str(gitdir), "--work-tree", str(base), "ls-files", "-z", "--others", "--exclude-from", str(exclude),    # noqa: E731
+                                                "--exclude-standard", *more], capture_output=True, timeout=120)
+            listed, ignored = run(), run("--ignored", "--directory")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    names = lambda raw: outermost({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
+    return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else []), langs
+
+
 def git_candidates(base):
     """(files, ignored) when `base` is inside a git work tree: the files git treats as the project (tracked, and untracked but not ignored) and the names of what the project's own ignore rules leave out. None when it is not one."""
     try:
@@ -75,7 +117,7 @@ def git_candidates(base):
         return None
     if listed.returncode != 0:
         return None
-    names = lambda raw: sorted({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
+    names = lambda raw: outermost({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
     return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else [])
 
 
@@ -86,6 +128,7 @@ class LeftOut:
 
     def __init__(self):
         self.excluded, self.unsent, self.held, self.warn = {}, [], [], []
+        self.source = ""                                                          # which rule decided what was left out, in words
 
     def exclude(self, path, count=0):
         self.excluded[path] = self.excluded.get(path, 0) + count
@@ -140,6 +183,11 @@ def collect_dir(d, limits, include=None, left=None):
     base = Path(d).expanduser().resolve()
     left = left if left is not None else LeftOut()
     found = git_candidates(base)
+    left.source = "this project's own ignore rules" if found is not None else ""
+    if found is None:
+        found = template_candidates(base)
+        if found is not None:
+            left.source = f"the ignore templates for {', '.join(found[2][:3])}" + (" and others" if len(found[2]) > 3 else "") + " (this folder is not a git repository)"
     if found is not None:
         for name in found[1]:
             left.exclude(name)
