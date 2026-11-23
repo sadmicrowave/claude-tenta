@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from .. import jobs as core_jobs
 from .. import review as review_mod
 from ..client.repo import ClientError
 
@@ -119,13 +120,23 @@ def review_card(job, pub=None, product="the worker", info=None, digest=None):
     return card
 
 
+def is_expired(raw):
+    """True when the job file's own creation time is past the limit (the one definition in ct.jobs, shared with the worker)."""
+    try:
+        return core_jobs.expired(json.loads(raw))
+    except (ValueError, TypeError):
+        return False
+
+
 def classify(waiting_jobs, seen, current):
     """Split waiting jobs into (ready, skipped): ready = [(id, digest)] viewed and unchanged, skipped = [(id, why)]."""
     ready, skipped = [], []
     for jid, _ in waiting_jobs:
         raw = current(jid)
         now = digest_of(raw) if raw is not None else ""
-        if jid not in seen:
+        if raw is not None and is_expired(raw):
+            skipped.append((jid, "expired: it waited more than a day; send it again"))
+        elif jid not in seen:
             skipped.append((jid, "not viewed yet"))
         elif raw is None and seen[jid] == "":
             skipped.append((jid, "its file is no longer in the queue; review it again"))

@@ -92,6 +92,13 @@ class ResultCard(unittest.TestCase):
         self.assertNotIn("MEASURED", "\n".join(lines[:bottom]))
         self.assertIn(theme.sgr("╭─ ", "ok"), raw)                                             # green box for a success
 
+    def test_a_job_that_never_ran_is_one_card_with_the_reason_and_no_empty_output_box(self):
+        raw = ANSI.sub("", self.printed({"id": "profile-bkhudd", "status": "rejected", "note": "job expired: it is more than 24 hours old, send it again", "output": ""}))
+        self.assertIn("more than 24 hours old", raw)
+        self.assertNotIn("Output", raw)
+        self.assertNotIn("(no output)", raw)
+        self.assertEqual(raw.count("╭"), 1)
+
     def test_the_box_colour_follows_the_status(self):
         for status, role in (("error", "bad"), ("limit", "warn"), ("ok", "ok")):
             self.assertIn(theme.sgr("╭─ ", role), self.printed({**self.RES, "status": status}), status)

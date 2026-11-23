@@ -10,16 +10,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import alias, cards, ui
+from ..jobs import MAX_AGE_S
 from ..ui import BOLD, CYAN, DIM, GREEN, ITALIC, RED, YELLOW, chip, paint
 from .repo import PENDING
 from ..words import plural
 
 STATUS_COLOR = {"queued": CYAN, "running": CYAN, "ok": GREEN, "error": RED, "rejected": RED, "killed": RED, "quarantined": RED, "limit": YELLOW,
-                "cancelled": DIM, "awaiting_approval": YELLOW}
+                "cancelled": DIM, "awaiting_approval": YELLOW, "expired": DIM}
 STATUS_MEANING = (("queued", "submitted, the worker has not picked it up yet"), ("running", "approved, being run on the worker right now"),
                   ("ok", "finished fine"), ("error", "the command ran and failed, or could not start"), ("rejected", "the worker refused it (see the note)"),
                   ("limit", "stopped at its time, memory or heat limit"), ("killed", "stopped by a safety check"),
-                  ("cancelled", "you cancelled it"), ("awaiting_approval", "waiting for you:  approve <job>"))
+                  ("cancelled", "you cancelled it"), ("expired", "waited more than a day for approval; send it again"), ("awaiting_approval", "waiting for you:  approve <job>"))
 NOTE_STYLE = {"queued": (YELLOW,), "error": (RED,), "rejected": (RED,), "killed": (RED,), "quarantined": (RED,), "limit": (YELLOW,)}
 VERDICT_COLOR = {"fits": GREEN, "does-not-fit": RED, "inconclusive": YELLOW}
 MARGIN = "\t"            # one tab: where a row's note starts, under the columns
@@ -173,7 +174,8 @@ def print_result(res, as_json=False, out=None, err=None, **kw):
     elif getattr(out, "isatty", lambda: False)() and ui._color_on(out):              # a person watching: the job, its output in a box in the status colour, the numbers quietly beneath
         r = result_card(res, **kw)
         lines = [""] + cards.card(r["head"]["title"], r["head"]["details"], tag=r["head"]["tag"], color=r["head"]["color"])
-        lines += [""] + cards.card("Output", [cards.Block(r["output"]["lines"])], tag=r["output"]["tag"], color=r["output"]["color"], framed=True)
+        if res.get("output"):                                                       # no empty section: a job that never ran has a reason in its card above, not a box that says "(no output)"
+            lines += [""] + cards.card("Output", [cards.Block(r["output"]["lines"])], tag=r["output"]["tag"], color=r["output"]["color"], framed=True)
         lines += cards.meta(r["meta"])
         if r["run"]:
             lines += cards.commands(r["run"], r["run_label"])
@@ -201,7 +203,7 @@ def run_durations(results):
     return found
 
 
-def status_rows(results, created_of, n=15, extra=()):
+def status_rows(results, created_of, n=15, extra=(), now=None):
     """(when, status, id, note, class) for the n most recent jobs, newest first (n=None: all). Sorted by the job's own finish or start time,
     not by file time (a fresh checkout gives every file the same time). `created_of(jid)` gives a waiting job's submission time."""
     rows = []
@@ -209,7 +211,10 @@ def status_rows(results, created_of, n=15, extra=()):
         when = parse_when(d.get("finished") or d.get("started") or "")
         if when is None and d.get("status") in PENDING:
             when = created_of(d.get("id", jid))
-        rows.append((when, d.get("status", "?"), d.get("id", jid), d.get("note") or "", d.get("class") or ""))
+        status, note = d.get("status", "?"), d.get("note") or ""
+        if status == "awaiting_approval" and when is not None and ((now or datetime.now(timezone.utc)) - when).total_seconds() > MAX_AGE_S:      # the worker may not have looked yet: a job this old cannot be approved, so it is not listed as waiting
+            status, note = "expired", "it waited more than a day for approval, so it can no longer run; send it again"
+        rows.append((when, status, d.get("id", jid), note, d.get("class") or ""))
     rows += list(extra)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     rows.sort(key=lambda r: r[0] or floor, reverse=True)
@@ -231,7 +236,7 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
-STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted"}
+STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted", "expired": "muted"}
 
 
 job_blocks = cards.job_blocks                                                       # one definition for every list of jobs

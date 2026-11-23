@@ -607,7 +607,7 @@ class Rejections(Base):
 
     def test_a_replayed_old_job_is_refused(self):
         self.job("job-0001", created=util.iso(util.now() - timedelta(days=3)))
-        self.rejected("job-0001", "too old")
+        self.rejected("job-0001", "expired")
 
     def test_a_future_dated_job_is_refused(self):
         self.job("job-0001", created=util.iso(util.now() + timedelta(hours=3)))

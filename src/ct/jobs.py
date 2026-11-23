@@ -13,6 +13,7 @@ from datetime import datetime
 from .pkgspec import check_packages
 from .registry import BASELINE_DENY, PLACEHOLDER
 from .util import SAFE_PATH, now
+from .words import plural
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{3,63}$")
 FILE_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*")
@@ -33,6 +34,16 @@ def check_id(jid, filename_id=None):
     return jid
 
 
+def expired(job, max_age_s=MAX_AGE_S, clock=now):
+    """True when a job's own creation time is older than the limit. The ONE definition, used by the worker (it refuses such a job) and by your computer (it lists it as expired and will not approve it).
+    A job with no readable time is not called expired here: the worker rejects that for its own reason."""
+    try:
+        created = datetime.fromisoformat(str(job["created"]).replace("Z", "+00:00"))
+    except Exception:
+        return False
+    return created.tzinfo is not None and (clock() - created).total_seconds() > max_age_s
+
+
 def check_age(job, max_age_s=MAX_AGE_S, clock=now):
     try:
         created = datetime.fromisoformat(str(job["created"]).replace("Z", "+00:00"))
@@ -42,7 +53,7 @@ def check_age(job, max_age_s=MAX_AGE_S, clock=now):
         raise Reject("'created' needs a timezone (use UTC, e.g. 2026-01-01T00:00:00Z)")
     age = (clock() - created).total_seconds()
     if age > max_age_s:
-        raise Reject("job too old")
+        raise Reject(f"job expired: it is more than {plural(max_age_s // 3600, 'hour')} old when the worker looked at it, so it is not run; send it again")
     if age < -MAX_FUTURE_S:
         raise Reject("job timestamp is in the future")
 
