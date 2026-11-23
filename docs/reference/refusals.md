@@ -163,6 +163,42 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** If it is real, leave the file out with --include on ct-run submit.
 
+### `approval.key.untrusted`: A worker does not trust your approval key yet
+
+- **Text:** Approvals are signed here and checked on the worker against a key it was set up with. This worker has {has}.
+- **Protects:** Approvals are signed here and checked on the worker against the key it was set up with, so a worker that trusts another key (or none) will not run the job.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the install again; it gives the worker your key: ct-setup install Or approve this one by logging in to the worker: add --ssh
+
+### `job.expired.approve`: That job has expired
+
+- **Text:** It was sent more than a day ago, and {name} does not run a job that old, so it cannot be approved. Send it again.
+- **Protects:** A job older than the worker's age limit is refused by the worker, so it is never approved here: replay protection seen from this side.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send it again with ct-run submit.
+
+### `action.definition.refused`: That definition would be refused
+
+- **Text:** {problems}
+- **Protects:** A definition that the worker would refuse is stopped here, before anything is sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Edit the YAML file to correct each problem listed above, then run the same command again. Nothing was sent anywhere.
+
+### `class.network.needs_terminal`: This needs your answer at a terminal
+
+- **Text:** A class that uses the network without your approval can only be set by answering this question yourself; --yes does not answer it.
+- **Protects:** A class that uses the network without approval is only set by the person answering the question themselves; --yes does not answer it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run it in a terminal and answer the question.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -465,6 +501,75 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 
 - **Text:** a worker name is lowercase letters, digits and dashes, starting with a letter
 - **Protects:** A worker name is short and plain, so it is safe in a file and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `approve.which`: Say which job to approve
+
+- **Text:** Give a job id, or --all for every job you have already viewed.
+- **Protects:** An approval names the job it covers.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give a job id, or run ct-admin approve --all.
+
+### `worker.rename.name_missing`: Say the new name
+
+- **Text:** ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.
+- **Protects:** A rename needs the new name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give the name: ct-admin workers rename WORKER NAME
+
+### `worker.rename.unusable`: That name cannot be used
+
+- **Text:** {problem}
+- **Protects:** A name must not collide with another worker or a command word.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.add.args`: Say the worker's name and its configuration file
+
+- **Text:** Each worker is a complete install with its own configuration.
+- **Protects:** A worker is added with its own name and configuration file.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give both: ct-admin workers add NAME --config FILE
+
+### `action.argument`: That command needs an argument
+
+- **Text:** It needs {need}.
+- **Protects:** A root-level action command names what it acts on.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `proposal.which_branch`: Say which branch to merge
+
+- **Text:** Or use --all.
+- **Protects:** A merge names the branch it merges, or all of them.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Name the branch, or run ct-admin proposals merge --all.
+
+### `proposal.action.unknown`: Unknown action
+
+- **Text:** Use list, merge or tidy.
+- **Protects:** proposals takes one of three actions.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See the actions with ct-admin help proposals.
+
+### `class.set.nothing`: Say what to change
+
+- **Text:** Give at least one of --tier, --network or --tools.
+- **Protects:** A change names what to change.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
@@ -843,6 +948,73 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Merge it first, then try again.
 
+### `prompt.no_terminal`: This needs your answer
+
+- **Text:** It asks a question, and nobody is at the keyboard.
+- **Protects:** A question that needs the person's answer is never answered for them when nobody is at the keyboard.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run it in a terminal, or add --yes if you are sure.
+
+### `review.none_viewed`: None of the waiting jobs have been viewed
+
+- **Text:** Review them first; that is what lets them be approved together.
+- **Protects:** Jobs are approved together only after they have been looked at, so nothing is approved unseen.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Look at them with ct-admin review.
+
+### `worker.rename.no_terminal`: Naming every worker needs a terminal
+
+- **Text:** It asks about each one in turn.
+- **Protects:** Naming every worker asks about each one, which needs a person at a terminal.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Name one worker without a terminal: ct-admin workers rename WORKER NAME
+
+### `action.program.duplicate`: That program is already registered
+
+- **Text:** The same program under a second name would be two ways to run it as root.
+- **Protects:** The same program under a second name would be two ways to run it as root.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `proposal.registry.invalid`: A branch would leave an invalid registry
+
+- **Text:** {problems}
+- **Protects:** A branch that would leave an invalid registry is not merged.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.retire.protected`: That class cannot be retired
+
+- **Text:** It is what profiling runs on; without it nothing new can be tested on the worker.
+- **Protects:** The class profiling runs on is never retired: without it nothing new could be tested on the worker.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.from_pack`: That class comes from a pack
+
+- **Text:** Its settings are changed in the pack, not here.
+- **Protects:** A class that comes from a pack is changed in the pack, so the change survives the next pack update.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.set.invalid`: That would leave an invalid registry
+
+- **Text:** {problems}
+- **Protects:** A change that would leave an invalid registry is not made.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Error
 
 ### `result.not_ready`: No result yet
@@ -1122,3 +1294,127 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
+
+### `review.show_failed`: Could not show those jobs
+
+- **Text:** They were NOT marked as viewed.
+- **Protects:** Jobs that could not be shown are not marked as viewed, so they cannot be approved unseen.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check the connection with ct-admin check.
+
+### `approval.sign_failed`: Could not sign the approval
+
+- **Text:** {reason}
+- **Protects:** The real error text of an approval that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `registry.none_on_main`: There is no registry.yaml on main to sign
+
+- **Text:** Nothing has been merged into your registry yet.
+- **Protects:** A registry that has not been merged yet cannot be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the proposals with ct-admin proposals.
+
+### `registry.sign_failed`: Could not sign the registry
+
+- **Text:** {reason}
+- **Protects:** The real error text of a registry that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `order.sign_failed`: Could not sign the order
+
+- **Text:** {reason}
+- **Protects:** The real error text of an order that could not be signed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ct-setup install to make the key again.
+
+### `job.unknown`: No such job
+
+- **Text:** Its file is not on the jobs branch, and {name} does not show it waiting for approval.
+- **Protects:** A job that is neither on the jobs branch nor waiting on the worker cannot be approved.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your jobs with ct-run jobs.
+
+### `update.check_failed`: Could not look for a newer release
+
+- **Text:** {reason}
+- **Protects:** The real error text of a release check that failed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check that this computer can reach the release source.
+
+### `worker.add.failed`: Could not add that worker
+
+- **Text:** {reason}
+- **Protects:** The real error text of a worker that could not be added.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `worker.unlisted`: There is no such worker in the list
+
+- **Text:** The worker in your main configuration is always listed and is not removed here.
+- **Protects:** Only workers in the list can be removed from it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your workers with ct-admin workers.
+
+### `action.unknown`: There is no such root-level action
+
+- **Text:** Registered: {known}.
+- **Protects:** Only a registered root-level action can be removed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `adopt.result.missing`: No result yet
+
+- **Text:** Profile it first, then adopt it.
+- **Protects:** A class is adopted from a finished profile run.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Wait for it with ct-run result JOB --wait.
+
+### `class.unknown_on_main`: There is no such class on main
+
+- **Text:** Nothing to retire.
+- **Protects:** Only a class in your registry can be retired.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the classes with ct-run classes.
+
+### `class.unknown`: No such class
+
+- **Text:** It is neither in your registry nor installed on the worker.
+- **Protects:** Only a class in your registry or on the worker can be changed.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List the classes with ct-run classes.
+
+### `apply.install_failed`: The install failed
+
+- **Text:** The update tool restores what it changed when it can. Read the messages above.
+- **Protects:** The real step that failed during an install, with the host and exit code.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again.

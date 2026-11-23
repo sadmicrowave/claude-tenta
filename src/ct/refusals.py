@@ -345,3 +345,60 @@ define("files.held.secret_name", "security", "Protects the person from sending a
 define("files.warn.secret_content", "security", "Tells the person that a file being sent contains text shaped like a private key or an API token. It is only a warning, not a hold: source and test files often hold examples "
        "(23 of this project's own 283 files match).", "A file being sent looks like it contains a secret", "{name!r} contains text that looks like a private key or an API token",
        who="client", steps=["If it is real, leave the file out with --include on ct-run submit."])
+
+# ---- ct-admin: approving, signing, workers, root-level actions, proposals, classes, apply ----
+define("prompt.no_terminal", "policy", "A question that needs the person's answer is never answered for them when nobody is at the keyboard.", "This needs your answer", "It asks a question, and nobody is at the keyboard.", who="client",
+       steps=["Run it in a terminal, or add --yes if you are sure."])
+define("review.show_failed", "error", "Jobs that could not be shown are not marked as viewed, so they cannot be approved unseen.", "Could not show those jobs", "They were NOT marked as viewed.", who="client",
+       steps=["Check the connection with ct-admin check."])
+define("approval.key.untrusted", "security", "Approvals are signed here and checked on the worker against the key it was set up with, so a worker that trusts another key (or none) will not run the job.",
+       "A worker does not trust your approval key yet", "Approvals are signed here and checked on the worker against a key it was set up with. This worker has {has}.", who="client",
+       steps=["Run the install again; it gives the worker your key: ct-setup install", "Or approve this one by logging in to the worker: add --ssh"])
+define("approval.sign_failed", "error", "The real error text of an approval that could not be signed.", "Could not sign the approval", "{reason}", who="client", steps=["Run ct-setup install to make the key again."])
+define("registry.none_on_main", "error", "A registry that has not been merged yet cannot be signed.", "There is no registry.yaml on main to sign", "Nothing has been merged into your registry yet.", who="client",
+       steps=["List the proposals with ct-admin proposals."])
+define("registry.sign_failed", "error", "The real error text of a registry that could not be signed.", "Could not sign the registry", "{reason}", who="client", steps=["Run ct-setup install to make the key again."])
+define("order.sign_failed", "error", "The real error text of an order that could not be signed.", "Could not sign the order", "{reason}", who="client", steps=["Run ct-setup install to make the key again."])
+define("review.none_viewed", "policy", "Jobs are approved together only after they have been looked at, so nothing is approved unseen.", "None of the waiting jobs have been viewed",
+       "Review them first; that is what lets them be approved together.", who="client", steps=["Look at them with ct-admin review."])
+define("approve.which", "format", "An approval names the job it covers.", "Say which job to approve", "Give a job id, or --all for every job you have already viewed.", who="client",
+       steps=["Give a job id, or run ct-admin approve --all."])
+define("job.expired.approve", "security", "A job older than the worker's age limit is refused by the worker, so it is never approved here: replay protection seen from this side.", "That job has expired",
+       "It was sent more than a day ago, and {name} does not run a job that old, so it cannot be approved. Send it again.", who="client", steps=["Send it again with ct-run submit."])
+define("job.unknown", "error", "A job that is neither on the jobs branch nor waiting on the worker cannot be approved.", "No such job",
+       "Its file is not on the jobs branch, and {name} does not show it waiting for approval.", who="client", steps=["List your jobs with ct-run jobs."])
+define("update.check_failed", "error", "The real error text of a release check that failed.", "Could not look for a newer release", "{reason}", who="client", steps=["Check that this computer can reach the release source."])
+define("worker.rename.name_missing", "format", "A rename needs the new name.", "Say the new name", "ct-admin workers rename WORKER NAME gives a worker a name here; --clear removes it.", who="client",
+       steps=["Give the name: ct-admin workers rename WORKER NAME"])
+define("worker.rename.unusable", "format", "A name must not collide with another worker or a command word.", "That name cannot be used", "{problem}", who="client")
+define("worker.rename.no_terminal", "policy", "Naming every worker asks about each one, which needs a person at a terminal.", "Naming every worker needs a terminal", "It asks about each one in turn.", who="client",
+       steps=["Name one worker without a terminal: ct-admin workers rename WORKER NAME"])
+define("worker.add.args", "format", "A worker is added with its own name and configuration file.", "Say the worker's name and its configuration file", "Each worker is a complete install with its own configuration.", who="client",
+       steps=["Give both: ct-admin workers add NAME --config FILE"])
+define("worker.add.failed", "error", "The real error text of a worker that could not be added.", "Could not add that worker", "{reason}", who="client")
+define("worker.unlisted", "error", "Only workers in the list can be removed from it.", "There is no such worker in the list", "The worker in your main configuration is always listed and is not removed here.",
+       who="client", steps=["List your workers with ct-admin workers."])
+define("action.argument", "format", "A root-level action command names what it acts on.", "That command needs an argument", "It needs {need}.", who="client")
+define("action.definition.refused", "security", "A definition that the worker would refuse is stopped here, before anything is sent.", "That definition would be refused", "{problems}", who="client",
+       steps=["Edit the YAML file to correct each problem listed above, then run the same command again. Nothing was sent anywhere."])
+define("action.program.duplicate", "policy", "The same program under a second name would be two ways to run it as root.", "That program is already registered",
+       "The same program under a second name would be two ways to run it as root.", who="client")
+define("action.unknown", "error", "Only a registered root-level action can be removed.", "There is no such root-level action", "Registered: {known}.", who="client")
+define("proposal.registry.invalid", "policy", "A branch that would leave an invalid registry is not merged.", "A branch would leave an invalid registry", "{problems}", who="client")
+define("proposal.which_branch", "format", "A merge names the branch it merges, or all of them.", "Say which branch to merge", "Or use --all.", who="client", steps=["Name the branch, or run ct-admin proposals merge --all."])
+define("proposal.action.unknown", "format", "proposals takes one of three actions.", "Unknown action", "Use list, merge or tidy.", who="client", steps=["See the actions with ct-admin help proposals."])
+define("adopt.result.missing", "error", "A class is adopted from a finished profile run.", "No result yet", "Profile it first, then adopt it.", who="client", steps=["Wait for it with ct-run result JOB --wait."])
+define("class.unknown_on_main", "error", "Only a class in your registry can be retired.", "There is no such class on main", "Nothing to retire.", who="client", steps=["List the classes with ct-run classes."])
+define("class.retire.protected", "policy", "The class profiling runs on is never retired: without it nothing new could be tested on the worker.", "That class cannot be retired",
+       "It is what profiling runs on; without it nothing new can be tested on the worker.", who="client")
+define("class.unknown", "error", "Only a class in your registry or on the worker can be changed.", "No such class", "It is neither in your registry nor installed on the worker.", who="client",
+       steps=["List the classes with ct-run classes."])
+define("class.from_pack", "policy", "A class that comes from a pack is changed in the pack, so the change survives the next pack update.", "That class comes from a pack",
+       "Its settings are changed in the pack, not here.", who="client")
+define("class.set.nothing", "format", "A change names what to change.", "Say what to change", "Give at least one of --tier, --network or --tools.", who="client")
+define("class.set.invalid", "policy", "A change that would leave an invalid registry is not made.", "That would leave an invalid registry", "{problems}", who="client")
+define("class.network.needs_terminal", "security", "A class that uses the network without approval is only set by the person answering the question themselves; --yes does not answer it.",
+       "This needs your answer at a terminal", "A class that uses the network without your approval can only be set by answering this question yourself; --yes does not answer it.", who="client",
+       steps=["Run it in a terminal and answer the question."])
+define("apply.install_failed", "error", "The real step that failed during an install, with the host and exit code.", "The install failed", "The update tool restores what it changed when it can. Read the messages above.",
+       who="client", steps=["Read the error above: it names the step that failed. Correct it on the worker or on this computer, then run the same ct-admin apply command again."])
