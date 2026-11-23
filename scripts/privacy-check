@@ -39,7 +39,8 @@ GENERIC = {
 }
 # Files that legitimately contain test fixtures of these shapes (the guard's own tests).
 SKIP_FILES = {"scripts/privacy-check"}
-SKIP_PREFIXES = ("tests/fixtures/",)
+SKIP_PREFIXES = ("tests/fixtures/",                       # recorded tool output of throwaway containers
+                 "src/ct/client/ignore_templates/")      # third-party CC0 data vendored unchanged from github/gitignore: it holds nothing of ours, and an upstream line such as `.idea/**/dataSources.local.xml` matches the host-name rule
 
 
 def denylist():

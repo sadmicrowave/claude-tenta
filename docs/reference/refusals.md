@@ -145,6 +145,24 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** The program must be a plain file owned by root, in a system folder, that nobody else can write.
 
+### `files.held.secret_name`: A file that usually holds a secret was held back
+
+- **Text:** {name!r} was held back: its name is one that usually holds a secret
+- **Protects:** Protects the person from sending a credential to a worker by accident: a file whose name conventionally holds a secret (.env, *.pem, id_rsa, .npmrc ...) is held back unless an --include names it exactly. A wildcard never sends one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** the list of names in ct.client.submit (SECRET_NAMES), not configurable yet
+- **What to do:** Send it anyway by naming it: --include 'PATH' on ct-run submit.
+
+### `files.warn.secret_content`: A file being sent looks like it contains a secret
+
+- **Text:** {name!r} contains text that looks like a private key or an API token
+- **Protects:** Tells the person that a file being sent contains text shaped like a private key or an API token. It is only a warning, not a hold: source and test files often hold examples (23 of this project's own 283 files match).
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** If it is real, leave the file out with --include on ct-run submit.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed

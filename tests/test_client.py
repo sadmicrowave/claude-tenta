@@ -47,6 +47,82 @@ class FilesAndBatches(unittest.TestCase):
         self.assertEqual(sorted((n, c) for n, c, _ in left.unsent), [("big.txt", "files.too_big"), ("binary.bin", "files.not_text")])
         self.assertEqual(sorted(submit.collect_dir(d, LIMITS, include=["*.py"])), ["a.py", "sub/b.py"])
 
+    def repo(self):
+        import subprocess
+        d = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+        for rel, text in {"a.py": "x", ".gitignore": "dist/\n*.log\n", ".tenta.toml": "t", "dist/out.js": "no", "x.log": "no", "new.py": "n", "sub/c.py": "c"}.items():
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        subprocess.run(["git", "add", "a.py", ".gitignore", ".tenta.toml", "sub/c.py"], cwd=d, check=True)
+        return d
+
+    def test_in_a_git_folder_the_projects_own_ignore_rules_decide_what_is_sent(self):
+        d = self.repo()
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertEqual(sorted(files), [".gitignore", ".tenta.toml", "a.py", "new.py", "sub/c.py"])         # tracked, and untracked but not ignored; a tracked dotfile is the project's own
+        self.assertEqual(sorted(left.excluded), ["dist", "x.log"])                                           # what the project's own rules ignore is named, never silent
+        self.assertNotIn(".git", left.excluded)                                                              # git's own folder is never part of the project
+
+    def test_a_project_that_is_not_a_git_folder_is_cut_by_its_languages_ignore_template(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("pyproject.toml", "app.py", "__pycache__/x.pyc", ".venv/lib/z.py", "build/out.txt", ".DS_Store", ".gitignore", ".tenta.toml", "docs/readme.md", ".idea/workspace.xml"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertEqual(sorted(files), [".gitignore", ".tenta.toml", "app.py", "docs/readme.md", "pyproject.toml"])          # dotfiles the template does not ignore are the project's own
+        self.assertEqual(sorted(left.excluded), [".DS_Store", ".idea", ".venv", "__pycache__", "build"])
+        self.assertIn("Python", left.source)
+        self.assertIn("not a git repository", left.source)
+
+    def test_a_folder_with_no_recognisable_language_keeps_the_interim_rule(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("notes.txt", ".hidden", "node_modules/m.js"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        self.assertEqual(sorted(submit.collect_dir(d, LIMITS, left=left)), ["notes.txt"])
+        self.assertEqual(sorted(left.excluded), [".hidden", "node_modules"])
+        self.assertEqual(left.source, "")
+
+    def test_the_templates_are_vendored_with_their_licence_and_every_named_one_exists(self):
+        t = submit.TEMPLATES
+        for lang in {n for n in submit.LANGUAGES}:
+            self.assertGreater(len((t / "lang" / f"{lang}.gitignore").read_text()), 20, lang)
+        for g in submit.GLOBALS:
+            self.assertGreater(len((t / "global" / f"{g}.gitignore").read_text()), 5, g)
+        self.assertIn("CC0", (t / "LICENSE").read_text())
+        self.assertRegex((t / "SOURCE").read_text(), r"commit [0-9a-f]{40}")
+
+    def test_a_file_that_usually_holds_a_secret_is_held_back_unless_an_include_names_it(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("ok.py", "server.pem", "deploy/id_rsa", "creds/.npmrc", "app.env.example", "keys.tfstate"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertEqual(sorted(files), ["app.env.example", "ok.py"])
+        self.assertEqual(sorted(n for n, _, _ in left.held), ["deploy/id_rsa", "keys.tfstate", "server.pem"])        # (.npmrc is hidden: left out by rule here)
+        self.assertTrue(all(c == "files.held.secret_name" for _, c, _ in left.held))
+        sent = submit.collect_dir(d, LIMITS, include=["server.pem", "ok.py"], left=submit.LeftOut())
+        self.assertEqual(sorted(sent), ["ok.py", "server.pem"])                                                          # named exactly: the person chose it
+        self.assertEqual(sorted(submit.collect_dir(d, LIMITS, include=["**/*"], left=submit.LeftOut())), ["app.env.example", "ok.py"])   # a wildcard never sends a held file
+
+    def test_a_file_whose_text_looks_like_a_secret_is_sent_and_the_person_is_told(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "notes.txt").write_text("token " + "gh" + "p_" + "a" * 24)
+        (d / "plain.txt").write_text("hello")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left)
+        self.assertEqual(sorted(files), ["notes.txt", "plain.txt"])                                                      # not held: source and test files often hold examples
+        self.assertEqual([(n, c) for n, c, _ in left.warn], [("notes.txt", "files.warn.secret_content")])
+
     def test_a_hidden_file_or_folder_is_sent_when_the_include_names_it(self):
         d = self.tree()
         files = submit.collect_dir(d, LIMITS, include=[".gitignore", ".git/HEAD"], left=submit.LeftOut())
@@ -353,6 +429,18 @@ class EndToEnd(RepoFixture):
         self.assertEqual(self.runner.calls[0]["argv"], ["/bin/echo", "hello"])
         code, out, err = self.run_cli("result", jid, "--json")
         self.assertEqual(json.loads(out)["status"], "ok")
+
+    def test_the_command_says_what_was_held_back_and_still_runs(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "in.txt").write_text("hello")
+        (d / "server.pem").write_text("x")
+        code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--no-wait")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("Files held back", out + err)
+        self.assertIn("server.pem", out + err)
+        self.w.fetch()
+        self.w.execute(out.strip())
+        self.assertEqual(self.runner.calls[0]["files"], ["in.txt"])
 
     def test_files_travel_in_the_job(self):
         d = Path(tempfile.mkdtemp())

@@ -3,14 +3,17 @@
 The size limits are not decided here: the worker publishes the limits it actually enforces in registry.json, and these functions use
 exactly those, so a job is never sent that the worker would refuse. (Until a worker publishes them, the conservative old defaults apply.)
 """
+import fnmatch
 import json
 import os
 import re
 import secrets
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import refusals
+from .. import guard, refusals
 from ..jobs import file_name_problem
 from . import refuse
 from .repo import ClientError
@@ -46,19 +49,99 @@ def glob_match(rel, pat):
     return re.fullmatch(rx, rel) is not None
 
 
+SECRET_NAMES = (".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "*.keystore", "*.jks", "id_rsa", "id_rsa.*", "id_dsa", "id_ecdsa", "id_ed25519", "id_ed25519.*", ".netrc", ".npmrc", ".pypirc",
+                ".git-credentials", ".htpasswd", "credentials", "credentials.json", "*.tfstate", "*.tfstate.*", "kubeconfig", "secrets.*", "*.secret", "*.secrets")
+NOT_SECRET_NAMES = (".env.example", ".env.sample", ".env.template", "*.pub", "*.example", "*.sample", "*.template")      # the same names with nothing in them, or the public half
+SECRET_TEXT = ("private_key", "token")                                                                                  # the output scanner's own rules, reused for what is about to be sent
+
+
+def secret_name(rel):
+    base = rel.rsplit("/", 1)[-1].lower()
+    return any(fnmatch.fnmatchcase(base, p) for p in SECRET_NAMES) and not any(fnmatch.fnmatchcase(base, p) for p in NOT_SECRET_NAMES)
+
+
+def named_exactly(rel, include):
+    """True when an --include pattern with no wildcard names this file: its whole path or its file name."""
+    return any(not set("*?[") & set(pat) and pat in (rel, rel.rsplit("/", 1)[-1]) for pat in include or ())
+
+
+def outermost(names):
+    """Sorted, with a name left out when a folder that holds it is already in the list (a folder git reports whole, and a file inside it, is one thing to say)."""
+    return sorted(n for n in names if not any(n.startswith(m + "/") for m in names))
+
+
+TEMPLATES = Path(__file__).parent / "ignore_templates"          # GitHub's language ignore templates (github/gitignore, CC0), vendored: nothing is fetched when a job is sent (scripts/refresh-gitignore renews them)
+LANGUAGES = {"Python": ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"), "Node": ("package.json",), "Go": ("go.mod",), "Rust": ("Cargo.toml",), "Ruby": ("Gemfile",),
+             "Composer": ("composer.json",), "Maven": ("pom.xml",), "Gradle": ("build.gradle", "build.gradle.kts", "settings.gradle"), "Java": ("pom.xml", "build.gradle"),
+             "Kotlin": ("build.gradle.kts",), "Swift": ("Package.swift",), "Dart": ("pubspec.yaml",), "Elixir": ("mix.exs",), "Terraform": ("*.tf",), "Dotnet": ("*.csproj", "*.fsproj"),
+             "VisualStudio": ("*.sln", "*.csproj"), "C": ("CMakeLists.txt",), "C++": ("CMakeLists.txt",)}
+GLOBALS = ("macOS", "Linux", "Windows", "JetBrains", "VisualStudioCode", "Vim")                 # editor and operating-system junk, always applied with a language
+
+
+def detect_languages(base):
+    """The language templates that apply to a folder, from the files at its top level."""
+    return [lang for lang, markers in LANGUAGES.items() if any(next(Path(base).glob(m), None) for m in markers)]
+
+
+def template_candidates(base):
+    """(files, ignored, languages) for a folder that is not a git work tree but is recognisably a project (a language marker at its top): git's own matcher is run over the vendored templates, so the rules mean exactly
+    what they mean in a repository. None when no language is recognised (the interim rule applies)."""
+    langs = detect_languages(base)
+    if not langs:
+        return None
+    text = "\n".join((TEMPLATES / "lang" / f"{lang}.gitignore").read_text() for lang in langs) + "\n" + "\n".join((TEMPLATES / "global" / f"{g}.gitignore").read_text() for g in GLOBALS) + "\n.git/\n"
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            exclude, gitdir = Path(tmp) / "exclude", Path(tmp) / "g"
+            exclude.write_text(text)
+            subprocess.run(["git", "init", "-q", "--bare", str(gitdir)], check=True, capture_output=True, timeout=30)
+            run = lambda *more: subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "--git-dir", str(gitdir), "--work-tree", str(base), "ls-files", "-z", "--others", "--exclude-from", str(exclude),    # noqa: E731
+                                                "--exclude-standard", *more], capture_output=True, timeout=120)
+            listed, ignored = run(), run("--ignored", "--directory")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    names = lambda raw: outermost({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
+    return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else []), langs
+
+
+def git_candidates(base):
+    """(files, ignored) when `base` is inside a git work tree: the files git treats as the project (tracked, and untracked but not ignored) and the names of what the project's own ignore rules leave out. None when it is not one."""
+    try:
+        inside = subprocess.run(["git", "-C", str(base), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, timeout=30)
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return None
+        listed = subprocess.run(["git", "-C", str(base), "ls-files", "-z", "--cached", "--others", "--exclude-standard"], capture_output=True, timeout=120)
+        ignored = subprocess.run(["git", "-C", str(base), "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    names = lambda raw: outermost({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
+    return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else [])
+
+
 class LeftOut:
     """What was NOT sent, and why, so nothing is dropped silently. `excluded`: left out by rule (hidden files and folders, build and dependency folders) as {path: files counted}; the person is told and can name
     one with --include. `unsent`: files that could not be sent (not text, too big, an unusable name, unreadable) as (name, catalog code, text): they make the set incomplete, so the job does not start unless the person
     chooses (--send-incomplete)."""
 
     def __init__(self):
-        self.excluded, self.unsent = {}, []
+        self.excluded, self.unsent, self.held, self.warn = {}, [], [], []
+        self.source = ""                                                          # which rule decided what was left out, in words
 
     def exclude(self, path, count=0):
         self.excluded[path] = self.excluded.get(path, 0) + count
 
     def unsend(self, name, code, **facts):
         self.unsent.append((name, code, str(refusals.refuse(code, name=name, **facts))))
+
+    def hold(self, name):
+        self.held.append((name, "files.held.secret_name", refusals.explain("files.held.secret_name", name=name)))
+
+    def warn_about(self, name):
+        self.warn.append((name, "files.warn.secret_content", refusals.explain("files.warn.secret_content", name=name)))
 
 
 def by_rule(part):
@@ -74,12 +157,8 @@ def named_by_include(rel, include):
     return False
 
 
-def collect_dir(d, limits, include=None, left=None):
-    """Text files under `d`. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. Hidden files and folders, build output and dependency folders are left out unless an include names them,
-    and every file that is left out or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
-    base = Path(d).expanduser().resolve()
-    left = left if left is not None else LeftOut()
-    files = {}
+def walked(base, include, left):
+    """The files under `base` when it is not a git folder: hidden files and folders, build output and dependency folders are left out (recorded in `left`) unless an include names them."""
     for root, dirs, names in os.walk(base):
         rel_root = Path(root).relative_to(base).as_posix()
         prefix = "" if rel_root == "." else rel_root + "/"
@@ -94,25 +173,54 @@ def collect_dir(d, limits, include=None, left=None):
             rel = prefix + fname
             if by_rule(fname) and not named_by_include(rel, include):
                 left.exclude(rel, 1)
-                continue
-            if include and not any(glob_match(rel, pat) for pat in include):
-                continue                                                          # the person's own filter: not a file that failed
-            problem = file_name_problem(rel)
-            if problem:
-                left.unsend(rel, problem[0], reason=problem[1])
-                continue
-            try:
-                text = (Path(root) / fname).read_text()
-            except UnicodeDecodeError:
-                left.unsend(rel, "files.not_text")
-                continue
-            except OSError as e:
-                left.unsend(rel, "files.unreadable", reason=e.strerror or "it cannot be read")
-                continue
-            if len(text) > limits["max_file_kb"] * 1000:
-                left.unsend(rel, "files.too_big", limit=limits["max_file_kb"])
-                continue
-            files[rel] = text
+            else:
+                yield rel
+
+
+def collect_dir(d, limits, include=None, left=None):
+    """Text files under `d`. In a git folder the project's own rules decide: tracked files and untracked ones that are not ignored (what it ignores is named in `left`, and `.git` is never part of it). Elsewhere hidden files and
+    folders, build output and dependency folders are left out unless an include names them. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. A file whose name usually holds a secret is held back
+    unless an include names it exactly. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
+    base = Path(d).expanduser().resolve()
+    left = left if left is not None else LeftOut()
+    found = git_candidates(base)
+    left.source = "this project's own ignore rules" if found is not None else ""
+    if found is None:
+        found = template_candidates(base)
+        if found is not None:
+            left.source = f"the ignore templates for {', '.join(found[2][:3])}" + (" and others" if len(found[2]) > 3 else "") + " (this folder is not a git repository)"
+    if found is not None:
+        for name in found[1]:
+            left.exclude(name)
+    candidates = found[0] if found is not None else walked(base, include, left)
+    files = {}
+    for rel in candidates:
+        if include and not any(glob_match(rel, pat) for pat in include):
+            continue                                                          # the person's own filter: not a file that failed
+        path = base / rel
+        if not path.is_file():
+            continue                                                          # tracked but deleted, or not a plain file
+        if secret_name(rel) and not named_exactly(rel, include):
+            left.hold(rel)
+            continue
+        problem = file_name_problem(rel)
+        if problem:
+            left.unsend(rel, problem[0], reason=problem[1])
+            continue
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError:
+            left.unsend(rel, "files.not_text")
+            continue
+        except OSError as e:
+            left.unsend(rel, "files.unreadable", reason=e.strerror or "it cannot be read")
+            continue
+        if len(text) > limits["max_file_kb"] * 1000:
+            left.unsend(rel, "files.too_big", limit=limits["max_file_kb"])
+            continue
+        if any(guard.GUARD_RULES[k].search(text) for k in SECRET_TEXT):
+            left.warn_about(rel)
+        files[rel] = text
     return files
 
 

@@ -216,7 +216,13 @@ def show_left_out(left):
     if left.excluded:
         names = sorted(left.excluded)
         rows = [("Left out", n) for n in names[:8]] + ([("And", plural(len(names) - 8, "more item"))] if len(names) > 8 else [])
-        emit("Files left out by rule", *rows, "Hidden files and folders, build output and dependency folders are not sent. To send one, name it: --include '.gitignore'.", tag="NOTE", color=YELLOW)
+        emit("Files left out by rule", *rows, (f"Decided by {left.source}. " if left.source else "Hidden files and folders, build output and dependency folders are not sent. ") + "To send one anyway, name it: --include 'PATH'.", tag="NOTE", color=YELLOW)
+    if left.held:
+        emit("Files held back", *[("File", n) for n, _, _ in left.held[:10]], *([f"And {plural(len(left.held) - 10, 'more file')}."] if len(left.held) > 10 else []),
+             "Their names usually mean they hold a secret, so they are not sent. To send one, name it exactly: --include 'PATH'. A wildcard never sends one.", tag="NOTE", color=YELLOW)
+    if left.warn:
+        emit("Files that may contain a secret", *[("File", n) for n, _, _ in left.warn[:10]], *([f"And {plural(len(left.warn) - 10, 'more file')}."] if len(left.warn) > 10 else []),
+             "Their text looks like a private key or an API token. They are being sent. If one is real, leave it out with --include.", tag="NOTE", color=YELLOW)
     if left.unsent:
         rows = [row for n, code, text in left.unsent[:10] for row in (("File", n), ("Reason", text), ("Code", code))]
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
