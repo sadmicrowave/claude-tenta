@@ -10,6 +10,7 @@ import re
 import shutil
 from datetime import datetime
 
+from . import refusals
 from .pkgspec import check_packages
 from .registry import BASELINE_DENY, PLACEHOLDER
 from .util import SAFE_PATH, now
@@ -22,15 +23,14 @@ MAX_AGE_S = 86400
 MAX_FUTURE_S = 300
 
 
-class Reject(Exception):
-    """A job that must not run. The message is shown to the requester, so it never includes anything from the machine."""
+Reject = refusals.Reject                  # the one class (it lives with the catalog); kept under this name for the code that already imports it
 
 
 def check_id(jid, filename_id=None):
     if not isinstance(jid, str) or not ID_RE.match(jid):
-        raise Reject("bad job id")
+        raise refusals.refuse("job.id.invalid")
     if filename_id is not None and jid != filename_id:
-        raise Reject("id missing or does not match filename")
+        raise refusals.refuse("job.id.mismatch")
     return jid
 
 
@@ -48,29 +48,29 @@ def check_age(job, max_age_s=MAX_AGE_S, clock=now):
     try:
         created = datetime.fromisoformat(str(job["created"]).replace("Z", "+00:00"))
     except Exception:
-        raise Reject("missing or invalid 'created' timestamp")
+        raise refusals.refuse("job.created.invalid")
     if created.tzinfo is None:
-        raise Reject("'created' needs a timezone (use UTC, e.g. 2026-01-01T00:00:00Z)")
+        raise refusals.refuse("job.created.no_timezone")
     age = (clock() - created).total_seconds()
     if age > max_age_s:
-        raise Reject(f"job expired: it is more than {plural(max_age_s // 3600, 'hour')} old when the worker looked at it, so it is not run; send it again")
+        raise refusals.refuse("job.expired", hours=plural(max_age_s // 3600, "hour"))
     if age < -MAX_FUTURE_S:
-        raise Reject("job timestamp is in the future")
+        raise refusals.refuse("job.created.future")
 
 
 def check_param(name, spec, value):
     if "enum" in spec:
         if value not in spec["enum"]:
-            raise ValueError(f"{name}: must be one of {spec['enum']}")
+            raise refusals.refuse("param.enum", name=name, options=spec["enum"])
     elif "int" in spec:
         lo, hi = spec["int"]
         if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
-            raise ValueError(f"{name}: must be an integer in [{lo}, {hi}]")
+            raise refusals.refuse("param.int", name=name, low=lo, high=hi)
     elif "regex" in spec:
         if not isinstance(value, str) or not re.fullmatch(spec["regex"], value):
-            raise ValueError(f"{name}: does not match the allowed pattern")
+            raise refusals.refuse("param.regex", name=name)
     else:
-        raise ValueError(f"{name}: registry spec has no type")
+        raise refusals.refuse("param.untyped", name=name)
     return str(value)
 
 
@@ -79,24 +79,24 @@ def check_policy_params(values, policy):
     for value in values:
         for rx, why in (policy or {}).get("deny_params", ()):
             if rx.search(str(value)):
-                raise ValueError(f"not allowed: {why}")
+                raise refusals.refuse("param.policy", reason=why)
 
 
 def build_argv(cls, params, policy=None):
     """The command to run: the class's template with each {placeholder} replaced by a validated parameter. Always a list."""
     specs = cls.get("params", {}) or {}
     if not isinstance(params, dict):
-        raise ValueError("params must be an object")
+        raise refusals.refuse("job.params.not_object")
     extra = set(params) - set(specs)
     if extra:
-        raise ValueError(f"unknown params: {sorted(extra)}")
+        raise refusals.refuse("param.unknown", names=sorted(extra))
     vals = {}
     for name, spec in specs.items():
         if name in params:
             vals[name] = check_param(name, spec, params[name])
             check_policy_params([vals[name]], policy)
         elif not spec.get("optional"):
-            raise ValueError(f"missing param: {name}")
+            raise refusals.refuse("param.missing", name=name)
     argv = []
     for tok in cls["run"]:
         m = PLACEHOLDER.match(tok)
@@ -107,7 +107,7 @@ def build_argv(cls, params, policy=None):
         elif (specs.get(m.group(1)) or {}).get("optional"):
             continue
         else:
-            raise ValueError(f"template uses undeclared param {m.group(1)}")
+            raise refusals.refuse("template.undeclared", name=m.group(1))
     return argv
 
 
@@ -117,19 +117,19 @@ def check_files(files, cls, limits):
     if files is None:
         return {}
     if not cls.get("accepts_files"):
-        raise ValueError("this job class does not accept files")
+        raise refusals.refuse("files.not_accepted")
     fl = limits["files"]
     if not isinstance(files, dict) or len(files) > fl["max_count"]:
-        raise ValueError(f"files must be an object with at most {fl['max_count']} entries")
+        raise refusals.refuse("files.too_many", limit=fl["max_count"])
     total = 0
     for name, content in files.items():
         if not isinstance(name, str) or len(name) > 200 or not FILE_NAME_RE.fullmatch(name):
-            raise ValueError(f"bad file name: {name!r}")
+            raise refusals.refuse("files.name.unsafe", name=name)
         if not isinstance(content, str) or len(content) > fl["max_file_kb"] * 1000:
-            raise ValueError(f"file {name!r}: content must be text under {fl['max_file_kb']} KB")
+            raise refusals.refuse("files.too_big", name=name, limit=fl["max_file_kb"])
         total += len(content)
     if total > fl["max_total_kb"] * 1000:
-        raise ValueError(f"files total over {fl['max_total_kb']} KB")
+        raise refusals.refuse("files.total_too_big", limit=fl["max_total_kb"])
     return files
 
 
@@ -150,28 +150,26 @@ def build_profile(job, cls, limits, find_program=None, is_executable=None, polic
     argv = job.get("argv")
     if not isinstance(argv, list) or not 1 <= len(argv) <= 40 or \
             not all(isinstance(a, str) and 0 < len(a) <= 500 and "\0" not in a for a in argv):
-        raise ValueError("argv must be a list of 1-40 non-empty strings")
+        raise refusals.refuse("profile.argv.shape")
     first = argv[0]
     pkgs = check_packages(job.get("packages"))
     denied = PROFILE_DENY | set((policy or {}).get("deny_commands", ()))
     if os.path.basename(first) in denied:
-        raise ValueError(f"{os.path.basename(first)} is not allowed in a profile run")
+        raise refusals.refuse("profile.command.denied", program=os.path.basename(first))
     check_policy_params(argv[1:], policy)
     if "/" in first:
         if pkgs:
-            raise ValueError("with packages, give the command by name (the program comes from the throwaway folder)")
+            raise refusals.refuse("profile.packages.path")
         if not (first.startswith("/") and is_executable(first)):
-            raise ValueError("a command with a path must be an absolute path to an executable")
+            raise refusals.refuse("profile.command.path_invalid")
     elif not pkgs and not find_program(first):
-        raise ValueError(f"{first!r} is not installed on the worker (looked in {SAFE_PATH}); "
-                         "if a package provides it, list the package (packages: ['apt:<name>'])")
+        raise refusals.refuse("profile.command.not_installed", program=first, looked=SAFE_PATH)
     meta = {"packages": pkgs} if pkgs else {}
     for k, limit, required in (("what", 400, True), ("expect", 300, True), ("why", 300, False),
                                ("side_effects", 300, False), ("watch_for", 300, False)):
         v = job.get(k, "")
         if not isinstance(v, str) or len(v) > limit or (required and not v.strip()):
-            raise ValueError(f"{k}: " + (f"required, text of at most {limit} characters" if required
-                                          else f"text of at most {limit} characters"))
+            raise refusals.refuse("profile.field.invalid", field=k, rule=(f"required, text of at most {limit} characters" if required else f"text of at most {limit} characters"))
         if v:
             meta[k] = v
     est = {}
@@ -179,21 +177,21 @@ def build_profile(job, cls, limits, find_program=None, is_executable=None, polic
         v = job.get(k)
         if v is None:
             if required:
-                raise ValueError(f"{k}: required (your honest estimate, as a number)")
+                raise refusals.refuse("profile.estimate.required", field=k)
             continue
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1_000_000:
-            raise ValueError(f"{k}: must be a number from 0 to 1000000")
+            raise refusals.refuse("profile.estimate.range", field=k)
         est[k[4:]] = v
     meta["estimates"] = est
     flags = job.get("flags", {})
     if not isinstance(flags, dict) or len(flags) > 20 or not all(
             isinstance(a, str) and isinstance(b, str) and 0 < len(a) <= 60 and len(b) <= 200 for a, b in flags.items()):
-        raise ValueError("flags must map each flag to a short explanation (at most 20)")
+        raise refusals.refuse("profile.flags.invalid")
     if flags:
         meta["flags"] = flags
     t = job.get("timeout_s")
     if t is not None:
         cap = int(cls.get("max_timeout_s", 1800))
         if isinstance(t, bool) or not isinstance(t, int) or not 10 <= t <= cap:
-            raise ValueError(f"timeout_s must be an integer from 10 to {cap}")
+            raise refusals.refuse("profile.timeout.range", cap=cap)
     return argv, check_files(job.get("files"), cls, limits), meta

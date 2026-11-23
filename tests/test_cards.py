@@ -99,6 +99,11 @@ class ResultCard(unittest.TestCase):
         self.assertNotIn("(no output)", raw)
         self.assertEqual(raw.count("╭"), 1)
 
+    def test_the_code_of_a_refusal_is_the_last_row_of_its_card(self):
+        raw = ANSI.sub("", self.printed({"id": "job-1", "status": "rejected", "note": "job expired: too old", "refusal": "job.expired", "output": ""}))
+        rows = [l for l in raw.split("\n") if l.startswith("│ ") and l.strip("│ ").strip()]
+        self.assertTrue(rows[-1].startswith("│ CODE") and "job.expired" in rows[-1], rows)
+
     def test_the_box_colour_follows_the_status(self):
         for status, role in (("error", "bad"), ("limit", "warn"), ("ok", "ok")):
             self.assertIn(theme.sgr("╭─ ", role), self.printed({**self.RES, "status": status}), status)
