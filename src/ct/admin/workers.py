@@ -134,7 +134,7 @@ def row_for(name, doc, now=None):
 BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "primary", "primary_chip", "warn_chip", "bad_chip"          # roles: ct.theme decides the colours
 RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
 ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("TODAY", "spend"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
-HANG = 10
+HANG = 15           # the widest label (AVAILABILITY, PROFILE LIMIT) plus a gap: a longer label ran into its value (guard: tests/test_workerstate.py)
 
 
 def fact_rows(r, upper=False):
