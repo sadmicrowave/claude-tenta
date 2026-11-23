@@ -601,6 +601,58 @@ class SignedOrders(SignedApproval):
         self.assertIsNotNone(self.lockdown.locked())
 
 
+class ProfileWithoutApproval(Base):
+    """On a Direct worker the owner may let a profile run start without approval (transport.profile_approval = none), but only where the job really is confined: a jail that isolates (not a Windows Job Object) and is ready."""
+    JOB = dict(argv=["ls", "-l"], what="lists files", expect="instant", est_time_s=1, est_mem_mb=10, flags={"-l": "long"})
+
+    class Jail(jail_mod.Jail):
+        def __init__(self, ready, isolates):
+            self._ready, self.isolates = ready, isolates
+
+        def ready(self):
+            return self._ready
+
+        def wrap(self, argv, **kw):
+            return list(argv)
+
+    def worker_with(self, approval, jail):
+        import dataclasses
+        self.settings = dataclasses.replace(self.settings, profile_approval=approval)
+        self.make_worker(jail=jail, state_facts=lambda: {"name": "testct", "release": "0" * 40, "os": {"id": "ubuntu"}, "cpu": "x", "capacity": 4})
+
+    def status_of(self, jid="profile-aaa111"):
+        self.job(jid, "profile-run", **self.JOB)
+        self.run_all()
+        return self.result(jid)["status"]
+
+    def test_with_the_setting_off_and_an_isolating_jail_a_profile_run_starts_without_approval(self):
+        self.worker_with("none", self.Jail(ready=True, isolates=True))
+        self.assertEqual(self.status_of(), "ok")
+        self.assertEqual(Path(self.runner.calls[0]["argv"][0]).name, "ls")                                  # it ran, with no approval given
+
+    def test_it_still_waits_for_approval_when_the_jail_is_not_ready_or_does_not_isolate(self):
+        for jail in (self.Jail(ready=False, isolates=True), self.Jail(ready=True, isolates=False), jail_mod.NoJail(), jail_mod.WindowsJobObject()):
+            self.worker_with("none", jail)
+            self.assertEqual(self.status_of("profile-" + type(jail).__name__.lower()[:6] + str(id(jail) % 1000)), "awaiting_approval", type(jail).__name__)
+
+    def test_by_default_it_waits_for_approval_whatever_the_jail(self):
+        self.worker_with("required", self.Jail(ready=True, isolates=True))
+        self.assertEqual(self.status_of(), "awaiting_approval")
+
+    def test_nothing_else_loses_its_approval(self):
+        self.worker_with("none", self.Jail(ready=True, isolates=True))
+        self.job("job-0001", "careful")                                                                   # an ordinary class registered with tier approve
+        self.run_all()
+        self.assertEqual(self.result("job-0001")["status"], "awaiting_approval")
+
+    def test_the_worker_says_what_it_will_do_in_its_published_state(self):
+        for approval, jail, want in (("none", self.Jail(ready=True, isolates=True), "none"), ("none", self.Jail(ready=True, isolates=False), "required"), ("required", self.Jail(ready=True, isolates=True), "required")):
+            self.worker_with(approval, jail)
+            self.w.fetch()
+            r = subprocess.run(["git", "-C", str(self.tmp / "results.git"), "show", "main:worker-state.json"], capture_output=True, text=True)
+            self.assertEqual(json.loads(r.stdout)["profile_approval"], want, (approval, type(jail).__name__))
+
+
 class Rejections(Base):
     def rejected(self, jid, needle):
         self.run_all()

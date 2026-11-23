@@ -211,6 +211,13 @@ class ClientRepos:
         except (OSError, ValueError):
             return None
 
+    def worker_state(self):
+        """The state document the worker published (hardware, isolation, what it will do with a profile run ...), or None."""
+        try:
+            return json.loads((self.results / "worker-state.json").read_text())
+        except (OSError, ValueError):
+            return None
+
     def finished_ids(self):
         """Ids of jobs with a final result. A job without one (waiting for approval, queued, running, not yet seen) must never be pruned."""
         done = set()

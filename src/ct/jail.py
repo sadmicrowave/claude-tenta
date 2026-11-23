@@ -71,6 +71,7 @@ def isolate(argv, network, flags=None, require=True):
 # ---- the jails ---------------------------------------------------------------------------------------------------------------------
 class Jail:
     name = "none"
+    isolates = False                    # True only where a job really cannot reach the network or the rest of the machine (a namespace or bubblewrap jail), which is what lets a profile run start without approval
 
     def ready(self):
         return False
@@ -95,6 +96,7 @@ class WindowsJobObject(Jail):
     """Windows has no namespaces or bind mounts: a job runs in a Job Object of its own (the runner puts it there), which stops its whole process tree and ends it with the worker, and nothing more. Files and the network
     are NOT isolated: a Windows worker is Special Use by design (docs/design/WINDOWS-SPECIAL-USE.md), and the registry already refuses a class that needs no network there."""
     name = "windows-job"
+    isolates = False
 
     def ready(self):
         return True
@@ -111,6 +113,7 @@ class WindowsJobObject(Jail):
 
 class Unshare(Jail):
     name = "unshare"
+    isolates = True
 
     def __init__(self, flags=None):
         self._flags = flags                       # None: probe this machine; False or []: known to be unavailable; a list: use these
@@ -153,6 +156,7 @@ def parse_version(text):
 
 class Bwrap(Jail):
     name = "bwrap"
+    isolates = True
 
     def __init__(self, path=None, hide=(), run=subprocess.run, which=shutil.which, isdir=os.path.isdir):
         self._path, self.hide, self._run, self._which, self._isdir = path, tuple(hide), run, which, isdir

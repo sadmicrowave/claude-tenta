@@ -28,6 +28,20 @@ def problems(text, env=None):
     return []
 
 
+class ProfileApproval(unittest.TestCase):
+    def test_the_default_is_that_a_profile_run_needs_approval(self):
+        c = config.load(None, env={"CT_CONFIG": ""})
+        self.assertEqual(c.transport.profile_approval, "required")
+
+    def test_running_without_approval_is_a_setting_of_the_direct_connection_only(self):
+        clean, problems = config.validate({"transport": {"kind": "github", "profile_approval": "none"}})
+        self.assertTrue(any("profile_approval" in p and "direct" in p.lower() for p in problems), problems)
+        clean, problems = config.validate({"transport": {"kind": "direct", "profile_approval": "none"}})
+        self.assertFalse([p for p in problems if "profile_approval" in p], problems)
+        clean, problems = config.validate({"transport": {"kind": "direct", "profile_approval": "sometimes"}})
+        self.assertTrue([p for p in problems if "profile_approval" in p], problems)
+
+
 class Defaults(unittest.TestCase):
     def test_built_in_defaults_are_valid_and_complete(self):
         c = config.load(None, env={"CT_CONFIG": ""})

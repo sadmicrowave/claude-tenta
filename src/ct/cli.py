@@ -106,7 +106,7 @@ class Context:
         direct = transport.for_config(cfg).kind == "direct"
         settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, pause_when_logged_in=cfg.availability.pause_when_logged_in, ignore_users=tuple(cfg.availability.ignore_users), window=cfg.availability.window, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
-                            exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns,
+                            exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns, profile_approval=cfg.transport.profile_approval if direct else "required",
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
                             sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=0 if direct else int(cfg.schedule.sleep_fetch_s),      # Direct reads a local folder, so there is no reason to slow down: a job is picked up within seconds, idle or not
                             claude_jobs_per_day=int(cfg.claude.jobs_per_day), claude_turns_per_day=int(cfg.claude.turns_per_day))

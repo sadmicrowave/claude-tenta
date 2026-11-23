@@ -59,6 +59,7 @@ class Settings:
     prune_threshold: int = 200
     pkg_timeout: int = 900
     require_netns: bool = True
+    profile_approval: str = "required"       # "none" (Direct only): a profile run starts without approval, but only while the jail really isolates jobs (see Worker.profile_runs_unapproved)
     idle_after_s: int = 600                 # smart sleep: nothing to do for this long ...
     idle_fetch_s: int = 90                  # ... and the fetch pass only really runs this often (0: never slows down)
     sleep_after_s: int = 7200               # sleep mode: nothing to do for this long ...
@@ -227,6 +228,11 @@ class Worker:
                 self.publish_security()
                 self.log("signed order: unlocked")
 
+    def profile_runs_unapproved(self):
+        """True when this worker starts a profile run without approval: the owner set transport.profile_approval = none (Direct only) AND the job really is confined here (a jail that isolates and is ready, in full isolation).
+        Anywhere else the setting changes nothing: a worker whose jail is missing, broken or only a Windows Job Object still waits for approval."""
+        return self.s.profile_approval == "none" and self.s.isolation_mode == "full" and bool(getattr(self.jail, "isolates", False)) and bool(self.jail.ready())
+
     def _approved(self, jid, digest, signed_only=False):
         """Is there an approval for exactly this file? `signed_only` (root-level jobs): only a signature made on the administrator's own computer counts, never the
         worker's own approval marker, which anything running as the worker could write."""
@@ -324,7 +330,8 @@ class Worker:
         try:
             job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
-            if (kind in ("profile", "privileged") or cls.get("tier", "approve") != "auto") and not self._approved(jid, digest, signed_only=(kind == "privileged")):
+            if (kind in ("profile", "privileged") or cls.get("tier", "approve") != "auto") and not (kind == "profile" and self.profile_runs_unapproved()) \
+                    and not self._approved(jid, digest, signed_only=(kind == "privileged")):
                 if not self._p("notified", jid).exists():
                     if kind == "profile":
                         res["facts"] = profiling.command_facts(argv, find_program=self.find_program)
@@ -730,7 +737,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())
