@@ -853,7 +853,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 
 ### `files.set.too_big`: These files do not fit in one job
 
-- **Text:** {count} / {kb} KB is over the {limit} KB limit for one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').
+- **Text:** {count} / {kb} KB is over the {limit} KB this worker accepts in one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').
 - **Protects:** Bounds the size of one job for the channel that carries it: a set over the limit is never split. Written for GitHub; the Direct transport will not have it.
 - **Decided by:** client
 - **Depends on:** the transport (written for GitHub)
@@ -886,6 +886,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the transport (written for GitHub)
 - **Configured:** the worker's registry: limits.files
 - **What to do:** Attach only the files the command needs: --include 'src/**/*.js'
+
+### `job.too_big_for_worker`: The job is too big for this worker
+
+- **Text:** this job file is {size} MB, over the {ceiling} MB this worker accepts right now; it was not read
+- **Protects:** A worker accepts only a job it can hold: its file is refused, unread, when it is over the ceiling (a quarter of free disk and memory, at most 1024 MB, or hardware.max_job_mb), so one job cannot fill the disk or the memory.
+- **Decided by:** worker
+- **Depends on:** the worker's free disk and memory, or hardware.max_job_mb
+- **Configured:** the worker's hardware.max_job_mb (unset: automatic)
+- **What to do:** Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room.
 
 ## Placement
 

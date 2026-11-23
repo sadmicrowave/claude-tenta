@@ -221,7 +221,7 @@ define("files.incomplete", "policy", "A test or any job run on part of the files
 
 # ---- what the person types or sends from this computer (the client decides) ----
 define("files.set.too_big", "limit", "Bounds the size of one job for the channel that carries it: a set over the limit is never split. Written for GitHub; the Direct transport will not have it.", "These files do not fit in one job",
-       "{count} / {kb} KB is over the {limit} KB limit for one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').", who="client",
+       "{count} / {kb} KB is over the {limit} KB this worker accepts in one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').", who="client",
        depends="the transport (written for GitHub)", config="the worker's registry: limits.files.max_total_kb (moving to the transport config)", steps=["Attach fewer files with --include on ct-run submit."])
 define("files.set.not_batchable", "limit", "A class that needs its files together cannot be split across jobs, so a set over the count limit cannot be sent.", "These files do not fit in one job",
        "{count} is over the {limit}-file limit, and this class needs its files together so it cannot be split. Attach only the files it needs (--include), or run it yourself.", who="client",
@@ -497,6 +497,11 @@ define('uninstall.step.failed', 'error', 'The real text of the removal step that
 define('uninstall.config.unreadable', 'error', "A removal needs the install's own configuration to find what to remove.", "Cannot read this install's configuration", '{problems}', who="client")
 define("files.link.skipped", "security", "A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. "
        "Send the file itself if you mean to.", "A link was not followed", "{name!r} is a link, so it was not followed", who="client", steps=["Copy the file into the project and send that, or leave it out."])
+
+# ---- what a worker can hold ----
+define("job.too_big_for_worker", "limit", "A worker accepts only a job it can hold: its file is refused, unread, when it is over the ceiling (a quarter of free disk and memory, at most 1024 MB, or hardware.max_job_mb), so one job cannot fill the disk or the memory.",
+       "The job is too big for this worker", "this job file is {size} MB, over the {ceiling} MB this worker accepts right now; it was not read", depends="the worker's free disk and memory, or hardware.max_job_mb",
+       config="the worker's hardware.max_job_mb (unset: automatic)", steps=["Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room."])
 
 # ---- replacing a Direct worker's mailbox key (ct-setup rotate-key) ----
 define("rotate.not_direct", "policy", "Only the Direct connection has a mailbox key to replace: GitHub workers use deploy keys that ct-setup install manages.", "Only a Direct worker has a mailbox key",

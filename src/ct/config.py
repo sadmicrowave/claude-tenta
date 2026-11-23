@@ -232,6 +232,7 @@ SCHEMA = {
         "capacity": (None, _int(1, 64), "capacity points the running jobs may add up to (a heavy job takes 4)"),
         "max_load": (None, _num(0.1, 1000), "do not start a job above this 1-minute load average"),
         "max_temp_c": (None, _int(40, 110), "do not start a job when the hottest core is above this"),
+        "max_job_mb": (None, _int(1, 1000000), "the largest job file this worker accepts, in MB; unset means automatic: the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB"),
     },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),

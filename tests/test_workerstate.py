@@ -96,6 +96,17 @@ class ToolCheck(unittest.TestCase):
         self.assertNotIn("tool_check", env2)
 
 
+class LargestJob(unittest.TestCase):
+    def test_the_workers_list_shows_the_largest_job_a_worker_accepts_when_it_says_so(self):
+        from ct.admin import workers
+        doc = {"v": 1, "updated": "2999-01-01T00:00:00Z", "name": "x", "hardware": {"cores": 4, "mem_total_mb": 8000}, "observed": {"mem_available_mb": 4000, "job_ceiling_mb": 256}, "isolation": {"ready": True}, "classes": []}
+        row = workers.row_for("tenta2", doc)
+        self.assertEqual(row["ceiling"], "256 MB")
+        self.assertIn(("Largest job", "256 MB"), workers.fact_rows(row))
+        doc["observed"].pop("job_ceiling_mb")
+        self.assertNotIn("Largest job", [k for k, _ in workers.fact_rows(workers.row_for("tenta2", doc))])        # an older worker does not say: no row
+
+
 if __name__ == "__main__":
     unittest.main()
 
