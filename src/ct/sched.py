@@ -137,6 +137,8 @@ def _left_out(w, cls, kind, prefs):
     reserved = [c for c in prefs.dedicated.get(w.name, ())]
     if w.name in prefs.dedicated and cls not in reserved:
         out.append(why("placement.reserved", classes=", ".join(reserved) or "other work"))
+    if w.connection != w.listens_on:                                                  # this computer pushes down one channel and the worker reads from another: the job would never arrive
+        out.append(why("placement.transport.mismatch", connection=w.connection, listens=w.listens_on))
     if cls not in w.offered:
         out.append(why("placement.class_missing", cls=cls))
     else:

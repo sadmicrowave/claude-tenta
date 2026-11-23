@@ -1015,6 +1015,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the worker's daily limits
 - **What to do:** See its usage with ct-admin status.
 
+### `placement.transport.mismatch`: This computer and the worker use different connections
+
+- **Text:** this computer sends over {connection}, but the worker listens on {listens}, so a job sent now would never be picked up
+- **Protects:** A job sent over a connection the worker does not listen on is never picked up (this computer pushes to GitHub, the worker reads its own mailbox, or the other way round), so it is not sent: the worker is left out, and a worker named with --worker is refused, instead of the job disappearing.
+- **Decided by:** client
+- **Depends on:** the transport
+- **Configured:** not configurable
+- **What to do:** Point this computer at the worker again: ct-setup install --worker NAME Or move the worker to the connection this computer uses: ct-setup transport direct --worker NAME (or github)
+
 ### `placement.none_available`: No worker can take this job right now
 
 - **Text:** Each one, and why it cannot:
