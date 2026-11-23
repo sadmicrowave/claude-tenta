@@ -78,6 +78,45 @@ class LeftOut(unittest.TestCase):
         self.assertEqual(pick([w("none", claude="none")], "sys-status", "command").worker, "none")      # a plain command never needs Claude
 
 
+class EveryReason(unittest.TestCase):
+    """A worker is not left out for its first reason only: every reason it cannot take the job is said, each with its catalog code."""
+
+    def codes(self, c, name):
+        return [code for code, _ in c.reasons[name]]
+
+    def test_a_worker_with_several_problems_is_given_all_of_them(self):
+        c = pick([w("bad", locked=True, jail=False, classes=("other",)), w("ok")])
+        self.assertEqual(self.codes(c, "bad"), ["placement.locked", "placement.isolation_off", "placement.class_missing"])
+        text = dict((n, r) for n, _, r in c.lines)["bad"]
+        for word in ("LOCKED", "isolation OFF", "does not offer"):
+            self.assertIn(word, text)
+
+    def test_a_worker_that_cannot_be_reached_stands_alone_because_nothing_else_can_be_known(self):
+        c = pick([worker_view("gone", "direct", state(locked=True), None, 10, 5, reachable=False, why_not="timed out"), w("ok")])
+        self.assertEqual(self.codes(c, "gone"), ["placement.unreachable"])
+        c = pick([worker_view("blank", "direct", None, None, None, 5), w("ok")])
+        self.assertEqual(self.codes(c, "blank"), ["placement.no_state"])
+
+    def test_an_ai_job_reports_a_missing_sign_in_and_a_pause_and_a_missing_class_together(self):
+        c = pick([w("none", claude="none", paused=True, classes=("other",)), w("ok")], "claude-read", "claude")
+        self.assertEqual(self.codes(c, "none"), ["placement.class_missing", "placement.ai.no_signin"])         # (a pause is only meaningful for a worker that is signed in)
+        c = pick([w("paused", paused=True), w("ok")], "claude-read", "claude")
+        self.assertEqual(self.codes(c, "paused"), ["placement.ai.paused"])
+
+    def test_a_dedicated_worker_that_also_has_a_closed_connection_gives_both_reasons(self):
+        prefs = Prefs(dedicated={"lab": ["claude-read"]}, connections={"sys-status": ["direct"]})
+        c = pick([w("lab", connection="github"), w("ok")], prefs=prefs)
+        self.assertEqual(self.codes(c, "lab"), ["placement.reserved", "placement.connection"])
+
+    def test_a_worker_that_can_take_the_job_has_no_reasons_and_every_code_is_in_the_catalog(self):
+        from ct import refusals
+        c = pick([w("a"), w("bad", locked=True, jail=False)])
+        self.assertNotIn("a", c.reasons)
+        for code, text in c.reasons["bad"]:
+            self.assertIn(code, refusals.CATALOG)
+            self.assertEqual(refusals.CATALOG[code].kind, "placement")
+
+
 class Preferences(unittest.TestCase):
     def test_a_dedicated_worker_takes_only_its_classes_and_is_left_out_of_everything_else(self):
         prefs = Prefs(dedicated={"lab": ["claude-read"]})

@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import config, sched, transport
+from . import refuse
 from .repo import ClientError, ClientRepos
 
 
@@ -156,8 +157,13 @@ def rows(choice):
     from .. import alias, cards
     out = []
     for i, (n, v, r) in enumerate(choice.lines):
+        head = (["\n"] if i else []) + [(cards.Chip("CHOSEN") if v == "CHOSEN" else v.upper(), alias.show(n))]
+        reasons = (getattr(choice, "reasons", None) or {}).get(n)
+        if reasons:                                                           # a worker left out: each reason on its own line, then the codes
+            out += head + [("", text) for _, text in reasons] + [("Code", ", ".join(code for code, _ in reasons))]
+            continue
         reason, _, warning = r.partition(", WARNING: ")                       # a warning is a line of its own, in the warning colour, not the end of a sentence about capacity
-        out += (["\n"] if i else []) + [(cards.Chip("CHOSEN") if v == "CHOSEN" else v.upper(), alias.show(n)), ("", reason)] + ([("", cards.Styled([("WARNING: " + warning, "warn")]))] if warning else [])
+        out += head + [("", reason)] + ([("", cards.Styled([("WARNING: " + warning, "warn")]))] if warning else [])
     return out
 
 
@@ -231,20 +237,27 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
     forced = alias.resolve(forced, by_name)                            # an alias means its worker
     if forced:
         if forced not in by_name:
-            raise ClientError("There is no such worker", "Workers are the main one and those in ct-admin workers.", [f"Yours: {', '.join(by_name)}"], facts=[("Name", forced)])
+            raise refuse.error("placement.unknown_worker", ("Name", forced), ("Yours", ", ".join(by_name)))
         e = by_name[forced]
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
         views = gather_shared(ents, repos_of, fetch, home=ctx.home)
         ch = decide(cls, views, prefs)
         if ch.worker is None:
-            raise ClientError("No worker can take this job right now", "Each one, and why it cannot:", [f"{n}: {r}" for n, _, r in ch.lines] + ["ct-run where " + cls + " shows this again, ct-admin workers compares them."], facts=[("Command", cls)])
+            raise none_error(cls, ch)
         token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)
     chosen = _with(make_ctx(by_name[ch.worker]), ctx)
     chosen.reservation = token
     return chosen, ch
+
+
+def none_error(cls, ch):
+    """No worker can take the job: every worker and every reason it cannot, then how to see it again."""
+    reasons = getattr(ch, "reasons", None) or {}
+    steps = [f"{n}: {text}" for n, _, r in ch.lines for text in ([t for _, t in reasons[n]] if n in reasons else [r])]
+    return refuse.error("placement.none_available", ("Command", cls), steps=steps + [f"ct-run where {cls} shows this again, ct-admin workers compares them."])
 
 
 def _with(chosen, original):

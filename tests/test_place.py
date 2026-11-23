@@ -248,6 +248,33 @@ class TheJobsList(Setup):
         self.assertIn("job-ccc333", text)
 
 
+class EveryReasonShown(unittest.TestCase):
+    """What the person reads when no worker can take a job, or asks ct-run where: every worker, every reason, and the codes."""
+
+    def choice(self):
+        from test_sched import pick, w
+        return pick([w("bad", locked=True, jail=False), w("tenta2", jail=False), w("gone", classes=("other",))])
+
+    def test_the_rows_give_each_reason_its_own_line_and_the_codes_last(self):
+        ch = self.choice()
+        self.assertIsNone(ch.worker)
+        rows = [r for r in place.rows(ch) if isinstance(r, tuple)]                               # (a bare "\n" separates the workers)
+        text = [str(v) for k, v in rows]
+        self.assertTrue(any("LOCKED" in t for t in text))
+        self.assertTrue(any("isolation OFF" in t for t in text))                                     # two reasons for one worker: two lines, not one
+        codes = [v for k, v in rows if k == "Code"]
+        self.assertIn("placement.locked, placement.isolation_off", codes)
+
+    def test_the_no_worker_error_lists_every_reason_of_every_worker_and_ends_with_the_code(self):
+        ch = self.choice()
+        e = place.none_error("sys-status", ch)
+        self.assertEqual(e.title, "No worker can take this job right now")
+        for needle in ("bad: is LOCKED", "bad: has its job isolation OFF", "tenta2: has its job isolation OFF", "gone: does not offer the class sys-status"):
+            self.assertIn(needle, " | ".join(e.steps), needle)
+        self.assertIn("ct-run where sys-status", " | ".join(e.steps))
+        self.assertEqual(e.facts[-1], ("Code", "placement.none_available"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

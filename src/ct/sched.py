@@ -1,4 +1,4 @@
-"""Choosing which worker should run a job (docs/design/ORCHESTRATION.md).
+"""Choosing which worker should run a job (docs/design/ORCHESTRATION.md). Every reason a worker is left out is a catalog entry (ct/refusals.py), and ALL of them are reported, not the first.
 
 Pure: it takes what each worker published (its state document and its registry) and says which worker should get a job of a given class, and WHY, for every worker, in plain words.
 Nothing here connects to anything, so the same function serves the submit command, the explain command and the tests, and a given set of readings always gives the same answer.
@@ -8,6 +8,8 @@ the administrator's preference for that class first, then a fresh reading before
 lightest load per core, then the name (so a tie is never random). Standard library only.
 """
 from dataclasses import dataclass, field
+
+from . import refusals
 
 STALE_S = 7200                     # a reading older than this is still used, but ranked after every fresh one. A healthy idle worker publishes about every half hour, so a shorter limit would call every idle worker stale
 LIVE_S = 120                       # the worker's own running and waiting counts are believed only this long: they are published rarely, and a count that old says nothing about now
@@ -112,46 +114,54 @@ class Choice:
     worker: str = None
     lines: list = field(default_factory=list)             # [(worker, verdict, reason)], every worker, in a stable order
     busy_all: bool = False                                # the best one has no free capacity: the job queues there
+    reasons: dict = field(default_factory=dict)           # worker -> [(catalog code, text)]: every reason it was left out (lines carry them joined)
 
     def explain(self):
         return [(n, v, r) for n, v, r in self.lines]
 
 
 def _left_out(w, cls, kind, prefs):
-    """The reason this worker cannot take the job, or None."""
+    """EVERY reason this worker cannot take the job, as [(catalog code, text)]: empty when it can. A reason that makes the rest unknowable (no answer, no state) stands alone; otherwise all the gates are
+    checked, not only the first, so the person fixes everything at once."""
+    def why(code, **facts):
+        return code, refusals.explain(code, **facts)
     if not w.reachable:
-        return f"cannot be reached now ({w.why_not or 'no answer'})"
+        return [why("placement.unreachable", reason=w.why_not or "no answer")]
     if w.state is None:
-        return "has published no state (an older release, or not set up yet), so nothing can be said about it"
+        return [why("placement.no_state")]
+    out = []
     if w.doc("locked", default=False):
-        return "is LOCKED (a security lockdown): unlock it after you have looked"
+        out.append(why("placement.locked"))
     if not w.doc("isolation", "ready", default=False):
-        return "has its job isolation OFF"
+        out.append(why("placement.isolation_off"))
     reserved = [c for c in prefs.dedicated.get(w.name, ())]
     if w.name in prefs.dedicated and cls not in reserved:
-        return f"is reserved for {', '.join(reserved) or 'other work'}"
+        out.append(why("placement.reserved", classes=", ".join(reserved) or "other work"))
     if cls not in w.offered:
-        return f"does not offer the class {cls}"
-    tools = (((w.registry or {}).get("classes") or {}).get(cls) or {}).get("tools")
-    if tools:                                                                      # a class that needs existing tool folders runs only where the owner allowed them
-        if w.doc("isolation", "mode", default="full") != "relaxed":
-            return f"is in full isolation, so it cannot show the tool folders {cls} needs"
-        roots = [r.rstrip("/") for r in (w.doc("isolation", "tool_roots", default=[]) or [])]
-        outside = [t for t in tools if not any(t == r or t.startswith(r + "/") for r in roots)]
-        if outside:
-            return f"does not allow the tool folder {outside[0]} that {cls} needs"
+        out.append(why("placement.class_missing", cls=cls))
+    else:
+        tools = (((w.registry or {}).get("classes") or {}).get(cls) or {}).get("tools")
+        if tools:                                                                      # a class that needs existing tool folders runs only where the owner allowed them
+            if w.doc("isolation", "mode", default="full") != "relaxed":
+                out.append(why("placement.tools.full_isolation", cls=cls))
+            else:
+                roots = [r.rstrip("/") for r in (w.doc("isolation", "tool_roots", default=[]) or [])]
+                outside = [t for t in tools if not any(t == r or t.startswith(r + "/") for r in roots)]
+                if outside:
+                    out.append(why("placement.tools.not_allowed", folder=outside[0], cls=cls))
     allowed = prefs.connections.get(cls)
     if allowed and w.listens_on not in allowed:
-        return f"is reached over {w.listens_on}, and {cls} is limited to {' or '.join(allowed)}"
+        out.append(why("placement.connection", listens=w.listens_on, cls=cls, allowed=" or ".join(allowed)))
     if kind == "claude":
         c = w.doc("claude", default={}) or {}
-        if c.get("auth", "none") == "none":
-            return "has no Claude sign-in"
+        signed_in = c.get("auth", "none") != "none"
+        if not signed_in:
+            out.append(why("placement.ai.no_signin"))
         if (c.get("tool") or {}).get("kind") == "missing":
-            return "has no Claude tool installed"
-        if w.doc("claude_paused", default=False):
-            return "has paused Claude jobs for today (its daily limit)"
-    return None
+            out.append(why("placement.ai.no_tool"))
+        if signed_in and w.doc("claude_paused", default=False):
+            out.append(why("placement.ai.paused"))
+    return out
 
 
 def _rank(w, cls, prefs):
@@ -177,15 +187,16 @@ def choose(cls, kind, workers, prefs=None):
     """The worker that should run a job of class `cls` (registry kind `kind`), and a reason for every worker. Deterministic: the order of `workers` never matters."""
     prefs = prefs or Prefs()
     ordered = sorted(workers, key=lambda w: w.name)
-    out, eligible = {}, []
+    out, eligible, reasons = {}, [], {}
     for w in ordered:
         why = _left_out(w, cls, kind, prefs)
         if why:
-            out[w.name] = ("left out", why)
+            reasons[w.name] = why
+            out[w.name] = ("left out", "; ".join(text for _, text in why))
         else:
             eligible.append(w)
     if not eligible:
-        return Choice(None, [(w.name, *out[w.name]) for w in ordered])
+        return Choice(None, [(w.name, *out[w.name]) for w in ordered], reasons=reasons)
     eligible.sort(key=lambda w: _rank(w, cls, prefs))
     best = eligible[0]
     order = prefs.preferred.get(cls) or []
@@ -194,7 +205,7 @@ def choose(cls, kind, workers, prefs=None):
             out[w.name] = ("CHOSEN", _why_chosen(w, {"preferred": order[:1]}, eligible, cls))
         else:
             out[w.name] = ("not chosen", _worse_than(w, best, order, cls) + (f" (WARNING: {w.mismatch})" if w.mismatch else ""))
-    return Choice(best.name, [(w.name, *out[w.name]) for w in ordered], busy_all=not best.fits(cls))
+    return Choice(best.name, [(w.name, *out[w.name]) for w in ordered], busy_all=not best.fits(cls), reasons=reasons)
 
 
 def _worse_than(w, best, order, cls):

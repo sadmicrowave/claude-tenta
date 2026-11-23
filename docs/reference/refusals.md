@@ -312,6 +312,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the class's max_timeout_s
 - **What to do:** Give a value in range with --timeout on ct-run offload profile.
 
+### `placement.capacity.in_flight`: Too many jobs are already running
+
+- **Text:** Sending {adding} more would pass limits.max_in_flight. In flight now: {where}.
+- **Protects:** Bounds how many jobs this computer has running across all workers at once.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** your configuration: [limits] max_in_flight (0 removes it)
+- **What to do:** Wait for some to finish: ct-run jobs shows them. Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it).
+
 ### `job.prompt.length`: The prompt has the wrong length
 
 - **Text:** prompt must be 1-8000 characters
@@ -331,6 +340,150 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Name the package with --package on ct-run offload profile.
+
+### `placement.unreachable`: A worker cannot be reached
+
+- **Text:** cannot be reached now ({reason})
+- **Protects:** A worker that cannot be reached cannot be asked anything, so nothing else about it can be known: this reason stands alone.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check it with ct-admin check.
+
+### `placement.no_state`: A worker has published no state
+
+- **Text:** has published no state (an older release, or not set up yet), so nothing can be said about it
+- **Protects:** A worker that has published no state cannot be described, so no job is placed on it blind.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Update it with ct-admin apply.
+
+### `placement.locked`: A worker is locked
+
+- **Text:** is LOCKED (a security lockdown): unlock it after you have looked
+- **Protects:** The worker locked itself after a security event and runs nothing until the owner has looked.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Look at what happened with ct-admin quarantine, then run ct-admin unlock.
+
+### `placement.isolation_off`: A worker's job isolation is off
+
+- **Text:** has its job isolation OFF
+- **Protects:** A job runs only where its isolation is on.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See why with ct-admin status.
+
+### `placement.reserved`: A worker is reserved for other work
+
+- **Text:** is reserved for {classes}
+- **Protects:** The owner reserved this worker for certain classes, and it takes nothing else.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** ct-admin workers use WORKER --command CLASS
+- **What to do:** Release it with ct-admin workers use WORKER --clear.
+
+### `placement.class_missing`: A worker does not offer the class
+
+- **Text:** does not offer the class {cls}
+- **Protects:** A worker can only run the classes its registry has.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** See which workers offer it with ct-run classes.
+
+### `placement.tools.full_isolation`: A worker's isolation cannot show the tool folders
+
+- **Text:** is in full isolation, so it cannot show the tool folders {cls} needs
+- **Protects:** A class that needs the tool folders already on a worker runs only where the owner allowed that.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Allow the tool folders with ct-admin class.
+
+### `placement.tools.not_allowed`: A worker does not allow the tool folder
+
+- **Text:** does not allow the tool folder {folder} that {cls} needs
+- **Protects:** A class that needs a tool folder runs only where the owner allowed that folder.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Allow the folder with ct-admin class.
+
+### `placement.connection`: A worker is reached over a connection the class does not allow
+
+- **Text:** is reached over {listens}, and {cls} is limited to {allowed}
+- **Protects:** The owner limited this class to some kinds of connection.
+- **Decided by:** client
+- **Depends on:** the transport
+- **Configured:** ct-admin class
+- **What to do:** See the limits with ct-admin class.
+
+### `placement.ai.no_signin`: A worker has no AI sign-in
+
+- **Text:** has no Claude sign-in
+- **Protects:** An AI class runs only where the AI tool is signed in.
+- **Decided by:** client
+- **Depends on:** the class kind: claude
+- **Configured:** not configurable
+- **What to do:** Sign it in with ct-setup install --worker NAME.
+
+### `placement.ai.no_tool`: A worker has no AI tool
+
+- **Text:** has no Claude tool installed
+- **Protects:** An AI class runs only where its tool is installed.
+- **Decided by:** client
+- **Depends on:** the class kind: claude
+- **Configured:** not configurable
+- **What to do:** Install it with ct-setup install --worker NAME.
+
+### `placement.ai.paused`: A worker paused AI jobs for today
+
+- **Text:** has paused Claude jobs for today (its daily limit)
+- **Protects:** An AI worker stops taking AI jobs for the day when its limit is reached, so the person's usage is bounded.
+- **Decided by:** client
+- **Depends on:** the class kind: claude
+- **Configured:** the worker's daily limits
+- **What to do:** See its usage with ct-admin status.
+
+### `placement.none_available`: No worker can take this job right now
+
+- **Text:** Each one, and why it cannot:
+- **Protects:** A job with no worker that can take it is not sent: the person is told why for each worker.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Compare the workers with ct-admin workers.
+
+### `placement.unknown_worker`: There is no such worker
+
+- **Text:** Workers are the main one and those in ct-admin workers.
+- **Protects:** A job sent to a named worker needs the name to be one of the person's workers.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List your workers with ct-admin workers.
+
+### `placement.pin.unknown_worker`: The folder file sends jobs to a worker that is not yours
+
+- **Text:** The worker named in the file is not one of your workers.
+- **Protects:** A folder's .tenta.toml that names a worker which is not the person's would send jobs nowhere.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Send this folder's jobs to one of your workers: ct-run use WORKER ct-run use --clear
+
+### `placement.locked.submit`: The worker is locked, so this job was not submitted
+
+- **Text:** It locked itself after a security event and runs nothing until you have reviewed it.
+- **Protects:** A worker that locked itself after a security event takes no new job, so nothing is sent to it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** First look at what happened, then unlock it:
 
 ### `job.packages.plan`: The requested packages cannot be installed
 

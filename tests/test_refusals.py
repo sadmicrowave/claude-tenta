@@ -12,7 +12,7 @@ import support  # noqa: E402,F401
 from ct import refusals  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
-POLICY_MODULES = ("jobs.py", "worker.py")            # each later slice adds its modules here
+POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 
@@ -29,13 +29,16 @@ class Catalog(unittest.TestCase):
             self.assertTrue(e.title.endswith(".") is False and len(e.title) < 90, code)
 
     def test_every_code_used_in_the_source_exists_and_every_entry_is_used(self):
-        used = set()
+        called, text = set(), ""
         for f in SRC.rglob("*.py"):
             if f.name == "refusals.py":
                 continue
-            used |= set(re.findall(r'refuse\(\s*"([a-z_.]+)"', f.read_text()))
-        self.assertEqual(sorted(used - set(refusals.CATALOG)), [], "a code is used that is not in the catalog")
-        self.assertEqual(sorted(set(refusals.CATALOG) - used), [], "an entry is defined that nothing uses")
+            src = f.read_text()
+            called |= set(re.findall(r'refuse\(\s*"([a-z_.]+)"', src))
+            text += src
+        self.assertEqual(sorted(called - set(refusals.CATALOG)), [], "a code is used that is not in the catalog")
+        unused = [c for c in refusals.CATALOG if f'"{c}"' not in text]                        # a code may be named as a literal and raised by variable (a name check returns its code)
+        self.assertEqual(unused, [], "an entry is defined that nothing uses")
 
     def test_a_refusal_is_both_a_reject_and_a_value_error_so_every_existing_catch_still_works(self):
         from ct import jobs
