@@ -115,7 +115,7 @@ def row_for(name, doc, now=None):
             "cpu": f"{plural(hw.get('cores', '?'), 'core')}" + ("" if hw.get("native_claude", True) else ", old CPU"),
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
             "claude": text, "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
-            "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "platform": doc.get("platform") or "",
+            "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "platform": doc.get("platform") or "",
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" STALE" if age is None or age > STALE_S else ""),
             "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S,
@@ -132,8 +132,10 @@ HANG = 10
 def fact_rows(r, upper=False):
     """The measurements of one worker as (label, value) rows, with what it is used for after its state when it has said (an older release does not)."""
     rows = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
+    if r.get("ceiling"):                                                                   # the largest job file it accepts right now (it moves with its free disk and memory)
+        rows.insert([k for _, k in ROWS].index("memory") + 1, ("LARGEST JOB" if upper else "Largest job", r["ceiling"]))
     if r.get("purpose"):
-        rows.insert([k for _, k in ROWS].index("state") + 1, ("PURPOSE" if upper else "Purpose", r["purpose"]))
+        rows.insert([k for _, k in ROWS].index("state") + 1 + bool(r.get("ceiling")), ("PURPOSE" if upper else "Purpose", r["purpose"]))
     if r.get("platform") not in (None, "", "linux"):                                       # only when it is not the usual Linux worker
         rows.insert([k for _, k in ROWS].index("state") + 1, ("PLATFORM" if upper else "Platform", r["platform"]))
     if r.get("held"):                                                                   # a shared computer that is not available right now, as it last said

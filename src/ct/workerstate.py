@@ -97,6 +97,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
     }
     observed = {k: snapshot.get(k) for k in ("load_1m", "temp_c", "mem_available_mb", "disk_free_gb", "running", "waiting")}
     observed["at"] = snapshot.get("at")
+    observed["job_ceiling_mb"] = extra.get("job_ceiling_mb")            # the largest job file this worker accepts right now (it moves with free disk and memory, so it is a reading, not a fact)
     if extra.get("claude_budget") is not None:
         observed["claude_today"] = extra["claude_budget"]              # today's use and the limits (counts only: no job names)
     return environment, {"v": VERSION, "updated": now_iso, **environment, "observed": observed}

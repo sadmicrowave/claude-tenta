@@ -601,6 +601,99 @@ class SignedOrders(SignedApproval):
         self.assertIsNotNone(self.lockdown.locked())
 
 
+class JobCeiling(Base):
+    """A worker accepts only what it can hold (security spot-check F5): a ceiling from its free disk and memory (or [hardware] max_job_mb), checked on the local clone BEFORE the job file is read, a disk reserve that keeps it from
+    starting jobs when nearly full, and the published limits following the ceiling on Direct."""
+
+    def worker_with(self, **over):
+        import dataclasses
+        self.settings = dataclasses.replace(self.settings, **over)
+        self.make_worker()
+
+    def shows(self):
+        calls = []
+        real = self.w.io.git_bytes
+        def spy(repo, *args):
+            calls.append(args)
+            return real(repo, *args)
+        self.w.io.git_bytes = spy
+        return calls
+
+    def test_a_job_over_the_ceiling_is_refused_before_its_file_is_read(self):
+        self.worker_with(max_job_mb=1)
+        calls = self.shows()
+        self.job("job-0001", "files", files={"big.txt": "x" * 2_000_000})
+        self.run_all()
+        res = self.result("job-0001")
+        self.assertEqual((res["status"], res["refusal"]), ("rejected", "job.too_big_for_worker"))
+        self.assertIn("1 MB", res["note"])
+        self.assertFalse([c for c in calls if c and c[0] == "show"], "the whole job was read before its size was checked")
+        self.assertTrue(any(c[:2] == ("cat-file", "-s") for c in calls))
+        self.assertFalse((self.state / "inbox" / "job-0001.json").exists())
+        self.assertEqual(self.runner.calls, [])
+
+    def test_a_job_under_the_ceiling_is_accepted_and_runs(self):
+        self.worker_with(max_job_mb=1)
+        self.job("job-0002", "files", files={"small.txt": "x" * 1000})
+        self.run_all()
+        self.assertEqual(self.result("job-0002")["status"], "ok")
+
+    def test_the_automatic_ceiling_is_the_smallest_of_a_quarter_of_free_disk_a_quarter_of_free_memory_and_one_gigabyte(self):
+        for disk_gb, mem_mb, want in ((100, 4000, 1000), (1, 4000, 250), (1000, 100000, 1024), (100, 400, 100)):
+            self.w.snapshot = lambda d=disk_gb, m=mem_mb: {"disk_free_gb": d, "mem_available_mb": m}
+            self.assertEqual(self.w.job_ceiling_mb(), want, (disk_gb, mem_mb))
+        self.worker_with(max_job_mb=7)
+        self.w.snapshot = lambda: {"disk_free_gb": 1000, "mem_available_mb": 100000}
+        self.assertEqual(self.w.job_ceiling_mb(), 7)                                              # the owner's number wins
+
+    def test_a_nearly_full_disk_makes_the_worker_wait_instead_of_starting_a_job(self):
+        from unittest import mock
+        self.worker_with(disk_reserve=True)
+        usage = lambda free_gb, total_gb: mock.Mock(free=int(free_gb * 1e9), total=int(total_gb * 1e9))      # noqa: E731
+        self.assertEqual(self.w.disk_reserve_gb(total_gb=100), 10.0)                              # 10% of the volume ...
+        self.assertEqual(self.w.disk_reserve_gb(total_gb=10), 2.0)                                # ... but never less than 2 GB
+        with mock.patch("ct.worker.shutil.disk_usage", return_value=usage(1.5, 100)):
+            self.assertIn("disk nearly full", self.w.busy_reason())
+        with mock.patch("ct.worker.shutil.disk_usage", return_value=usage(50, 100)):
+            self.assertIsNone(self.w.busy_reason())
+
+    def test_on_direct_the_published_file_limits_follow_the_ceiling_and_on_github_they_do_not(self):
+        self.worker_with(transport="direct", max_job_mb=50)
+        self.w.load_registry()
+        files = self.w.limits["files"]
+        self.assertEqual((files["max_total_kb"], files["max_file_kb"]), (50_000, 50_000))
+        self.assertGreater(files["max_count"], 200)
+        self.worker_with(transport="github", max_job_mb=50)
+        self.w.load_registry()
+        self.assertEqual(self.w.limits["files"]["max_total_kb"], 2000)                            # GitHub keeps the old defaults
+        self.assertEqual(self.w.limits["files"]["max_file_kb"], 500)
+
+    def test_a_limit_the_owner_set_in_the_registry_still_wins_on_direct(self):
+        self.registry_path.write_text(REGISTRY + "limits:\n  files:\n    max_total_kb: 100\n")
+        self.worker_with(transport="direct", max_job_mb=50)
+        self.w.load_registry()
+        self.assertEqual(self.w.limits["files"]["max_total_kb"], 100)
+
+    def test_the_worker_publishes_its_ceiling(self):
+        import dataclasses
+        self.settings = dataclasses.replace(self.settings, max_job_mb=64)
+        self.make_worker(state_facts=lambda: {"name": "testct", "release": "0" * 40, "os": {"id": "ubuntu"}, "cpu": "x", "capacity": 4})
+        self.w.fetch()
+        r = subprocess.run(["git", "-C", str(self.tmp / "results.git"), "show", "main:worker-state.json"], capture_output=True, text=True)
+        self.assertEqual(json.loads(r.stdout)["observed"]["job_ceiling_mb"], 64)
+
+    def test_a_waiting_job_is_started_from_a_small_sidecar_not_by_parsing_the_whole_job(self):
+        self.job("job-0003", "files", files={"in.txt": "hello"})
+        self.w.fetch()
+        meta = self.state / "queued" / "job-0003.meta"
+        self.assertEqual(json.loads(meta.read_text())["class"], "files")
+        self.w._p("queued", "job-0003.json").write_bytes(b"not json at all " * 1000)               # step must not need to parse it to learn the class
+        self.w._p("running", "job-0003").unlink(missing_ok=True)                                   # (fetch already started it once)
+        self.spawned.clear()
+        self.w.step()
+        self.assertEqual(self.spawned, ["job-0003"])
+
+
 class Rejections(Base):
     def rejected(self, jid, needle):
         self.run_all()

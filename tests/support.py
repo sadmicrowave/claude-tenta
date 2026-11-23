@@ -122,7 +122,7 @@ class Base(unittest.TestCase):
         self.keeper = results.OutputKeeper(self.state)
         self.pk = packages.Packages(t / "tools", self.state / "profile-env", run=lambda argv, timeout, **kw: subprocess.CompletedProcess(argv, 0, "", ""))
         self.sensors, self.runner, self.spawned, self.load = Sensors(), FakeRunner(), [], 0.2
-        self.settings = worker.Settings(state=self.state, registry_path=self.registry_path, tools_root=t / "tools", product="testct")
+        self.settings = worker.Settings(state=self.state, registry_path=self.registry_path, tools_root=t / "tools", product="testct", disk_reserve=False)             # (a test machine's own disk must not decide whether a test job starts)
         self.make_worker()
 
     def make_worker(self, **over):

@@ -58,6 +58,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `capacity` | *(not set)* | int | capacity points the running jobs may add up to (a heavy job takes 4) |
 | `max_load` | *(not set)* | float | do not start a job above this 1-minute load average |
 | `max_temp_c` | *(not set)* | int | do not start a job when the hottest core is above this |
+| `max_job_mb` | *(not set)* | int | the largest job file this worker accepts, in MB; unset means automatic: the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB |
 
 ## [isolation]
 

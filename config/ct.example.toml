@@ -35,6 +35,7 @@ profile = "small-server"        # old-laptop | small-server | workstation | cust
 capacity = 4                    # capacity points running jobs may add up to (a heavy job takes 4)
 max_load = 3.0                  # do not start a job above this 1-minute load average
 max_temp_c = 75                 # do not start a job when the hottest core is above this
+# max_job_mb = 1024             # the largest job file this worker accepts, in MB; unset means automatic: the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB
 
 [isolation]
 require_netns = true            # refuse to run a no-network job if the machine cannot isolate it. Leave on.

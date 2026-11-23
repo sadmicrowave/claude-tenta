@@ -59,6 +59,9 @@ class Settings:
     prune_threshold: int = 200
     pkg_timeout: int = 900
     require_netns: bool = True
+    max_job_mb: int = None                  # the largest job file accepted (None: automatic, see Worker.job_ceiling_mb)
+    transport: str = "github"               # "direct": the published file limits follow the ceiling instead of the GitHub-era defaults (see Worker.effective_limits)
+    disk_reserve: bool = True               # wait instead of starting a job when the disk is nearly full (see Worker.busy_reason)
     idle_after_s: int = 600                 # smart sleep: nothing to do for this long ...
     idle_fetch_s: int = 90                  # ... and the fetch pass only really runs this often (0: never slows down)
     sleep_after_s: int = 7200               # sleep mode: nothing to do for this long ...
@@ -105,9 +108,52 @@ class Worker:
     def _default_spawn(self, jid):
         return subprocess.Popen([*self.s.exec_argv, jid], stdin=subprocess.DEVNULL, **plat.new_session()).pid
 
+    def job_ceiling_mb(self):
+        """The largest job file this worker accepts, in MB: the owner's hardware.max_job_mb, or automatically the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB (a job's files travel inside
+        one JSON file that is staged in memory, so memory bounds it until files are streamed to disk). A reading that is missing does not limit."""
+        if self.s.max_job_mb:
+            return int(self.s.max_job_mb)
+        snap = self.snapshot()
+        terms = [1024.0]
+        if snap.get("disk_free_gb") is not None:
+            terms.append(snap["disk_free_gb"] * 1000 / 4)
+        if snap.get("mem_available_mb") is not None:
+            terms.append(snap["mem_available_mb"] / 4)
+        return int(max(1, min(terms)))
+
+    def disk_reserve_gb(self, total_gb=None):
+        """Free disk kept back: 10% of the volume, never less than 2 GB. Below it the worker starts no job."""
+        if total_gb is None:
+            total_gb = shutil.disk_usage(self.state).total / 1e9
+        return max(2.0, round(total_gb * 0.10, 1))
+
+    def effective_limits(self, reg):
+        """The registry's limits, except that on the Direct connection the file limits follow this worker's ceiling (what it can really hold) instead of the GitHub-era defaults, unless the owner set them in the registry."""
+        lim = registry.limits_of(reg)
+        if self.s.transport == "direct":
+            given = ((reg or {}).get("limits") or {}).get("files") or {}
+            kb = self.job_ceiling_mb() * 1000
+            for key, value in (("max_total_kb", kb), ("max_file_kb", kb), ("max_count", 100000)):
+                if key not in given:
+                    lim["files"][key] = value
+        return lim
+
+    def _blob_size(self, ref, name):
+        """The size in bytes of a job file in the local clone, asked of git without reading its content (no network: the clone already has it); None when it cannot be told."""
+        out = self.io.git_bytes(self.io.queue, "cat-file", "-s", f"{ref}:{name}")
+        try:
+            return int((out or b"").strip())
+        except ValueError:
+            return None
+
+    def _reject_unread(self, jid, size, ceiling_mb):
+        res = {"id": jid, "class": None, "status": "rejected", "started": None, "finished": None, "exit_code": None, "output": "",
+               "note": str(refusals.refuse("job.too_big_for_worker", size=f"{size / 1e6:.1f}", ceiling=ceiling_mb)), "refusal": "job.too_big_for_worker"}
+        self._finish(res, False)
+
     def load_registry(self):
         reg = registry.parse(self.s.registry_path.read_text())
-        self.limits = registry.limits_of(reg)
+        self.limits = self.effective_limits(reg)
         self.policy = registry.policy_of(reg)
         return reg
 
@@ -163,6 +209,13 @@ class Worker:
         t = self.sensors.temp() if self.sensors else None
         if t is not None and t > self.s.max_temp_c:
             return f"core temp {t:.0f}C > {self.s.max_temp_c:.0f}C"
+        if self.s.disk_reserve:
+            try:
+                usage = shutil.disk_usage(self.state)
+            except OSError:
+                usage = None
+            if usage is not None and usage.free / 1e9 < self.disk_reserve_gb(usage.total / 1e9):
+                return f"disk nearly full ({usage.free / 1e9:.1f} GB free, {self.disk_reserve_gb(usage.total / 1e9)} GB kept in reserve)"
         return self.availability_reason()
 
     # ---- approval ----
@@ -345,6 +398,7 @@ class Worker:
                 return
             if not run:
                 self._p("queued", f"{jid}.json").write_bytes(raw)          # the snapshot that will execute is exactly what was validated
+                self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s")}))      # what step needs, so it never parses the whole job
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
                 return
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
@@ -368,6 +422,7 @@ class Worker:
                 self.publish_security()
         if run:
             self._p("queued", f"{jid}.json").unlink(missing_ok=True)
+            self._p("queued", f"{jid}.meta").unlink(missing_ok=True)
             self._p("running", jid).unlink(missing_ok=True)
 
     def _command_for(self, jid, cls, kind, argv, prompt, meta, reg, res):
@@ -546,6 +601,7 @@ class Worker:
             self._p("finished", f"{jid}.json").write_text(json.dumps(res))
             m.unlink(missing_ok=True)
             self._p("queued", f"{jid}.json").unlink(missing_ok=True)
+            self._p("queued", f"{jid}.meta").unlink(missing_ok=True)
 
     def cancel(self, jid):
         """Cancel a job that has not started: one waiting in the queue, or one still waiting for approval. Returns (ok, why)."""
@@ -558,6 +614,7 @@ class Worker:
         if self._p("running", jid).exists() or not (snap.exists() or waiting_for_approval):
             return False, "it is already running, finished, or unknown"
         snap.unlink(missing_ok=True)
+        self._p("queued", f"{jid}.meta").unlink(missing_ok=True)
         self._p("approved", jid).unlink(missing_ok=True)         # an approval of a cancelled job must not survive
         res = {"id": jid, "class": prior.get("class"), "status": "cancelled", "started": None, "finished": iso(self.clock()), "exit_code": None,
                "output": "", "note": "cancelled before it was approved" if waiting_for_approval else f"cancelled on {self.s.product} before it started"}
@@ -601,9 +658,12 @@ class Worker:
                 if jid in running:
                     continue
                 try:
-                    job = json.loads(p.read_bytes())
-                except ValueError:
-                    job = {}
+                    job = json.loads(self._p("queued", f"{jid}.meta").read_text())              # the small sidecar written when the job was queued
+                except (OSError, ValueError):
+                    try:
+                        job = json.loads(p.read_bytes())                                         # a job queued before sidecars existed
+                    except ValueError:
+                        job = {}
                 cls = (reg.get("classes") or {}).get(job.get("class")) or {}
                 w = min(self.s.capacity, registry.COST_W.get(cls.get("cost", "medium"), 2))
                 if used + w > self.s.capacity:
@@ -692,7 +752,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}", self._p("registry.sha")
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -716,7 +776,7 @@ class Worker:
         for name in classes:                                      # when each class first appeared on this worker (a class that was already here when this was added gets that day)
             classes[name]["installed"] = known.get(name) or when
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
-                "profiling": registry.profiling_rules(reg), "limits": registry.limits_of(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
+                "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
@@ -730,7 +790,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())
@@ -825,6 +885,11 @@ class Worker:
                 continue
             inbox = self._p("inbox", f"{jid}.json")
             if not inbox.exists():                           # first sight: snapshot the exact bytes; later edits to the repo copy are ignored
+                size, ceiling = self._blob_size(ref, name), self.job_ceiling_mb()
+                if size is not None and size > ceiling * 1_000_000:       # too big for what this worker can hold: said, and never read
+                    self._reject_unread(jid, size, ceiling)
+                    seen.append(jid)
+                    continue
                 raw = self.io.git_bytes(self.io.queue, "show", f"{ref}:{name}")
                 if raw is None:
                     continue
