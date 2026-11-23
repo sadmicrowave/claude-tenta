@@ -495,3 +495,5 @@ define('worker.name.taken', 'policy', 'A worker name names one worker on this co
 define('addworker.windows.direct_only', 'policy', 'A Windows worker uses the Direct connection only in this version.', 'A Windows worker uses the Direct connection only', 'The GitHub connection is not available for a Windows worker in this version.', who="client")
 define('uninstall.step.failed', 'error', 'The real text of the removal step that failed.', 'A removal step failed', '`{command}` said: {said}', who="client")
 define('uninstall.config.unreadable', 'error', "A removal needs the install's own configuration to find what to remove.", "Cannot read this install's configuration", '{problems}', who="client")
+define("files.link.skipped", "security", "A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. "
+       "Send the file itself if you mean to.", "A link was not followed", "{name!r} is a link, so it was not followed", who="client", steps=["Copy the file into the project and send that, or leave it out."])

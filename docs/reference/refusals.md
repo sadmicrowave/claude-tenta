@@ -271,6 +271,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `files.link.skipped`: A link was not followed
+
+- **Text:** {name!r} is a link, so it was not followed
+- **Protects:** A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. Send the file itself if you mean to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Copy the file into the project and send that, or leave it out.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
