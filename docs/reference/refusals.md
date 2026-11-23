@@ -840,7 +840,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** the class's max_timeout_s
-- **What to do:** Give a value in range with --timeout on ct-run offload profile.
+- **What to do:** Give a value in range with --timeout-s on ct-run offload profile. A command that needs longer than the cap cannot be measured whole: profile a smaller part of it, or ask the worker's owner to raise max_timeout_s for profile-run.
 
 ### `placement.capacity.in_flight`: Too many jobs are already running
 

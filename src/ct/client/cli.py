@@ -347,7 +347,8 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
                 emit("Waiting for your approval", *waiting_rows(ctx, jid, res), tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
                 told = True
             if res and res["status"] == "running" and told != "running":
-                emit("Running now", ("Worker", alias.show(ctx.product)), "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr)
+                emit("Running now", ("Worker", alias.show(ctx.product)), "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr,
+                     run_label="To check on it or stop it", run=[f"ct-run result {jid}", f"{ctx.admin} kill {jid}"])
                 told = "running"
             waited = int(ctx.clock() - start)
             if res and res["status"] == "queued" and told not in ("queued", "running"):
@@ -660,6 +661,9 @@ def cmd_profile(ctx, a):
     for f in a.file or []:
         p = Path(f).expanduser()
         files[p.name] = p.read_text()
+    worker_cap = int((((r.registry_info() or {}).get("classes") or {}).get("profile-run") or {}).get("timeout_s") or 0)       # the worker's own cap, published: no need to send what it will refuse
+    if timeout_s and worker_cap and not 10 <= timeout_s <= worker_cap:
+        raise refuse.error("profile.timeout.range", ("Asked for", f"{timeout_s} s"), ("Worker's cap", f"{worker_cap} s"), cap=worker_cap)
     limits = sub.file_limits(r.registry_info())
     left = sub.LeftOut()
     if a.dir:

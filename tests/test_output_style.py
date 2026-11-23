@@ -31,6 +31,19 @@ STREAMS = {"sys.stdout", "sys.stderr", "self.stream", "stream", "out", "self.out
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 
 
+class WaitingFramesSayHowToCheckAndStop(unittest.TestCase):
+    """A frame that says Ctrl-C stops waiting, not the job, must also show below it the commands to check on the job and (where it can be stopped) to stop it."""
+    def test_every_such_frame_carries_its_commands(self):
+        src, found = Path(__file__).resolve().parents[1] / "src" / "ct", []
+        for f in src.rglob("*.py"):
+            lines = f.read_text().splitlines()
+            for i, line in enumerate(lines):
+                if "Ctrl-C stops waiting" in line and "emit(" in "\n".join(lines[max(0, i - 1):i + 1]):
+                    found.append((f.name, i + 1, "run=" in "\n".join(lines[i:i + 3])))
+        self.assertGreaterEqual(len(found), 4, found)
+        self.assertEqual([x for x in found if not x[2]], [], "a waiting frame without its commands")
+
+
 class Tty(io.StringIO):
     def isatty(self):
         return True
