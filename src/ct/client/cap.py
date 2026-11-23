@@ -10,7 +10,8 @@ import json
 import time
 from pathlib import Path
 
-from .repo import ClientError, PENDING
+from . import refuse
+from .repo import PENDING
 
 RUNNING = tuple(s for s in PENDING if s != "awaiting_approval")
 MAX_AGE_S = 24 * 3600
@@ -57,6 +58,5 @@ def check(fleet, cap, adding, now=None):
     total = sum(len(v) for v in per.values())
     if total + adding > cap:
         where = ", ".join(f"{name}: {len(v)}" for name, v in per.items() if v) or "none"
-        raise ClientError("Too many jobs are already running", f"Sending {adding} more would pass limits.max_in_flight. In flight now: {where}.",
-                          ["Wait for some to finish: ct-run jobs shows them.", "Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it)."], facts=[("In flight", str(total)), ("Cap", str(cap))])
+        raise refuse.error("placement.capacity.in_flight", ("In flight", str(total)), ("Cap", str(cap)), adding=adding, where=where)
     return total

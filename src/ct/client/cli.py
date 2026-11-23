@@ -27,7 +27,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import cap
+from . import cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -115,7 +115,7 @@ def pinned_worker(cfg, cls):
     if worker and cfg is not None:
         names = [e[0] for e in place.entries(cfg)]
         if worker not in names:
-            raise ClientError("The folder file sends jobs to a worker that is not yours", f"Your workers: {', '.join(names)}.", [f"ct-run use {names[0]}", "ct-run use --clear"], facts=[("File", str(here.find())), ("Worker", alias.show(worker))])
+            raise refuse.error("placement.pin.unknown_worker", ("File", str(here.find())), ("Worker", alias.show(worker)), ("Yours", ", ".join(names)))
     return worker, why
 
 

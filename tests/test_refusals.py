@@ -12,7 +12,7 @@ import support  # noqa: E402,F401
 from ct import refusals  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
-POLICY_MODULES = ("jobs.py", "worker.py")            # each later slice adds its modules here
+POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 

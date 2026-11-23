@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .. import guard, refusals
 from ..jobs import file_name_problem
+from . import refuse
 from .repo import ClientError
 from ..words import plural
 
@@ -296,7 +297,5 @@ def push_job(repos, jid, job, clock=lambda: datetime.now(timezone.utc)):
     """Jobs live on their own branch so main stays a clean log of code and registry changes. Refuses if the worker has locked itself."""
     locked = repos.pull_results()
     if locked:
-        raise ClientError("The worker is locked, so this job was not submitted",
-                          "It locked itself after a security event and runs nothing until you have reviewed it.",
-                          ["First look at what happened, then unlock it:"], example="ct-admin quarantine\nct-admin unlock")
+        raise refuse.error("placement.locked.submit", example="ct-admin quarantine\nct-admin unlock")
     repos.push_files(repos.jobs_branch, {f"jobs/{jid}.json": json.dumps(stamp(jid, job, clock), indent=2) + "\n"}, f"job: {jid}")

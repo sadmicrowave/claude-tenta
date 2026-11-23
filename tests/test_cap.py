@@ -58,6 +58,7 @@ class Cap(unittest.TestCase):
             cap.check(fleet, 3, 1, NOW)
         self.assertIn("3", str(e.exception.facts))                       # how many are in flight is a labelled row, not part of the title
         self.assertIn("Too many jobs", e.exception.title)
+        self.assertEqual(e.exception.facts[-1], ("Code", "placement.capacity.in_flight"))
         self.assertIn("main: 2", e.exception.why)
         self.assertIn("max_in_flight", " ".join(e.exception.steps))
 

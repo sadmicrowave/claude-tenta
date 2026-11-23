@@ -162,6 +162,43 @@ define("profile.flags.invalid", "limit", "The flag explanations are shown on the
 define("profile.timeout.range", "limit", "A profile run's time limit stays between a floor that lets it start and the cap the owner set.", "The time limit is out of range",
        "timeout_s must be an integer from 10 to {cap}", config="the class's max_timeout_s", steps=["Give a value in range with --timeout on ct-run offload profile."])
 
+# ---- placement: why a worker cannot take a job, and why a job cannot be placed (the client decides; every reason is reported, not the first) ----
+define("placement.unreachable", "placement", "A worker that cannot be reached cannot be asked anything, so nothing else about it can be known: this reason stands alone.", "A worker cannot be reached",
+       "cannot be reached now ({reason})", who="client", steps=["Check it with ct-admin check."])
+define("placement.no_state", "placement", "A worker that has published no state cannot be described, so no job is placed on it blind.", "A worker has published no state",
+       "has published no state (an older release, or not set up yet), so nothing can be said about it", who="client", steps=["Update it with ct-admin apply."])
+define("placement.locked", "placement", "The worker locked itself after a security event and runs nothing until the owner has looked.", "A worker is locked",
+       "is LOCKED (a security lockdown): unlock it after you have looked", who="client", steps=["Look at what happened with ct-admin quarantine, then run ct-admin unlock."])
+define("placement.isolation_off", "placement", "A job runs only where its isolation is on.", "A worker's job isolation is off", "has its job isolation OFF", who="client",
+       steps=["See why with ct-admin status."])
+define("placement.reserved", "placement", "The owner reserved this worker for certain classes, and it takes nothing else.", "A worker is reserved for other work", "is reserved for {classes}",
+       who="client", config="ct-admin workers use WORKER --command CLASS", steps=["Release it with ct-admin workers use WORKER --clear."])
+define("placement.class_missing", "placement", "A worker can only run the classes its registry has.", "A worker does not offer the class", "does not offer the class {cls}", who="client",
+       steps=["See which workers offer it with ct-run classes."])
+define("placement.tools.full_isolation", "placement", "A class that needs the tool folders already on a worker runs only where the owner allowed that.", "A worker's isolation cannot show the tool folders",
+       "is in full isolation, so it cannot show the tool folders {cls} needs", who="client", steps=["Allow the tool folders with ct-admin class."])
+define("placement.tools.not_allowed", "placement", "A class that needs a tool folder runs only where the owner allowed that folder.", "A worker does not allow the tool folder",
+       "does not allow the tool folder {folder} that {cls} needs", who="client", steps=["Allow the folder with ct-admin class."])
+define("placement.connection", "placement", "The owner limited this class to some kinds of connection.", "A worker is reached over a connection the class does not allow",
+       "is reached over {listens}, and {cls} is limited to {allowed}", who="client", depends="the transport", config="ct-admin class", steps=["See the limits with ct-admin class."])
+define("placement.ai.no_signin", "placement", "An AI class runs only where the AI tool is signed in.", "A worker has no AI sign-in", "has no Claude sign-in", who="client", depends="the class kind: claude",
+       steps=["Sign it in with ct-setup install --worker NAME."])
+define("placement.ai.no_tool", "placement", "An AI class runs only where its tool is installed.", "A worker has no AI tool", "has no Claude tool installed", who="client", depends="the class kind: claude",
+       steps=["Install it with ct-setup install --worker NAME."])
+define("placement.ai.paused", "placement", "An AI worker stops taking AI jobs for the day when its limit is reached, so the person's usage is bounded.", "A worker paused AI jobs for today",
+       "has paused Claude jobs for today (its daily limit)", who="client", depends="the class kind: claude", config="the worker's daily limits", steps=["See its usage with ct-admin status."])
+define("placement.none_available", "placement", "A job with no worker that can take it is not sent: the person is told why for each worker.", "No worker can take this job right now",
+       "Each one, and why it cannot:", who="client", steps=["Compare the workers with ct-admin workers."])
+define("placement.unknown_worker", "placement", "A job sent to a named worker needs the name to be one of the person's workers.", "There is no such worker",
+       "Workers are the main one and those in ct-admin workers.", who="client", steps=["List your workers with ct-admin workers."])
+define("placement.pin.unknown_worker", "placement", "A folder's .tenta.toml that names a worker which is not the person's would send jobs nowhere.", "The folder file sends jobs to a worker that is not yours",
+       "The worker named in the file is not one of your workers.", who="client", steps=["Send this folder's jobs to one of your workers: ct-run use WORKER", "ct-run use --clear"])
+define("placement.capacity.in_flight", "limit", "Bounds how many jobs this computer has running across all workers at once.", "Too many jobs are already running",
+       "Sending {adding} more would pass limits.max_in_flight. In flight now: {where}.", who="client", config="your configuration: [limits] max_in_flight (0 removes it)",
+       steps=["Wait for some to finish: ct-run jobs shows them.", "Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it)."])
+define("placement.locked.submit", "placement", "A worker that locked itself after a security event takes no new job, so nothing is sent to it.", "The worker is locked, so this job was not submitted",
+       "It locked itself after a security event and runs nothing until you have reviewed it.", who="client", steps=["First look at what happened, then unlock it:"])
+
 # ---- what the worker decides about the kind of class ----
 define("job.profile.params", "format", "A profile run is one exact command, not a class with parameters.", "A profile run was given parameters", "profile-run takes argv, not params",
        steps=["Give the command after a double dash on ct-run offload profile."])
