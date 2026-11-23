@@ -52,3 +52,7 @@ Question from the user: can a worker or fleet reduce AI token use by taking work
 - WireGuard as an optional tier: the FINAL task, after the critical path and the first release. The install closes the original SSH on port 22 only when the worker device is dedicated to this purpose, or when the user says so (a shared computer may need that port); the default leaves 22 alone and the install asks.
 - A second, minimal sshd for the mailbox account: only if the privileged action stays truly protected; the lock-out of the worker (losing the admin way in) is a real catch to design out first.
 - `from=` restriction on the mailbox key: see the earlier security notes.
+
+## Auto-adoption conditions for the AI layer (decision 2026-11-23)
+- Auto-adoption installs a fitting class with the owner's key at a terminal, with loose defaults (any cost, packages allowed; only a heavy class is adopted as `approve`). When an AI agent can submit profile runs, add the tighter conditions: who or what triggered the run, per-source limits, a cap on classes adopted per day, a review step for anything an agent started.
+

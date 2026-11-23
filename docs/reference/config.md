@@ -111,6 +111,12 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `turns_per_day` | `300` | float | the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit |
 | `update_days` | `7` | float | days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail) |
 
+## [offload]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt |
+
 ## [limits]
 
 | Setting | Default | Allowed | What it does |

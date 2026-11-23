@@ -339,6 +339,13 @@ class PackBook(NameBook):
         self.path = Path(home) / "profile-packs.json"
 
 
+class AdoptBook(NameBook):
+    """Profile results already offered for automatic adoption on this computer (once each), with the tier used."""
+
+    def __init__(self, home):
+        self.path = Path(home) / "profile-adopted.json"
+
+
 def make_recipe(dir_arg, includes, file_args, cwd):
     """(recipe, note): the packaging of a profile run, relative to `cwd` so it still means something when someone else runs `ct-run submit`. A folder
     outside `cwd` is not saved (the note says why); no files means no recipe."""

@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import json
 import re
 import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -44,11 +45,12 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False):
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
         self.packs = off.PackBook(self.home)
+        self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -62,7 +64,32 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos))
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, run_admin=run_admin_command)
+
+
+def run_admin_command(args):
+    """Run a ct-admin command on this computer, on the person's own terminal (an adoption, an approval). Returns its exit code."""
+    return subprocess.run([sys.executable, "-m", "ct.admin.cli", *args]).returncode
+
+
+def adopt_tier(res):
+    """The tier a class is adopted with: auto (runs as soon as it is submitted) for a light or medium one, approve (waits for the person's OK each time) for a heavy one."""
+    return "approve" if (res.get("profile") or {}).get("cost") == "heavy" else "auto"
+
+
+def auto_adopt(ctx, res):
+    """A profile result that fits is adopted and installed right away, signed with this computer's own approval key, unless the person switched it off (offload.auto_adopt).
+    Only at a terminal, and once per result whatever came of it: a run that cannot be adopted (the name is taken) is said once, not retried every time it is shown.
+    The tighter conditions (who may trigger it) come with the AI layer."""
+    pr = res.get("profile") or {}
+    if pr.get("verdict") != "fits" or not ctx.auto_adopt or not ctx.run_admin or not ctx.is_tty() or ctx.adopted.get(res["id"]):
+        return
+    tier = adopt_tier(res)
+    ctx.adopted.remember(res["id"], tier)
+    emit("Adopting it automatically", ("Job", res["id"]), ("Tier", tier + ("" if tier == "auto" else "   (heavy: it will wait for your OK each time it runs)")),
+         "It fits this worker, so it is added to the registry and installed with your approval key. To stop doing this: ct-setup install --set offload.auto_adopt=false",
+         tag="NOTE", color=CYAN, stream=sys.stderr)
+    ctx.run_admin(["adopt", res["id"], "--tier", tier, "--yes", "--worker", ctx.product])
 
 
 def fleet_of(cfg, main):
@@ -337,7 +364,9 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
                 LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
-                return view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+                auto_adopt(ctx, res)
+                return rc
             if locked:
                 LAST_RESULT.update(locked=True)
                 emit("Stopped waiting: the worker is locked", f"{jid} will not run until you unlock it.", "It stays queued and runs after you unlock.", tag="LOCKED",
@@ -393,7 +422,9 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    return view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+    auto_adopt(ctx, res)
+    return rc
 
 
 def jobs_of(repos, admin):
