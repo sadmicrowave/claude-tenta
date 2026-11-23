@@ -246,7 +246,7 @@ def wait_for_registry(ctx, name, present, timeout=600, step=10):
     if not ctx.is_tty():
         return False
     emit("Waiting for the worker to install it", "It checks about every five minutes. Ctrl-C stops waiting, not the install.", tag="WAITING", color=CYAN,
-         run_label="To check on it", run=[f"{ctx.admin} status"])
+         run_label="To check on it", run=["ct-admin status"])
     waited = 0
     while waited <= timeout:
         ctx.repos.pull_results()
@@ -288,7 +288,7 @@ def wait_until(ctx, done, what, timeout=180, step=5):
     if not ctx.is_tty():
         return False
     emit(f"Waiting for the worker to {what}", "It picks orders up within about a minute. Ctrl-C stops waiting, not the order.", tag="WAITING", color=CYAN,
-         run_label="To check on it", run=[f"{ctx.admin} status"])
+         run_label="To check on it", run=["ct-admin status"])
     waited = 0
     while waited <= timeout:
         ctx.repos.pull_results()
@@ -364,7 +364,7 @@ def approve_on_worker(ctx, a, jid):
 def follow(ctx, a, rc, jid):
     if rc == 0 and not a.no_follow and ctx.is_tty():
         emit("Approved: waiting for the result", "Ctrl-C stops waiting, not the job. cancel stops a job that has not started; kill stops one that is running.", tag="WAITING", color=CYAN,
-             run_label="To check on it or stop it", run=[f"ct-run result {jid}", f"{ctx.admin} cancel {jid}", f"{ctx.admin} kill {jid}"])
+             run_label="To check on it or stop it", run=[f"ct-run result {jid}", f"ct-admin cancel {jid}", f"ct-admin kill {jid}"])
         return ctx.run_result(jid)
     return rc
 
