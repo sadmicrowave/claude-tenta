@@ -62,6 +62,11 @@ class _Facts(dict):
         return "{" + key + "}"                                        # a fact the caller did not give leaves its own name in the text: still a message, never a KeyError
 
 
+def explain(code, **facts):
+    """The text of an entry without raising it: for a rule that is not a refusal of the whole job (a file held back, a warning) but must still say what it protects and be listed."""
+    return CATALOG[code].why.format_map(_Facts(facts))
+
+
 def refuse(code, **facts):
     """The refusal to raise: `raise refuse("files.too_many", limit=200)`. An unknown code is a mistake in the code and fails loudly."""
     entry = CATALOG[code]
@@ -175,3 +180,9 @@ define("job.packages.plan", "placement", "The packages a job asks for must be in
 define("files.incomplete", "policy", "A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.",
        "Some files could not be sent", "{count} could not be sent, so the job would run on an incomplete set of files", who="client",
        steps=["Make the files listed above sendable or leave them out with --include, then run the same command again.", "Or run the same command again with --send-incomplete to send the rest."])
+define("files.held.secret_name", "security", "Protects the person from sending a credential to a worker by accident: a file whose name conventionally holds a secret (.env, *.pem, id_rsa, .npmrc ...) is held back "
+       "unless an --include names it exactly. A wildcard never sends one.", "A file that usually holds a secret was held back", "{name!r} was held back: its name is one that usually holds a secret",
+       who="client", config="the list of names in ct.client.submit (SECRET_NAMES), not configurable yet", steps=["Send it anyway by naming it: --include 'PATH' on ct-run submit."])
+define("files.warn.secret_content", "security", "Tells the person that a file being sent contains text shaped like a private key or an API token. It is only a warning, not a hold: source and test files often hold examples "
+       "(23 of this project's own 283 files match).", "A file being sent looks like it contains a secret", "{name!r} contains text that looks like a private key or an API token",
+       who="client", steps=["If it is real, leave the file out with --include on ct-run submit."])

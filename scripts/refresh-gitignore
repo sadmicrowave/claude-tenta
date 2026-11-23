@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Renew the vendored language ignore templates (src/ct/client/ignore_templates) from github/gitignore at one pinned commit. CC0: the licence is copied beside them.
+  scripts/refresh-gitignore COMMIT_SHA        (find the newest with:  gh api repos/github/gitignore/commits/main -q .sha)
+Run it by hand, review the diff, commit. Nothing is fetched when a job is sent."""
+import sys
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from ct.client import submit   # noqa: E402
+
+BASE = "https://raw.githubusercontent.com/github/gitignore/{sha}/{path}"
+
+
+def get(sha, path):
+    with urllib.request.urlopen(BASE.format(sha=sha, path=path), timeout=60) as r:
+        return r.read().decode("utf-8")
+
+
+def main(argv):
+    if len(argv) != 1 or len(argv[0]) != 40:
+        print(__doc__)
+        return 2
+    sha, out = argv[0], submit.TEMPLATES
+    names = sorted({lang for lang in submit.LANGUAGES})
+    for sub, items, prefix in (("lang", names, ""), ("global", list(submit.GLOBALS), "Global/")):
+        (out / sub).mkdir(parents=True, exist_ok=True)
+        for n in items:
+            (out / sub / f"{n}.gitignore").write_text(get(sha, f"{prefix}{n}.gitignore"))
+    (out / "LICENSE").write_text(get(sha, "LICENSE"))
+    (out / "SOURCE").write_text(f"github/gitignore at commit {sha}\nhttps://github.com/github/gitignore/tree/{sha}\nLicence: CC0 1.0 Universal (see LICENSE)\nRenewed with scripts/refresh-gitignore\n")
+    print(f"wrote {len(names) + len(submit.GLOBALS)} templates at {sha}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

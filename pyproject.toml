@@ -19,3 +19,6 @@ ct-help = "ct.help:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ct.client" = ["ignore_templates/**/*"]
