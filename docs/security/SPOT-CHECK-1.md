@@ -30,3 +30,10 @@ The jail itself (bubblewrap options, namespaces), the update and install path (t
 ## Order I would fix them
 
 F2 and F1 first (both are in one function, small, and F2 is a code-execution path), then F8 (a test), F3 (before any Windows class takes files), F4 and F5 as part of the Direct work, F6 with the pre-job summary, F7 as a decision about process.
+
+## Status
+
+- F1 (links) and F2 (git run in an untrusted repository): fixed in `ct.client.submit` (`safe_git`, links never followed), each with a test that failed before the fix.
+- F8 (vendored templates not scanned): fixed. Every file is pinned by hash in `src/ct/client/ignore_templates/SHA256SUMS` (written by `scripts/refresh-gitignore`); `tests/test_ignore_templates.py` fails on any edit, addition or removal, and `submit.templates_problems()` makes a folder fall back to the interim rule if the templates are not exactly what was vendored.
+- F7: decided: security-sensitive paths are merged by hand (`MERGE-POLICY.md`).
+- F3, F4, F5, F6: open (see the fix order above).
