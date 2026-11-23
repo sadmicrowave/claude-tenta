@@ -212,7 +212,7 @@ def describe_job(ctx, raw):
         reg = w.load_registry()
         rules = registry.profiling_rules(reg)
         cls = (reg.get("classes") or {}).get("profile-run") or {}
-        table = profiling.glance(job, rules, profiling.profile_limits(rules, w.mem_total()), w.snapshot(), jobs.job_timeout(cls, job), facts, ctx.product)
+        table = profiling.glance(job, rules, profiling.profile_limits(rules, w.mem_total()), w.snapshot(), w.time_limit(cls, job, reg), facts, ctx.product)
     except Exception:                                    # the numbers are extra; never block an approval on them
         table = ""
     try:

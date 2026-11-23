@@ -178,6 +178,38 @@ class Timeouts(unittest.TestCase):
             self.assertEqual(jobs.job_timeout(prof, {"timeout_s": bad}), 300)
 
 
+class ProfileTimeFollowsTheEstimate(unittest.TestCase):
+    """The time limit of a profile run is the person's own estimate x the worker's speed factor x the margin; the owner's ceiling applies only on a shared computer."""
+    RULES = registry.profiling_rules({})
+    prof = {"kind": "profile", "max_timeout_s": 600}
+
+    def limit(self, job, shared=False, factor=1.0, cls=None):
+        return jobs.job_timeout(cls or self.prof, job, rules=self.RULES, shared=shared, factor=factor)
+
+    def test_the_default_is_estimate_times_margin_with_a_floor(self):
+        self.assertEqual(self.limit({"est_time_s": 100}), 300)
+        self.assertEqual(self.limit({"est_time_s": 5}), 30)
+        self.assertEqual(self.limit({"est_time_s": 1700}), 5100)                          # not cut to the owner's 600 or to 1800 on a dedicated worker
+        self.assertEqual(self.limit({"est_time_s": 100}, factor=2.0), 600)               # a slower worker is given proportionally longer
+
+    def test_a_shared_computer_keeps_the_owners_ceiling(self):
+        self.assertEqual(self.limit({"est_time_s": 1700}, shared=True), 600)
+        self.assertEqual(self.limit({"est_time_s": 100}, shared=True), 300)
+
+    def test_a_requested_limit_is_honoured_up_to_the_ceiling_only_where_there_is_one(self):
+        self.assertEqual(self.limit({"est_time_s": 100, "timeout_s": 2000}), 2000)
+        self.assertEqual(self.limit({"est_time_s": 100, "timeout_s": 2000}, shared=True), 600)
+        self.assertEqual(self.limit({"est_time_s": 100, "timeout_s": 5}), 300)           # below the floor: the default
+
+    def test_a_request_over_the_ceiling_is_refused_only_on_a_shared_worker(self):
+        base = {"argv": ["jq"], "what": "w", "expect": "e", "est_time_s": 1, "est_mem_mb": 1, "timeout_s": 2000}
+        build = lambda shared: jobs.build_profile(base, {"kind": "profile", "max_timeout_s": 600}, LIMITS, find_program=lambda n: True, shared=shared)      # noqa: E731
+        self.assertIsNotNone(build(False))
+        with self.assertRaises(Exception) as cm:
+            build(True)
+        self.assertIn("600", str(cm.exception))
+
+
 class Profile(unittest.TestCase):
     cls = {"kind": "profile", "accepts_files": True, "max_timeout_s": 600}
     good = {"argv": ["jq", "-n", "1"], "what": "prints one", "expect": "instant", "est_time_s": 1, "est_mem_mb": 10}

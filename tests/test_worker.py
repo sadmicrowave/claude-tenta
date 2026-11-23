@@ -1106,6 +1106,41 @@ class Profile(Base):
         self.assertIn("not allowed", self.result("profile-aaa111")["note"])
 
 
+class ProfileTime(Base):
+    """A profile run's time limit follows the person's estimate; the owner's ceiling is only for a shared computer."""
+    def worker_with(self, **over):
+        import dataclasses
+        self.settings = dataclasses.replace(self.settings, **over)
+        self.make_worker()
+
+    def test_the_limit_is_the_estimate_times_the_margin_unless_the_computer_is_shared(self):
+        self.worker_with(isolation_purpose="special-use")
+        reg = self.w.load_registry()
+        cls = reg["classes"]["profile-run"]
+        self.assertEqual(self.w.time_limit(cls, {"est_time_s": 1700}, reg), 5100)
+        self.worker_with(isolation_purpose="shared")
+        reg = self.w.load_registry()
+        self.assertEqual(self.w.time_limit(reg["classes"]["profile-run"], {"est_time_s": 1700}, reg), reg["classes"]["profile-run"].get("max_timeout_s", 1800))
+
+    def test_the_estimate_is_kept_with_the_queued_job_so_the_deadline_follows_it(self):
+        self.worker_with(isolation_purpose="special-use")
+        self.job("profile-aaa111", "profile-run", argv=["ls"], what="w", expect="e", est_time_s=100, est_mem_mb=1)
+        self.w.fetch()
+        self.assertEqual(self.w.approve("profile-aaa111"), (True, ""))
+        self.w.fetch()
+        meta = json.loads((self.w._p("queued", "profile-aaa111.meta")).read_text())
+        self.assertEqual(meta.get("est_time_s"), 100)
+
+    def test_the_published_registry_says_what_the_limit_is_built_from(self):
+        self.worker_with(isolation_purpose="special-use")
+        self.w.publish_registry_info(self.w.load_registry())
+        pt = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["profile_time"]
+        self.assertEqual((pt["ceiling_s"], pt["shared"], pt["factor"]), (None, False, 1.0))
+        self.worker_with(isolation_purpose="shared")
+        self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))                    # a changed purpose is republished
+        self.assertEqual(json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["profile_time"]["shared"], True)
+
+
 class RegistryInfo(Base):
     def test_a_classs_submit_recipe_is_published_for_the_client_and_never_acted_on(self):
         self.registry_path.write_text(REGISTRY + '  packed:\n    tier: auto\n    run: [/bin/true]\n    accepts_files: true\n    submit: {"dir": "src", "include": ["*.js"]}\n')
