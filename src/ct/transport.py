@@ -74,8 +74,8 @@ class Direct:
         """The key your computer uses for the mailbox: made by ct-setup, with no other use, and the only key the mailbox account accepts."""
         return Path(cfg.paths.client_home).expanduser() / "mailbox" / "key"
 
-    def client_ssh_command(self, cfg):
-        key = shlex.quote(str(self.client_key(cfg)))
+    def client_ssh_command(self, cfg, key=None):
+        key = shlex.quote(str(key if key is not None else self.client_key(cfg)))                 # (a key other than the one in use: a new key being checked before it replaces the old)
         family = " -o AddressFamily=inet" if cfg.network.ipv6 == "disabled" else ""          # the worker has no IPv6: do not wait for addresses it no longer has (see admin.ssh.family_for)
         return f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15{family}"
 

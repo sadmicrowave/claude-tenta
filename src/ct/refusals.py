@@ -497,3 +497,14 @@ define('uninstall.step.failed', 'error', 'The real text of the removal step that
 define('uninstall.config.unreadable', 'error', "A removal needs the install's own configuration to find what to remove.", "Cannot read this install's configuration", '{problems}', who="client")
 define("files.link.skipped", "security", "A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. "
        "Send the file itself if you mean to.", "A link was not followed", "{name!r} is a link, so it was not followed", who="client", steps=["Copy the file into the project and send that, or leave it out."])
+
+# ---- replacing a Direct worker's mailbox key (ct-setup rotate-key) ----
+define("rotate.not_direct", "policy", "Only the Direct connection has a mailbox key to replace: GitHub workers use deploy keys that ct-setup install manages.", "Only a Direct worker has a mailbox key",
+       "This worker uses {connection}, which has no mailbox key.", who="client", steps=["Run ct-setup install to see how the worker is connected."])
+define("rotate.no_key", "error", "There is no key to replace on this computer; a first key is made by the install.", "This computer has no mailbox key for that worker", "The key file is missing.", who="client",
+       steps=["Run ct-setup install --worker NAME to make one."])
+define("rotate.install_failed", "error", "The worker did not take the new key, so nothing was changed: the old key still works and the new one was deleted.", "The worker did not take the new key", "{reason}", who="client",
+       steps=["Run ct-setup rotate-key again once the worker answers: nothing was changed."])
+define("rotate.verify_failed", "error", "The worker was given the new key but the check that it works failed; the worker now trusts only the new key, so it is kept as the key in use and the old one is kept aside.",
+       "The new key is installed but the check failed", "The worker now trusts only the new key, which is in place here; the check said: {reason}", who="client",
+       steps=["Try the connection again with ct-admin check.", "If it still fails, restore the old key from the file shown and run ct-setup install again."])
