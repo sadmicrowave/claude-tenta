@@ -1,6 +1,6 @@
 # Why offload: a ranked ladder of reasons
 
-Status: first draft 2026-11-23 (list item 2). **Weights and the definition of "repeatable" are proposals, marked PROPOSED, until the owner of the project agrees them.**
+Status: agreed 2026-11-23 (list item 2): the weights and the definition of "repeatable" below were accepted by the owner of the project, including rung 1 ranking above rung 2 when a job meets both.
 A living document: new rungs are added as they are found; it is written so its plain-language parts can be reused for a public website.
 
 ## Why a ladder
@@ -15,7 +15,7 @@ The tool is a command-line application. Nothing here is specific to one AI model
 
 ## The rungs
 
-| # | Rung | Plain-language value | Signal the tool has today | PROPOSED weight |
+| # | Rung | Plain-language value | Signal the tool has today | Weight |
 | - | ---- | -------------------- | ------------------------- | --------------- |
 | 1 | **Worker-specific work**: the job must run on one particular worker | It could not run on your own computer at all, or should not | the person pins it (`ct-run use`, `.tenta.toml`); the class belongs to one worker | 100 |
 | 2 | **Fewer AI tokens**: work taken away from the model | The model reads a short result instead of doing or waiting on the long work | none yet (needs the AI layer; see the token-saving foundation, list item 5) | 80 |
@@ -45,7 +45,7 @@ what happens when one fails, how far more workers keep paying off (the measureme
 
 ### 4. Free your own computer
 
-Long runs, and short runs that repeat, take your computer's CPU. **"Repeatable"** needs a definition; PROPOSED: a command shape the person has run **at least 3 times in 14 days**.
+Long runs, and short runs that repeat, take your computer's CPU. **"Repeatable"** needs a definition; Agreed: a command shape the person has run **at least 3 times in 14 days**.
 The two numbers are settings (`offload.repeat_runs`, `offload.repeat_days` in `ct.toml`, overridable in a folder's `.tenta.toml`), not constants in code. The measurement utility
 later suggests values from the person's own log instead of a guess.
 
@@ -63,8 +63,6 @@ cloud service), energy or heat (work that should not warm your laptop), network 
 
 Candidacy today looks at rung 4 only (seconds and count). Evaluating all rungs is list item 8.
 
-## Decisions needed
+## Decisions
 
-- The weights above (relative order and size).
-- The definition of "repeatable" (3 runs in 14 days) and whether the two settings live in `ct.toml` as proposed.
-- Whether rung 1 should rank above rung 2 when a job meets both (a pinned job that also saves tokens).
+- 2026-11-23: the weights above stand. The definition of "repeatable" (3 runs in 14 days, as two settings) stands. Rung 1 ranks above rung 2.
