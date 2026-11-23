@@ -36,6 +36,26 @@ class FileNames(unittest.TestCase):
             self.assertEqual(problem[0], "files.name.path", repr(bad))
             self.assertIn(why, problem[1], repr(bad))
 
+    def test_on_a_windows_worker_a_name_cannot_be_drive_relative_reserved_or_end_in_a_dot_or_space(self):
+        for bad, why in (("C:evil.txt", "windows"), ("a/D:x", "windows"), ("file.txt:stream", "windows"), ("CON", "windows"), ("con.txt", "windows"), ("sub/Nul.py", "windows"), ("COM1", "windows"),
+                         ("lpt9.log", "windows"), ("a.", "windows"), ("dir /x", "windows"), ("x<y", "windows"), ('say"hi', "windows"), ("a|b", "windows"), ("q?", "windows"), ("*.txt", "windows")):
+            problem = jobs.file_name_problem(bad, windows=True)
+            self.assertEqual(problem[0], "files.name.path", bad)
+            self.assertIn(why, problem[1].lower(), bad)
+        for ok in ("consul.txt", "aux_data.csv", "com10.txt", "lpt.py", "a b.txt", "helper@.service.in", "dir/sub/file-1_2.js", ".gitignore"):       # (near misses and everything else stays fine)
+            self.assertIsNone(jobs.file_name_problem(ok, windows=True), ok)
+
+    def test_a_linux_or_mac_worker_keeps_accepting_those_names_because_they_are_ordinary_there(self):
+        for ok in ("C:evil.txt", "con.txt", "nul", "a.", "x<y", "file.txt:stream"):
+            self.assertIsNone(jobs.file_name_problem(ok, windows=False), ok)
+
+    def test_the_default_follows_the_machine_the_check_runs_on(self):
+        from unittest import mock
+        with mock.patch.object(jobs, "_on_windows", return_value=True):
+            self.assertIsNotNone(jobs.file_name_problem("con.txt"))
+        with mock.patch.object(jobs, "_on_windows", return_value=False):
+            self.assertIsNone(jobs.file_name_problem("con.txt"))
+
     def test_check_files_accepts_the_names_the_old_character_list_refused(self):
         files = {"templates/systemd/helper@.service.in": "x", ".gitignore": "y", "my notes.txt": "z"}
         self.assertEqual(jobs.check_files(files, self.CMD, self.LIM), files)

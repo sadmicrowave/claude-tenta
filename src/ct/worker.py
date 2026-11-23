@@ -432,8 +432,11 @@ class Worker:
             res["seen"] = iso(datetime.fromtimestamp(self._p("inbox", f"{jid}.json").stat().st_mtime, timezone.utc))
         except OSError:
             pass
+        base = wd.resolve()
         for name, content in files.items():
             target = wd / name
+            if not target.resolve().is_relative_to(base):                       # the second defence, on the path actually written: the name check (jobs.file_name_problem) is the first
+                raise refusals.refuse("files.name.path", name=name, reason="it would be written outside the job's folder")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
         returns_patch = kind == "claude" and cls.get("returns") == "patch"

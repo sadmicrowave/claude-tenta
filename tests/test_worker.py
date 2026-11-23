@@ -65,6 +65,18 @@ class Lifecycle(Base):
         self.assertEqual(self.result("job-0002")["status"], "rejected")
         self.assertIn("does not accept files", self.result("job-0002")["note"])
 
+    def test_a_file_is_never_written_outside_the_job_folder_even_if_the_name_check_were_wrong(self):
+        from unittest import mock
+        from ct import jobs
+        with mock.patch.object(jobs, "file_name_problem", return_value=None):                  # the name check is the first defence; this is the second, on the path actually written
+            self.job("job-0001", "files", files={"../escape.txt": "pwned"})
+            self.run_all()
+        res = self.result("job-0001")
+        self.assertEqual(res["status"], "rejected")
+        self.assertEqual(res["refusal"], "files.name.path")
+        self.assertFalse((self.state / "work" / "escape.txt").exists())
+        self.assertFalse((self.state / "escape.txt").exists())
+
     def test_a_job_whose_file_left_the_repo_is_still_handled_from_its_snapshot(self):
         self.job("job-0001")
         self.w.fetch()

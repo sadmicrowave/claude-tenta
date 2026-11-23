@@ -110,7 +110,14 @@ def build_argv(cls, params, policy=None):
     return argv
 
 
-def file_name_problem(name, kind="command"):
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}      # device names: a file called one of these (with or without an extension) is the device, not a file
+
+
+def _on_windows():
+    return os.name == "nt"
+
+
+def file_name_problem(name, kind="command", windows=None):
     """None when an attached file's name is fine, else (catalog code, reason). A name is a path inside the job's work folder, so only what could leave it is refused: absolute, '..', empty parts,
     control characters, a backslash, a silly length. A leading dot is refused only for a class whose tool reads its settings from its working folder (an AI tool, by kind)."""
     if not isinstance(name, str) or not name:
@@ -122,6 +129,18 @@ def file_name_problem(name, kind="command"):
         return "files.name.path", "it has a control character or a backslash"
     if name.startswith("/") or any(p in ("", ".", "..") for p in parts):
         return "files.name.path", "it must be a relative path inside the job's folder"
+    if windows is None:
+        windows = _on_windows()
+    if windows:                                                                      # only on a Windows worker: these names are ordinary on Linux and a Mac, and refusing them there would refuse real projects (con.py, aux.c)
+        for part in parts:
+            if ":" in part:
+                return "files.name.path", "on Windows a name cannot contain ':' (it is a drive, or a data stream hidden inside a file)"
+            if any(c in '<>"|?*' for c in part):
+                return "files.name.path", "on Windows a name cannot contain any of < > \" | ? *"
+            if part != part.rstrip(" ."):
+                return "files.name.path", "on Windows a name cannot end in a dot or a space"
+            if part.split(".")[0].rstrip(" ").upper() in WINDOWS_RESERVED:
+                return "files.name.path", "on Windows that is the name of a device (CON, NUL, COM1 ...), not a file"
     if kind == "claude" and any(p.startswith(".") for p in parts):
         return "files.name.hidden", ""
     return None
