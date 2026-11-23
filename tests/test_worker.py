@@ -597,6 +597,12 @@ class Rejections(Base):
         self.assertIn(needle, res["note"])
         self.assertEqual(self.runner.calls, [])                                            # nothing ran
 
+    def test_a_refused_job_carries_the_code_of_its_refusal_in_its_published_result(self):
+        self.job("job-0001", created=util.iso(util.now() - timedelta(days=3)))
+        self.run_all()
+        res = self.result("job-0001")
+        self.assertEqual(res["refusal"], "job.expired")
+
     def test_unknown_class(self):
         self.job("job-0001", "nope")
         self.rejected("job-0001", "class not in installed registry")

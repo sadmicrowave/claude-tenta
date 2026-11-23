@@ -60,7 +60,23 @@ def commands_page():
     return "\n".join(out) + "\n"
 
 
-PAGES = {"docs/reference/config.md": config_page, "docs/reference/commands.md": commands_page}
+def refusals_page():
+    from ct import refusals
+    out = [HEADER, "# Refusals\n", "Every rule that refuses a job on the job path, defined once in `src/ct/refusals.py`. A refused job's result carries the code, shown as its last row. "
+           "Each rule says what it protects, so it can be questioned against the app's goals. Operational errors (a step that failed) are not listed here.\n"]
+    for kind in refusals.KINDS:
+        entries = [e for e in refusals.CATALOG.values() if e.kind == kind]
+        if not entries:
+            continue
+        out.append(f"\n## {kind.capitalize()}\n")
+        for e in entries:
+            out.append(f"\n### `{e.code}`: {e.title}\n\n- **Text:** {e.why}\n- **Protects:** {e.protects}\n- **Decided by:** {e.who}\n- **Depends on:** {e.depends}\n- **Configured:** {e.config or 'not configurable'}\n")
+            if e.steps:
+                out.append("- **What to do:** " + " ".join(e.steps) + "\n")
+    return "".join(out)
+
+
+PAGES = {"docs/reference/config.md": config_page, "docs/reference/commands.md": commands_page, "docs/reference/refusals.md": refusals_page}
 
 
 def main(argv):

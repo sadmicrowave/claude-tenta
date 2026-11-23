@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
+from . import refusals
 from .jobs import Reject
 from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
 from .jail import Unshare
@@ -263,18 +264,18 @@ class Worker:
         try:
             job = json.loads(raw)
         except ValueError:
-            raise Reject("job file is not valid JSON")
+            raise refusals.refuse("job.json.invalid")
         if not isinstance(job, dict) or job.get("id") != jid:
-            raise Reject("id missing or does not match filename")
+            raise refusals.refuse("job.id.mismatch")
         cname = job.get("class")
         res["class"] = cname if isinstance(cname, str) else None
         cls = (reg.get("classes") or {}).get(cname)
         if cls is None:
-            raise Reject(f"class not in installed registry: {cname!r}")
+            raise refusals.refuse("job.class.unknown", name=cname)
         jobs.check_age(job, self.s.max_age_s, self.clock)
         params = job.get("params") or {}
         if not isinstance(params, dict):
-            raise Reject("params must be an object")
+            raise refusals.refuse("job.params.not_object")
         kind = cls.get("kind", "command")
         argv = prompt = None
         files, meta = {}, {}
@@ -284,25 +285,27 @@ class Worker:
                 files = jobs.check_files(job.get("files"), cls, self.limits)
             elif kind == "profile":
                 if params:
-                    raise ValueError("profile-run takes argv, not params")
+                    raise refusals.refuse("job.profile.params")
                 argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy)
             elif kind == "privileged":
                 action = (reg.get("actions") or {}).get(cls.get("action"))
                 if not isinstance(action, dict):
-                    raise ValueError("the class's action is not in the installed registry")
+                    raise refusals.refuse("job.action.missing")
                 if job.get("files") or job.get("prompt"):
-                    raise ValueError("a root-level job takes parameters only")
+                    raise refusals.refuse("job.root.params_only")
                 from . import actions as actions_mod
                 argv = actions_mod.build_argv(action, params)               # only to validate the parameters now; the helper builds it again from the root-owned registry
             elif kind == "claude":
                 prompt = job.get("prompt")
                 if not isinstance(prompt, str) or not 1 <= len(prompt) <= 8000:
-                    raise ValueError("prompt must be 1-8000 characters")
+                    raise refusals.refuse("job.prompt.length")
                 files = jobs.check_files(job.get("files"), cls, self.limits)
             else:
-                raise ValueError(f"unknown kind {kind!r}")
-        except ValueError as e:
-            raise Reject(str(e))
+                raise refusals.refuse("job.kind.unknown", kind=kind)
+        except refusals.Refused:
+            raise                                                           # already a catalog refusal: its code goes on to the result
+        except ValueError as e:                                             # a validator that has no entry of its own yet (actions.build_argv): the generic one, with its text
+            raise refusals.refuse("job.invalid", detail=str(e))
         return job, cls, kind, argv, prompt, files, meta
 
     # ---- one job ----
@@ -331,7 +334,7 @@ class Worker:
                         if meta.get("packages"):
                             plan = self.pkgs.plan(meta["packages"], jid)
                             if plan["problems"]:
-                                raise Reject("; ".join(plan["problems"]))
+                                raise refusals.refuse("job.packages.plan", problems="; ".join(plan["problems"]))
                             res["package_text"] = self.pkgs.plan_text(plan)
                     res.update(status="awaiting_approval", note=self.s.approve_note.format(jid=jid))
                     if kind == "privileged":
@@ -347,6 +350,8 @@ class Worker:
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
         except Reject as e:
             res.update(status="rejected", note=str(e))
+            if getattr(e, "code", None):
+                res["refusal"] = e.code                                    # machine-readable: which rule refused it (shown as the last row, and counted later)
         except Exception as e:                                              # one bad job must never kill the loop
             res.update(status="error", note=f"worker error: {e}")
         self._finish(res, run)

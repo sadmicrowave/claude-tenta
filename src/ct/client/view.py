@@ -157,6 +157,8 @@ def result_card(res, admin="ct-admin", suggest_name=None, received=None):
             run, run_label = f"{admin} adopt {res['id']} --name {suggest_name}", "Register it and install it on the worker, asking you once"
         elif pr["verdict"] in ("fits", "does-not-fit"):
             run, run_label = f"ct-run offload propose {res['id']}", "Record that it does not fit, so it is never offloaded"
+    if res.get("refusal"):                                                      # which rule refused it: the last row, so it can be looked up (docs/reference/refusals.md)
+        rows += [("Code", res["refusal"])]
     measured = []
     if m:
         temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
