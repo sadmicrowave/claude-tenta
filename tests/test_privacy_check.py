@@ -54,6 +54,10 @@ class History(unittest.TestCase):
         r = history(d, env)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_the_vendored_third_party_ignore_templates_are_not_scanned(self):
+        d, env = repo_with("src/ct/client/ignore_templates/lang/Python.gitignore")
+        self.assertEqual(history(d, env).returncode, 0)
+
     def _with_message(self, message):
         d, env = repo_with("tests/fixtures/ok.txt")
         deny = Path(tempfile.mkdtemp()) / "deny.txt"                                       # outside the repository: inside, its own patch would match

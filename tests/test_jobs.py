@@ -22,6 +22,34 @@ class Ids(unittest.TestCase):
             jobs.check_id("job-0001", filename_id="job-0002")
 
 
+class FileNames(unittest.TestCase):
+    CMD = {"accepts_files": True}
+    AI = {"accepts_files": True, "kind": "claude"}
+    LIM = {"files": {"max_count": 200, "max_file_kb": 500, "max_total_kb": 2000}}
+
+    def test_a_name_is_checked_only_for_what_could_leave_the_job_folder(self):
+        for ok in ("helper@.service.in", "a b.txt", "src/a+b/c=d,e.py", ".gitignore", ".tenta.toml", "dir/.hidden/x", "ünï.txt", "x" * 255):
+            self.assertIsNone(jobs.file_name_problem(ok), ok)
+        for bad, why in (("", "empty"), ("/etc/passwd", "relative"), ("../x", "relative"), ("a/../b", "relative"), ("a//b", "relative"), ("a/", "relative"), ("./a", "relative"),
+                         ("a\\b", "backslash"), ("a\x00b", "control"), ("a\nb", "control"), ("a" * 256, "long"), ("a/" * 600, "long")):
+            problem = jobs.file_name_problem(bad)
+            self.assertEqual(problem[0], "files.name.path", repr(bad))
+            self.assertIn(why, problem[1], repr(bad))
+
+    def test_check_files_accepts_the_names_the_old_character_list_refused(self):
+        files = {"templates/systemd/helper@.service.in": "x", ".gitignore": "y", "my notes.txt": "z"}
+        self.assertEqual(jobs.check_files(files, self.CMD, self.LIM), files)
+
+    def test_a_leading_dot_is_refused_only_for_a_class_whose_tool_reads_settings_from_its_folder(self):
+        jobs.check_files({".claude/settings.json": "{}"}, self.CMD, self.LIM)               # a command class: just a file
+        with self.assertRaises(jobs.Reject) as cm:
+            jobs.check_files({"docs/.claude/settings.json": "{}"}, self.AI, self.LIM)
+        self.assertEqual(cm.exception.code, "files.name.hidden")
+        with self.assertRaises(jobs.Reject) as cm:
+            jobs.check_files({"../x": "1"}, self.AI, self.LIM)
+        self.assertEqual(cm.exception.code, "files.name.path")                              # the path rule still applies to every kind
+
+
 class Age(unittest.TestCase):
     def test_an_expired_job_says_so_in_words_and_how_to_go_on(self):
         with self.assertRaises(jobs.Reject) as cm:
@@ -102,10 +130,10 @@ class Files(unittest.TestCase):
             jobs.check_files({"a": "x" * 1001}, self.cls, small)
 
     def test_names_cannot_escape_or_plant_settings(self):
-        for bad in (".claude/settings.json", "../x", "/etc/passwd", "a/../b", ".hidden", "a//b", "a b", "a;b", "", "x" * 201, "dir/.dot", "a\n"):
+        for bad in ("../x", "/etc/passwd", "a/../b", "a//b", "", "x" * 1100, "a\n"):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 jobs.check_files({bad: "x"}, self.cls, LIMITS)
-        for ok in ("a.txt", "dir/sub/file-1_2.js", "_x", "a.b.c"):
+        for ok in ("a.txt", "dir/sub/file-1_2.js", "_x", "a.b.c", ".claude/settings.json", ".hidden", "a b", "a;b", "dir/.dot", "x" * 201):           # (the old character list refused the last six: see FileNames)
             jobs.check_files({ok: "x"}, self.cls, LIMITS)
 
     def test_content_must_be_text_and_the_class_must_accept_files(self):
@@ -178,7 +206,7 @@ class Profile(unittest.TestCase):
     def test_files_follow_the_class_and_limits(self):
         self.assertEqual(self.build(files={"in.txt": "x"})[1], {"in.txt": "x"})
         with self.assertRaises(ValueError):
-            self.build(files={".hidden": "x"})
+            self.build(files={"../x": "x"})
 
 
 class Scrub(unittest.TestCase):

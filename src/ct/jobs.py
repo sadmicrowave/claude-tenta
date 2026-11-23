@@ -1,7 +1,7 @@
 """Validation of a job file: everything a requester controls is checked here before anything runs.
 
 Rules: ids are short and plain; commands are argv lists built from the registry's template (never a shell string); every parameter has a
-declared type; input files have plain relative names (no dot-names, so a job cannot plant a settings file) and size limits; a job
+declared type; input files have names that stay inside the job folder (and no dot-names for a class whose tool reads settings from its folder) and size limits; a job
 expires after a maximum age (replays) and may not claim to be from the future; a profile run names exactly one command and says what it
 does. Nothing here runs a command, and the lookups of the machine (which programs exist) are passed in so they can be tested.
 """
@@ -17,7 +17,6 @@ from .util import SAFE_PATH, now
 from .words import plural
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{3,63}$")
-FILE_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*")
 PROFILE_DENY = set(BASELINE_DENY)          # a profile run is an arbitrary command, so privilege tools are refused outright (policy can add more)
 MAX_AGE_S = 86400
 MAX_FUTURE_S = 300
@@ -111,9 +110,26 @@ def build_argv(cls, params, policy=None):
     return argv
 
 
+def file_name_problem(name, kind="command"):
+    """None when an attached file's name is fine, else (catalog code, reason). A name is a path inside the job's work folder, so only what could leave it is refused: absolute, '..', empty parts,
+    control characters, a backslash, a silly length. A leading dot is refused only for a class whose tool reads its settings from its working folder (an AI tool, by kind)."""
+    if not isinstance(name, str) or not name:
+        return "files.name.path", "it is empty"
+    parts = name.split("/")
+    if len(name) > 1024 or any(len(p) > 255 for p in parts):
+        return "files.name.path", "it is too long"
+    if "\\" in name or any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return "files.name.path", "it has a control character or a backslash"
+    if name.startswith("/") or any(p in ("", ".", "..") for p in parts):
+        return "files.name.path", "it must be a relative path inside the job's folder"
+    if kind == "claude" and any(p.startswith(".") for p in parts):
+        return "files.name.hidden", ""
+    return None
+
+
 def check_files(files, cls, limits):
-    """Optional input files: small text files written into the job's empty work folder. Names are relative and may not start a path
-    component with '.', so a job can't plant .claude/settings.json and the like. `limits` is the registry's limits (limits_of)."""
+    """Optional input files: small text files written into the job's empty work folder. A name is a path inside the work folder
+    (see file_name_problem): it is refused only for what could leave the folder, and for a leading dot where the class's tool reads settings from the folder. `limits` is the registry's limits (limits_of)."""
     if files is None:
         return {}
     if not cls.get("accepts_files"):
@@ -123,8 +139,9 @@ def check_files(files, cls, limits):
         raise refusals.refuse("files.too_many", limit=fl["max_count"])
     total = 0
     for name, content in files.items():
-        if not isinstance(name, str) or len(name) > 200 or not FILE_NAME_RE.fullmatch(name):
-            raise refusals.refuse("files.name.unsafe", name=name)
+        problem = file_name_problem(name, cls.get("kind", "command"))
+        if problem:
+            raise refusals.refuse(problem[0], name=name, reason=problem[1])
         if not isinstance(content, str) or len(content) > fl["max_file_kb"] * 1000:
             raise refusals.refuse("files.too_big", name=name, limit=fl["max_file_kb"])
         total += len(content)
