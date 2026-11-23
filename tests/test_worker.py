@@ -668,6 +668,15 @@ class JobCeiling(Base):
         self.assertEqual(self.w.limits["files"]["max_total_kb"], 2000)                            # GitHub keeps the old defaults
         self.assertEqual(self.w.limits["files"]["max_file_kb"], 500)
 
+    def test_a_changed_connection_republishes_the_limits_though_the_registry_did_not_change(self):
+        pub = lambda: json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))["limits"]["files"]["max_total_kb"]       # noqa: E731
+        self.worker_with(transport="github", max_job_mb=50)
+        self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
+        self.assertEqual(pub(), 2000)
+        self.worker_with(transport="direct", max_job_mb=50)
+        self.assertTrue(self.w.publish_registry_info(self.w.load_registry()))
+        self.assertEqual(pub(), 50_000)
+
     def test_a_limit_the_owner_set_in_the_registry_still_wins_on_direct(self):
         self.registry_path.write_text(REGISTRY + "limits:\n  files:\n    max_total_kb: 100\n")
         self.worker_with(transport="direct", max_job_mb=50)

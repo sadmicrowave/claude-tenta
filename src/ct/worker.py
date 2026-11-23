@@ -759,7 +759,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
