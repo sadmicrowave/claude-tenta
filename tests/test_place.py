@@ -203,7 +203,9 @@ class TheClassesCommand(Setup):
         with mock.patch("ct.client.place.entries", self.ents), redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(["classes", "--worker", "nope"], ctx=main, cfg=self.cfgs["mini"])
         self.assertEqual(rc, 2)
-        self.assertIn("Yours: mini, vmx, ghx", out.getvalue() + err.getvalue())
+        text = out.getvalue() + err.getvalue()
+        self.assertRegex(text, r"(?i)yours\s+mini, vmx, ghx")                                       # a labelled row now, not a step
+        self.assertIn("placement.unknown_worker", text)
 
 
 class TheJobsList(Setup):

@@ -217,3 +217,44 @@ define("job.packages.plan", "placement", "The packages a job asks for must be in
 define("files.incomplete", "policy", "A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.",
        "Some files could not be sent", "{count} could not be sent, so the job would run on an incomplete set of files", who="client",
        steps=["Make the files listed above sendable or leave them out with --include, then run the same command again.", "Or run the same command again with --send-incomplete to send the rest."])
+
+# ---- what the person types or sends from this computer (the client decides) ----
+define("files.set.too_big", "limit", "Bounds the size of one job for the channel that carries it: a set over the limit is never split. Written for GitHub; the Direct transport will not have it.", "These files do not fit in one job",
+       "{count} / {kb} KB is over the {limit} KB limit for one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').", who="client",
+       depends="the transport (written for GitHub)", config="the worker's registry: limits.files.max_total_kb (moving to the transport config)", steps=["Attach fewer files with --include on ct-run submit."])
+define("files.set.not_batchable", "limit", "A class that needs its files together cannot be split across jobs, so a set over the count limit cannot be sent.", "These files do not fit in one job",
+       "{count} is over the {limit}-file limit, and this class needs its files together so it cannot be split. Attach only the files it needs (--include), or run it yourself.", who="client",
+       depends="the transport (written for GitHub) and the class: batchable", config="the worker's registry: limits.files.max_count", steps=["Attach fewer files with --include on ct-run submit."])
+define("files.set.batches", "limit", "Bounds how many jobs one set of files may become.", "These files do not fit in one job", "{count} would need {jobs} (limit {limit}). Attach fewer files (--include).", who="client",
+       depends="the transport (written for GitHub)", config="the worker's registry: limits.files.max_batches", steps=["Attach fewer files with --include on ct-run submit."])
+define("files.set.profile_too_many", "limit", "Bounds the input files of one profile run for the channel that carries them.", "Too many input files", "One job can carry at most {files} and {kb} KB of text.", who="client",
+       depends="the transport (written for GitHub)", config="the worker's registry: limits.files", steps=["Attach only the files the command needs: --include 'src/**/*.js'"])
+define("param.unreadable", "format", "A job parameter is a name and a value, so each one can be checked against its declared type.", "Unreadable -p value", "Write each job parameter as a name, an equals sign, then a value.",
+       who="client")
+define("profile.flag.unreadable", "format", "A flag explanation is a flag and what it means, shown to the person who approves.", "Unreadable --flag", "Write each flag as the flag, an equals sign, then what it means.", who="client")
+define("profile.package.unreadable", "format", "A package is named by where it comes from and what it is called, so the worker knows how to fetch it.", "Unreadable --package",
+       "Start with where the package comes from, then a colon, then its name.", who="client", steps=["apt:openssh-client", "npm:eslint   or   npm:eslint@8", "pip:requests   or   pip:requests==2.31.0"])
+define("profile.spec.line", "format", "A description file is lines of key: value.", "A line is not `key: value`", "Write each line of the description file as a key, a colon, then the value.", who="client")
+define("profile.spec.field", "format", "A description file may only use the fields a profile run knows.", "Unknown field", "Fields: {fields}, and `flag -x: meaning`", who="client")
+define("profile.spec.number", "format", "An estimate in a description file is a number.", "A value must be a number", "Give a number for this field in the description file.", who="client")
+define("profile.command.missing", "format", "A profile run describes exactly one command, given after a double dash.", "No command to profile", "Put the command after a double dash, exactly as you would type it.", who="client")
+define("profile.command.sudo", "security", "A profile run never uses privilege tools. The worker refuses them too (profile.command.denied); this tells the person before anything is sent.", "That command cannot be profiled",
+       "A profile run never uses sudo, su, doas or pkexec.", who="client")
+define("profile.details.missing", "format", "Whoever approves a profile run sees these details next to the worker's hard limits, so they are required.", "This profiling run is missing required details",
+       "Whoever approves it sees these next to the worker's hard limits, so they are required.\n  The command below is yours with the missing flags added. Change the example values to your own before running it.",
+       who="client", depends="a profile run that needs approval (not on Direct, once that setting exists)")
+define("class.name.invalid", "format", "A class name is short, lowercase and plain, so it is safe as a file name and easy to type.", "That class name is not allowed", "Use lowercase letters, digits and dashes, 2 to 41 characters.", who="client")
+define("class.name.unusable", "format", "A class name must not collide with a command word or an existing class.", "That name cannot be used", "{reason}", who="client")
+define("class.name.taken", "policy", "A class name names one class, so a second with the same name would replace it.", "A class with that name already exists", "Another class already has this name.", who="client",
+       steps=["Pick another name with --name"])
+define("class.batchable.needs_files", "policy", "A class takes its files in several jobs only if it was profiled with input files, which is how its files are known to be independent.", "--batchable only makes sense for a command profiled with input files",
+       "The profile run had no input files.", who="client", steps=["Profile the command again with --dir or --file, then adopt it."])
+define("class.proposal.waiting", "policy", "One proposal per class at a time, so two proposals cannot overwrite each other.", "A proposal for that class is already waiting", "Branch {branch} exists. Install it, or pick another name with --name.",
+       who="client")
+define("patch.refused", "security", "A patch from a worker is applied only after it passes the checks on the paths it touches, so a worker cannot write outside the folder it was sent.", "This patch will not be applied", "{reasons}",
+       who="client")
+define("pin.file.unreadable", "format", "A folder's .tenta.toml is read as TOML, so a broken file is named and not guessed at.", "A .tenta.toml file cannot be read", "{reason}", who="client",
+       steps=["Open it and fix the line named above, or run ct-run use --clear to start again."])
+define("pin.file.bad_value", "format", "A pin names workers, so every value in the file must be a worker name.", "A .tenta.toml file has a value that is not a worker name",
+       "Check: {bad}. A worker name is letters, digits, dot, dash or underscore.", who="client", steps=["Open the file and fix it, or run ct-run use --clear to start again."])
+define("name.invalid", "format", "A worker or command name is plain, so it is safe in a file and on a command line.", "Not a valid name", "Letters, digits, dot, dash and underscore only.", who="client")

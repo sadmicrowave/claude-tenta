@@ -12,7 +12,7 @@ import support  # noqa: E402,F401
 from ct import refusals  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
-POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py")            # each later slice adds its modules here
+POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py")            # each later slice adds its modules here
 RAISED = {"Reject", "ValueError", "ClientError", "Refused"}
 
 
@@ -69,6 +69,27 @@ class Guard(unittest.TestCase):
                     if called in RAISED and node.exc.args and isinstance(node.exc.args[0], (ast.Constant, ast.JoinedStr)):
                         bad.append(f"{name}:{node.lineno}")
         self.assertEqual(bad, [], "define it in ct/refusals.py and raise refusals.refuse(code, ...)")
+
+
+# What these modules still write as a literal is an OPERATIONAL error or a state ("no result yet", a git command failed): the follow-on task moves them to the same catalog method and empties this list.
+OPERATIONAL = {"client/cli.py": {"No result yet", "That job returned no patch", "The patch does not fit this folder", "git could not apply the patch", "No profile result yet"},
+               "client/offload.py": {"No profile result yet", "Nothing to propose: the profiling run was inconclusive", "registry.yaml has no `classes:` section"},
+               "client/repo.py": {"Could not push to the branch", "A git command failed", "This computer is not set up yet", "Could not clone a repository", "A file did not arrive on the branch"}}
+
+
+class StillLiteral(unittest.TestCase):
+    def test_only_the_listed_operational_errors_are_written_as_literals_in_the_other_client_modules(self):
+        bad = []
+        for name, allowed in OPERATIONAL.items():
+            for node in ast.walk(ast.parse((SRC / name).read_text())):
+                if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                    fn = node.exc.func
+                    called = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else ""
+                    if called in RAISED and node.exc.args and isinstance(node.exc.args[0], (ast.Constant, ast.JoinedStr)):
+                        title = node.exc.args[0].value if isinstance(node.exc.args[0], ast.Constant) else "<f-string>"
+                        if title not in allowed:
+                            bad.append(f"{name}:{node.lineno} {title!r}")
+        self.assertEqual(bad, [], "a rule about what the person may do belongs in ct/refusals.py (refuse.error); an operational error goes in OPERATIONAL until the follow-on task")
 
 
 if __name__ == "__main__":

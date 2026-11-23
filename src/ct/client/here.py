@@ -13,6 +13,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import refuse
 from .repo import ClientError
 
 FILE = ".tenta.toml"
@@ -71,12 +72,12 @@ def read(path):
     try:
         raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as e:
-        raise ClientError("A .tenta.toml file cannot be read", str(e), [f"Open it and fix the line named above, or run ct-run use --clear to start again."], facts=[("File", str(path))])
+        raise refuse.error("pin.file.unreadable", ("File", str(path)), reason=str(e))
     cmds = raw.get("commands") or {}
     worker = raw.get("worker")
     bad = [k for k, v in {"worker": worker, **cmds}.items() if v is not None and not (isinstance(v, str) and NAME.match(v))]
     if bad or not isinstance(cmds, dict):
-        raise ClientError("A .tenta.toml file has a value that is not a worker name", f"Check: {', '.join(bad) or 'commands'}. A worker name is letters, digits, dot, dash or underscore.", ["Open the file and fix it, or run ct-run use --clear to start again."], facts=[("File", str(path))])
+        raise refuse.error("pin.file.bad_value", ("File", str(path)), bad=", ".join(bad) or "commands")
     return Pins(Path(path), worker, dict(cmds))                    # an old `reserved = [...]` line (a first idea, dropped) is ignored and disappears the next time the file is written
 
 
@@ -129,4 +130,4 @@ def save(pins):
 
 def check_name(kind, value):
     if not NAME.match(value or ""):
-        raise ClientError("Not a valid name", "Letters, digits, dot, dash and underscore only.", [], facts=[(kind.capitalize(), repr(value))])
+        raise refuse.error("name.invalid", (kind.capitalize(), repr(value)), steps=[])

@@ -120,6 +120,22 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `profile.command.sudo`: That command cannot be profiled
+
+- **Text:** A profile run never uses sudo, su, doas or pkexec.
+- **Protects:** A profile run never uses privilege tools. The worker refuses them too (profile.command.denied); this tells the person before anything is sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `patch.refused`: This patch will not be applied
+
+- **Text:** {reasons}
+- **Protects:** A patch from a worker is applied only after it passes the checks on the paths it touches, so a worker cannot write outside the folder it was sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -265,6 +281,114 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Update the worker with ct-admin apply.
 
+### `param.unreadable`: Unreadable -p value
+
+- **Text:** Write each job parameter as a name, an equals sign, then a value.
+- **Protects:** A job parameter is a name and a value, so each one can be checked against its declared type.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.flag.unreadable`: Unreadable --flag
+
+- **Text:** Write each flag as the flag, an equals sign, then what it means.
+- **Protects:** A flag explanation is a flag and what it means, shown to the person who approves.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.package.unreadable`: Unreadable --package
+
+- **Text:** Start with where the package comes from, then a colon, then its name.
+- **Protects:** A package is named by where it comes from and what it is called, so the worker knows how to fetch it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** apt:openssh-client npm:eslint   or   npm:eslint@8 pip:requests   or   pip:requests==2.31.0
+
+### `profile.spec.line`: A line is not `key: value`
+
+- **Text:** Write each line of the description file as a key, a colon, then the value.
+- **Protects:** A description file is lines of key: value.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.spec.field`: Unknown field
+
+- **Text:** Fields: {fields}, and `flag -x: meaning`
+- **Protects:** A description file may only use the fields a profile run knows.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.spec.number`: A value must be a number
+
+- **Text:** Give a number for this field in the description file.
+- **Protects:** An estimate in a description file is a number.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.command.missing`: No command to profile
+
+- **Text:** Put the command after a double dash, exactly as you would type it.
+- **Protects:** A profile run describes exactly one command, given after a double dash.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `profile.details.missing`: This profiling run is missing required details
+
+- **Text:** Whoever approves it sees these next to the worker's hard limits, so they are required.
+  The command below is yours with the missing flags added. Change the example values to your own before running it.
+- **Protects:** Whoever approves a profile run sees these details next to the worker's hard limits, so they are required.
+- **Decided by:** client
+- **Depends on:** a profile run that needs approval (not on Direct, once that setting exists)
+- **Configured:** not configurable
+
+### `class.name.invalid`: That class name is not allowed
+
+- **Text:** Use lowercase letters, digits and dashes, 2 to 41 characters.
+- **Protects:** A class name is short, lowercase and plain, so it is safe as a file name and easy to type.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `class.name.unusable`: That name cannot be used
+
+- **Text:** {reason}
+- **Protects:** A class name must not collide with a command word or an existing class.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
+### `pin.file.unreadable`: A .tenta.toml file cannot be read
+
+- **Text:** {reason}
+- **Protects:** A folder's .tenta.toml is read as TOML, so a broken file is named and not guessed at.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open it and fix the line named above, or run ct-run use --clear to start again.
+
+### `pin.file.bad_value`: A .tenta.toml file has a value that is not a worker name
+
+- **Text:** Check: {bad}. A worker name is letters, digits, dot, dash or underscore.
+- **Protects:** A pin names workers, so every value in the file must be a worker name.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the file and fix it, or run ct-run use --clear to start again.
+
+### `name.invalid`: Not a valid name
+
+- **Text:** Letters, digits, dot, dash and underscore only.
+- **Protects:** A worker or command name is plain, so it is safe in a file and on a command line.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ## Limit
 
 ### `files.too_many`: Too many files are attached
@@ -356,6 +480,42 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the class kind: claude
 - **Configured:** not configurable
 - **What to do:** Shorten the prompt, or attach the text as a file.
+
+### `files.set.too_big`: These files do not fit in one job
+
+- **Text:** {count} / {kb} KB is over the {limit} KB limit for one job, and a bigger tree is never split. Attach only the files the command needs (--include 'src/**/*.js').
+- **Protects:** Bounds the size of one job for the channel that carries it: a set over the limit is never split. Written for GitHub; the Direct transport will not have it.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files.max_total_kb (moving to the transport config)
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.not_batchable`: These files do not fit in one job
+
+- **Text:** {count} is over the {limit}-file limit, and this class needs its files together so it cannot be split. Attach only the files it needs (--include), or run it yourself.
+- **Protects:** A class that needs its files together cannot be split across jobs, so a set over the count limit cannot be sent.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub) and the class: batchable
+- **Configured:** the worker's registry: limits.files.max_count
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.batches`: These files do not fit in one job
+
+- **Text:** {count} would need {jobs} (limit {limit}). Attach fewer files (--include).
+- **Protects:** Bounds how many jobs one set of files may become.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files.max_batches
+- **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.set.profile_too_many`: Too many input files
+
+- **Text:** One job can carry at most {files} and {kb} KB of text.
+- **Protects:** Bounds the input files of one profile run for the channel that carries them.
+- **Decided by:** client
+- **Depends on:** the transport (written for GitHub)
+- **Configured:** the worker's registry: limits.files
+- **What to do:** Attach only the files the command needs: --include 'src/**/*.js'
 
 ## Placement
 
@@ -549,3 +709,29 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Make the files listed above sendable or leave them out with --include, then run the same command again. Or run the same command again with --send-incomplete to send the rest.
+
+### `class.name.taken`: A class with that name already exists
+
+- **Text:** Another class already has this name.
+- **Protects:** A class name names one class, so a second with the same name would replace it.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Pick another name with --name
+
+### `class.batchable.needs_files`: --batchable only makes sense for a command profiled with input files
+
+- **Text:** The profile run had no input files.
+- **Protects:** A class takes its files in several jobs only if it was profiled with input files, which is how its files are known to be independent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Profile the command again with --dir or --file, then adopt it.
+
+### `class.proposal.waiting`: A proposal for that class is already waiting
+
+- **Text:** Branch {branch} exists. Install it, or pick another name with --name.
+- **Protects:** One proposal per class at a time, so two proposals cannot overwrite each other.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable

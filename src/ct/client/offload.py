@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from ..jobs import PROFILE_DENY
+from . import refuse
 from .repo import ClientError
 
 CLASS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
@@ -266,7 +267,7 @@ def load_spec(text, where="the spec"):
         is_flag = key.lower().startswith("flag ")
         key, val = (key.strip() if is_flag else key.strip().lower().replace("-", "_").replace(" ", "_")), val.strip()
         if not sep:
-            raise ClientError("A line is not `key: value`", facts=[("Where", f"{where} line {n}")])
+            raise refuse.error("profile.spec.line", ("Where", f"{where} line {n}"))
         if is_flag:
             spec["flags"][key[5:].strip()] = val
         elif key == "package":
@@ -274,7 +275,7 @@ def load_spec(text, where="the spec"):
         elif key in SPEC_KEYS:
             spec[key] = val
         else:
-            raise ClientError("Unknown field", f"Fields: {', '.join(sorted(SPEC_KEYS))}, and `flag -x: meaning`", facts=[("Where", f"{where} line {n}"), ("Field", repr(key))])
+            raise refuse.error("profile.spec.field", ("Where", f"{where} line {n}"), ("Field", repr(key)), fields=", ".join(sorted(SPEC_KEYS)))
     return spec
 
 
@@ -283,10 +284,9 @@ def build_profile_job(argv, what, expect, est, *, flags=None, packages=None, why
     """The profile-run job. Whoever approves it sees these details next to the worker's hard limits, so what, expect and the two honest estimates
     are required. Raises ClientError naming exactly what is missing."""
     if not argv:
-        raise ClientError("No command to profile", "Put the command after a double dash, exactly as you would type it.",
-                          example="ct-run offload profile --what '...' --expect '...' --est-time-s 10 --est-mem-mb 100 -- eslint .")
+        raise refuse.error("profile.command.missing", example="ct-run offload profile --what '...' --expect '...' --est-time-s 10 --est-mem-mb 100 -- eslint .")
     if argv[0].rsplit("/", 1)[-1] in PROFILE_DENY:
-        raise ClientError("That command cannot be profiled", "A profile run never uses sudo, su, doas or pkexec.", facts=[("Command", argv[0])])
+        raise refuse.error("profile.command.sudo", ("Command", argv[0]))
     needs, add = [], []
     for ok, need, flag in ((what, "--what  \"what the command does\", in words someone who has never used it would understand", "--what 'what the command does'"),
                            (expect, "--expect  \"how long it should take, how much memory, and what it prints\"", "--expect 'a few seconds, tiny, prints one line'"),
@@ -296,15 +296,11 @@ def build_profile_job(argv, what, expect, est, *, flags=None, packages=None, why
             needs.append(need)
             add.append(flag)
     if needs:
-        raise ClientError("This profiling run is missing required details",
-                          "Whoever approves it sees these next to the worker's hard limits, so they are required.\n  The command below is yours with the missing "
-                          "flags added. Change the example values to your own before running it.",
-                          ["Missing: " + n for n in needs] + ["Optional extras: --flag '-x=what it means' (one per flag), --why, --side-effects, --watch-for"],
-                          (retry_example or (lambda extra: "ct-run offload profile " + extra))(" ".join(add)))
+        raise refuse.error("profile.details.missing", steps=["Missing: " + n for n in needs] + ["Optional extras: --flag '-x=what it means' (one per flag), --why, --side-effects, --watch-for"],
+                           example=(retry_example or (lambda extra: "ct-run offload profile " + extra))(" ".join(add)))
     for p in packages or []:
         if not PACKAGE_RE.fullmatch(p):
-            raise ClientError("Unreadable --package", "Start with where the package comes from, then a colon, then its name.",
-                              ["apt:openssh-client", "npm:eslint   or   npm:eslint@8", "pip:requests   or   pip:requests==2.31.0"], facts=[("Value", p)])
+            raise refuse.error("profile.package.unreadable", ("Value", p))
     job = {"class": "profile-run", "argv": argv, "what": what, "expect": expect}
     if packages:
         job["packages"] = sorted(set(packages))
@@ -322,7 +318,7 @@ def parse_flags(pairs):
     flags = {}
     for kv in pairs or []:
         if "=" not in kv:
-            raise ClientError("Unreadable --flag", "Write each flag as the flag, an equals sign, then what it means.", example="--flag '-n=use null as the input'", facts=[("Value", kv)])
+            raise refuse.error("profile.flag.unreadable", ("Value", kv), example="--flag '-n=use null as the input'")
         k, v = kv.split("=", 1)
         flags[k.strip()] = v.strip()
     return flags
@@ -378,20 +374,20 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     taken = taken_names(repos)
     name = name or suggest_name(argv, taken, preferred=(names.get(jid) if names else None))
     if not CLASS_RE.match(name):
-        raise ClientError("That class name is not allowed", "Use lowercase letters, digits and dashes, 2 to 41 characters.", example="--name npm-lint")
+        raise refuse.error("class.name.invalid", example="--name npm-lint")
     if name in taken:
-        raise ClientError("A class with that name already exists", steps=["Pick another name with --name"], facts=[("Class", name)])
+        raise refuse.error("class.name.taken", ("Class", name))
     entry = {**pr["entry"], "tier": tier}
     if batchable:
         if not entry.get("accepts_files"):
-            raise ClientError("--batchable only makes sense for a command profiled with input files")
+            raise refuse.error("class.batchable.needs_files")
         entry["batchable"] = True
     branch = f"registry/{name}"
     info = {"name": name, "branch": branch, "entry": entry, "tier": tier, "packages": entry.get("packages")}
     if dry_run:
         return {"kind": "preview", "already": repos.remote_branch_exists(branch), **info}
     if repos.remote_branch_exists(branch):
-        raise ClientError("A proposal for that class is already waiting", f"Branch {branch} exists. Install it, or pick another name with --name.", example=f"ct-admin apply {branch}", facts=[("Class", name), ("Branch", branch)])
+        raise refuse.error("class.proposal.waiting", ("Class", name), ("Branch", branch), example=f"ct-admin apply {branch}", branch=branch)
     text = add_class_to_registry(repos.show_file("origin/main", "registry.yaml") or "", class_yaml_lines(name, entry, pr, jid))
     before = len(ex["excluded"])
     ex["excluded"] = [e for e in ex["excluded"] if e["argv"] != argv]
