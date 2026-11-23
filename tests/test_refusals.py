@@ -29,13 +29,16 @@ class Catalog(unittest.TestCase):
             self.assertTrue(e.title.endswith(".") is False and len(e.title) < 90, code)
 
     def test_every_code_used_in_the_source_exists_and_every_entry_is_used(self):
-        used = set()
+        called, text = set(), ""
         for f in SRC.rglob("*.py"):
             if f.name == "refusals.py":
                 continue
-            used |= set(re.findall(r'refuse\(\s*"([a-z_.]+)"', f.read_text()))
-        self.assertEqual(sorted(used - set(refusals.CATALOG)), [], "a code is used that is not in the catalog")
-        self.assertEqual(sorted(set(refusals.CATALOG) - used), [], "an entry is defined that nothing uses")
+            src = f.read_text()
+            called |= set(re.findall(r'refuse\(\s*"([a-z_.]+)"', src))
+            text += src
+        self.assertEqual(sorted(called - set(refusals.CATALOG)), [], "a code is used that is not in the catalog")
+        unused = [c for c in refusals.CATALOG if f'"{c}"' not in text]                        # a code may be named as a literal and raised by variable (a name check returns its code)
+        self.assertEqual(unused, [], "an entry is defined that nothing uses")
 
     def test_a_refusal_is_both_a_reject_and_a_value_error_so_every_existing_catch_still_works(self):
         from ct import jobs
@@ -46,8 +49,8 @@ class Catalog(unittest.TestCase):
         self.assertEqual(str(r), "params must be an object")
 
     def test_facts_fill_the_text_and_a_missing_fact_never_breaks_the_refusal(self):
-        self.assertIn("'x'", str(refusals.refuse("files.name.unsafe", name="x")))
-        self.assertTrue(str(refusals.refuse("files.name.unsafe")))                 # no fact given: still a message, never a KeyError
+        self.assertIn("'x'", str(refusals.refuse("files.name.path", name="x")))
+        self.assertTrue(str(refusals.refuse("files.name.path")))                 # no fact given: still a message, never a KeyError
 
     def test_an_unknown_code_is_an_error_in_the_code_not_a_silent_message(self):
         with self.assertRaises(KeyError):

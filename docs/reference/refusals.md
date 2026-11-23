@@ -77,6 +77,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the registry's policy: deny_params
 - **What to do:** Change the value, or review the rule in your registry (ct-admin class).
 
+### `files.name.path`: A file name could leave the job's folder
+
+- **Text:** bad file name: {name!r} ({reason})
+- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked: an earlier character list refused names like helper@.service.in and protected nothing.
+- **Decided by:** worker
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Rename the file, or leave it out with --include on ct-run submit.
+
 ### `profile.command.denied`: The command is not allowed in a profile run
 
 - **Text:** {program} is not allowed in a profile run
@@ -202,6 +211,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Correct the class with ct-admin class.
 
+### `files.unreadable`: A file could not be read
+
+- **Text:** file {name!r} could not be read: {reason}
+- **Protects:** A file that cannot be read cannot be sent, and the person is told which one and why, not left to find a missing file in the result.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run ls -l on the file to see its permissions, then run the same command again.
+
 ### `profile.packages.path`: A command with packages must be given by name
 
 - **Text:** with packages, give the command by name (the program comes from the throwaway folder)
@@ -257,6 +275,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the transport (these limits were written for GitHub)
 - **Configured:** the worker's registry: limits.files.max_count (moving to the transport config)
 - **What to do:** Attach fewer files with --include on ct-run submit.
+
+### `files.not_text`: A file is not text
+
+- **Text:** file {name!r} is not text, so it cannot be sent in a job
+- **Protects:** A job file carries file contents as text, so a file that is not text cannot be sent yet. It is reported and never dropped silently; archive transfer is a later design.
+- **Decided by:** client
+- **Depends on:** the carrier (text inside the job file)
+- **Configured:** not configurable
+- **What to do:** Leave it out with --include on ct-run submit.
 
 ### `files.too_big`: A file is too big
 
@@ -352,11 +379,20 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** See which classes take files with ct-run classes.
 
-### `files.name.unsafe`: A file name is not allowed
+### `files.name.hidden`: This kind of class takes no file whose name starts with a dot
 
-- **Text:** bad file name: {name!r}
-- **Protects:** Keeps a file name inside the job's work folder. The character list goes beyond that: it was written as a defensive default, and it is under review.
+- **Text:** a name may not start with a dot for this kind of class: {name!r}
+- **Protects:** A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.
 - **Decided by:** worker
-- **Depends on:** nothing (under review: only the path checks protect anything)
+- **Depends on:** the class kind: claude (decided by the kind, never by a setting the person makes)
 - **Configured:** not configurable
-- **What to do:** Rename the file, or leave it out with --include on ct-run submit.
+- **What to do:** Leave the file out with --include on ct-run submit.
+
+### `files.incomplete`: Some files could not be sent
+
+- **Text:** {count} could not be sent, so the job would run on an incomplete set of files
+- **Protects:** A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Make the files listed above sendable or leave them out with --include, then run the same command again. Or run the same command again with --send-incomplete to send the rest.
