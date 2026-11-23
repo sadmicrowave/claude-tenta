@@ -217,6 +217,9 @@ def show_left_out(left):
         names = sorted(left.excluded)
         rows = [("Left out", n) for n in names[:8]] + ([("And", plural(len(names) - 8, "more item"))] if len(names) > 8 else [])
         emit("Files left out by rule", *rows, (f"Decided by {left.source}. " if left.source else "Hidden files and folders, build output and dependency folders are not sent. ") + "To send one anyway, name it: --include 'PATH'.", tag="NOTE", color=YELLOW)
+    if left.links:
+        emit("Links not followed", *[("Link", n) for n, _, _ in left.links[:10]], *([f"And {plural(len(left.links) - 10, 'more link')}."] if len(left.links) > 10 else []),
+             "A link can point at a file outside the project, so it is never followed. To send the file, copy it into the project.", tag="NOTE", color=YELLOW)
     if left.held:
         emit("Files held back", *[("File", n) for n, _, _ in left.held[:10]], *([f"And {plural(len(left.held) - 10, 'more file')}."] if len(left.held) > 10 else []),
              "Their names usually mean they hold a secret, so they are not sent. To send one, name it exactly: --include 'PATH'. A wildcard never sends one.", tag="NOTE", color=YELLOW)

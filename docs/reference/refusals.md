@@ -80,7 +80,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 ### `files.name.path`: A file name could leave the job's folder
 
 - **Text:** bad file name: {name!r} ({reason})
-- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked: an earlier character list refused names like helper@.service.in and protected nothing.
+- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
@@ -270,6 +270,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
+
+### `files.link.skipped`: A link was not followed
+
+- **Text:** {name!r} is a link, so it was not followed
+- **Protects:** A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. Send the file itself if you mean to.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Copy the file into the project and send that, or leave it out.
 
 ## Format
 

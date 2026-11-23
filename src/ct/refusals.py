@@ -122,7 +122,7 @@ define("files.too_many", "limit", "Bounds how much one job asks of the worker an
        depends="the transport (these limits were written for GitHub)", config="the worker's registry: limits.files.max_count (moving to the transport config)",
        steps=["Attach fewer files with --include on ct-run submit."])
 define("files.name.path", "security", "Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. "
-       "Nothing else about a name is checked: an earlier character list refused names like helper@.service.in and protected nothing.", "A file name could leave the job's folder",
+       "Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.", "A file name could leave the job's folder",
        "bad file name: {name!r} ({reason})", steps=["Rename the file, or leave it out with --include on ct-run submit."])
 define("files.name.hidden", "policy", "A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.",
        "This kind of class takes no file whose name starts with a dot", "a name may not start with a dot for this kind of class: {name!r}",
@@ -495,3 +495,5 @@ define('worker.name.taken', 'policy', 'A worker name names one worker on this co
 define('addworker.windows.direct_only', 'policy', 'A Windows worker uses the Direct connection only in this version.', 'A Windows worker uses the Direct connection only', 'The GitHub connection is not available for a Windows worker in this version.', who="client")
 define('uninstall.step.failed', 'error', 'The real text of the removal step that failed.', 'A removal step failed', '`{command}` said: {said}', who="client")
 define('uninstall.config.unreadable', 'error', "A removal needs the install's own configuration to find what to remove.", "Cannot read this install's configuration", '{problems}', who="client")
+define("files.link.skipped", "security", "A link is never followed: it can point at a file outside the project (a key, a configuration), whose contents would be sent under the link's own, harmless-looking name. "
+       "Send the file itself if you mean to.", "A link was not followed", "{name!r} is a link, so it was not followed", who="client", steps=["Copy the file into the project and send that, or leave it out."])

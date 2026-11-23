@@ -4,6 +4,7 @@ The size limits are not decided here: the worker publishes the limits it actuall
 exactly those, so a job is never sent that the worker would refuse. (Until a worker publishes them, the conservative old defaults apply.)
 """
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -65,6 +66,14 @@ def named_exactly(rel, include):
     return any(not set("*?[") & set(pat) and pat in (rel, rel.rsplit("/", 1)[-1]) for pat in include or ())
 
 
+def safe_git(*args, timeout=120, **kw):
+    """Run git for the file collection without trusting the folder it looks at. A repository's own config can name a program git runs (core.fsmonitor and friends), so attaching a checkout you do not trust would run code
+    as you: those options are switched off on the command line (which wins over every config file), and GIT_* variables from the environment (a GIT_DIR, a GIT_CONFIG) are dropped."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"})
+    return subprocess.run(["git", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}", "-c", "core.untrackedCache=false", *args], capture_output=True, timeout=timeout, env=env, **kw)
+
+
 def outermost(names):
     """Sorted, with a name left out when a folder that holds it is already in the list (a folder git reports whole, and a file inside it, is one thing to say)."""
     return sorted(n for n in names if not any(n.startswith(m + "/") for m in names))
@@ -83,20 +92,45 @@ def detect_languages(base):
     return [lang for lang, markers in LANGUAGES.items() if any(next(Path(base).glob(m), None) for m in markers)]
 
 
+def templates_problems(folder=None):
+    """What is wrong with the vendored templates, as a list (empty when they are exactly what scripts/refresh-gitignore wrote): every file is pinned by hash in SHA256SUMS, none may be missing, added or changed. They are
+    third-party data the privacy check does not scan, and they decide what is sent, so a template edited to hide files (or to show them) is refused before it is used."""
+    folder = Path(folder or TEMPLATES)
+    try:
+        pinned = {}
+        for line in (folder / "SHA256SUMS").read_text().splitlines():
+            digest, _, name = line.partition("  ")
+            if digest and name:
+                pinned[name] = digest
+    except OSError:
+        return ["SHA256SUMS is missing"]
+    problems = []
+    present = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and p.name != "SHA256SUMS"}
+    for name in sorted(present - set(pinned)):
+        problems.append(f"{name} is not in SHA256SUMS")
+    for name, digest in sorted(pinned.items()):
+        path = folder / name
+        if not path.is_file():
+            problems.append(f"{name} is missing")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            problems.append(f"{name} changed")
+    return problems
+
+
 def template_candidates(base):
     """(files, ignored, languages) for a folder that is not a git work tree but is recognisably a project (a language marker at its top): git's own matcher is run over the vendored templates, so the rules mean exactly
     what they mean in a repository. None when no language is recognised (the interim rule applies)."""
     langs = detect_languages(base)
-    if not langs:
-        return None
+    if not langs or templates_problems():
+        return None                                                              # no language recognised, or the templates are not what was vendored: the interim rule decides
     text = "\n".join((TEMPLATES / "lang" / f"{lang}.gitignore").read_text() for lang in langs) + "\n" + "\n".join((TEMPLATES / "global" / f"{g}.gitignore").read_text() for g in GLOBALS) + "\n.git/\n"
     try:
         with tempfile.TemporaryDirectory() as tmp:
             exclude, gitdir = Path(tmp) / "exclude", Path(tmp) / "g"
             exclude.write_text(text)
-            subprocess.run(["git", "init", "-q", "--bare", str(gitdir)], check=True, capture_output=True, timeout=30)
-            run = lambda *more: subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "--git-dir", str(gitdir), "--work-tree", str(base), "ls-files", "-z", "--others", "--exclude-from", str(exclude),    # noqa: E731
-                                                "--exclude-standard", *more], capture_output=True, timeout=120)
+            safe_git("init", "-q", "--bare", str(gitdir), check=True, timeout=30)
+            run = lambda *more: safe_git("-c", f"core.excludesFile={os.devnull}", "--git-dir", str(gitdir), "--work-tree", str(base), "ls-files", "-z", "--others", "--exclude-from", str(exclude),    # noqa: E731
+                                                "--exclude-standard", *more)
             listed, ignored = run(), run("--ignored", "--directory")
     except (OSError, subprocess.SubprocessError):
         return None
@@ -109,11 +143,11 @@ def template_candidates(base):
 def git_candidates(base):
     """(files, ignored) when `base` is inside a git work tree: the files git treats as the project (tracked, and untracked but not ignored) and the names of what the project's own ignore rules leave out. None when it is not one."""
     try:
-        inside = subprocess.run(["git", "-C", str(base), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, timeout=30)
+        inside = safe_git("-C", str(base), "rev-parse", "--is-inside-work-tree", text=True, timeout=30)
         if inside.returncode != 0 or inside.stdout.strip() != "true":
             return None
-        listed = subprocess.run(["git", "-C", str(base), "ls-files", "-z", "--cached", "--others", "--exclude-standard"], capture_output=True, timeout=120)
-        ignored = subprocess.run(["git", "-C", str(base), "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], capture_output=True, timeout=120)
+        listed = safe_git("-C", str(base), "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+        ignored = safe_git("-C", str(base), "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
     except (OSError, subprocess.SubprocessError):
         return None
     if listed.returncode != 0:
@@ -128,7 +162,7 @@ class LeftOut:
     chooses (--send-incomplete)."""
 
     def __init__(self):
-        self.excluded, self.unsent, self.held, self.warn = {}, [], [], []
+        self.excluded, self.unsent, self.held, self.warn, self.links = {}, [], [], [], []
         self.source = ""                                                          # which rule decided what was left out, in words
 
     def exclude(self, path, count=0):
@@ -136,6 +170,9 @@ class LeftOut:
 
     def unsend(self, name, code, **facts):
         self.unsent.append((name, code, str(refusals.refuse(code, name=name, **facts))))
+
+    def link(self, name):
+        self.links.append((name, "files.link.skipped", refusals.explain("files.link.skipped", name=name)))
 
     def hold(self, name):
         self.held.append((name, "files.held.secret_name", refusals.explain("files.held.secret_name", name=name)))
@@ -198,6 +235,9 @@ def collect_dir(d, limits, include=None, left=None):
         if include and not any(glob_match(rel, pat) for pat in include):
             continue                                                          # the person's own filter: not a file that failed
         path = base / rel
+        if path.is_symlink() or os.path.islink(base / Path(rel).parts[0]):
+            left.link(rel)                                                    # a link is never followed: it may point at a file outside the project, whose contents would be sent under the link's name
+            continue
         if not path.is_file():
             continue                                                          # tracked but deleted, or not a plain file
         if secret_name(rel) and not named_exactly(rel, include):
