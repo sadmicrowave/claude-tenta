@@ -572,7 +572,8 @@ class Worker:
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             res["profile"] = {"argv": argv, **meta, "files": sorted(files),
-                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product)}
+                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product, shared=self.shared(),
+                                                       limit_s=self.time_limit(cls, job, reg), ceiling_s=int(cls.get("max_timeout_s", 1800)))}
             self.learn_speed(st, metrics, meta)
             shutil.rmtree(wd, ignore_errors=True)            # a profiled command may leave a lot behind
             if meta.get("packages"):
