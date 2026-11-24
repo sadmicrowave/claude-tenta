@@ -339,6 +339,13 @@ class PackBook(NameBook):
         self.path = Path(home) / "profile-packs.json"
 
 
+class CommandBook(NameBook):
+    """The command line a profiling run was started with, kept on this computer so a result that needs a longer limit can show the exact command to send again."""
+
+    def __init__(self, home):
+        self.path = Path(home) / "profile-commands.json"
+
+
 def make_recipe(dir_arg, includes, file_args, cwd):
     """(recipe, note): the packaging of a profile run, relative to `cwd` so it still means something when someone else runs `ct-run submit`. A folder
     outside `cwd` is not saved (the note says why); no files means no recipe."""
@@ -410,6 +417,8 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
     pr = res.get("profile")
     if not pr:
         raise refuse.error("profile.result.not_ready", ("Job", jid), example=f"ct-run result {jid} --wait")
+    if pr["verdict"] == "needs-longer":
+        raise refuse.error("profile.needs_longer", ("Job", jid), steps=pr["reasons"] + ["Profile it again with a longer limit: the result shows the command."])
     argv, ex = pr["argv"], read_exclusions(repos)
     ex.setdefault("excluded", [])
     if pr["verdict"] == "inconclusive":
@@ -442,6 +451,20 @@ def propose(repos, jid, res, *, name=None, tier="auto", batchable=False, dry_run
         repos.push_files("data", {"exclusions.json": json.dumps(ex, indent=2) + "\n"}, f"exclude: lift exclusion for {' '.join(argv)[:50]}")
     repos.push_files(branch, {"registry.yaml": text}, f"feat(registry): add {name} class\n\nAdopted from profile run {jid}: " + "; ".join(pr["reasons"]), base="main")
     return {"kind": "proposed", **info}
+
+
+def rerun_with_limit(raw, seconds):
+    """The profile command as it was typed, with its time limit replaced by `seconds`."""
+    cut = raw.index("--") if "--" in raw else len(raw)
+    head, skip = [], False
+    for x in raw[:cut]:
+        if skip:
+            skip = False
+        elif x == "--timeout-s":
+            skip = True
+        elif not x.startswith("--timeout-s="):
+            head.append(x)
+    return own_command_with(head + raw[cut:], f"--timeout-s {int(seconds)}")
 
 
 def own_command_with(argv, extra):

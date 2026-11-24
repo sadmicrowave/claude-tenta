@@ -896,6 +896,14 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the worker's registry: limits.files
 - **What to do:** Attach only the files the command needs: --include 'src/**/*.js'
 
+### `profile.needs_longer`: That profile run needs a longer time limit
+
+- **Text:** It stopped at its time limit while still inside the memory and heat limits.
+- **Protects:** A command that only ran out of time says nothing about whether it suits the worker, so it is neither adopted nor recorded as an exclusion.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** the person's own --timeout-s (the worker's ceiling applies only on a shared computer)
+
 ### `job.too_big_for_worker`: The job is too big for this worker
 
 - **Text:** this job file is {size} MB, over the {ceiling} MB this worker accepts right now; it was not read

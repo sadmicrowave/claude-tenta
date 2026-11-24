@@ -88,7 +88,7 @@ def _round_up(x, step):
     return int(math.ceil(x / step) * step)
 
 
-def profile_verdict(status, rc, note, m, argv, files, rules, product="the worker"):
+def profile_verdict(status, rc, note, m, argv, files, rules, product="the worker", *, shared=True, limit_s=None, ceiling_s=None):
     """Turn one profiling run's measurements into a decision. Returns {verdict, reasons, limiting, [cost, entry]}."""
     total = m.get("mem_total_mb") or 0
     peak, wall, cores = m.get("peak_rss_mb") or 0, m.get("wall_s") or 0, m.get("cores_busy")
@@ -100,14 +100,24 @@ def profile_verdict(status, rc, note, m, argv, files, rules, product="the worker
         limiting = ["memory" if "memory" in note else "heat" if "temperature" in note else "disk"]
         return {"verdict": "does-not-fit", "reasons": [note + " while profiling"], "limiting": limiting}
     if status == "timeout":
-        return {"verdict": "does-not-fit", "limiting": ["time"], "reasons": [f"did not finish within the {m.get('wall_s')}s profiling limit"]}
+        peak, total, temp = m.get("peak_rss_mb") or 0, m.get("mem_total_mb") or 0, m.get("peak_temp_c")
+        over = (["memory"] if total and peak / total > rules["fit"]["rss_frac_max"] else []) + (["heat"] if temp is not None and temp > rules["fit"]["temp_c_max"] else [])
+        limit = limit_s or m.get("wall_s") or 0
+        if over:
+            return {"verdict": "does-not-fit", "limiting": ["time"] + over, "reasons": [f"did not finish within the {limit:g}s time limit, and it was already over the {' and '.join(over)} limit"]}
+        at_ceiling = bool(shared and ceiling_s and limit >= ceiling_s)         # only a shared computer has an owner's ceiling
+        nxt = None if at_ceiling else int(min(limit * 2, ceiling_s) if shared and ceiling_s else limit * 2)
+        why = [f"stopped at its {limit:g}s time limit while still inside the memory and heat limits: it may simply need longer, so nothing was recorded about it"]
+        if at_ceiling:
+            why.append(f"this computer is marked shared, so a profile run is held to {ceiling_s:g}s")
+        return {"verdict": "needs-longer", "limiting": ["time"], "reasons": why, "next_limit_s": nxt, "at_ceiling": at_ceiling, "ceiling_s": ceiling_s if shared else None}
     if status != "ok":
         return {"verdict": "inconclusive", "limiting": [],
                 "reasons": [f"the command did not complete cleanly (status {status}, exit {rc}); fix the command and profile it again"]}
     if frac > fit["rss_frac_max"]:
         why.append(f"peak memory {peak} MB is {frac:.0%} of {product}'s {total} MB")
         limiting.append("memory")
-    if wall > fit["wall_s_max"]:
+    if shared and wall > fit["wall_s_max"]:                    # the owner's ceiling: a dedicated computer has none, memory and heat are what limit it
         why.append(f"took {wall:.0f}s, over the {fit['wall_s_max']}s limit")
         limiting.append("time")
     if temp is not None and temp > fit["temp_c_max"]:
