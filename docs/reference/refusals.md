@@ -163,6 +163,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the list of names in ct.client.submit (SECRET_NAMES), not configurable yet
 - **What to do:** Send it anyway by naming it: --include 'PATH' on ct-run submit.
 
+### `files.held.secret_content`: A file that looks like it contains a secret was held back
+
+- **Text:** {name!r} was held back: its text looks like a private key or an API token, and this transport sends jobs through GitHub
+- **Protects:** Protects the person from sending a credential out of their own network by accident: on the GitHub transport a job is pushed to a private GitHub repository, so a file whose TEXT looks like a private key or an API token is held back unless an --include names it exactly. On Direct it is only warned about (files.warn.secret_content), because nothing leaves the person's own network.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** which transport is set up ([transport] kind)
+- **What to do:** If it is not a real secret, send it by naming it: --include 'PATH' on ct-run submit.
+
 ### `files.warn.secret_content`: A file being sent looks like it contains a secret
 
 - **Text:** {name!r} contains text that looks like a private key or an API token
