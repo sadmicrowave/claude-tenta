@@ -73,10 +73,10 @@ Branch `candidacy-measurement`, a feature of `theme/orchestrator`. User's direct
 
 **Goal.** Judge a command against every rung of the ladder (never stopping at the first miss), name the headline reason, and give the person a measurement utility that suggests `offload.repeat_runs` / `offload.repeat_days` from their own command log.
 **Done when.**
-- `offload.repeat_runs` (default 3) and `offload.repeat_days` (default 14) exist in `ct.toml` and `.tenta.toml` (folder overrides), validated, and the "repeatable" test in `cmdlog` reads them instead of constants.
+- `offload.repeat_runs` (default 3) and `offload.repeat_days` (default 14) exist in `ct.toml`, validated (a folder override in `.tenta.toml` is a later slice: that file holds only worker pins today), and the "repeatable" test in `cmdlog` reads them instead of constants.
 - One pure function takes a command's facts (shape, median seconds, run count in the window, pinned or class-bound, batchable, split-able) and returns, for every rung, `met | not met | cannot be judged yet` with a reason; the headline is the highest-weighted rung met, the rest listed beneath it. Rung 2 (fewer AI tokens) returns "cannot be judged yet: needs the AI layer", never a guess. The weights are read from one table.
 - `ct-run offload log top` and the placement explanation show the headline and the other met rungs; `--all` shows each rung's verdict.
 - `ct-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing unless the person confirms; nothing is invented when the log is too short (it says how much more is needed).
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
-**Slices.** (1) settings + the pure rung evaluator with tests; (2) show it in `log top` and placement; (3) `offload measure`.
+**Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` and placement; (3) `offload measure`.
