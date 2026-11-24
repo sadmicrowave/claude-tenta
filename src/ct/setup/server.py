@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import approvals, claudeupdate, config, render, transport, update
+from .. import approvals, calibration, claudeupdate, config, render, transport, update
 from . import assess as assess_mod
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
@@ -85,8 +85,9 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=None, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, mailbox_pubkey=None, verbose=False):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, mailbox_pubkey=None, verbose=False, calibrator=calibration.measure):
         say = say or _sink()
+        self.calibrator = calibrator
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
         self.dry_run, self.given, self.use_defaults, self.rev = dry_run, given or {}, use_defaults, rev
         self.systemctl, self.sysctl, self.sandbox, self.install = systemctl, sysctl, sandbox, install
@@ -257,6 +258,25 @@ class ServerSetup:
         if not report.ok:
             raise refuse.error("server.install.refused", errors="; ".join(report.errors))
         self.note("code, units and wrappers", "installed", f"{plural(len(report.updated), 'file')}, {where}")
+
+    def calibrate(self):
+        """Time the steps that depend only on this computer and keep the seconds in the worker's state: its first, free speed measurement. Never stops an install."""
+        cfg = self.cfg
+        if self.dry_run:
+            self.note("speed measurement", "planned", "four short steps that depend only on this computer, timed once")
+            return
+        try:
+            measured = self.calibrator(self.host.path(f"{cfg.paths.code}/lib/ct"))
+            if not measured:
+                self.note("speed measurement", "skipped", "none of its steps could run here")
+                return
+            where = f"{cfg.path('state')}/calibration.json"
+            self.host.run(["install", "-d", "-m", "750", "-o", cfg.server.worker_user, "-g", cfg.server.worker_user, cfg.path("state")])
+            self.host.write(where, json.dumps({"at": int(time.time()), "phases": measured}, indent=1) + "\n", 0o640)
+            self.host.run(["chown", f"{cfg.server.worker_user}:{cfg.server.worker_user}", where])
+            self.note("speed measurement", "recorded", ", ".join(f"{k} {v} s" for k, v in measured.items()))
+        except Exception as e:                                   # the measurement is extra: whatever goes wrong, the install goes on
+            self.note("speed measurement", "skipped", f"{type(e).__name__}: {e}")
 
     def mailbox(self):
         """Direct transport: the mailbox account, the worker's two bare repositories, and the one key that may use them. Nothing here reaches GitHub or any other machine."""
@@ -567,6 +587,7 @@ class ServerSetup:
         self.accounts_and_folders()
         self.say(self.r.head("Code"))
         self.install_code()
+        self.calibrate()
         self.remove_legacy_commands()
         self.install_approver()
         self.say(self.r.head("Repository access"))

@@ -128,6 +128,40 @@ class Worker:
             total_gb = shutil.disk_usage(self.state).total / 1e9
         return max(2.0, round(total_gb * 0.10, 1))
 
+    def time_limit(self, cls, job, reg):
+        """A job's time limit: the class's own, or for a profile run the person's estimate x speed factor x margin (the owner's ceiling only where the computer is shared)."""
+        profile = cls.get("kind") == "profile"
+        return jobs.job_timeout(cls, job, rules=registry.profiling_rules(reg) if profile else None, shared=self.shared(), factor=self.speed()[0])
+
+    def learn_speed(self, status, metrics, meta):
+        """A profile run that finished cleanly shows how long this worker took against the person's estimate; keep that, so the next limit starts from evidence."""
+        from . import calibration
+        est, wall = (meta.get("estimates") or {}).get("time_s"), (metrics or {}).get("wall_s")
+        if status == "ok" and isinstance(est, (int, float)) and est > 0 and isinstance(wall, (int, float)) and wall >= 1:
+            try:
+                calibration.observe(self._p("profile-evidence.json"), wall / est)
+            except OSError:
+                pass                                          # the evidence is extra; a full disk must not fail a result
+
+    def profile_time_info(self, reg):
+        """What a profile run's time limit is built from: published in registry.json (for the client's check) and in the worker state (for the status list)."""
+        factor, basis = self.speed()
+        cap = int(((reg.get("classes") or {}).get("profile-run") or {}).get("max_timeout_s", 1800))
+        return {"ceiling_s": cap if self.shared() else None, "factor": factor, "basis": basis, "shared": self.shared(), "margin": registry.profiling_rules(reg)["margin"]["time"]}
+
+    def shared(self):
+        return self.s.isolation_purpose == "shared"
+
+    def speed(self):
+        """(factor, basis): how slow this worker is against the shipped reference (2.0 = twice as slow), from the install's own timings; 1.0 until measured."""
+        from . import calibration, calibration_reference
+        got = calibration.load(self._p("calibration.json")).get("phases")
+        prior, basis = calibration.speed_factor(got, calibration_reference.REFERENCE) if isinstance(got, dict) else (1.0, "none yet")
+        factor, runs = calibration.combine(prior, calibration.load(self._p("profile-evidence.json")).get("ratios", []))
+        if runs:
+            basis = f"{runs} profile {'run' if runs == 1 else 'runs'}" if basis in ("none yet", "no reference") else f"{basis} + {runs} profile {'run' if runs == 1 else 'runs'}"
+        return factor, basis
+
     def effective_limits(self, reg):
         """The registry's limits, except that on the Direct connection the file limits follow this worker's ceiling (what it can really hold) instead of the GitHub-era defaults, unless the owner set them in the registry."""
         lim = registry.limits_of(reg)
@@ -345,7 +379,7 @@ class Worker:
             elif kind == "profile":
                 if params:
                     raise refusals.refuse("job.profile.params")
-                argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy)
+                argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy, shared=self.shared())
             elif kind == "privileged":
                 action = (reg.get("actions") or {}).get(cls.get("action"))
                 if not isinstance(action, dict):
@@ -390,7 +424,7 @@ class Worker:
                         res["facts"] = profiling.command_facts(argv, find_program=self.find_program)
                         rules = registry.profiling_rules(reg)
                         res["glance"] = profiling.glance(job, rules, profiling.profile_limits(rules, self.mem_total()), self.snapshot(),
-                                                         jobs.job_timeout(cls, job), res["facts"], self.s.product)
+                                                         self.time_limit(cls, job, reg), res["facts"], self.s.product)
                         if meta.get("packages"):
                             plan = self.pkgs.plan(meta["packages"], jid)
                             if plan["problems"]:
@@ -405,7 +439,7 @@ class Worker:
                 return
             if not run:
                 self._p("queued", f"{jid}.json").write_bytes(raw)          # the snapshot that will execute is exactly what was validated
-                self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s")}))      # what step needs, so it never parses the whole job
+                self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s"), "est_time_s": job.get("est_time_s")}))      # what step needs, so it never parses the whole job
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
                 return
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
@@ -513,7 +547,7 @@ class Worker:
             if prep_fail:
                 st, rc, out, metrics, note = "error", None, "", {}, prep_fail
             else:
-                st, rc, out, metrics, note = self.runner(run_argv, jobs.job_timeout(cls, job), wd, home=self.home, claude=(kind == "claude"),
+                st, rc, out, metrics, note = self.runner(run_argv, self.time_limit(cls, job, reg), wd, home=self.home, claude=(kind == "claude"),
                                                          marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
                                                          api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
         if kind == "claude":
@@ -544,7 +578,9 @@ class Worker:
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             res["profile"] = {"argv": argv, **meta, "files": sorted(files),
-                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product)}
+                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product, shared=self.shared(),
+                                                       limit_s=self.time_limit(cls, job, reg), ceiling_s=int(cls.get("max_timeout_s", 1800)))}
+            self.learn_speed(st, metrics, meta)
             shutil.rmtree(wd, ignore_errors=True)            # a profiled command may leave a lot behind
             if meta.get("packages"):
                 pv, env_dir = res["profile"], self.pkgs.env_root / jid
@@ -693,7 +729,7 @@ class Worker:
                 pid = self._spawn(jid)
                 if cls.get("kind") == "claude":
                     self.ledger.start(jid, job.get("class"))
-                limit = min(jobs.job_timeout(cls, job), MAX_TIMEOUT) + (self.s.pkg_timeout if job.get("packages") else 0)
+                limit = min(self.time_limit(cls, job, reg), MAX_TIMEOUT) + (self.s.pkg_timeout if job.get("packages") else 0)
                 markers[jid] = {"pid": pid, "weight": w, "class": job.get("class"), "started": iso(self.clock()), "deadline": time.time() + limit + self.s.grace_s}
                 self._p("running", jid).write_text(json.dumps(markers[jid]))
                 used += w
@@ -759,7 +795,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -784,6 +820,7 @@ class Worker:
             classes[name]["installed"] = known.get(name) or when
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
                 "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
+                "profile_time": self.profile_time_info(reg),       # what a profile run's time limit is built from (the client checks a request against it)
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
@@ -797,7 +834,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())

@@ -9,7 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ct import registry  # noqa: E402
+from ct.client import cli  # noqa: E402
 from ct.client import offload as off  # noqa: E402
+from ct.client.cli import adopt_tier as cli_tier  # noqa: E402
 from ct.client.repo import ClientError  # noqa: E402
 from support import RepoFixture, sh  # noqa: E402
 
@@ -211,6 +213,14 @@ class EndToEnd(RepoFixture):
         self.w.fetch()
         self.w.execute(jid)
         return jid
+
+    def test_a_time_limit_over_the_workers_cap_is_refused_here_not_after_the_trip(self):
+        self.w.fetch()                                                                              # publishes the registry, with the profile-run cap
+        code, out, err = self.profile("--timeout-s", "999999")
+        self.assertNotEqual(code, 0)
+        self.assertIn("profile.timeout.range", out + err)
+        self.assertIn("Worker's cap", out + err)
+        self.assertEqual(self.profile("--timeout-s", "60")[0], 0)
 
     def test_fit_answers_registered_unknown_excluded_and_retry_with_the_right_exit_codes(self):
         self.w.fetch()                                                                              # publishes the registry (classes and RAM)
@@ -476,3 +486,69 @@ class PackRecipe(unittest.TestCase):
             with self.assertRaises(ClientError) as cm:
                 off.use_recipe(bad, None, None, None, Path("."))
             self.assertIn("not safe", str(cm.exception))
+
+
+class AutoAdopt(EndToEnd):
+    """List item 3b: a profile result that fits is adopted and installed without a further question, by default; the owner's own key signs it, on this computer."""
+
+    def fits(self):
+        self.push_main_registry()
+        jid = self.run_profile_to_a_result()
+        self.w.fetch()
+        return jid
+
+    def view(self, jid, tty=True, on=True):
+        self.admin_calls.clear()
+        self.ctx.is_tty, self.ctx.auto_adopt = (lambda: tty), on
+        return self.run_cli("result", jid)
+
+    def test_a_result_that_fits_is_adopted_once_with_a_cautious_tier_only_for_heavy_ones(self):
+        jid = self.fits()
+        self.view(jid)
+        self.assertEqual(self.admin_calls, [["adopt", jid, "--tier", "auto", "--yes", "--worker", "testct"]])
+        self.view(jid)
+        self.assertEqual(self.admin_calls, [])                                                      # shown again: not adopted again
+
+    def test_a_heavy_result_is_adopted_but_waits_for_approval_each_time(self):
+        self.assertEqual(cli_tier({"profile": {"cost": "heavy"}}), "approve")
+        self.assertEqual(cli_tier({"profile": {"cost": "medium"}}), "auto")
+        self.assertEqual(cli_tier({"profile": {"cost": "light"}}), "auto")
+
+    def test_nothing_is_adopted_in_a_pipe_when_switched_off_or_when_it_does_not_fit(self):
+        jid = self.fits()
+        self.view(jid, tty=False)
+        self.assertEqual(self.admin_calls, [])
+        self.view(jid, on=False)
+        self.assertEqual(self.admin_calls, [])
+        res = {"id": "profile-zzz999", "status": "ok", "profile": {"verdict": "needs-longer", "argv": ["x"], "reasons": [], "limiting": ["time"]}}
+        cli.auto_adopt(self.ctx, res)
+        res["profile"]["verdict"] = "does-not-fit"
+        cli.auto_adopt(self.ctx, res)
+        self.assertEqual(self.admin_calls, [])
+
+
+class NeedsLonger(unittest.TestCase):
+    def test_the_rerun_command_replaces_the_old_limit_and_keeps_the_rest(self):
+        raw = ["offload", "profile", "--what", "w", "--timeout-s", "300", "--dir", ".", "--", "env", "A=1", "python3", "-m", "unittest"]
+        got = off.rerun_with_limit(raw, 600)
+        self.assertIn("--timeout-s 600", got)
+        self.assertNotIn("300", got)
+        self.assertTrue(got.endswith("-- env A=1 python3 -m unittest"), got)
+        self.assertIn("--dir .", got)
+        self.assertIn("--timeout-s 90", off.rerun_with_limit(["offload", "profile", "--timeout-s=30", "--", "ls"], 90))
+
+    def test_a_result_that_needs_longer_is_not_adopted_and_not_recorded_as_an_exclusion(self):
+        pr = {"verdict": "needs-longer", "argv": ["x"], "reasons": ["stopped"], "limiting": ["time"], "next_limit_s": 600}
+        with self.assertRaises(ClientError) as cm:
+            off.propose(None, "profile-aaa111", {"profile": pr})
+        self.assertIn("longer time limit", str(cm.exception))
+
+    def test_the_result_card_offers_the_command_or_the_ceiling(self):
+        from ct.client import view
+        res = {"id": "profile-aaa111", "status": "ok", "profile": {"verdict": "needs-longer", "argv": ["x"], "reasons": ["stopped"], "limiting": ["time"], "next_limit_s": 600}}
+        card = view.result_card(res, rerun="ct-run offload profile --timeout-s 600 -- x")
+        self.assertEqual((card["run"], card["run_label"]), ("ct-run offload profile --timeout-s 600 -- x", "Profile it again with a limit of 600 s"))
+        res["profile"].update(next_limit_s=None, at_ceiling=True, ceiling_s=600)
+        card = view.result_card(res)
+        self.assertIsNone(card["run"])
+        self.assertTrue(any("isolation.purpose" in str(r) for r in card["head"]["details"]))

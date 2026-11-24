@@ -849,7 +849,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** the class's max_timeout_s
-- **What to do:** Give a value in range with --timeout on ct-run offload profile.
+- **What to do:** Give a value in range with --timeout-s on ct-run offload profile. A command that needs longer than the cap cannot be measured whole: profile a smaller part of it, or ask the worker's owner to raise max_timeout_s for profile-run.
 
 ### `placement.capacity.in_flight`: Too many jobs are already running
 
@@ -904,6 +904,14 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the transport (written for GitHub)
 - **Configured:** the worker's registry: limits.files
 - **What to do:** Attach only the files the command needs: --include 'src/**/*.js'
+
+### `profile.needs_longer`: That profile run needs a longer time limit
+
+- **Text:** It stopped at its time limit while still inside the memory and heat limits.
+- **Protects:** A command that only ran out of time says nothing about whether it suits the worker, so it is neither adopted nor recorded as an exclusion.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** the person's own --timeout-s (the worker's ceiling applies only on a shared computer)
 
 ### `job.too_big_for_worker`: The job is too big for this worker
 

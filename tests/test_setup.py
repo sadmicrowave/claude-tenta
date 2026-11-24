@@ -412,7 +412,19 @@ class ServerTests(unittest.TestCase):
         given = {"server.admin_user": "me", "github.owner": "someone", **kw.pop("given", {})}
         return server.ServerSetup(self.h, self.src, say=self.said.append, given=given, use_defaults=True, rev="a" * 40, is_root=lambda: True,
                                   systemctl=lambda *a: None, sysctl=lambda *a: None, sandbox=lambda t: 0,
-                                  registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped", **kw)
+                                  registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped",
+                                  **{"calibrator": lambda code_dir: {"hash": 0.5, "git": 0.25}, **kw})
+
+    def test_the_install_records_how_fast_the_computer_is_and_never_fails_because_of_it(self):
+        s = self.setup_obj(dry_run=False)
+        s.run_all()
+        written = [p for p in Path(self.h.root).rglob("calibration.json")]
+        self.assertEqual(len(written), 1)
+        self.assertEqual(json.loads(written[0].read_text())["phases"], {"hash": 0.5, "git": 0.25})
+        self.assertTrue(any(step == "speed measurement" and status == "recorded" for step, status, _ in s.report))
+        broken = self.setup_obj(dry_run=False, calibrator=lambda d: (_ for _ in ()).throw(OSError("boom")))
+        broken.run_all()
+        self.assertTrue(any(step == "speed measurement" and status == "skipped" and "boom" in detail for step, status, detail in broken.report))
 
     def test_the_private_alert_address_goes_to_the_secrets_file_and_never_into_ct_toml(self):
         topic = "https://ntfy.example/very-private-topic-name"

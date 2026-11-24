@@ -29,9 +29,19 @@ def problems(text, env=None):
 
 
 class ProfileApproval(unittest.TestCase):
-    def test_the_default_is_that_a_profile_run_needs_approval(self):
+    def test_on_github_a_profile_run_needs_approval_unless_said_otherwise(self):
         c = config.load(None, env={"CT_CONFIG": ""})
         self.assertEqual(c.transport.profile_approval, "required")
+
+    def test_on_direct_a_profile_run_starts_without_approval_unless_the_owner_said_required(self):
+        """The decision (list item 3a): the protections that make an unapproved measurement safe exist (a jail that must isolate, the job ceiling, the disk reserve, the
+        estimate-based time limit), so Direct does not ask by default. An owner who wrote `required` keeps it."""
+        clean, problems = config.validate({"transport": {"kind": "direct"}})
+        self.assertEqual((clean["transport"]["profile_approval"], [p for p in problems if "profile_approval" in p]), ("none", []))
+        clean, _ = config.validate({"transport": {"kind": "direct", "profile_approval": "required"}})
+        self.assertEqual(clean["transport"]["profile_approval"], "required")
+        clean, _ = config.validate({"transport": {"kind": "github"}})
+        self.assertEqual(clean["transport"]["profile_approval"], "required")
 
     def test_running_without_approval_is_a_setting_of_the_direct_connection_only(self):
         clean, problems = config.validate({"transport": {"kind": "github", "profile_approval": "none"}})

@@ -371,6 +371,9 @@ class Status(CliBase):
         (self.tmp / "canary.json").write_text(json.dumps({"ts": __import__("time").time(), "monitoring": False, "reason": "auditd is not installed"}))
         self.assertIn("auditd is not installed", self.run_cli("status")[1])
 
+    def test_status_shows_what_a_profile_runs_time_limit_is_built_from(self):
+        self.assertRegex(self.run_cli("status")[1], r"Profile limit\s+estimate x 1 x 3; no ceiling; from none yet")
+
     def test_status_says_why_nothing_is_moving_when_a_pass_fails(self):
         out = self.run_cli("status")[1]
         self.assertRegex(out, r"Fetch\s+NOT RUN YET")

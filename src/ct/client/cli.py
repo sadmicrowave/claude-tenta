@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import json
 import re
 import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -44,12 +45,14 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, kind="github"):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github"):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
         self.packs = off.PackBook(self.home)
+        self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
+        self.commands = off.CommandBook(self.home)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -63,7 +66,32 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+
+
+def run_admin_command(args):
+    """Run a ct-admin command on this computer, on the person's own terminal (an adoption, an approval). Returns its exit code."""
+    return subprocess.run([sys.executable, "-m", "ct.admin.cli", *args]).returncode
+
+
+def adopt_tier(res):
+    """The tier a class is adopted with: auto (runs as soon as it is submitted) for a light or medium one, approve (waits for the person's OK each time) for a heavy one."""
+    return "approve" if (res.get("profile") or {}).get("cost") == "heavy" else "auto"
+
+
+def auto_adopt(ctx, res):
+    """A profile result that fits is adopted and installed right away, signed with this computer's own approval key, unless the person switched it off (offload.auto_adopt).
+    Only at a terminal, and once per result whatever came of it: a run that cannot be adopted (the name is taken) is said once, not retried every time it is shown.
+    The tighter conditions (who may trigger it) come with the AI layer."""
+    pr = res.get("profile") or {}
+    if pr.get("verdict") != "fits" or not ctx.auto_adopt or not ctx.run_admin or not ctx.is_tty() or ctx.adopted.get(res["id"]):
+        return
+    tier = adopt_tier(res)
+    ctx.adopted.remember(res["id"], tier)
+    emit("Adopting it automatically", ("Job", res["id"]), ("Tier", tier + ("" if tier == "auto" else "   (heavy: it will wait for your OK each time it runs)")),
+         "It fits this worker, so it is added to the registry and installed with your approval key. To stop doing this: ct-setup install --set offload.auto_adopt=false",
+         tag="NOTE", color=CYAN, stream=sys.stderr)
+    ctx.run_admin(["adopt", res["id"], "--tier", tier, "--yes", "--worker", ctx.product])
 
 
 def fleet_of(cfg, main):
@@ -249,6 +277,13 @@ def show_summary(ctx, files, left):
          tag="NOTE", color=YELLOW if big else CYAN)
 
 
+def rerun_for(ctx, res):
+    """For a profile run that stopped only for time: the command that sends it again with the next limit (None when there is none to suggest)."""
+    pr = res.get("profile") or {}
+    raw = ctx.commands.get(res["id"]) if pr.get("verdict") == "needs-longer" and pr.get("next_limit_s") else None
+    return off.rerun_with_limit(raw, pr["next_limit_s"]) if raw else None
+
+
 def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
@@ -355,7 +390,9 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
                 LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
-                return view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+                auto_adopt(ctx, res)
+                return rc
             if locked:
                 LAST_RESULT.update(locked=True)
                 emit("Stopped waiting: the worker is locked", f"{jid} will not run until you unlock it.", "It stays queued and runs after you unlock.", tag="LOCKED",
@@ -365,7 +402,8 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
                 emit("Waiting for your approval", *waiting_rows(ctx, jid, res), tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
                 told = True
             if res and res["status"] == "running" and told != "running":
-                emit("Running now", ("Worker", alias.show(ctx.product)), "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr)
+                emit("Running now", ("Worker", alias.show(ctx.product)), "Waiting for it to finish. Ctrl-C stops waiting, not the job.", tag="RUNNING", color=CYAN, stream=sys.stderr,
+                     run_label="To check on it or stop it", run=[f"ct-run result {jid}", f"{ctx.admin} kill {jid}"])
                 told = "running"
             waited = int(ctx.clock() - start)
             if res and res["status"] == "queued" and told not in ("queued", "running"):
@@ -410,7 +448,9 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    return view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+    auto_adopt(ctx, res)
+    return rc
 
 
 def jobs_of(repos, admin):
@@ -678,6 +718,9 @@ def cmd_profile(ctx, a):
     for f in a.file or []:
         p = Path(f).expanduser()
         files[p.name] = p.read_text()
+    worker_cap = int((((r.registry_info() or {}).get("classes") or {}).get("profile-run") or {}).get("timeout_s") or 0)       # the worker's own cap, published: no need to send what it will refuse
+    if timeout_s and worker_cap and not 10 <= timeout_s <= worker_cap:
+        raise refuse.error("profile.timeout.range", ("Asked for", f"{timeout_s} s"), ("Worker's cap", f"{worker_cap} s"), cap=worker_cap)
     limits = sub.file_limits(r.registry_info())
     left = sub.LeftOut()
     if a.dir:
@@ -699,6 +742,7 @@ def cmd_profile(ctx, a):
     if name:
         ctx.names.remember(jid, name)
     recipe, recipe_note = off.make_recipe(a.dir, a.include, a.file, Path.cwd()) if files else (None, None)
+    ctx.commands.remember(jid, list(a.raw))
     if recipe:
         ctx.packs.remember(jid, recipe)
     elif recipe_note:

@@ -218,7 +218,7 @@ SCHEMA = {
     },
     "transport": {
         "kind": ("github", _enum("direct", "github"), "how jobs reach the worker and results come back: github is a private repository on GitHub each way; direct is a mailbox on the worker that your computer reaches over SSH (lan comes later in 0.2)"),
-        "profile_approval": ("required", _enum("required", "none"), "Direct only: required (the default) means a profile run waits for your approval; none lets a worker start one without it, but only while its jail really isolates jobs (never on a Windows worker)"),
+        "profile_approval": ("required", _enum("required", "none"), "Direct only. none (the default on Direct) lets a worker start a profile run without approval, but only while its jail really isolates jobs (never on a Windows worker); required makes every profile run wait for your approval. On GitHub it is always required"),
     },
     "paths": {
         "code": ("/opt/{name}", _path, "where the code is installed on the server"),
@@ -271,6 +271,9 @@ SCHEMA = {
         "jobs_per_day": (20, _num(0, 10000), "the most Claude jobs this worker STARTS in a UTC day; at the limit new ones wait (they start tomorrow or when you raise this) and other jobs carry on. 0 means no limit"),
         "turns_per_day": (300, _num(0, 1000000), "the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit"),
         "update_days": (7, _num(1, 60), "days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail)"),
+    },
+    "offload": {
+        "auto_adopt": (True, _bool, "on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt"),
     },
     "limits": {
         "max_in_flight": (8, _num(0, 1000), "the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap"),
@@ -362,6 +365,8 @@ def validate(raw, require_alert_url=True):
     srv = clean["server"]
     if srv["admin_user"] and srv["admin_user"] == srv["worker_user"]:
         problems.append("server.admin_user and server.worker_user must be different accounts")
+    if clean["transport"]["kind"] == "direct" and "profile_approval" not in (raw.get("transport") if isinstance(raw.get("transport"), dict) else {}):
+        clean["transport"]["profile_approval"] = "none"        # the default on Direct (list item 3a): the worker still checks its jail isolates before it starts one
     if clean["transport"]["profile_approval"] == "none" and clean["transport"]["kind"] != "direct":
         problems.append("transport.profile_approval = none is a setting of the Direct connection only: on GitHub a job file can be put in the queue by anyone who can write to the repository, so a profile run keeps needing your approval")
     if require_alert_url and clean["alerts"]["kind"] != "none" and not clean["alerts"]["url"]:

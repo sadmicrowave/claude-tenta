@@ -1,0 +1,12 @@
+{
+ "label": "mini-ubuntu-26.04",
+ "phases": {
+  "compile": 1.018,
+  "import": 0.468,
+  "hash": 0.564,
+  "git": 0.2
+ },
+ "os": "Ubuntu 26.04.1 LTS",
+ "python": "3.14.4",
+ "reference": true
+}

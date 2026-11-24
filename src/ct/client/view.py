@@ -22,7 +22,7 @@ STATUS_MEANING = (("queued", "submitted, the worker has not picked it up yet"), 
                   ("limit", "stopped at its time, memory or heat limit"), ("killed", "stopped by a safety check"),
                   ("cancelled", "you cancelled it"), ("expired", "waited more than a day for approval; send it again"), ("awaiting_approval", "waiting for you:  approve <job>"))
 NOTE_STYLE = {"queued": (YELLOW,), "error": (RED,), "rejected": (RED,), "killed": (RED,), "quarantined": (RED,), "limit": (YELLOW,)}
-VERDICT_COLOR = {"fits": GREEN, "does-not-fit": RED, "inconclusive": YELLOW}
+VERDICT_COLOR = {"fits": GREEN, "does-not-fit": RED, "inconclusive": YELLOW, "needs-longer": YELLOW}
 MARGIN = "\t"            # one tab: where a row's note starts, under the columns
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -96,7 +96,7 @@ def describe_profile(pr):
     return "\n".join(L) + "\n"
 
 
-def format_result(res, admin="ct-admin", suggest_name=None, received=None):
+def format_result(res, admin="ct-admin", suggest_name=None, received=None, rerun=None):
     """A result as the lines the person reads (to stderr, with the OUTPUT block printed separately by the caller). Returns (head, output, tail)."""
     status = res["status"]
     head = [f"\n{paint('JOB', BOLD, CYAN)}     {res['id']}",
@@ -137,10 +137,21 @@ def format_result(res, admin="ct-admin", suggest_name=None, received=None):
                      chip(f"{admin} adopt {res['id']} --name {suggest_name}") + "\n", paint("The name is a suggestion; change it if you like.", DIM) + "\n"]
         elif pr["verdict"] in ("fits", "does-not-fit"):
             tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('record that it does not fit, so it is never offloaded', DIM)}\n", chip(f"ct-run offload propose {res['id']}") + "\n"]
+        elif pr["verdict"] == "needs-longer":
+            cmd, label, steps = needs_longer_next(pr, rerun)
+            tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint(label or steps[0], DIM)}\n"] + ([chip(cmd) + "\n"] if cmd else [f"  - {x}" for x in steps[1:]])
     return head, res.get("output") or "", tail
 
 
-def result_card(res, admin="ct-admin", suggest_name=None, received=None):
+def needs_longer_next(pr, rerun):
+    """(command, label, steps) for a profile run that stopped only for time: send it again with the next limit, or, at a shared computer's ceiling, say what that ceiling is."""
+    if pr.get("next_limit_s"):
+        label = f"Profile it again with a limit of {pr['next_limit_s']} s"
+        return (rerun, label, []) if rerun else (None, "", [f"{label}: add --timeout-s {pr['next_limit_s']} to the command you ran."])
+    return None, "", [f"A shared computer holds a profile run to {pr.get('ceiling_s'):g} s. If this computer is not shared, say so: ct-setup install --worker <its name> --set isolation.purpose=tenta-only"]
+
+
+def result_card(res, admin="ct-admin", suggest_name=None, received=None, rerun=None):
     """A result as the three things a person looks at, kept apart: `head` (who and what: the job, its status as a chip, its command and verdict), `output` (the job's own
     output, to be drawn in a box in the status colour) and `meta` (how long it took and what it used: quiet, beneath). Plus the command that usually comes next."""
     import shlex
@@ -157,6 +168,9 @@ def result_card(res, admin="ct-admin", suggest_name=None, received=None):
             run, run_label = f"{admin} adopt {res['id']} --name {suggest_name}", "Register it and install it on the worker, asking you once"
         elif pr["verdict"] in ("fits", "does-not-fit"):
             run, run_label = f"ct-run offload propose {res['id']}", "Record that it does not fit, so it is never offloaded"
+        elif pr["verdict"] == "needs-longer":
+            run, run_label, steps = needs_longer_next(pr, rerun)
+            rows += [f"- {x}" for x in steps]
     if res.get("refusal"):                                                      # which rule refused it: the last row, so it can be looked up (docs/reference/refusals.md)
         rows += [("Code", res["refusal"])]
     measured = []
