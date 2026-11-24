@@ -177,6 +177,9 @@ class LeftOut:
     def hold(self, name):
         self.held.append((name, "files.held.secret_name", refusals.explain("files.held.secret_name", name=name)))
 
+    def hold_text(self, name):
+        self.held.append((name, "files.held.secret_content", refusals.explain("files.held.secret_content", name=name)))
+
     def warn_about(self, name):
         self.warn.append((name, "files.warn.secret_content", refusals.explain("files.warn.secret_content", name=name)))
 
@@ -214,10 +217,10 @@ def walked(base, include, left):
                 yield rel
 
 
-def collect_dir(d, limits, include=None, left=None):
+def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
     """Text files under `d`. In a git folder the project's own rules decide: tracked files and untracked ones that are not ignored (what it ignores is named in `left`, and `.git` is never part of it). Elsewhere hidden files and
     folders, build output and dependency folders are left out unless an include names them. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. A file whose name usually holds a secret is held back
-    unless an include names it exactly. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
+    unless an include names it exactly. With `hold_secret_text` (the GitHub transport: the job leaves the person's network) a file whose text looks like a secret is held the same way; otherwise it is sent with a warning. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
     base = Path(d).expanduser().resolve()
     left = left if left is not None else LeftOut()
     found = git_candidates(base)
@@ -259,9 +262,27 @@ def collect_dir(d, limits, include=None, left=None):
             left.unsend(rel, "files.too_big", limit=limits["max_file_kb"])
             continue
         if any(guard.GUARD_RULES[k].search(text) for k in SECRET_TEXT):
+            if hold_secret_text and not named_exactly(rel, include):
+                left.hold_text(rel)
+                continue
             left.warn_about(rel)
         files[rel] = text
     return files
+
+
+BIG_SET_BYTES = 1_000_000_000                                                  # Direct has no size limit; above this the person is told once, before the job is sent
+
+
+def totals(files):
+    """(file count, bytes) of what is about to be sent."""
+    return len(files), sum(len(v.encode()) for v in files.values())
+
+
+def size_text(n):
+    for unit, step in (("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
+        if n >= step:
+            return f"{n / step:.1f} {unit}"
+    return f"{n} bytes"
 
 
 def check_complete(left, allow=False):
