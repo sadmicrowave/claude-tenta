@@ -34,3 +34,7 @@ venv/
 .vscode/
 .idea/
 *.egg-info/
+
+# Session handover notes: they may hold details of a working session that do not belong in the repository
+*[Hh]andover*
+*[Hh]andoff*
