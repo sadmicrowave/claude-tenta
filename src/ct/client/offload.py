@@ -339,6 +339,13 @@ class PackBook(NameBook):
         self.path = Path(home) / "profile-packs.json"
 
 
+class AdoptBook(NameBook):
+    """Profile results already offered for automatic adoption on this computer (once each), with the tier used."""
+
+    def __init__(self, home):
+        self.path = Path(home) / "profile-adopted.json"
+
+
 class CommandBook(NameBook):
     """The command line a profiling run was started with, kept on this computer so a result that needs a longer limit can show the exact command to send again."""
 
