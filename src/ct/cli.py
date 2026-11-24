@@ -535,6 +535,11 @@ def cmd_status(ctx, hours=12):
         D.append(("Isolation", cards.Styled([("RELAXED", "warn"), (f"  {w.jail.describe()}; special use, by choice: tool folders are shown read-only ({roots})", "muted")])))
     else:
         line(iso_on, "Isolation", "ON" if iso_on else "OFF", w.jail.describe() if iso_on else f"jobs are REFUSED until it works: {w.jail.problem()}")
+    try:
+        from .admin.workers import profile_time_text
+        D.append(("Profile limit", profile_time_text(w.profile_time_info(w.load_registry()))))      # how long a profile run may take here and why: the person's estimate, this worker's speed, the owner's ceiling
+    except Exception:
+        pass                                                              # an extra line: never stops the status
     canary_file = ctx.canary_status
     try:
         st = json.loads(Path(canary_file).read_text())
