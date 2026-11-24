@@ -1160,6 +1160,13 @@ class ProfileTime(Base):
         reg = self.w.load_registry()
         self.assertEqual(self.w.time_limit(reg["classes"]["profile-run"], {"est_time_s": 100}, reg), 480)             # 100 x 1.59 x 3, to the next ten
 
+    def test_a_profile_run_that_stops_at_its_limit_is_reported_as_needing_longer(self):
+        self.worker_with(isolation_purpose="special-use")
+        self.finish_profile("profile-ddd444", est=100, wall=300, status="timeout")
+        pr = self.result("profile-ddd444")["profile"]
+        self.assertEqual((pr["verdict"], pr["next_limit_s"], pr["at_ceiling"]), ("needs-longer", 600, False))        # 100 s x 3 = 300 s was the limit; the next is double
+        self.assertEqual(self.w.speed(), (1.0, "none yet"))                                                          # a run that did not finish teaches no ratio
+
     def test_a_run_that_did_not_finish_cleanly_or_was_too_short_teaches_nothing(self):
         self.worker_with(isolation_purpose="special-use")
         self.finish_profile("profile-bbb222", est=10, wall=40, status="error")

@@ -82,3 +82,14 @@ When a profiling run is sent with `--dir`, `--include` or `--file`, the packagin
 
 At a terminal, `ct-run result` of a profile run whose verdict is `fits` adopts it right away: it runs `ct-admin adopt JOB --tier T --yes` on this computer, so the class is added to the registry and installed with **your own approval key**. A light or medium class is adopted with tier `auto` (it runs as soon as it is submitted); a heavy one is adopted with tier `approve` (it waits for your OK each time it runs). Each result is offered once, whatever came of it, and never in a pipe or script. Switch it off with `offload.auto_adopt = false` (`ct-setup install --set offload.auto_adopt=false`); then `ct-admin adopt` is yours to run. The tighter conditions (who or what may trigger it) belong to the AI layer and are on the backlog.
 
+## How long a profile run may take
+
+A profile run's time limit is not a fixed number. It is **your estimate x this worker's speed factor x the margin (3)**, never below 30 s:
+
+- **Your estimate** is the `--est-time-s` you already give.
+- **The speed factor** starts at 1. The install times four steps that depend only on the computer (compile, import, hash, git) and compares them with a reference table recorded on our own fleet (`scripts/record-calibration`); that gives a first factor. Every profile run that finishes cleanly then moves it toward what it showed (its measured seconds over your estimate), by at most a doubling per run, ignoring a run far from the others.
+- **The owner's ceiling** (`max_timeout_s` of `profile-run`) applies only on a computer whose purpose is `shared`. A dedicated computer is limited by memory and heat, not by a fixed time.
+- **A run that only ran out of time** is reported as `needs-longer`, not `does-not-fit`, so it is never recorded as an exclusion. The result shows the next limit (double, up to a shared computer's ceiling) and the exact command to send it again.
+
+`ct-admin workers` and the worker's own `status` show the line, for example `estimate x 1.59 x 3; no ceiling; from install, 4 of 4 steps + 2 profile runs`. The worker also publishes it as `profile_time` in `registry.json`, which `ct-run offload profile` checks a `--timeout-s` against before sending.
+

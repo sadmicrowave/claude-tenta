@@ -51,6 +51,7 @@ class Context:
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
         self.packs = off.PackBook(self.home)
         self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
+        self.commands = off.CommandBook(self.home)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -259,6 +260,13 @@ def show_left_out(left):
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
 
 
+def rerun_for(ctx, res):
+    """For a profile run that stopped only for time: the command that sends it again with the next limit (None when there is none to suggest)."""
+    pr = res.get("profile") or {}
+    raw = ctx.commands.get(res["id"]) if pr.get("verdict") == "needs-longer" and pr.get("next_limit_s") else None
+    return off.rerun_with_limit(raw, pr["next_limit_s"]) if raw else None
+
+
 def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
@@ -364,7 +372,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
                 LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
-                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
                 auto_adopt(ctx, res)
                 return rc
             if locked:
@@ -422,7 +430,7 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res))
+    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
     auto_adopt(ctx, res)
     return rc
 
@@ -715,6 +723,7 @@ def cmd_profile(ctx, a):
     if name:
         ctx.names.remember(jid, name)
     recipe, recipe_note = off.make_recipe(a.dir, a.include, a.file, Path.cwd()) if files else (None, None)
+    ctx.commands.remember(jid, list(a.raw))
     if recipe:
         ctx.packs.remember(jid, recipe)
     elif recipe_note:

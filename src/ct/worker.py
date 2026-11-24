@@ -143,6 +143,12 @@ class Worker:
             except OSError:
                 pass                                          # the evidence is extra; a full disk must not fail a result
 
+    def profile_time_info(self, reg):
+        """What a profile run's time limit is built from: published in registry.json (for the client's check) and in the worker state (for the status list)."""
+        factor, basis = self.speed()
+        cap = int(((reg.get("classes") or {}).get("profile-run") or {}).get("max_timeout_s", 1800))
+        return {"ceiling_s": cap if self.shared() else None, "factor": factor, "basis": basis, "shared": self.shared(), "margin": registry.profiling_rules(reg)["margin"]["time"]}
+
     def shared(self):
         return self.s.isolation_purpose == "shared"
 
@@ -572,7 +578,8 @@ class Worker:
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             res["profile"] = {"argv": argv, **meta, "files": sorted(files),
-                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product)}
+                              **profiling.profile_verdict(st, rc, note, metrics, run_argv, files, rules, self.s.product, shared=self.shared(),
+                                                       limit_s=self.time_limit(cls, job, reg), ceiling_s=int(cls.get("max_timeout_s", 1800)))}
             self.learn_speed(st, metrics, meta)
             shutil.rmtree(wd, ignore_errors=True)            # a profiled command may leave a lot behind
             if meta.get("packages"):
@@ -813,8 +820,7 @@ class Worker:
             classes[name]["installed"] = known.get(name) or when
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
                 "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
-                "profile_time": {"ceiling_s": int((reg.get("classes") or {}).get("profile-run", {}).get("max_timeout_s", 1800)) if self.shared() else None,
-                                 "factor": self.speed()[0], "basis": self.speed()[1], "shared": self.shared()},       # what a profile run's time limit is built from (the client checks a request against it)
+                "profile_time": self.profile_time_info(reg),       # what a profile run's time limit is built from (the client checks a request against it)
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):
             mark.write_text(stamp)
@@ -828,7 +834,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())

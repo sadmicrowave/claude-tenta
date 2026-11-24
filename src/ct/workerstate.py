@@ -90,6 +90,7 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         **({"tool_check": checks} if (checks := tool_check(registry, extra.get("tool_roots"), extra.get("isolation_mode"))) else {}),         # which tool a class with tool folders would really run
         "packages": packages_of(registry),
         "approvers": list(extra.get("approvers") or []),
+        **({"profile_time": extra["profile_time"]} if extra.get("profile_time") else {}),      # what a profile run's time limit is built from: the speed factor and where it came from, the margin, the owner's ceiling
         "profile_approval": extra.get("profile_approval") or "required",              # what this worker will really do with a profile run: "none" only when the owner allowed it AND its jail isolates
         "locked": bool(locked),
         "claude_paused": bool((extra.get("claude_budget") or {}).get("paused")),

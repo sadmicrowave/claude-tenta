@@ -42,7 +42,27 @@ class Verdict(unittest.TestCase):
         self.assertEqual(self.v("limit", note="memory 900 MB went over the 800 MB limit")["limiting"], ["memory"])
         self.assertEqual(self.v("limit", note="core temperature 90C went over the 85C limit")["limiting"], ["heat"])
         self.assertEqual(self.v("limit", note="disk use 5000 MB went over")["limiting"], ["disk"])
-        self.assertEqual(self.v("timeout", rc=None)["limiting"], ["time"])
+        self.assertEqual(self.v("timeout", rc=None)["limiting"], ["time"])                       # (a timeout inside the other limits is "needs-longer", below)
+
+    def test_a_run_that_only_ran_out_of_time_needs_a_longer_limit_and_is_not_excluded(self):
+        r = profiling.profile_verdict("timeout", None, "", {"mem_total_mb": 4000, "peak_rss_mb": 50, "wall_s": 300, "peak_temp_c": 55}, ["x"], {}, RULES, shared=False, limit_s=300)
+        self.assertEqual((r["verdict"], r["next_limit_s"], r["at_ceiling"], r["limiting"]), ("needs-longer", 600, False, ["time"]))
+        self.assertNotIn("entry", r)
+        over = profiling.profile_verdict("timeout", None, "", {"mem_total_mb": 4000, "peak_rss_mb": 3500, "wall_s": 300}, ["x"], {}, RULES, shared=False, limit_s=300)
+        self.assertEqual((over["verdict"], over["limiting"]), ("does-not-fit", ["time", "memory"]))             # over its memory limit as well: that does not fit
+
+    def test_a_shared_computers_ceiling_bounds_the_next_limit_and_then_says_so(self):
+        m = {"mem_total_mb": 4000, "peak_rss_mb": 50, "wall_s": 500, "peak_temp_c": 55}
+        r = profiling.profile_verdict("timeout", None, "", m, ["x"], {}, RULES, shared=True, limit_s=500, ceiling_s=600)
+        self.assertEqual((r["next_limit_s"], r["at_ceiling"]), (600, False))
+        r = profiling.profile_verdict("timeout", None, "", {**m, "wall_s": 600}, ["x"], {}, RULES, shared=True, limit_s=600, ceiling_s=600)
+        self.assertEqual((r["next_limit_s"], r["at_ceiling"], r["ceiling_s"]), (None, True, 600))
+        self.assertIn("shared", " ".join(r["reasons"]))
+
+    def test_a_long_run_is_judged_by_memory_and_heat_on_a_dedicated_computer_and_by_the_ceiling_on_a_shared_one(self):
+        m = {"mem_total_mb": 4000, "peak_rss_mb": 10, "wall_s": 5000, "peak_temp_c": 40}
+        self.assertEqual(profiling.profile_verdict("ok", 0, "", m, ["x"], {}, RULES, shared=False)["verdict"], "fits")
+        self.assertEqual(profiling.profile_verdict("ok", 0, "", m, ["x"], {}, RULES, shared=True)["verdict"], "does-not-fit")
 
     def test_a_failed_run_proves_nothing(self):
         r = self.v("error", rc=2)

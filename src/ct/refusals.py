@@ -278,6 +278,9 @@ define("patch.misfit", "error", "A patch is checked against the folder before it
        steps=["Go to the folder the job was sent from (the files must be where they were), then run this again."])
 define("patch.apply_failed", "error", "git refused the patch after the check passed; the real reason is shown.", "git could not apply the patch", "{reason}", who="client",
        steps=["Save the patch and read it with ct-run patch JOB --out patch.diff."])
+define("profile.needs_longer", "limit", "A command that only ran out of time says nothing about whether it suits the worker, so it is neither adopted nor recorded as an exclusion.",
+       "That profile run needs a longer time limit", "It stopped at its time limit while still inside the memory and heat limits.", who="client",
+       config="the person's own --timeout-s (the worker's ceiling applies only on a shared computer)")
 define("profile.inconclusive", "error", "A profile run that did not complete cleanly proves nothing, so no class is proposed from it.", "Nothing to propose: the profiling run was inconclusive",
        "The command did not complete cleanly.", who="client", steps=["Run the command by hand to see why it fails, correct it, then profile it again."])
 define("registry.shape", "error", "A registry that is not in the expected shape is reported, never edited blind.", "registry.yaml has no `classes:` section", "The registry proposal on main is not in the expected shape.", who="client",

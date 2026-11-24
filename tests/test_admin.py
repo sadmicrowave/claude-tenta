@@ -423,7 +423,8 @@ class WorkerCards(unittest.TestCase):
         self.assertTrue(any(l.startswith("  CLASSES") and l.endswith("alpha") for l in lines))                   # the classes by name, one per line
         self.assertTrue(any(l.strip() == "beta" for l in lines))
         self.assertTrue(any(l.startswith("  PACKAGES") and l.endswith("1 package") for l in lines))
-        values = {l[2:12].strip(): l[12:] for l in lines if l.startswith("  ") and len(l) > 12}
+        width = workers_mod.HANG                                                                                  # the label column, whatever its width
+        values = {l[2:2 + width].strip(): l[2 + width:] for l in lines if l.startswith("  ") and len(l) > 2 + width}
         self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
         framed = [ANSI_.sub("", x) for x in workers_mod.cards([self.ROW], width=80, color=True)]            # on a terminal: one framed card per worker
         self.assertTrue(any(x.startswith("╭─ testct") for x in framed))
