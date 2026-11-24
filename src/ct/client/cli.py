@@ -45,7 +45,8 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github"):
+        self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
         self.fitlog, self.names = off.FitLog(self.home), off.NameBook(self.home)
@@ -65,7 +66,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, run_admin=run_admin_command)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -251,13 +252,29 @@ def show_left_out(left):
              "A link can point at a file outside the project, so it is never followed. To send the file, copy it into the project.", tag="NOTE", color=YELLOW)
     if left.held:
         emit("Files held back", *[("File", n) for n, _, _ in left.held[:10]], *([f"And {plural(len(left.held) - 10, 'more file')}."] if len(left.held) > 10 else []),
-             "Their names usually mean they hold a secret, so they are not sent. To send one, name it exactly: --include 'PATH'. A wildcard never sends one.", tag="NOTE", color=YELLOW)
+             "Their names or text look like they hold a secret, so they are not sent. To send one, name it exactly: --include 'PATH'. A wildcard never sends one.", tag="NOTE", color=YELLOW)
     if left.warn:
         emit("Files that may contain a secret", *[("File", n) for n, _, _ in left.warn[:10]], *([f"And {plural(len(left.warn) - 10, 'more file')}."] if len(left.warn) > 10 else []),
              "Their text looks like a private key or an API token. They are being sent. If one is real, leave it out with --include.", tag="NOTE", color=YELLOW)
     if left.unsent:
         rows = [row for n, code, text in left.unsent[:10] for row in (("File", n), ("Reason", text), ("Code", code))]
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
+
+
+def show_summary(ctx, files, left):
+    """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. Above 1 GB on Direct it says so once (nothing blocks it)."""
+    if not files:
+        return
+    count, size = sub.totals(files)
+    where = "your own network (Direct)" if ctx.kind == "direct" else "a private GitHub repository"
+    rows = [("Files", plural(count, "file")), ("Size", sub.size_text(size)), ("Goes to", where)]
+    if left.held:
+        rows.append(("Held back", plural(len(left.held), "file")))
+    if left.warn:
+        rows.append(("May hold a secret", plural(len(left.warn), "file")))
+    big = ctx.kind == "direct" and size > sub.BIG_SET_BYTES
+    emit("What will be sent", *rows, *(["This is a very large set. Direct has no size limit, but the worker needs the room and the transfer will take a while. Narrow it with --include if you can."] if big else []),
+         tag="NOTE", color=YELLOW if big else CYAN)
 
 
 def rerun_for(ctx, res):
@@ -287,8 +304,9 @@ def cmd_submit(ctx, a):
             p = Path(f)
             files[p.name] = p.read_text()
     if a_dir:
-        files.update(sub.collect_dir(a_dir, limits, a_include, left=left))
+        files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct"))
     show_left_out(left)
+    show_summary(ctx, files, left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
     if files:
@@ -706,8 +724,9 @@ def cmd_profile(ctx, a):
     limits = sub.file_limits(r.registry_info())
     left = sub.LeftOut()
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, left=left))
+        files.update(sub.collect_dir(a.dir, limits, a.include, left=left, hold_secret_text=ctx.kind != "direct"))
     show_left_out(left)
+    show_summary(ctx, files, left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
         raise refuse.error("files.set.profile_too_many", files=plural(limits["max_count"], "file"), kb=limits["max_total_kb"])

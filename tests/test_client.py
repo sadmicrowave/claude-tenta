@@ -156,6 +156,23 @@ class FilesAndBatches(unittest.TestCase):
         self.assertEqual(sorted(files), ["notes.txt", "plain.txt"])                                                      # not held: source and test files often hold examples
         self.assertEqual([(n, c) for n, c, _ in left.warn], [("notes.txt", "files.warn.secret_content")])
 
+    def test_secret_looking_text_is_held_on_github_and_only_warned_on_direct(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "notes.txt").write_text("token " + "gh" + "p_" + "a" * 24)
+        (d / "plain.txt").write_text("hello")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left, hold_secret_text=True)
+        self.assertEqual(sorted(files), ["plain.txt"])
+        self.assertEqual([(n, c) for n, c, _ in left.held], [("notes.txt", "files.held.secret_content")])
+        self.assertEqual(left.warn, [])
+        named = submit.collect_dir(d, LIMITS, include=["notes.txt", "plain.txt"], left=submit.LeftOut(), hold_secret_text=True)
+        self.assertEqual(sorted(named), ["notes.txt", "plain.txt"])                                                      # named exactly: the person chose it
+        self.assertEqual(sorted(submit.collect_dir(d, LIMITS, left=submit.LeftOut(), hold_secret_text=False)), ["notes.txt", "plain.txt"])
+
+    def test_the_summary_totals_and_the_size_words(self):
+        self.assertEqual(submit.totals({"a": "xy", "b": "é"}), (2, 4))
+        self.assertEqual([submit.size_text(n) for n in (5, 1500, 2_500_000, 3_000_000_000)], ["5 bytes", "1.5 KB", "2.5 MB", "3.0 GB"])
+
     def test_a_hidden_file_or_folder_is_sent_when_the_include_names_it(self):
         d = self.tree()
         files = submit.collect_dir(d, LIMITS, include=[".gitignore", ".git/HEAD"], left=submit.LeftOut())

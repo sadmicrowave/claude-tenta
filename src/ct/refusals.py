@@ -352,6 +352,10 @@ define("worker.config.missing", "error", "A worker is added from its configurati
 define("files.held.secret_name", "security", "Protects the person from sending a credential to a worker by accident: a file whose name conventionally holds a secret (.env, *.pem, id_rsa, .npmrc ...) is held back "
        "unless an --include names it exactly. A wildcard never sends one.", "A file that usually holds a secret was held back", "{name!r} was held back: its name is one that usually holds a secret",
        who="client", config="the list of names in ct.client.submit (SECRET_NAMES), not configurable yet", steps=["Send it anyway by naming it: --include 'PATH' on ct-run submit."])
+define("files.held.secret_content", "security", "Protects the person from sending a credential out of their own network by accident: on the GitHub transport a job is pushed to a private GitHub repository, so a file whose TEXT looks like a private key "
+       "or an API token is held back unless an --include names it exactly. On Direct it is only warned about (files.warn.secret_content), because nothing leaves the person's own network.", "A file that looks like it contains a secret was held back",
+       "{name!r} was held back: its text looks like a private key or an API token, and this transport sends jobs through GitHub", who="client", config="which transport is set up ([transport] kind)",
+       steps=["If it is not a real secret, send it by naming it: --include 'PATH' on ct-run submit."])
 define("files.warn.secret_content", "security", "Tells the person that a file being sent contains text shaped like a private key or an API token. It is only a warning, not a hold: source and test files often hold examples "
        "(23 of this project's own 283 files match).", "A file being sent looks like it contains a secret", "{name!r} contains text that looks like a private key or an API token",
        who="client", steps=["If it is real, leave the file out with --include on ct-run submit."])

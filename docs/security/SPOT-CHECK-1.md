@@ -36,4 +36,5 @@ F2 and F1 first (both are in one function, small, and F2 is a code-execution pat
 - F1 (links) and F2 (git run in an untrusted repository): fixed in `ct.client.submit` (`safe_git`, links never followed), each with a test that failed before the fix.
 - F8 (vendored templates not scanned): fixed. Every file is pinned by hash in `src/ct/client/ignore_templates/SHA256SUMS` (written by `scripts/refresh-gitignore`); `tests/test_ignore_templates.py` fails on any edit, addition or removal, and `submit.templates_problems()` makes a folder fall back to the interim rule if the templates are not exactly what was vendored.
 - F7: decided: security-sensitive paths are merged by hand (`MERGE-POLICY.md`).
-- F3, F4, F5, F6: open (see the fix order above).
+- F6: fixed in `pre-job-summary` (secret-looking text is held on the GitHub transport, warned on Direct; a pre-job summary card names the count, size and destination).
+- F3, F4, F5: open (see the fix order above).
