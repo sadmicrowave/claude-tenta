@@ -239,5 +239,86 @@ class RungsShown(unittest.TestCase):
             self.assertIn(needle.lower(), text.lower())
 
 
+DAY = 86400
+
+
+class Measure(unittest.TestCase):
+    """Item 8, slice 3: the repeat settings suggested from the person's own log, never invented."""
+
+    def setUp(self):
+        self.log = cmdlog.CommandLog(Path(tempfile.mkdtemp()))
+        self.now = time_now()
+
+    def runs(self, cmd, gap_days, n=3, secs=12):
+        return [{"ts": int(self.now - i * gap_days * DAY), "cmd": cmd, "secs": secs} for i in range(n)]
+
+    def test_the_suggestion_is_the_typical_time_to_repeat_a_command(self):
+        recs = self.runs("make big", 1) + self.runs("make lint", 3)           # 3 runs take 2 days and 6 days: typical 4
+        m = self.log.measure(records=recs, repeat_runs=3, now=self.now)
+        self.assertEqual(m["suggested_days"], 4)
+        self.assertEqual(m["shapes_enough"], 2)
+
+    def test_the_grid_counts_candidates_at_each_pair_of_values(self):
+        recs = self.runs("make big", 1) + self.runs("make lint", 3)
+        grid = self.log.measure(records=recs, repeat_runs=3, now=self.now)["grid"]
+        self.assertEqual(grid[3][7], 2)
+        self.assertEqual(grid[4][7], 0)                                       # nobody ran anything four times
+        self.assertEqual(grid[2][7], 2)
+        self.assertEqual(sorted(grid), [2, 3, 4])
+        self.assertEqual(sorted(grid[3]), [7, 14, 30])
+
+    def test_too_little_data_suggests_nothing_and_says_what_is_missing(self):
+        m = self.log.measure(records=self.runs("make big", 1, n=2), repeat_runs=3, now=self.now)
+        self.assertIsNone(m["suggested_days"])
+        self.assertEqual(m["most_runs"], 2)
+        self.assertEqual(self.log.measure(records=[], repeat_runs=3, now=self.now)["suggested_days"], None)
+
+    def test_a_command_that_is_not_a_candidate_kind_is_left_out(self):
+        recs = self.runs("git fetch origin", 1)
+        self.assertEqual(self.log.measure(records=recs, repeat_runs=3, now=self.now)["shapes_enough"], 0)
+
+
+class MeasureCommand(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}), redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(list(args), ctx=self.ctx, cfg=self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def fill(self, cmd, gap_days, n=3):
+        log, now = cmdlog.CommandLog(self.home), time_now()
+        for i in range(n):
+            t = now - i * gap_days * DAY
+            log.hook("pre", ev(cmd, f"{cmd}{i}"), now=t)
+            log.hook("post", ev(cmd, f"{cmd}{i}"), now=t + 12)
+
+    def test_nothing_recorded_says_so(self):
+        code, out, err = self.run_cli("offload", "measure")
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing recorded yet", out + err)
+
+    def test_it_shows_the_data_and_the_command_that_applies_it_but_changes_nothing(self):
+        self.fill("make big", 1)
+        self.fill("make lint", 3)
+        before = sorted(p.name for p in self.home.iterdir())
+        code, out, err = self.run_cli("offload", "measure")
+        text = out + err
+        self.assertEqual(code, 0)
+        for needle in ("Suggested", "4 days", "offload.repeat_days=4", "Candidates at each setting"):
+            self.assertIn(needle, text)
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), before)
+
+    def test_too_little_data_says_how_much_more(self):
+        self.fill("make big", 1, n=2)
+        text = "".join(self.run_cli("offload", "measure")[1:])
+        self.assertIn("No suggestion yet", text)
+        self.assertNotIn("repeat_days=", text)
+
+
 if __name__ == "__main__":
     unittest.main()

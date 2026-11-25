@@ -3,7 +3,9 @@
 `judge` is pure: it takes the facts about one command and returns one verdict per rung (met / not met / unknown, each with its reason) and the headline, the
 highest-weighted rung that is met. Rung 2 (fewer AI tokens) cannot be judged until the AI layer exists, so it says so and is never guessed. The weights live in WEIGHTS only.
 """
+import math
 import time
+from statistics import median
 
 WEIGHTS = {1: 100, 2: 80, 3: 60, 4: 40}
 NAMES = {1: "Worker-specific work", 2: "Fewer AI tokens", 3: "Faster", 4: "Free your own computer"}
@@ -58,3 +60,18 @@ def judge(facts, repeat_runs, min_seconds):
     rungs = [_worker_specific(facts), _fewer_tokens(facts), _faster(facts), _free_computer(facts, repeat_runs, min_seconds)]
     met = [r["rung"] for r in rungs if r["verdict"] == MET]
     return {"rungs": rungs, "headline": max(met, key=WEIGHTS.get) if met else None}
+
+
+def tightest_span_days(stamps, k):
+    """The shortest time, in days, in which the command was run `k` times in a row (k consecutive runs), or None when it was run fewer than k times."""
+    ts = sorted(t for t in stamps if t)
+    if k < 1 or len(ts) < k:
+        return None
+    return min(ts[i + k - 1] - ts[i] for i in range(len(ts) - k + 1)) / 86400
+
+
+def suggest_days(per_shape_stamps, k):
+    """(days, how many commands it is based on): the typical time, over the commands that reached `k` runs, to run one k times, rounded up to a whole day (at least 1).
+    (None, 0) when no command has reached k runs: nothing is suggested from nothing."""
+    spans = [d for d in (tightest_span_days(t, k) for t in per_shape_stamps) if d is not None]
+    return (max(1, math.ceil(median(spans))), len(spans)) if spans else (None, 0)
