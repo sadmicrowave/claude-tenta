@@ -1,8 +1,10 @@
 """Shared fixtures for the worker and CLI tests: a requester, a bare queue repo and results repo, and a worker wired to them with only the
 command runner and the process spawner faked."""
+import atexit
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -67,6 +69,37 @@ def sh(*cmd, cwd=None):
     return r.stdout.strip()
 
 
+_TEMPLATE = None
+
+
+def _git_template():
+    """The queue and results repositories with their three clones, built once per process (eight git calls) and copied for every test."""
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        t = Path(tempfile.mkdtemp(prefix="ct-git-template-"))
+        atexit.register(shutil.rmtree, t, ignore_errors=True)
+        for name in ("queue", "results"):
+            sh("git", "init", "-q", "--bare", "-b", "main", str(t / f"{name}.git"))
+        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "requester"))
+        (t / "requester" / "README.md").write_text("queue\n")
+        sh("git", "add", "-A", cwd=t / "requester")
+        sh("git", "commit", "-q", "-m", "init", cwd=t / "requester")
+        sh("git", "push", "-q", "origin", "main", cwd=t / "requester")
+        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "w-queue"))
+        sh("git", "clone", "-q", str(t / "results.git"), str(t / "w-results"))
+        _TEMPLATE = t
+    return _TEMPLATE
+
+
+def _copy_git_template(dest):
+    """Copy the template into dest and point each clone's remote at dest's own bare repositories (a clone records its origin as an absolute path)."""
+    src = _git_template()
+    shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+    for clone in ("requester", "w-queue", "w-results"):
+        cfg = dest / clone / ".git" / "config"
+        cfg.write_text(cfg.read_text().replace(str(src), str(dest)))
+
+
 class FakeRunner:
     """Stands in for runner.run_command: answers from `reply`, records every call."""
 
@@ -100,15 +133,7 @@ class Sensors:
 class Base(unittest.TestCase):
     def setUp(self):
         t = self.tmp = Path(tempfile.mkdtemp())
-        for name in ("queue", "results"):
-            sh("git", "init", "-q", "--bare", "-b", "main", str(t / f"{name}.git"))
-        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "requester"))
-        (t / "requester" / "README.md").write_text("queue\n")
-        sh("git", "add", "-A", cwd=t / "requester")
-        sh("git", "commit", "-q", "-m", "init", cwd=t / "requester")
-        sh("git", "push", "-q", "origin", "main", cwd=t / "requester")
-        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "w-queue"))
-        sh("git", "clone", "-q", str(t / "results.git"), str(t / "w-results"))
+        _copy_git_template(t)
         self.state, self.home = t / "state", t / "home"
         self.home.mkdir()
         self.state.mkdir()

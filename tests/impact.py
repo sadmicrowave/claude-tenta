@@ -14,6 +14,8 @@ ALL_PROBES = ("ownership", "release", "kernel", "locate", "fixes", "tooldirs")
 RULES = [
     ("tests/themes.toml", ("test_impact",), (), ()),
     ("scripts/test-gate", ("test_impact",), (), ()),
+    ("scripts/tparallel.py", ("test_parallel_runner",), (), ()),
+    ("tests/serial.txt", ("test_parallel_runner",), (), ()),
     ("src/ct/transport.py", ("test_transport", "test_connection"), ("ownership",), ("direct", "install")),
     ("src/ct/rediscover.py", ("test_rediscover", "test_admin"), ("locate",), ()),
     ("src/ct/mailshell.py", ("test_mailshell",), ("ownership",), ("direct",)),
