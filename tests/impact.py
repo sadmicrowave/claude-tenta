@@ -12,6 +12,8 @@ ALL_PROBES = ("ownership", "release", "kernel", "locate", "fixes", "tooldirs")
 
 # (glob on the path from the repository root, extra unit modules, probes, routes). First match that fits adds to the plan; every matching rule counts.
 RULES = [
+    ("tests/themes.toml", ("test_impact",), (), ()),
+    ("scripts/test-gate", ("test_impact",), (), ()),
     ("src/ct/transport.py", ("test_transport", "test_connection"), ("ownership",), ("direct", "install")),
     ("src/ct/rediscover.py", ("test_rediscover", "test_admin"), ("locate",), ()),
     ("src/ct/mailshell.py", ("test_mailshell",), ("ownership",), ("direct",)),
@@ -87,3 +89,18 @@ def plan(changed, tests_dir=None):
         routes.update(ALL_ROUTES)
         probes.update(ALL_PROBES)
     return {"unit": sorted(unit), "probes": sorted(probes), "routes": sorted(r for r in ALL_ROUTES if r in routes), "unmapped": unmapped}
+
+
+def theme_gate(changed, base_ref, manifest_path=None, tests_dir=None):
+    """The unit modules that gate a pull request whose base is `base_ref`: the `always` guards, the modules the changed files map to, and, when the base is a
+    theme branch listed in tests/themes.toml, that theme's own modules. Returns {'modules': [...], 'theme': name or None, 'full': bool}.
+    A base that is not a listed theme (main, a release) is gated by the FULL suite: nothing is guessed smaller than the truth."""
+    import tomllib
+    tests_dir = Path(tests_dir or ROOT / "tests")
+    data = tomllib.loads(Path(manifest_path or tests_dir / "themes.toml").read_text())
+    theme = next((n for n, t in data.items() if isinstance(t, dict) and any(fnmatch.fnmatch(base_ref, b) for b in t.get("branches", []))), None)
+    if theme is None:
+        return {"modules": [], "theme": None, "full": True}
+    p = plan(changed, tests_dir)
+    mods = set(data.get("always", [])) | set(p["unit"]) | set(data[theme].get("modules", []))
+    return {"modules": sorted(m for m in mods if (tests_dir / f"{m}.py").is_file()), "theme": theme, "full": bool(p["unmapped"])}
