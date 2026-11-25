@@ -26,7 +26,7 @@ import sys
 from ct import rediscover
 from ct.setup import discover
 host = sys.argv[1]
-m, rung, _ = rediscover.ladder(host, 22, "w", "/tmp/home", scan_real=lambda: ([discover.Device("127.0.0.1")], []), scan_virtual=lambda: ([], []), mdns=lambda h: None, arp=lambda: {})
+m, rung, _ = rediscover.ladder(host, 22, "w", "/tmp/home", scan_real=lambda until=None: ([discover.Device("127.0.0.1")], []), scan_virtual=lambda until=None: ([], []), mdns=lambda h: None, arp=lambda: {})
 print(m.kind, "|", rung, "|", " ".join(m.addresses))
 PY
 }

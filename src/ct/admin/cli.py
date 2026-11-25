@@ -462,7 +462,7 @@ def cmd_locate(ctx, a):
     nets = discover.local_networks()
     real, virtual = [(i, n) for i, n in nets if not discover.is_virtual(i)], [(i, n) for i, n in nets if discover.is_virtual(i)]
     emit("Looking for the worker", f"Checking where {name} was, then the quicker places, then your networks. Each step stops as soon as a computer shows the key this computer recorded for the worker.", tag="SCAN", color=_ui.PRIMARY, stream=sys.stdout)
-    m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda: discover.scan(real) if real else ([], []), scan_virtual=lambda: discover.scan(virtual) if virtual else ([], []))
+    m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda until: discover.scan(real, until=until) if real else ([], []), scan_virtual=lambda until: discover.scan(virtual, until=until) if virtual else ([], []))
     if m.kind == "one" and rung == "the configured address":
         rediscover.remember(ctx.home, name, host, port)
         emit("A worker is where its configuration says", ("Worker", alias.show(name)), ("Address", host), "Its SSH host key is the one this computer recorded.", tag="OK", color=GREEN, stream=sys.stdout)

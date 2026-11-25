@@ -7,7 +7,7 @@ import fnmatch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ALL_ROUTES = ("install", "direct", "switch", "move", "rename", "uninstall", "shared", "special", "upgrade")
+ALL_ROUTES = ("install", "direct", "locate", "switch", "move", "rename", "uninstall", "shared", "special", "upgrade")
 ALL_PROBES = ("ownership", "release", "kernel", "locate", "fixes", "tooldirs")
 
 # (glob on the path from the repository root, extra unit modules, probes, routes). First match that fits adds to the plan; every matching rule counts.
@@ -17,14 +17,14 @@ RULES = [
     ("scripts/tparallel.py", ("test_parallel_runner",), (), ()),
     ("tests/serial.txt", ("test_parallel_runner",), (), ()),
     ("src/ct/transport.py", ("test_transport", "test_connection"), ("ownership",), ("direct", "install")),
-    ("src/ct/rediscover.py", ("test_rediscover", "test_admin_workers"), ("locate",), ()),
+    ("src/ct/rediscover.py", ("test_rediscover", "test_admin_workers"), ("locate",), ("locate",)),
     ("src/ct/mailshell.py", ("test_mailshell",), ("ownership",), ("direct",)),
     ("src/ct/clonediag.py", ("test_clonediag", "test_real_outputs"), ("ownership",), ("direct",)),
     ("src/ct/render.py", ("test_render",), ("kernel",), ("install", "upgrade")),
     ("templates/*", ("test_render",), ("kernel",), ("install", "direct", "upgrade")),
     ("src/ct/update.py", ("test_update",), (), ("upgrade",)),
     ("src/ct/setup/hardening.py", ("test_install",), ("kernel", "release"), ("install", "direct", "shared", "special")),
-    ("src/ct/setup/{discover,assess,addworker}.py", ("test_real_outputs", "test_assess"), ("release", "fixes"), ("direct",)),
+    ("src/ct/setup/{discover,assess,addworker}.py", ("test_real_outputs", "test_assess", "test_discover"), ("release", "fixes"), ("direct", "locate")),
     ("src/ct/setup/detect.py", ("test_real_outputs",), ("release",), ("install",)),
     ("src/ct/setup/{questions,server}.py", (), (), ("shared", "special")),
     ("src/ct/setup/*", (), (), ("install", "direct", "switch", "move", "rename", "uninstall")),

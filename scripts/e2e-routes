@@ -4,14 +4,14 @@
 #   scripts/e2e-routes                      every route, on $CT_E2E_IMAGE (default ubuntu:26.04)
 #   scripts/e2e-routes rename move          only these
 #   scripts/e2e-routes --image debian:trixie [routes]
-# Routes: install rename uninstall move switch direct. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
+# Routes: install rename uninstall move switch direct locate. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
 # Needs OrbStack. Exit status is the number of routes that failed. Use it to CONFIRM what the unit tests and probes already proved (see docs/components/testing.md).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 "${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}
 [ "${1:-}" = "--image" ] && { IMAGE=$2; shift 2; }
-ROUTES=${*:-"install rename uninstall move switch direct"}
+ROUTES=${*:-"install rename uninstall move switch direct locate"}
 TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG
 OUT=/tmp/ct-routes/$TAG; mkdir -p "$OUT"
 n=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)' || true)
