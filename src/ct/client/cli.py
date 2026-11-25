@@ -12,6 +12,7 @@
   offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
   offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
   offload measure                suggest the repeat settings from your own command log
+  offload recommend              a better worker for a pinned command, from your own finished jobs
   offload exclusions             commands that were tested and do not fit
 
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
@@ -46,7 +47,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -55,6 +56,7 @@ class Context:
         self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
+        self.recommend_runs, self.recommend_gain = int(recommend_runs), int(recommend_gain)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -68,7 +70,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -442,9 +444,11 @@ def cmd_result(ctx, a):
         return wait(ctx, a.id, a.timeout, a.json, approved=getattr(a, "approved", False))
     r.pull_results()
     res = r.read_result(a.id)
+    if res is not None:
+        note_runs(ctx, {a.id: res})
     if res is None:
         if not r.job_known(a.id):
-            emit("No such job", ("Job", a.id), "Check the id (ct-run status lists your jobs).", tag="ERROR", color=RED)
+            emit("No such job", ("Job", a.id), "Check the id (ct-run jobs lists your jobs).", tag="ERROR", color=RED)
             return 1
         emit("No result yet", ("Job", a.id), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} has not picked it up. It looks about once a minute.", tag="QUEUED", color=YELLOW, run=f"ct-run result {a.id} --wait")
         return 0
@@ -475,6 +479,43 @@ def jobs_of(repos, admin):
     return results, view.status_rows(results, created_of, None, view.queued_rows(ids, listing, admin=admin))
 
 
+def note_runs(ctx, results):
+    """Remember each finished job's worker and run time (recommend.RunLog), so `ct-run offload recommend` has evidence. Never breaks the command."""
+    from . import recommend
+    try:
+        recommend.RunLog(ctx.home).observe(results, lambda jid: place.worker_of(getattr(ctx, "home_main", ctx.home), jid) or ctx.product, view.parse_when)
+    except (OSError, TypeError, ValueError):                   # a recorder: whatever is wrong with it, the command that looked at the jobs still answers
+        pass
+
+
+def cmd_recommend(ctx, a, cfg=None):
+    """`ct-run offload recommend`: for each command pinned to a worker, whether another worker has run it clearly faster. Changes nothing; prints the line that would."""
+    from . import recommend
+    rows = recommend.RunLog(ctx.home).read()
+    pins = {}
+    for p in (here.global_pins(), here.pins_for()):
+        pins.update(p.commands if p else {})
+    if not pins:
+        emit("No command is pinned to a worker", "Pin one with ct-run use <worker> --command <class>; then this compares the workers that ran it.", tag="NOTE", color=YELLOW)
+        return 0
+    if not rows:
+        emit("No finished jobs recorded yet", "Jobs are recorded when you look at them: ct-run jobs or ct-run result <job>.", tag="NOTE", color=YELLOW)
+        return 0
+    for v in recommend.recommend(rows, pins, ctx.recommend_runs, ctx.recommend_gain):
+        def took(w):
+            return f"{v['median'][w]:g} s, median of {plural(v['runs'][w], 'run')}"
+        if v["verdict"] == "better":
+            emit("Another worker runs this command faster", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Pinned took", took(v["pinned"])), ("Faster on", alias.show(v["worker"])), ("It took", took(v["worker"])),
+                 f"That is {v['gain_pct']}% shorter.", tag="RECOMMEND", color=CYAN, run_label="Move the pin (nothing has been changed yet)", run=f"ct-run use {v['worker']} --command {v['class']}")
+        elif v["verdict"] == "keep":
+            emit("This command is fine where it is", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Pinned took", took(v["pinned"])), tag="OK", color=GREEN)
+        else:
+            for w, n in v["need"].items():
+                emit("Not enough runs to compare yet", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Worker", alias.show(w)), ("Successful runs", f"{n} of {ctx.recommend_runs} needed"),
+                     tag="NOTE", color=YELLOW)
+    return 0
+
+
 def cmd_jobs(ctx, n=15, cfg=None):
     """Your recent jobs. With several workers: every worker's jobs together, newest first, each with the worker it went to (a worker that cannot be reached is named, not silently left out)."""
     ents = place.entries(cfg) if cfg is not None else []
@@ -500,6 +541,7 @@ def cmd_jobs(ctx, n=15, cfg=None):
                 emit("A worker's jobs could not be read", ("Worker", alias.show(name)), ("Why", problem), tag="NOTE", color=YELLOW)
         floor = datetime.min.replace(tzinfo=timezone.utc)
         rows.sort(key=lambda r_: r_[0] or floor, reverse=True)
+    note_runs(ctx, results)
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)
     _ui.related(("Read one result in full", "ct-run result <job>"), ("Send another job", "ct-run submit <class>"), ("Approve a job that is waiting", f"{ctx.admin} approve <job>"))
     return 0
@@ -840,6 +882,8 @@ def cmd_offload(ctx, a, cfg):
         return cmd_fit(ctx, a.argv)
     if c == "measure":
         return cmd_measure(ctx, a, cfg)
+    if c == "recommend":
+        return cmd_recommend(ctx, a, cfg)
     if c == "history":
         return cmd_history(ctx, a)
     if c == "exclusions":
@@ -851,7 +895,7 @@ def cmd_offload(ctx, a, cfg):
     if c != "log" or not a.log_cmd:
         emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
              ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
-             ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
+             ("offload measure", "suggest the repeat settings from your own log"), ("offload recommend", "a better worker for a pinned command"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
@@ -961,6 +1005,7 @@ def build_parser():
     hs.add_argument("--clear", action="store_true", help="forget the history")
     osp.add_parser("measure", add_help=False, help="suggest how often a command must repeat to count, from your own log (changes nothing)").add_argument(
         "--min-seconds", type=float, default=30.0, help="the usual time a single run must take to count as long (default %(default)s)")
+    osp.add_parser("recommend", add_help=False, help="for commands pinned to a worker: has another worker run it clearly faster? (changes nothing)")
     osp.add_parser("exclusions", add_help=False, help="commands that were test-run on the worker and do not fit")
     pf = osp.add_parser("profile", add_help=False, help="describe one exact command and have the worker measure it (needs your approval)")
     pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")

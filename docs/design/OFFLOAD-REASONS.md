@@ -80,3 +80,14 @@ Branch `feat/candidacy-measurement` (and the slice branches `feat/candidacy-show
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
 **Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
+
+## Recommending a better worker for a pinned command (list item 8b; design 2026-11-24)
+
+Branch `feat/worker-recommend` (slice 1), a feature of `theme/orchestrator`. The user's words (2026-11-22, [[project-orchestrator-direction]]): a light, default-on (configurable) utility that measures all or specific jobs, watches existing job runs, and RECOMMENDS a better worker when a pinned command fits another worker better.
+
+**Goal.** From the person's own finished jobs, say which worker ran a pinned command faster, and offer the one `ct-run use --command ... <worker>` line that would move the pin. It never moves a pin itself.
+**Done when (slice 1).**
+- Every finished job this computer sees (`ct-run result`, `ct-run jobs`) is recorded once in `runs.jsonl` (job, class, worker, seconds the worker ran it, status), local, mode 0600, trimmed to 60 days.
+- One pure function (`recommend.py`) takes those rows and the pins and returns, per pinned command, the worker that is clearly faster, or says why not: too few runs on a worker (`offload.recommend_runs`, default 3), or a gain below `offload.recommend_gain` percent (default 25). Only successful runs count; the median is used, never the mean.
+- `ct-run offload recommend` prints it and the command that applies it, and changes nothing. With no evidence it says what is missing (which worker has too few runs), never a guess from hardware.
+**Not in scope.** Slice 2: the default-on one-line hint at the end of `ct-run` commands and its off switch; trial runs sent to an unmeasured worker; recommending from hardware or load alone; unpinned jobs (the scheduler already places those); moving a pin automatically.

@@ -276,6 +276,8 @@ SCHEMA = {
         "auto_adopt": (True, _bool, "on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt"),
         "repeat_runs": (3, _int(1, 1000), "a command you run this many times within repeat_days counts as repeated work worth offloading"),
         "repeat_days": (14, _int(1, 365), "the number of days repeat_runs is counted over"),
+        "recommend_runs": (3, _int(1, 1000), "a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker"),
+        "recommend_gain": (25, _int(1, 99), "ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower"),
     },
     "limits": {
         "max_in_flight": (8, _num(0, 1000), "the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap"),
