@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
 from ct import approvals, gitio, guard, runner, util  # noqa: E402
-from support import REGISTRY, IP, Base, sh  # noqa: E402
+from support import REGISTRY, IP, Base, sh, ssh_key  # noqa: E402
 from ct import jail as jail_mod  # noqa: E402
 
 
@@ -380,7 +380,7 @@ class SignedApproval(Base):
         self.make_worker(signed_approval=self.verifier, approvers_file=self.signers)
 
     def keygen(self, name):
-        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.keys / name)], check=True)
+        ssh_key(self.keys / name, name)
         return (self.keys / f"{name}.pub").read_text()
 
     def verifier(self, jid, digest):

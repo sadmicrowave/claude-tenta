@@ -69,35 +69,70 @@ def sh(*cmd, cwd=None):
     return r.stdout.strip()
 
 
-_TEMPLATE = None
+_KEYS = {}
 
 
-def _git_template():
-    """The queue and results repositories with their three clones, built once per process (eight git calls) and copied for every test."""
-    global _TEMPLATE
-    if _TEMPLATE is None:
+def ssh_key(path, name="key", comment=""):
+    """An ed25519 key pair written to `path` (and `path.pub`); each distinct `name` is generated once per process (one ssh-keygen) and copied for every test."""
+    path = Path(path)
+    if (name, comment) not in _KEYS:
+        d = Path(tempfile.mkdtemp(prefix="ct-key-"))
+        atexit.register(shutil.rmtree, d, ignore_errors=True)
+        sh("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", str(d / "k"))
+        _KEYS[(name, comment)] = d
+    d = _KEYS[(name, comment)]
+    shutil.copy(d / "k", path)
+    path.chmod(0o600)
+    shutil.copy(d / "k.pub", path.with_name(path.name + ".pub"))
+
+
+_TEMPLATES = {}
+
+
+def _git_template(kind=""):
+    """The queue and results repositories with their three clones, built once per process (eight git calls) and copied for every test. A `kind` adds one more step on top (see _TEMPLATE_STEPS), also built once."""
+    if kind not in _TEMPLATES:
         t = Path(tempfile.mkdtemp(prefix="ct-git-template-"))
         atexit.register(shutil.rmtree, t, ignore_errors=True)
-        for name in ("queue", "results"):
-            sh("git", "init", "-q", "--bare", "-b", "main", str(t / f"{name}.git"))
-        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "requester"))
-        (t / "requester" / "README.md").write_text("queue\n")
-        sh("git", "add", "-A", cwd=t / "requester")
-        sh("git", "commit", "-q", "-m", "init", cwd=t / "requester")
-        sh("git", "push", "-q", "origin", "main", cwd=t / "requester")
-        sh("git", "clone", "-q", str(t / "queue.git"), str(t / "w-queue"))
-        sh("git", "clone", "-q", str(t / "results.git"), str(t / "w-results"))
-        _TEMPLATE = t
-    return _TEMPLATE
+        if kind:
+            _copy_into(_git_template(), t)
+            _TEMPLATE_STEPS[kind](t)
+        else:
+            for name in ("queue", "results"):
+                sh("git", "init", "-q", "--bare", "-b", "main", str(t / f"{name}.git"))
+            sh("git", "clone", "-q", str(t / "queue.git"), str(t / "requester"))
+            (t / "requester" / "README.md").write_text("queue\n")
+            sh("git", "add", "-A", cwd=t / "requester")
+            sh("git", "commit", "-q", "-m", "init", cwd=t / "requester")
+            sh("git", "push", "-q", "origin", "main", cwd=t / "requester")
+            sh("git", "clone", "-q", str(t / "queue.git"), str(t / "w-queue"))
+            sh("git", "clone", "-q", str(t / "results.git"), str(t / "w-results"))
+        _TEMPLATES[kind] = t
+    return _TEMPLATES[kind]
 
 
-def _copy_git_template(dest):
-    """Copy the template into dest and point each clone's remote at dest's own bare repositories (a clone records its origin as an absolute path)."""
-    src = _git_template()
+def _registry_step(t):
+    """What the ct-admin tests start from: registry.yaml already pushed to the queue's main."""
+    (t / "requester" / "registry.yaml").write_text(REGISTRY)
+    sh("git", "add", "-A", cwd=t / "requester")
+    sh("git", "commit", "-q", "-m", "chore: registry", cwd=t / "requester")
+    sh("git", "push", "-q", "origin", "main", cwd=t / "requester")
+    sh("git", "pull", "-q", cwd=t / "w-queue")
+
+
+_TEMPLATE_STEPS = {"registry": _registry_step}
+
+
+def _copy_into(src, dest):
+    """Copy src into dest and point each clone's remote at dest's own bare repositories (a clone records its origin as an absolute path)."""
     shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
     for clone in ("requester", "w-queue", "w-results"):
         cfg = dest / clone / ".git" / "config"
         cfg.write_text(cfg.read_text().replace(str(src), str(dest)))
+
+
+def _copy_git_template(dest, kind=""):
+    _copy_into(_git_template(kind), dest)
 
 
 class FakeRunner:
@@ -131,9 +166,11 @@ class Sensors:
 
 
 class Base(unittest.TestCase):
+    template_kind = ""
+
     def setUp(self):
         t = self.tmp = Path(tempfile.mkdtemp())
-        _copy_git_template(t)
+        _copy_git_template(t, self.template_kind)
         self.state, self.home = t / "state", t / "home"
         self.home.mkdir()
         self.state.mkdir()

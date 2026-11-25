@@ -421,7 +421,7 @@ class Fetch(unittest.TestCase):
         self.git_env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         self.work = work
         for name in ("good", "other"):
-            run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / name), "-C", name)
+            support.ssh_key(t / name, name, name)
         (t / "etc").mkdir()
         pub = (t / "good.pub").read_text().split()
         (t / "etc" / "allowed_signers").write_text(f'releases namespaces="git" {pub[0]} {pub[1]}\n')
@@ -554,7 +554,7 @@ class RegistrySync(RegistryInstall):
         self.approvals = approvals
         self.keys = Path(tf.mkdtemp())
         for n in ("key", "stranger"):
-            sp.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.keys / n)], check=True)
+            support.ssh_key(self.keys / n, n)
         self.signers = self.at(self.cfg.path("approvers"))
         self.signers.parent.mkdir(parents=True, exist_ok=True)
         self.signers.write_text(approvals.with_approver("", (self.keys / "key.pub").read_text()))
