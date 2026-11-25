@@ -222,15 +222,31 @@ def _resolve(ip):
     return name if name != ip else ""
 
 
-def scan(nets=None, *, known=(), run=None, connect=None, resolve=None, threads=THREADS, progress=None, names=None):
+def scan(nets=None, *, known=(), run=None, connect=None, resolve=None, threads=THREADS, progress=None, names=None, until=None):
     """Probe every address of this computer's own networks on the SSH port. Returns (devices, notes): devices sorted with likely servers first, then by address.
-    `known` is the set of addresses and names of workers you already have (they are marked, never offered twice)."""
+    `known` is the set of addresses and names of workers you already have (they are marked, never offered twice).
+    `until(device) -> bool`, when given, is asked about each machine as it answers; the first True ends the scan (addresses not yet probed are skipped), so a search for one known machine does not
+    wait for the rest of the network. Machines already found are still returned."""
     nets = local_networks(run) if nets is None else nets
     addrs, notes = addresses_to_scan(nets)
     if not addrs:
         return [], notes + ["this computer is not on a private network, so there is nothing to scan"]
+    import threading
+    stop = threading.Event()
+
+    def one(ip):
+        if stop.is_set():
+            return None
+        d = probe(ip, 22, connect, resolve)
+        if d and until is not None and not stop.is_set():
+            try:
+                if until(d):
+                    stop.set()
+            except Exception:                         # a failing check must not end or break the scan
+                pass
+        return d
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        found = [d for d in pool.map(lambda ip: probe(ip, 22, connect, resolve), addrs) if d]
+        found = [d for d in pool.map(one, addrs) if d]
     macs = arp_table(run)
     announced = (names or mdns_names)() if found else {}
     known = {k.lower() for k in known if k}
