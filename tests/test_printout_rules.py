@@ -1,5 +1,5 @@
 """The lessons from reviewing real printouts, as rules for EVERY printout in the app (not just the one that showed the problem). Each test is one lesson and scans the whole source, so a new message
-cannot skip it. The commands-are-chips, long-commands-below, reason-is-a-WHY and release-is-a-fleet-fact rules have their own files (test_code_chips_everywhere, test_cards, test_admin)."""
+cannot skip it. The commands-are-chips, long-commands-below, reason-is-a-WHY and release-is-a-fleet-fact rules have their own files (test_code_chips_everywhere, test_cards, test_admin_*)."""
 import ast
 import re
 import unittest

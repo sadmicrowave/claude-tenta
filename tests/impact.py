@@ -17,7 +17,7 @@ RULES = [
     ("scripts/tparallel.py", ("test_parallel_runner",), (), ()),
     ("tests/serial.txt", ("test_parallel_runner",), (), ()),
     ("src/ct/transport.py", ("test_transport", "test_connection"), ("ownership",), ("direct", "install")),
-    ("src/ct/rediscover.py", ("test_rediscover", "test_admin"), ("locate",), ()),
+    ("src/ct/rediscover.py", ("test_rediscover", "test_admin_workers"), ("locate",), ()),
     ("src/ct/mailshell.py", ("test_mailshell",), ("ownership",), ("direct",)),
     ("src/ct/clonediag.py", ("test_clonediag", "test_real_outputs"), ("ownership",), ("direct",)),
     ("src/ct/render.py", ("test_render",), ("kernel",), ("install", "upgrade")),
