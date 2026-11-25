@@ -1,4 +1,4 @@
-"""Shared by test_offload_e2e and test_offload_autoadopt."""
+"""Shared by test_offload_e2e_a, test_offload_e2e_b and test_offload_autoadopt."""
 import sys
 from pathlib import Path
 

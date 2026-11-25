@@ -12,7 +12,7 @@ from ct import approvals  # noqa: E402
 from support import REGISTRY, IP, Base, sh, ssh_key  # noqa: E402
 
 
-class SignedApproval(Base):
+class SignedApprovalFixture(Base):
     """Approving from the administrator's own computer: a signed approval is published next to the job, and the worker checks it against its approver key."""
 
     def setUp(self):
@@ -47,6 +47,8 @@ class SignedApproval(Base):
         sh("git", "commit", "-q", "-m", f"approve {jid}", cwd=req)
         sh("git", "push", "-q", "origin", "HEAD:refs/heads/approvals", cwd=req)
 
+
+class SignedApproval(SignedApprovalFixture):
     def test_a_signed_approval_lets_the_waiting_job_run_without_anyone_logging_in(self):
         self.job("job-0001", "careful")
         self.w.fetch()
@@ -175,7 +177,7 @@ class PrivilegedJobs(SignedApproval):
         self.assertTrue(self.lockdown.locked())
 
 
-class SignedOrders(SignedApproval):
+class SignedOrders(SignedApprovalFixture):
     """Unlock, cancel and kill ordered from the administrator's own computer."""
 
     def order(self, action, key="key", nonce=None, **kw):

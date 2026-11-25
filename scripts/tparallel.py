@@ -44,6 +44,7 @@ def main(python, tests, names=(), jobs=None):
         print("\n".join(out.rstrip().splitlines()[-60:]))
     slowest = max(results, key=lambda r: r[2], default=("", 0, 0, ""))
     print(f"{len(results)} modules, {len(failed)} failed, {time.time() - started:.0f}s (slowest: {slowest[0]} {slowest[2]:.0f}s)")
+    print("slowest eight: " + ", ".join(f"{r[0]} {r[2]:.0f}s" for r in sorted(results, key=lambda r: -r[2])[:8]))
     if failed:
         print("failed: " + " ".join(r[0] for r in failed))
     return 1 if failed else 0

@@ -147,8 +147,9 @@ class WorkersCommand(AdminBase):
         self.assertEqual(self.admin("workers", "remove", "ghost")[0], 2)
 
 
-class Locate(AdminBase):
+class LocateFixture(AdminBase):
     """ct-admin locate: the worker's address changed; it is found by the SSH host key this computer recorded for it, and a name is never proof."""
+
     KEY = {("ssh-ed25519", "AAAA-the-worker")}
 
     def setUp(self):
@@ -171,6 +172,8 @@ class Locate(AdminBase):
              mock.patch.object(self.discover, "local_networks", return_value=[("en0", __import__("ipaddress").IPv4Interface("192.0.2.5/24"))]), mock.patch.object(self.discover, "scan", return_value=(self.devs, [])):
             return self.admin("locate", *args)
 
+
+class Locate(LocateFixture):
     def test_the_machine_with_the_recorded_key_is_found_and_its_address_saved_after_asking(self):
         code, out, err = self.locate()
         self.assertEqual(code, 0, out + err)
@@ -211,7 +214,7 @@ class RememberingWhereTheWorkerAnswered(AdminBase):
         self.assertEqual(rediscover.last_seen(self.home, "testct")["ip"], "192.0.2.44")
 
 
-class ALostWorkerThatWasReinstalled(Locate):
+class ALostWorkerThatWasReinstalled(LocateFixture):
     def test_a_machine_with_no_matching_key_says_a_reinstalled_worker_has_a_new_key_and_how_to_trust_it(self):
         code, out, _ = self.locate(shown={"192.0.2.31": {("ssh-ed25519", "OTHER")}, "192.0.2.32": {("ssh-ed25519", "OTHER2")}})
         self.assertEqual(code, 1)
