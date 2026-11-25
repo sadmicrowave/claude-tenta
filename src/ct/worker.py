@@ -122,6 +122,16 @@ class Worker:
             terms.append(snap["mem_available_mb"] / 4)
         return int(max(1, min(terms)))
 
+    def unpacked_cap_mb(self):
+        """The most a compressed job may unpack to, in MB: a quarter of the free disk, half of the free memory (the files are held in memory) and 10 times the job-file ceiling (text shrinks 5 to 10 times). Zip-bomb guard, finding F5."""
+        snap = self.snapshot()
+        terms = [10 * self.job_ceiling_mb()]
+        if snap.get("disk_free_gb") is not None:
+            terms.append(snap["disk_free_gb"] * 1000 / 4)
+        if snap.get("mem_available_mb") is not None:
+            terms.append(snap["mem_available_mb"] / 2)
+        return int(max(1, min(terms)))
+
     def disk_reserve_gb(self, total_gb=None):
         """Free disk kept back: 10% of the volume, never less than 2 GB. Below it the worker starts no job."""
         if total_gb is None:
@@ -362,6 +372,11 @@ class Worker:
             raise refusals.refuse("job.id.mismatch")
         cname = job.get("class")
         res["class"] = cname if isinstance(cname, str) else None
+        limits = self.limits
+        if "files_z" in job:                                                 # compressed files (Direct, a set over 1 GB): unpacked under the cap and the free-disk check, then judged like any other files
+            cap = self.unpacked_cap_mb()
+            job = jobs.unpack_files(job, cap, plat.disk_free_gb(self.state), self.disk_reserve_gb())
+            limits = {**limits, "files": {**limits["files"], "max_total_kb": cap * 1000, "max_file_kb": cap * 1000}}
         cls = (reg.get("classes") or {}).get(cname)
         if cls is None:
             raise refusals.refuse("job.class.unknown", name=cname)
@@ -375,11 +390,11 @@ class Worker:
         try:
             if kind == "command":
                 argv = jobs.build_argv(cls, params, self.policy)
-                files = jobs.check_files(job.get("files"), cls, self.limits)
+                files = jobs.check_files(job.get("files"), cls, limits)
             elif kind == "profile":
                 if params:
                     raise refusals.refuse("job.profile.params")
-                argv, files, meta = jobs.build_profile(job, cls, self.limits, find_program=self.find_program, policy=self.policy, shared=self.shared())
+                argv, files, meta = jobs.build_profile(job, cls, limits, find_program=self.find_program, policy=self.policy, shared=self.shared())
             elif kind == "privileged":
                 action = (reg.get("actions") or {}).get(cls.get("action"))
                 if not isinstance(action, dict):
@@ -392,7 +407,7 @@ class Worker:
                 prompt = job.get("prompt")
                 if not isinstance(prompt, str) or not 1 <= len(prompt) <= 8000:
                     raise refusals.refuse("job.prompt.length")
-                files = jobs.check_files(job.get("files"), cls, self.limits)
+                files = jobs.check_files(job.get("files"), cls, limits)
             else:
                 raise refusals.refuse("job.kind.unknown", kind=kind)
         except refusals.Refused:
@@ -795,7 +810,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.unpacked_cap_mb() // 256}:compress1:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -819,7 +834,7 @@ class Worker:
         for name in classes:                                      # when each class first appeared on this worker (a class that was already here when this was added gets that day)
             classes[name]["installed"] = known.get(name) or when
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
-                "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "job_network_isolation": isolated, "job_jail": self.jail.name,
+                "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "compress": {"codec": jobs.CODEC, "max_unpacked_mb": self.unpacked_cap_mb()}, "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "profile_time": self.profile_time_info(reg),       # what a profile run's time limit is built from (the client checks a request against it)
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):

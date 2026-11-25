@@ -37,4 +37,5 @@ F2 and F1 first (both are in one function, small, and F2 is a code-execution pat
 - F8 (vendored templates not scanned): fixed. Every file is pinned by hash in `src/ct/client/ignore_templates/SHA256SUMS` (written by `scripts/refresh-gitignore`); `tests/test_ignore_templates.py` fails on any edit, addition or removal, and `submit.templates_problems()` makes a folder fall back to the interim rule if the templates are not exactly what was vendored.
 - F7: decided: security-sensitive paths are merged by hand (`MERGE-POLICY.md`).
 - F6: fixed in `pre-job-summary` (secret-looking text is held on the GitHub transport, warned on Direct; a pre-job summary card names the count, size and destination).
-- F3, F4, F5: open (see the fix order above).
+- F5: fixed in `direct-compress`: a Direct set over 1 GB is sent compressed, and the worker unpacks it only under a cap (a quarter of free disk, half of free memory, at most 10 times its job-file ceiling) after a free-disk check; the unpacking stops at the cap whatever size the job claims (`jobs.unpack_files`, tests in `tests/test_direct_compress.py`). Release compatibility: a worker advertises `compress` in registry.json from the release that added it; a client never sends compressed to a worker that does not, and the refusal names `--no-compress`.
+- F3, F4: open (see the fix order above).

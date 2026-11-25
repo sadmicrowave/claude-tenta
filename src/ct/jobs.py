@@ -5,9 +5,13 @@ declared type; input files have names that stay inside the job folder (and no do
 expires after a maximum age (replays) and may not claim to be from the future; a profile run names exactly one command and says what it
 does. Nothing here runs a command, and the lookups of the machine (which programs exist) are passed in so they can be tested.
 """
+import base64
+import binascii
+import json
 import os
 import re
 import shutil
+import zlib
 from datetime import datetime
 
 from . import refusals
@@ -167,6 +171,42 @@ def check_files(files, cls, limits):
     if total > fl["max_total_kb"] * 1000:
         raise refusals.refuse("files.total_too_big", limit=fl["max_total_kb"])
     return files
+
+
+CODEC = "zlib-b64"                                    # a compressed set of files: JSON of {name: text}, zlib, base64 (text, so it travels in the job file)
+
+
+def unpack_files(job, cap_mb, free_gb, reserve_gb):
+    """A job whose files travel compressed (`files_z`: codec, size, data), with its files in place. A job with plain files is returned as it is. Zip-bomb guard (finding F5): the claimed size is
+    checked against the cap and the free disk BEFORE anything is unpacked, and the unpacking itself stops one byte past the cap whatever size was claimed. free_gb None: not measured, so no limit."""
+    z = job.get("files_z")
+    if z is None:
+        return job
+    if "files" in job:
+        raise refusals.refuse("files.unpack.unreadable", detail="the job carries its files twice, plain and compressed")
+    if not (isinstance(z, dict) and z.get("codec") == CODEC and isinstance(z.get("data"), str) and isinstance(z.get("size"), int) and not isinstance(z.get("size"), bool) and z["size"] >= 0):
+        raise refusals.refuse("files.unpack.unreadable", detail="the codec or size is not one this worker knows")
+    cap = int(cap_mb * 1_000_000)
+    if z["size"] > cap:
+        raise refusals.refuse("files.unpack.too_big", cap=int(cap_mb))
+    if free_gb is not None and z["size"] / 1e9 > free_gb - reserve_gb:
+        raise refusals.refuse("files.unpack.no_room", size=f"{z['size'] / 1e6:.0f}", free=f"{free_gb:g}", reserve=f"{reserve_gb:g}")
+    d = zlib.decompressobj()
+    try:
+        raw = d.decompress(base64.b64decode(z["data"], validate=True), cap + 1)
+    except (binascii.Error, zlib.error, ValueError) as e:
+        raise refusals.refuse("files.unpack.unreadable", detail=str(e) or "damaged data")
+    if len(raw) > cap or d.unconsumed_tail:
+        raise refusals.refuse("files.unpack.too_big", cap=int(cap_mb))
+    if not d.eof:
+        raise refusals.refuse("files.unpack.unreadable", detail="the data ends early")
+    try:
+        files = json.loads(raw)
+    except ValueError:
+        raise refusals.refuse("files.unpack.unreadable", detail="the files are not readable")
+    if not isinstance(files, dict):
+        raise refusals.refuse("files.unpack.unreadable", detail="the files are not a set of named files")
+    return {**{k: v for k, v in job.items() if k != "files_z"}, "files": files}
 
 
 def job_timeout(cls, job, rules=None, shared=False, factor=1.0):
