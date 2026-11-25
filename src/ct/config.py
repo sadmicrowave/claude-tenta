@@ -277,6 +277,8 @@ SCHEMA = {
         "repeat_runs": (3, _int(1, 1000), "a command you run this many times within repeat_days counts as repeated work worth offloading"),
         "repeat_days": (14, _int(1, 365), "the number of days repeat_runs is counted over"),
         "recommend_runs": (3, _int(1, 1000), "a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker"),
+        "recommend_hint": (True, _bool, "on: after ct-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see ct-run offload recommend); off: never"),
+        "recommend_hint_hours": (24, _int(1, 8760), "the least hours between two of those hint lines; a hint is also shown only once for the same suggestion"),
         "recommend_gain": (25, _int(1, 99), "ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower"),
     },
     "limits": {

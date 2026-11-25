@@ -47,7 +47,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -57,6 +57,7 @@ class Context:
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.recommend_runs, self.recommend_gain = int(recommend_runs), int(recommend_gain)
+        self.recommend_hint, self.recommend_hint_hours = bool(recommend_hint), int(recommend_hint_hours)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -70,7 +71,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -485,6 +486,29 @@ def note_runs(ctx, results):
     try:
         recommend.RunLog(ctx.home).observe(results, lambda jid: place.worker_of(getattr(ctx, "home_main", ctx.home), jid) or ctx.product, view.parse_when)
     except (OSError, TypeError, ValueError):                   # a recorder: whatever is wrong with it, the command that looked at the jobs still answers
+        pass
+
+
+def show_hint(ctx):
+    """After a ct-run command: one line when a pinned command has run clearly faster on another worker (setting offload.recommend_hint, on by default). Reads only local
+    files, says each suggestion once and at most once a day, and never fails or changes the command's exit status."""
+    try:
+        if not ctx.recommend_hint:
+            return
+        from . import recommend
+        pins = {}
+        for p in (here.global_pins(), here.pins_for()):
+            pins.update(p.commands if p else {})
+        rows = recommend.RunLog(ctx.home).read() if pins else []
+        if not rows:
+            return
+        st = recommend.HintState(ctx.home)
+        v, new = recommend.hint(recommend.recommend(rows, pins, ctx.recommend_runs, ctx.recommend_gain), st.read(), ctx.clock(), ctx.recommend_hint_hours)
+        if v:
+            emit("A faster worker for a pinned command", ("Command", v["class"]), ("Faster on", alias.show(v["worker"])), f"It took {v['gain_pct']}% less time than on the pinned worker. Turn these hints off: offload.recommend_hint = false.",
+                 tag="HINT", color=CYAN, run_label="See the numbers", run="ct-run offload recommend")
+        st.write(new)
+    except Exception:                                          # a hint is a courtesy: whatever is wrong with it, the command's answer stands
         pass
 
 
@@ -1078,6 +1102,7 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_setup(ctx, cfg or config.load())
         if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
             import atexit
+            atexit.register(show_hint, ctx)
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
         if a.cmd == "use":
             return cmd_use(ctx, cfg, a)
