@@ -69,3 +69,4 @@ After 4c (streamed compression) a 1.1 GB set still costs about 1x its size on th
 - Canary option: update one worker first and stop the rest if it fails.
 - After this computer is updated, the rest of the run still uses the old code that was loaded; a re-exec would give workers the new `apply` logic.
 - Updating workers in parallel (the per-worker sudo prompts make it unsuitable for now); rolling back every worker after a failed fleet update (`verify` offers a per-worker rollback).
+- 2026-11-25 (chore/e2e-unique-names): two full `scripts/e2e-routes` runs at once (14 machines) made the `install` route's first job time out at 240 s in both (alone: 37 of 37 in 85 s). The global cap of 12 is checked only when a run starts. Decide: re-check the cap per clone, or raise the job timeout when the Mac is loaded, or document "one full run at a time, or `e2e-routes` with a route list for the second".
