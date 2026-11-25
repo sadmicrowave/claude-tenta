@@ -58,3 +58,10 @@ Question from the user: can a worker or fleet reduce AI token use by taking work
 ## Auto-adoption conditions for the AI layer (decision 2026-11-23)
 - Auto-adoption installs a fitting class with the owner's key at a terminal, with loose defaults (any cost, packages allowed; only a heavy class is adopted as `approve`). When an AI agent can submit profile runs, add the tighter conditions: who or what triggered the run, per-source limits, a cap on classes adopted per day, a review step for anything an agent started.
 
+
+## After `ct-admin update` for every worker (feat/update-all-workers, 2026-11-25)
+- **Update an installed Windows worker.** The Windows release line (`release-win-X.Y.Z`) and its fetch exist (`winrelease.fetch`, `wintask.stop/start`), but `apply` and `update` leave a Windows worker alone. Build: look up the latest Windows tag once, fetch and swap on each Windows worker, restart its task, ask per worker, count it in the roster, summary and banner. Test on the Windows 11 VM.
+- The same "devices it would touch" roster card for `ct-admin apply` with several workers.
+- Canary option: update one worker first and stop the rest if it fails.
+- After this computer is updated, the rest of the run still uses the old code that was loaded; a re-exec would give workers the new `apply` logic.
+- Updating workers in parallel (the per-worker sudo prompts make it unsuitable for now); rolling back every worker after a failed fleet update (`verify` offers a per-worker rollback).

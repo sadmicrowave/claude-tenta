@@ -58,7 +58,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 |---|---|
 | `ct-admin diff` | show what installing a version would change |
 | `ct-admin apply` | install a version on the worker, check it, offer to roll back |
-| `ct-admin update` | is there a newer release? show what changed, then update this computer and the worker if you agree |
+| `ct-admin update` | is there a newer release? show what changed, then update this computer and every worker if you agree (each asks its own question) |
 | `ct-admin clean` | remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox) |
 
 ### Look
