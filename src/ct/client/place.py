@@ -233,8 +233,9 @@ def worker_of(home, jid):
         return None
 
 
-def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None):
-    """The Context to send a job of class `cls` with. With one worker, or when there is no configuration (a test), the one it was given. `forced` is a worker name (--worker)."""
+def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None, hold=False):
+    """The Context to send a job of class `cls` with. With one worker, or when there is no configuration (a test), the one it was given. `forced` is a worker name (--worker).
+    With `hold`, a job that fits no worker right now is not placed: the Context comes back with `.held` set to the explanation, nothing is reserved, and the caller queues it (queue.py)."""
     ents = (entries_fn or entries)(cfg) if cfg is not None else []
     if len(ents) < 2 and not forced:
         return ctx, None
@@ -256,6 +257,9 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         ch = decide(cls, views, prefs)
         if ch.worker is None:
             raise none_error(cls, ch)
+        if hold and ch.busy_all:
+            ctx.held = ch
+            return ctx, ch
         token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)

@@ -39,7 +39,7 @@ Also found missing while inventorying: no retry of a failed job (only per-class 
 
 Each is a feature of `theme/orchestrator`, one session, one small branch. Not in scope for every slice: the AI layer, any new transport, anything outside the orchestrator host's own files and the worker fields it already reads.
 
-### R1. A durable job queue with priorities (`feat/orchestrator-queue`)
+### R1. A durable job queue with priorities (`feat/orchestrator-queue`; built 2026-11-25, see SEVERAL-WORKERS.md)
 **Goal.** A job that fits no worker right now waits on this computer, in order, and is sent when one has room, instead of being pushed onto the worker with the most room. Survives a restart of `ct-run`.
 **Done when.** A local queue file (mode 0600, written under the same lock as `placements.json`) holds waiting jobs with class, priority (`low`, `normal`, `high`; default `normal`) and age; `ct-run submit --priority`; `ct-run jobs` shows waiting jobs and why; a drain step places the oldest highest-priority job whenever capacity frees (on every `ct-run` command, never a background process); a job never waits forever without being said; tests failing on the old code, including a queue that survives a kill.
 **Not in scope.** Dependencies between jobs, a background daemon, fair share (R4).

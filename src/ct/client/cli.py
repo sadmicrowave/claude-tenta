@@ -34,7 +34,7 @@ from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import here, place, view
+from . import here, place, queue, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -140,7 +140,7 @@ def route_submit(ctx, cfg, a):
         forced, why = pinned_worker(cfg, a.cls)
     if why:
         emit("Sending a job", (cards.Chip("WHERE", "primary"), alias.show(forced)), ("Command", a.cls), ("Why", why), tag="PINNED", color=CYAN)
-    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say)
+    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say, hold=not forced)          # a named or pinned worker gets the job; only the orchestrator's own choice may queue it
     return ctx2
 
 
@@ -317,6 +317,9 @@ def cmd_submit(ctx, a):
     if files:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
+    held = getattr(ctx, "held", None)
+    if held is not None:
+        return hold_jobs(ctx, a, batches, job, held)
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
@@ -339,6 +342,66 @@ def cmd_submit(ctx, a):
         print("\n".join(ids))                                               # output: data (job ids for a script)
         return 0
     return max(wait(ctx, jid, a.timeout, a.json) for jid in ids)
+
+
+def hold_jobs(ctx, a, batches, job, held):
+    """Every worker is busy (or none can take it now): the job waits on this computer, in order, and goes when one has room (queue.py)."""
+    base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), set(ctx.repos.result_ids()) | queue.ids(ctx.home))
+    ids = sub.job_ids(base, len(batches))
+    clash = [j for j in ids if j in queue.ids(ctx.home)]
+    if clash:
+        emit("That job id is already waiting", ("Job", clash[0]), "Choose another with --id, or leave it out.", tag="ERROR", color=RED)
+        return 2
+    why = queue.why_of(held)
+    prio = getattr(a, "priority", None) or queue.DEFAULT
+    for jid, chunk in zip(ids, batches):
+        queue.add(ctx.home, jid, a.cls, prio, {**job, **({"files": chunk} if chunk else {})}, why)
+    emit("Waiting for a worker", *[("Job", j) for j in ids], ("Priority", prio), ("Why", why), "It is sent by the next ct-run command once a worker has room; ct-run jobs shows it waiting.", tag="WAITING", color=YELLOW,
+         run=f"ct-run jobs")
+    print("\n".join(ids))                                                   # output: data (job ids for a script)
+    return 0
+
+
+def drain_queue(ctx, cfg, a):
+    """Every ct-run command first sends the waiting jobs that now fit (nothing runs in the background)."""
+    dropped = []
+    try:
+        sent = queue.drain(ctx, cfg, dropped=dropped)
+    except Exception as e:                                                   # a failure here must never stop the command that was asked for
+        emit("The waiting jobs could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if not getattr(a, "json", False):
+        for jid, why in dropped:
+            emit("A waiting job ended", ("Job", jid), ("Why", why), "It was not sent. Submit it again if you still want it.", tag="NOTE", color=YELLOW)
+        for jid, worker in sent:
+            emit("Sent from the waiting list", ("Job", jid), ("Worker", alias.show(worker)), tag="QUEUED", color=CYAN)
+        long = [i for i in queue.waiting(ctx.home) if time.time() - i.get("at", 0) > queue.WAITED_LONG_S]
+        for i in long:
+            emit("A job has waited a long time", ("Job", i["id"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="NOTE", color=YELLOW, run="ct-run jobs")
+
+
+def cmd_queue(ctx, a):
+    """The jobs waiting on this computer for a worker with room: list them, cancel one, or change its priority."""
+    c = a.queue_cmd
+    if c in ("cancel", "priority"):
+        item = queue.find(ctx.home, a.id)
+        if not item:
+            emit("No such waiting job", ("Job", a.id), "ct-run queue lists the jobs waiting for a worker. A job that was already sent is read with ct-run result.", tag="ERROR", color=RED)
+            return 1
+        done = queue.cancel(ctx.home, a.id) if c == "cancel" else queue.set_priority(ctx.home, a.id, a.level)
+        if not done:
+            emit("That job is being sent right now", ("Job", a.id), "It is already on its way to a worker; read it with ct-run result.", tag="NOTE", color=YELLOW)
+            return 1
+        emit("Cancelled" if c == "cancel" else "Priority changed", ("Job", a.id), *([] if c == "cancel" else [("Priority", a.level)]), tag="DONE", color=GREEN)
+        return 0
+    items = queue.waiting(ctx.home)
+    if not items:
+        emit("Nothing is waiting for a worker", "Jobs that every worker is too busy for wait here; ct-run submit --priority sets their place in line.", tag="QUEUE", color=CYAN)
+        return 0
+    for i in items:
+        emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW,
+             run=f"ct-run queue cancel {i['id']}", run_label="Cancel it")
+    return 0
 
 
 def should_wait(ctx, a):
@@ -441,8 +504,12 @@ def suggestion_for(ctx, res):
 def cmd_result(ctx, a):
     r = ctx.repos
     r.need_setup()
-    if a.wait:
+    if a.wait and not queue.find(ctx.home, a.id):
         return wait(ctx, a.id, a.timeout, a.json, approved=getattr(a, "approved", False))
+    held = queue.find(ctx.home, a.id)
+    if held:                                                                     # still on this computer's waiting list: no worker has it yet
+        emit("Waiting for a worker", ("Job", a.id), ("Priority", held["priority"]), ("Waiting", queue.age_text(time.time() - held["at"])), ("Why", held.get("why", "")), tag="WAITING", color=YELLOW)
+        return 0
     r.pull_results()
     res = r.read_result(a.id)
     if res is not None:
@@ -566,6 +633,8 @@ def cmd_jobs(ctx, n=15, cfg=None):
         floor = datetime.min.replace(tzinfo=timezone.utc)
         rows.sort(key=lambda r_: r_[0] or floor, reverse=True)
     note_runs(ctx, results)
+    for i in queue.waiting(ctx.home):
+        emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW)
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)
     _ui.related(("Read one result in full", "ct-run result <job>"), ("Send another job", "ct-run submit <class>"), ("Approve a job that is waiting", f"{ctx.admin} approve <job>"))
     return 0
@@ -981,6 +1050,7 @@ def build_parser():
     s.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
     s.add_argument("--worker", metavar="NAME", help="send it to this worker instead of letting ct-run choose (names: ct-admin workers)")
+    s.add_argument("--priority", choices=["low", "normal", "high"], default=None, help="where a job waits in line when every worker is busy (default normal)")
     s.add_argument("--here", action="store_true", help="send it to the worker this configuration is for, without choosing (what the checks that are about one worker use)")
     wh = sp.add_parser("where", add_help=False)
     wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
@@ -1005,6 +1075,13 @@ def build_parser():
     pt.add_argument("--yes", action="store_true", help="with --apply: do not ask")
     s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
+    q = sp.add_parser("queue", add_help=False)
+    qsp = q.add_subparsers(dest="queue_cmd", metavar="command")
+    qc = qsp.add_parser("cancel", add_help=False, help="take a waiting job off the list")
+    qc.add_argument("id", help="the job id")
+    qp = qsp.add_parser("priority", add_help=False, help="change a waiting job's place in line")
+    qp.add_argument("id", help="the job id")
+    qp.add_argument("level", choices=["low", "normal", "high"])
     cl = sp.add_parser("classes", add_help=False)
     cl.add_argument("--worker", metavar="NAME", help="show only what this worker offers, with its limits (names: ct-admin workers)")
     o = sp.add_parser("offload", add_help=False)
@@ -1065,6 +1142,7 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "result": ("read a job's result", [("Read it now", "ct-run result job-abc123"), ("Wait for it", "ct-run result job-abc123 --wait")]),
         "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "ct-run jobs"), ("Show more", "ct-run jobs -n 40")]),
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
+        "queue": ("the jobs waiting on this computer for a worker with room", [("List them", "ct-run queue"), ("Take one off", "ct-run queue cancel <job>"), ("Move one up", "ct-run queue priority <job> high")]),
         "classes": ("every class your workers can run, and which workers offer each", [("List them", "ct-run classes"), ("One worker's own list", "ct-run classes --worker tenta3")]),
         "where": ("which of your workers a job of this class would go to, and why each of the others would not (nothing is sent)", [("Explain the choice for a class", "ct-run where sys-status")]),
         "use": ("send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit", [("See what is set", "ct-run use"), ("Send this folder to a worker", "ct-run use tenta2"), ("Only one command", "ct-run use tenta2 --command nmap"), ("Remove it", "ct-run use --clear")]),
@@ -1104,6 +1182,8 @@ def main(argv=None, ctx=None, cfg=None):
             import atexit
             atexit.register(show_hint, ctx)
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
+        if cfg is not None and a.cmd in ("submit", "jobs", "result", "classes", "where", "queue"):
+            drain_queue(ctx, cfg, a)
         if a.cmd == "use":
             return cmd_use(ctx, cfg, a)
         if a.cmd == "where":
@@ -1118,6 +1198,8 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_result(place.for_job(ctx, cfg, a.id), a)
         if a.cmd == "jobs":
             return cmd_jobs(ctx, a.n, cfg)
+        if a.cmd == "queue":
+            return cmd_queue(ctx, a)
         if a.cmd == "offload":
             return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":
