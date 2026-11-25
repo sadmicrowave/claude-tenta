@@ -8,7 +8,9 @@
 # Needs Docker (OrbStack provides it). Exit status is the number of probes that failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-command -v docker >/dev/null || { echo "Docker was not found (OrbStack provides it)." >&2; exit 2; }
+PYX="${CT_PY:-$HOME/.ct-venv/bin/python}"
+if [ "${1:-}" = "--on" ]; then "$PYX" tests/preflight.py --for real "${2:-}" || exit 1       # a real machine needs no Docker, but it must answer
+else "$PYX" tests/preflight.py --for probe || exit 1; fi                                    # the environment is checked first: one message with the fix, not a long run that fails late
 IMAGE=${CT_PROBE_IMAGE:-ubuntu:24.04}
 RELEASES="ubuntu:24.04 ubuntu:26.04 debian:12 debian:13"
 if [ "${1:-}" = "--releases" ]; then
