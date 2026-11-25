@@ -118,6 +118,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt |
 | `repeat_runs` | `3` | int | a command you run this many times within repeat_days counts as repeated work worth offloading |
 | `repeat_days` | `14` | int | the number of days repeat_runs is counted over |
+| `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker |
+| `recommend_gain` | `25` | int | ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
 
 ## [limits]
 
