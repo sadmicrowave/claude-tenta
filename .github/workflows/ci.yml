@@ -54,7 +54,12 @@ jobs:
         run: python -m pip install --quiet pyyaml        # the only runtime dependency of the worker's registry reader (the CLI itself needs nothing)
 
       - name: Unit tests
-        run: python -m unittest discover -s tests
+        # A pull request into a theme branch (tests/themes.toml) runs that theme's gate; anything else, main included, runs the full suite (scripts/test-gate).
+        shell: bash
+        run: |
+          GATE=$(python scripts/test-gate "${{ github.base_ref }}" || echo full)
+          echo "gate: $GATE"
+          if [ "$GATE" = full ]; then python -m unittest discover -s tests; else (cd tests && python -m unittest $GATE); fi
 
       - name: The commands on your computer install and start (macOS)
         if: runner.os == 'macOS'

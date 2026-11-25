@@ -55,5 +55,37 @@ class ThePlan(unittest.TestCase):
         self.assertEqual(impact.plan(["tests/probes/kernel.sh"])["probes"], ["kernel"])
 
 
+class TheThemeGate(unittest.TestCase):
+    """A pull request into a theme branch runs the theme's gate; everything else runs the full suite (tests/themes.toml, scripts/test-gate)."""
+
+    def test_a_theme_base_gets_the_guards_the_mapped_tests_and_the_themes_own(self):
+        g = impact.theme_gate(["src/ct/client/cmdlog.py"], "theme/orchestrator")
+        self.assertEqual(g["theme"], "orchestrator")
+        self.assertFalse(g["full"])
+        for m in ("test_printout_rules", "test_docs", "test_cmdlog", "test_candidacy"):
+            self.assertIn(m, g["modules"])
+        self.assertNotIn("test_mailshell", g["modules"])
+
+    def test_main_or_an_unlisted_base_is_the_full_suite(self):
+        for base in ("main", "release/1", "theme/unlisted"):
+            g = impact.theme_gate(["src/ct/client/cmdlog.py"], base)
+            self.assertEqual((g["theme"], g["full"], g["modules"]), (None, True, []), base)
+
+    def test_a_file_the_table_does_not_know_makes_the_theme_gate_full(self):
+        self.assertTrue(impact.theme_gate(["somewhere/new-thing.xyz"], "theme/orchestrator")["full"])
+
+    def test_every_manifest_module_exists(self):
+        import tomllib
+        data = tomllib.loads((ROOT / "tests" / "themes.toml").read_text())
+        for name, mods in [("always", data["always"])] + [(n, t["modules"]) for n, t in data.items() if isinstance(t, dict)]:
+            for m in mods:
+                self.assertTrue((ROOT / "tests" / f"{m}.py").is_file(), f"themes.toml {name}: no tests/{m}.py")
+
+    def test_the_script_says_full_without_a_base_and_modules_for_a_theme(self):
+        run = lambda *a: subprocess.run([str(ROOT / "scripts" / "test-gate"), *a], capture_output=True, text=True).stdout.strip()     # noqa: E731
+        self.assertEqual(run(), "full")
+        self.assertEqual(run("main"), "full")
+
+
 if __name__ == "__main__":
     unittest.main()
