@@ -30,7 +30,10 @@ def _run(cmd, timeout=20):
 
 
 def _first_line(text):
-    return (text.splitlines() or ["no output"])[0][:200]
+    """The line that says what went wrong: `docker info` prints a client banner first and the failure last."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    bad = [l for l in lines if re.search(r"error|cannot|failed|refused|denied|not running|no such", l, re.I)]
+    return (bad or lines or ["no output"])[0][:200]
 
 
 def _disk(kind):

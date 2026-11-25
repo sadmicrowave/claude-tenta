@@ -60,6 +60,25 @@ class Kinds(unittest.TestCase):
         self.assertIn("mini-host", found[0])
         self.assertIn("Permission denied", found[0])
 
+    def test_the_machine_count_reads_the_real_orb_list_format(self):
+        listing = ("ct-cache-ubuntu-24-04     stopped  ubuntu  noble     amd64  1.3 GB  \n"
+                   "ct-run-x-install          running  ubuntu  resolute  amd64  1.3 GB  \n"
+                   "ct-e2e                    running  ubuntu  resolute  amd64  1.3 GB  \n")
+        with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(listing)):
+            self.assertIn("2 test machines", " ".join(preflight.problems("e2e", cap=2)))
+            self.assertEqual(preflight.problems("e2e", cap=3), [])
+
+    def test_the_docker_failure_shows_the_error_not_the_banner(self):
+        real = "Client: Docker Engine - Community\n Version: 29\nfailed to connect to the docker API at unix:///x.sock; daemon running?"
+        with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(real, 1)):
+            self.assertIn("failed to connect", preflight.problems("probe")[0])
+
+    def test_every_windows_check_script_needs_the_machine_to_answer(self):
+        for f in sorted((ROOT / "scripts").glob("win-*-check")):
+            self.assertIn('preflight.require("real", argv[0])', f.read_text(), f.name)
+
     def test_a_healthy_environment_has_no_problems(self):
         with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
                 mock.patch.object(preflight.subprocess, "run", return_value=self.ok("ct-e2e\n")):
