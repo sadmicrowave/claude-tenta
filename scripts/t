@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run the unit tests for the modules named, with the project's own Python, showing only failures.
-#   scripts/t test_cli test_worker        (names of files in tests/, without .py)
+#   scripts/t test_cli test_worker_jobs       (names of files in tests/, without .py)
 #   scripts/t                             (the whole suite: slow, only for release or real-machine changes)
 # Long runs: start it with run_in_background and wait once; never pipe it to tail.
 #   scripts/t --parallel [modules]       one process per module, all cores, largest first; prints only failures (modules in tests/serial.txt run alone, last)
