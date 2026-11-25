@@ -1,5 +1,5 @@
 """Moving ONE registered worker from GitHub to Direct while others exist: the required journey (docs/components/testing.md). The server half is covered by test_migrate; this is the part on YOUR computer, with real
-files and real git clones: only the named worker's configuration and its two clones change, the others (and the main install) are byte for byte what they were, and the scheduler's view of each worker follows."""
+files and real git clones: only the named worker's configuration and its two clones change, the others (and the main install) are byte for byte what they were, and the orchestrator's view of each worker follows."""
 import os
 import subprocess
 import tempfile
@@ -63,7 +63,7 @@ class MoveOne(unittest.TestCase):
             for other in ("main", "tenta3"):
                 self.assertEqual(self.origin(other, which), f"https://github.com/someone/{other}-{which}.git")
 
-    def test_the_schedulers_view_of_each_worker_follows_the_move(self):
+    def test_the_orchestrators_view_of_each_worker_follows_the_move(self):
         self.move("tenta2")
         main = self.load("main")
         main_source = main.source

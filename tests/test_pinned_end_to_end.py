@@ -1,6 +1,6 @@
-"""The pinned check, through the real `ct-run submit` and real git queues of two workers, with the scheduler really choosing: the route a `ct-admin apply` check takes.
+"""The pinned check, through the real `ct-run submit` and real git queues of two workers, with the orchestrator really choosing: the route a `ct-admin apply` check takes.
 
-Unpinned, a job goes to the freer worker (what the scheduler is for). With --here it goes to the worker being checked, even when the other one is freer (what a check about one worker needs).
+Unpinned, a job goes to the freer worker (what the orchestrator is for). With --here it goes to the worker being checked, even when the other one is freer (what a check about one worker needs).
 Found in the first real `ct-admin apply` on two workers, where the check on one worker ran on the other."""
 import io
 import json
@@ -28,7 +28,7 @@ def worker_fixture(testcase, name, running):
 
 class ThePinnedCheckOnRealQueues(unittest.TestCase):
     def setUp(self):
-        self.first = worker_fixture(self, "firstw", running=0)                  # the freer one: what the scheduler would choose
+        self.first = worker_fixture(self, "firstw", running=0)                  # the freer one: what the orchestrator would choose
         self.second = worker_fixture(self, "secondw", running=3)                # the one being checked
         cfgs = {"secondw": cfg_file(self.first.tmp, "secondw"), "firstw": cfg_file(self.first.tmp, "firstw")}
         by_name = {"firstw": self.first.repos, "secondw": self.second.repos}

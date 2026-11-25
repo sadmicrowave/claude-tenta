@@ -173,7 +173,7 @@ def cmd_use(ctx, cfg, a):
     if a.worker:
         return use_set(cfg, a, pins, scope)
     if pins.empty():
-        emit("Nothing is set for this computer" if a.glob else "Nothing is set for this folder", "Jobs are placed by the scheduler, on whichever worker fits best.", tag="NOTE", color=YELLOW,
+        emit("Nothing is set for this computer" if a.glob else "Nothing is set for this folder", "Jobs are placed by the orchestrator, on whichever worker fits best.", tag="NOTE", color=YELLOW,
              run=["ct-run use <worker>", "ct-run use <worker> --command <class>"], run_label="Send this folder's jobs to one worker")
         return 0
     emit("Where jobs from this computer go" if a.glob else "Where this folder's jobs go", *use_rows(pins), tag="PINNED", color=CYAN, run=["ct-run use <worker>", "ct-run use --clear"], run_label="Change it")
@@ -224,7 +224,7 @@ def by_worker(commands):
 
 
 def use_rows(pins):
-    rows = [("File", str(pins.path)), ("Jobs worker", alias.show(pins.worker) if pins.worker else "placed by the scheduler")]
+    rows = [("File", str(pins.path)), ("Jobs worker", alias.show(pins.worker) if pins.worker else "placed by the orchestrator")]
     if pins.commands:
         rows += ["\n", *by_worker(pins.commands)]
     return rows
@@ -986,7 +986,7 @@ def build_parser():
     wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
     us = sp.add_parser("use", add_help=False)
     us.add_argument("worker", nargs="?", metavar="worker", help="the worker this folder's jobs go to (names: ct-admin workers); without it, show what is set")
-    us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the scheduler")
+    us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the orchestrator")
     us.add_argument("--clear", action="store_true", help="remove the setting (with --command: just that one)")
     us.add_argument("--global", dest="glob", action="store_true", help="set it for this whole computer (~/.tenta.toml) instead of this folder")
     us.add_argument("--force", action="store_true", help="with --command: add it even when the folder's worker already covers it")

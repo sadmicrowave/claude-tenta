@@ -32,7 +32,7 @@ class MixedBurst(unittest.TestCase):
         self.assertEqual(lt.pin_verdict(rows[:1], "tenta3"), (1, 1, []))
 
 
-    def test_a_global_dedication_of_the_class_is_noticed_because_it_hides_the_scheduler(self):
+    def test_a_global_dedication_of_the_class_is_noticed_because_it_hides_the_orchestrator(self):
         lt = load()
         self.assertIn("tenta3", lt.global_note("sys-status", {"sys-status": "tenta3"}))
         self.assertIsNone(lt.global_note("sys-status", {"nmap": "tenta3"}))

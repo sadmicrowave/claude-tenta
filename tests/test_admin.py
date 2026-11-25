@@ -353,7 +353,7 @@ class WorkersCommand(AdminBase):
         code, out, _ = self.admin("workers", "--claude")
         self.assertNotIn("TESTCT", out)
 
-    def test_json_is_machine_readable_for_a_future_scheduler(self):
+    def test_json_is_machine_readable_for_a_future_orchestrator(self):
         code, out, _ = self.admin("workers", "--json")
         rows = json.loads(out)
         self.assertEqual([r["name"] for r in rows], ["testct", "studio"])
@@ -1530,7 +1530,7 @@ class ALostWorkerThatWasReinstalled(Locate):
 
 
 class ACommandOnAJobSentToAnotherWorker(AdminBase):
-    """A job the scheduler placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
+    """A job the orchestrator placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
 
     def test_the_context_of_the_worker_it_was_sent_to_is_used(self):
         from ct.client import place
@@ -1570,7 +1570,7 @@ class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
         self.assertEqual(set(cli.FLEET_COMMANDS), self.FLEET)
         self.assertEqual(set(cli.PICK_COMMANDS), self.PICK)
 
-    def test_no_internal_send_is_left_to_the_scheduler(self):
+    def test_no_internal_send_is_left_to_the_orchestrator(self):
         """The checks that are ABOUT a worker (the install check, the wizard's first job) must say so: --here."""
         import re
         root = Path(__file__).resolve().parents[1] / "src" / "ct"
