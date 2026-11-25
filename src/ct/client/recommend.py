@@ -92,3 +92,42 @@ def recommend(rows, pins, min_runs=3, min_gain_pct=25):
                 v.update(verdict="more_runs" if short else "keep", need=short)
         out.append(v)
     return out
+
+
+class HintState:
+    """What the hint last said (`recommend-hint.json`, local, mode 0600): when, and which suggestion per command. Unreadable or missing means nothing said yet."""
+    def __init__(self, home):
+        self.path = Path(home) / "recommend-hint.json"
+
+    def read(self):
+        try:
+            d = json.loads(self.path.read_text())
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def write(self, d):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(d))
+            tmp.chmod(0o600)
+            tmp.replace(self.path)
+        except OSError:
+            pass
+
+
+def hint(verdicts, state, now, hours=24):
+    """The one verdict worth a hint line now, or None, with the new state. Only a `better` verdict counts; it is shown once per suggestion (pinned worker and faster
+    worker), and no two hints come closer than `hours`. A command whose suggestion went away forgets it, so a later return of the same suggestion is said again."""
+    seen = {v["class"]: f"{v['pinned']}>{v['worker']}" for v in verdicts if v["verdict"] == "better"}
+    said = {c: k for c, k in state.get("said", {}).items() if seen.get(c) == k}
+    new = {"at": state.get("at", 0), "said": said}
+    if now - state.get("at", 0) < hours * 3600:
+        return None, new
+    for v in verdicts:
+        if v["verdict"] == "better" and said.get(v["class"]) != seen[v["class"]]:
+            said[v["class"]] = seen[v["class"]]
+            new["at"] = now
+            return v, new
+    return None, new
