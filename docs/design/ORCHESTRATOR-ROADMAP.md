@@ -1,7 +1,7 @@
 # The orchestrator: roadmap
 
 Status: written 2026-11-24 (list item 5), from the owner's own words of 2026-11-16 to 2026-11-23. The older name for the orchestrator is retired everywhere; the code module keeps its short name `ct.sched`.
-Written so each slice can be built in its own session from this page alone. Slice order is Claude's proposal; the owner approves or changes it.
+Written so each slice can be built in its own session from this page alone. Slice order R1 to R7 approved by the owner 2026-11-25.
 
 ## What the orchestrator is
 
@@ -79,5 +79,5 @@ Metrics export (queue depth, run times, failure rates); maintenance mode for a w
 
 ## Open for the owner
 
-1. Approve or reorder R1 to R7.
+1. (Done 2026-11-25: R1 to R7 order approved.)
 2. The module keeps the name `ct.sched`; renaming it to `ct.orchestrator` is mechanical and can be its own chore if wanted.
