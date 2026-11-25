@@ -7,6 +7,7 @@
 # A cache cannot prove that the installer can install its own packages: scripts/probe release does that per release, and `scripts/e2e-orbstack` starts from a bare machine for the cold run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 REBUILD=0; [ "${1:-}" = "--rebuild" ] && { REBUILD=1; shift; }
 IMAGE=${1:-${CT_E2E_IMAGE:-ubuntu:26.04}}
 TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG

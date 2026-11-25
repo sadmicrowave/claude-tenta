@@ -11,6 +11,7 @@ set -euo pipefail
 M=${CT_E2E_MACHINE:-ct-e2e}; IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}      # the release the supported servers run; CT_E2E_IMAGE=ubuntu:24.04 for the older one
 KEEP=${CT_E2E_KEEP:-0}; [ "${1:-}" = "--keep" ] && KEEP=1
 cd "$(dirname "$0")/.."
+"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e --cap 8 || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&2; exit 2; }
 gone() { orb delete -f "$M" >/dev/null 2>&1 || true; }
 if [ "${1:-}" = "--delete" ]; then gone; exit 0; fi

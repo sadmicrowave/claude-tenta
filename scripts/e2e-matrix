@@ -6,6 +6,7 @@
 # checks (the tripwire, AppArmor) are not covered here: scripts/probe --on <real machine> ... does that. Exit status is the number of releases that failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 RELEASES=${*:-"ubuntu:26.04 ubuntu:24.04 debian:bookworm debian:trixie"}
 bad=0
 for image in $RELEASES; do
