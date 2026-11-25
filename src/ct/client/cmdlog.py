@@ -177,5 +177,23 @@ class CommandLog:
         rows.sort(key=lambda r: (-r["count"], -r["total"]))
         return rows
 
+    GRID_RUNS, GRID_DAYS = (2, 3, 4), (7, 14, 30)
+
+    def measure(self, min_seconds=30.0, records=None, repeat_runs=3, repeat_days=14, now=None):
+        """What the person's own log says about the two repeat settings: how many commands would be candidates at each pair of values (`grid[runs][days]`),
+        and a suggested `repeat_days` (candidacy.suggest_days) for `repeat_runs`. Only commands that could run on a worker are counted. Changes nothing."""
+        now = time.time() if now is None else now
+        recs = self.read() if records is None else records
+        stamps = defaultdict(list)
+        for r in recs:
+            c = classify(r["cmd"], self.own_tools)
+            if c and c[2] is None and r.get("ts"):
+                stamps[c[0]].append(r["ts"])
+        grid = {k: {d: len(self.rank(min_seconds, False, recs, k, d, now)) for d in self.GRID_DAYS} for k in self.GRID_RUNS}
+        days, enough = candidacy.suggest_days(stamps.values(), repeat_runs)
+        return {"shapes": len(stamps), "most_runs": max((len(v) for v in stamps.values()), default=0), "shapes_enough": enough, "suggested_days": days, "grid": grid,
+                "current": len(self.rank(min_seconds, False, recs, repeat_runs, repeat_days, now)), "records": len(recs),
+                "log_days": (now - min((r["ts"] for r in recs if r.get("ts")), default=now)) / 86400}
+
     def clear(self):
         self.path.unlink(missing_ok=True)

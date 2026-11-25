@@ -47,7 +47,7 @@ what happens when one fails, how far more workers keep paying off (the measureme
 
 Long runs, and short runs that repeat, take your computer's CPU. **"Repeatable"** needs a definition; Agreed: a command shape the person has run **at least 3 times in 14 days**.
 The two numbers are settings (`offload.repeat_runs`, `offload.repeat_days` in `ct.toml`, overridable in a folder's `.tenta.toml`), not constants in code. The measurement utility
-later suggests values from the person's own log instead of a guess.
+later suggests `repeat_days` as the typical time the person's repeated commands took to reach `repeat_runs` runs (`repeat_runs` itself is only shown as a grid: the log cannot say what it should be) instead of a guess.
 
 ### 5. More to find
 
@@ -76,7 +76,7 @@ Branch `candidacy-measurement`, a feature of `theme/orchestrator`. User's direct
 - `offload.repeat_runs` (default 3) and `offload.repeat_days` (default 14) exist in `ct.toml`, validated (a folder override in `.tenta.toml` is a later slice: that file holds only worker pins today), and the "repeatable" test in `cmdlog` reads them instead of constants.
 - One pure function takes a command's facts (shape, median seconds, run count in the window, pinned or class-bound, batchable, split-able) and returns, for every rung, `met | not met | cannot be judged yet` with a reason; the headline is the highest-weighted rung met, the rest listed beneath it. Rung 2 (fewer AI tokens) returns "cannot be judged yet: needs the AI layer", never a guess. The weights are read from one table.
 - `ct-run offload log top` and the placement explanation show the headline and the other met rungs; `--all` shows each rung's verdict.
-- `ct-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing unless the person confirms; nothing is invented when the log is too short (it says how much more is needed).
+- `ct-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing itself: it prints the one `ct-setup install --set` command that applies a suggestion (the person's run of it is the confirmation); nothing is invented when the log is too short (it says how much more is needed).
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
 **Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
