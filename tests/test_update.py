@@ -243,7 +243,7 @@ class UpdateWrapper(InstallBase):
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML is not installed")
-class RegistryInstall(InstallBase):
+class RegistryInstallFixture(InstallBase):
     MINE = "classes:\n  echo:\n    tier: auto\n    cost: light\n    run: [/bin/echo, hi]\n"
 
     def setUp(self):
@@ -276,6 +276,8 @@ class RegistryInstall(InstallBase):
         import yaml
         return yaml.safe_load(self.registry_file().read_text())
 
+
+class RegistryInstall(RegistryInstallFixture):
     def test_packs_and_your_classes_are_composed_and_git_runs_as_the_worker(self):
         self.assertEqual(self.go(), "bootstrapped")
         reg = self.installed()
@@ -543,7 +545,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class RegistrySync(RegistryInstall):
+class RegistrySync(RegistryInstallFixture):
     """The registry approved on the administrator's own computer is installed by the worker's root timer, only if the signature checks."""
 
     def setUp(self):
@@ -652,7 +654,7 @@ class RegistrySync(RegistryInstall):
         self.assertIn("off", status)
 
 
-class RootLevelActions(RegistryInstall):
+class RootLevelActions(RegistryInstallFixture):
     """A registry with a root-level action is installed only if the program on disk is the pinned one, and the helper's socket runs only while one exists."""
     ACTIONS = ("actions:\n  fan-profile:\n    run: [/usr/local/sbin/fan-profile, \"{profile}\"]\n    params: {profile: {enum: [quiet, balanced]}}\n    sha256: \"%s\"\n"
                "classes:\n  fan:\n    kind: privileged\n    action: fan-profile\n    cost: light\n" % ("e" * 64))

@@ -48,6 +48,10 @@ class SignedApprovalFixture(Base):
         sh("git", "push", "-q", "origin", "HEAD:refs/heads/approvals", cwd=req)
 
 
+class SignedApprovalFixture(SignedApprovalFixture):
+    pass
+
+
 class SignedApproval(SignedApprovalFixture):
     def test_a_signed_approval_lets_the_waiting_job_run_without_anyone_logging_in(self):
         self.job("job-0001", "careful")
@@ -86,7 +90,7 @@ class SignedApproval(SignedApprovalFixture):
         self.assertEqual(self.spawned, [])
 
 
-class PrivilegedJobs(SignedApproval):
+class PrivilegedJobs(SignedApprovalFixture):
     """A class of kind `privileged` runs as root through the helper, and only ever on the administrator's signed approval."""
     ACTIONS = ("\nactions:\n  fan-profile:\n    run: [/usr/local/sbin/fan-profile, \"{profile}\"]\n    params: {profile: {enum: [quiet, balanced]}}\n    sha256: \"%s\"\n"
                "classes_extra: {}\n" % ("d" * 64))

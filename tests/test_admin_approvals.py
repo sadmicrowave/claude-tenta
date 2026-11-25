@@ -9,7 +9,7 @@ from ct import approvals
 from ct.admin import jobs
 
 
-class SignedApprovals(AdminBase):
+class SignedApprovalsFixture(AdminBase):
     """Approving here: signed with a key on this computer and published; nothing is run on the worker."""
 
     template_kind = "job-b"                # the registry and job-b are already in the queue (built once per process)
@@ -32,6 +32,8 @@ class SignedApprovals(AdminBase):
         self.repos.fetch_queue()
         return self.repos.show_file(f"origin/{approvals.BRANCH}", approvals.path_in_repo(jid))
 
+
+class SignedApprovals(SignedApprovalsFixture):
     def test_the_approval_is_signed_here_pinned_to_the_reviewed_file_and_nothing_runs_on_the_worker(self):
         self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
         self.answers.append("y")
@@ -82,7 +84,7 @@ class SignedApprovals(AdminBase):
         self.assertEqual(len(self.ssh.calls), 1)
 
 
-class SignedOrders(SignedApprovals):
+class SignedOrders(SignedApprovalsFixture):
     """ct-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
 
     def setUp(self):
@@ -134,7 +136,7 @@ class SignedOrders(SignedApprovals):
         self.assertEqual(self.ssh.calls[-1], "ct-worker unlock")
 
 
-class CleanCommand(SignedApprovals):
+class CleanCommand(SignedApprovalsFixture):
     def setUp(self):
         super().setUp()
         self.ctx.sleep = lambda s: None
@@ -182,7 +184,7 @@ class CleanCommand(SignedApprovals):
         self.assertEqual(self.names(), ["approvals/job-b.json"])
 
 
-class SignedRegistry(SignedApprovals):
+class SignedRegistry(SignedApprovalsFixture):
     """Adding or removing a class from this computer: the registry on main is signed here and the worker installs it; no SSH, no sudo."""
 
     def setUp(self):
