@@ -78,6 +78,7 @@ Run on your computer. Sends work to the worker and reads the results.
 | `ct-run result` | read a job's result |
 | `ct-run jobs` | your most recent jobs, and the ones waiting for your approval |
 | `ct-run offload` | find out what is worth running on the worker |
+| `ct-run queue` | the jobs waiting on this computer for a worker with room |
 | `ct-run classes` | every class your workers can run, and which workers offer each |
 | `ct-run where` | which of your workers a job of this class would go to, and why each of the others would not (nothing is sent) |
 | `ct-run use` | send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit |
