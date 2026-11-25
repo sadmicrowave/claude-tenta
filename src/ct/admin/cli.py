@@ -664,7 +664,7 @@ def cmd_workers(ctx, a):
                 if getattr(e, "code", "") == "worker.repo.shared":
                     raise refuse.error("worker.repo.shared", ("Worker", alias.show(a.name)), **e.facts)
                 raise refuse.error("worker.add.failed", reason=str(e))
-        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), *[({"queue": "Queue", "results": "Results"}[r], f"{w} ({s})") for r, w, s in prepared if r != "clone"], *([("Clones", str(Path(prepared[-1][1]).parent))] if prepared and prepared[-1][0] == "clone" else []),
+        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), *[("Queue", f"{w} ({s})") for r, w, s in prepared if r == "queue"], *[("Results", f"{w} ({s})") for r, w, s in prepared if r == "results"], *([("Clones", str(Path(prepared[-1][1]).parent))] if prepared and prepared[-1][0] == "clone" else []),
              *(["Its machine's deploy keys are added by ct-setup add-worker (or install), which also sets the machine up."] if prepared else []), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
         return 0
     if action == "remove":
