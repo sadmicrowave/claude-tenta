@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""The unit tests that gate a pull request: `scripts/test-gate BASE` prints `full` or the space-separated test modules to run.
+
+A pull request whose base is a theme branch listed in tests/themes.toml is gated by the always-run guards, the modules its changed files map to (tests/impact.py)
+and the theme's own modules; every other base (main, a release) is gated by the full suite, once, when the theme merges. Never guesses smaller than the truth:
+a changed file the table does not know makes it `full`. Prints; runs nothing."""
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tests"))
+import impact  # noqa: E402
+
+
+def main(base):
+    if not base:
+        return "full"
+    ref = f"origin/{base}"
+    out = subprocess.run(["git", "diff", "--name-only", f"{ref}...HEAD"], cwd=ROOT, capture_output=True, text=True)
+    if out.returncode != 0:
+        return "full"                                        # cannot tell what changed: run everything
+    changed = [c for c in out.stdout.split() if (ROOT / c).exists()]
+    gate = impact.theme_gate(changed, base)
+    return "full" if gate["full"] or not gate["modules"] else " ".join(gate["modules"])
+
+
+if __name__ == "__main__":
+    print(main(sys.argv[1] if len(sys.argv) > 1 else ""))

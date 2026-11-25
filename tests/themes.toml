@@ -1,0 +1,8 @@
+# Which unit tests gate a pull request into a theme branch (theme/<name>), so the full suite runs once, on the theme's pull request to main.
+# `always` = the guards that every change can break (output style, docs, the test table itself); they run for every slice.
+# A slice's gate = always + the modules the changed files map to (tests/impact.py) + the theme's own modules below.
+always = ["test_printout_rules", "test_output_style", "test_docs", "test_impact", "test_cards", "test_refusals", "test_code_chips_everywhere"]
+
+[orchestrator]
+branches = ["theme/orchestrator"]
+modules = ["test_candidacy", "test_cmdlog", "test_offload", "test_place", "test_sched", "test_loadtest", "test_workerstate", "test_profiling"]

@@ -151,7 +151,7 @@ class Command(unittest.TestCase):
             log.hook("post", ev("python3 -m unittest discover tests", f"t{i}"), now=1060.0)
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertEqual(code, 0)
-        for needle in ("Candidates for offloading", "For homect; median time at least 30 s.", "From 4 commands recorded on this computer.", "python3 -m unittest",
+        for needle in ("Candidates for offloading", "For homect; median time at least 30 s, or 3 runs in 14 days.", "From 4 commands recorded on this computer.", "python3 -m unittest",
                        "Most recent example of each", "offload fit -- <the example command>"):
             self.assertIn(needle, out + err)
         self.assertRegex(out, r"1\s+4\s+60s\s+240s\s+python3 -m unittest")
@@ -179,6 +179,145 @@ class Command(unittest.TestCase):
         code, out, err = self.run_cli("offload", "log", "top", "--top", "2")
         table = out.split("Most recent example of each")[0]
         self.assertEqual(sum(1 for l in table.splitlines() if "--go" in l), 2)
+
+
+class Repeats(unittest.TestCase):
+    """Item 8: repeated short work is a candidate too, counted over the person's own window (offload.repeat_runs / repeat_days)."""
+
+    def setUp(self):
+        self.log = cmdlog.CommandLog(Path(tempfile.mkdtemp()))
+        self.now = time_now()
+
+    def recs(self, n, secs, age_days=0):
+        return [{"ts": int(self.now - age_days * 86400 - i), "cmd": "make big", "secs": secs} for i in range(n)]
+
+    def test_three_short_runs_in_the_window_are_a_candidate_with_the_reason_named(self):
+        rows = self.log.rank(records=self.recs(3, 12), repeat_runs=3, repeat_days=14, now=self.now)
+        self.assertEqual([r["shape"] for r in rows], ["make big"])
+        self.assertEqual(rows[0]["headline"], "Free your own computer")
+        self.assertEqual([r["rung"] for r in rows[0]["rungs"]], [1, 2, 3, 4])
+
+    def test_the_two_settings_decide(self):
+        self.assertEqual(self.log.rank(records=self.recs(3, 12), repeat_runs=4, repeat_days=14, now=self.now), [])
+        old = self.recs(3, 12, age_days=20)
+        self.assertEqual(self.log.rank(records=old, repeat_runs=3, repeat_days=14, now=self.now), [])
+        self.assertEqual(len(self.log.rank(records=old, repeat_runs=3, repeat_days=30, now=self.now)), 1)
+
+    def test_a_long_run_needs_no_repeat(self):
+        self.assertEqual(len(self.log.rank(records=self.recs(1, 90), now=self.now)), 1)
+
+    def test_show_all_keeps_the_reason_for_a_miss(self):
+        row = self.log.rank(records=self.recs(2, 12), show_all=True, repeat_runs=3, now=self.now)[0]
+        self.assertIsNone(row["headline"])
+        self.assertIn("too quick", row["reason"])
+
+
+class RungsShown(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
+        log = cmdlog.CommandLog(self.home)
+        for i in range(3):
+            log.hook("pre", ev("make big", f"m{i}"), now=1000.0)
+            log.hook("post", ev("make big", f"m{i}"), now=1060.0)
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}), redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(list(args), ctx=self.ctx, cfg=self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_top_says_why_each_candidate_pays(self):
+        code, out, err = self.run_cli("offload", "log", "top")
+        self.assertIn("Free your own computer", out + err)
+
+    def test_all_shows_every_rung_for_each_shape(self):
+        code, out, err = self.run_cli("offload", "log", "top", "--all")
+        text = out + err
+        for needle in ("Every rung", "Worker-specific work", "Fewer AI tokens", "Faster", "Free your own computer", "needs the AI layer"):
+            self.assertIn(needle.lower(), text.lower())
+
+
+DAY = 86400
+
+
+class Measure(unittest.TestCase):
+    """Item 8, slice 3: the repeat settings suggested from the person's own log, never invented."""
+
+    def setUp(self):
+        self.log = cmdlog.CommandLog(Path(tempfile.mkdtemp()))
+        self.now = time_now()
+
+    def runs(self, cmd, gap_days, n=3, secs=12):
+        return [{"ts": int(self.now - i * gap_days * DAY), "cmd": cmd, "secs": secs} for i in range(n)]
+
+    def test_the_suggestion_is_the_typical_time_to_repeat_a_command(self):
+        recs = self.runs("make big", 1) + self.runs("make lint", 3)           # 3 runs take 2 days and 6 days: typical 4
+        m = self.log.measure(records=recs, repeat_runs=3, now=self.now)
+        self.assertEqual(m["suggested_days"], 4)
+        self.assertEqual(m["shapes_enough"], 2)
+
+    def test_the_grid_counts_candidates_at_each_pair_of_values(self):
+        recs = self.runs("make big", 1) + self.runs("make lint", 3)
+        grid = self.log.measure(records=recs, repeat_runs=3, now=self.now)["grid"]
+        self.assertEqual(grid[3][7], 2)
+        self.assertEqual(grid[4][7], 0)                                       # nobody ran anything four times
+        self.assertEqual(grid[2][7], 2)
+        self.assertEqual(sorted(grid), [2, 3, 4])
+        self.assertEqual(sorted(grid[3]), [7, 14, 30])
+
+    def test_too_little_data_suggests_nothing_and_says_what_is_missing(self):
+        m = self.log.measure(records=self.runs("make big", 1, n=2), repeat_runs=3, now=self.now)
+        self.assertIsNone(m["suggested_days"])
+        self.assertEqual(m["most_runs"], 2)
+        self.assertEqual(self.log.measure(records=[], repeat_runs=3, now=self.now)["suggested_days"], None)
+
+    def test_a_command_that_is_not_a_candidate_kind_is_left_out(self):
+        recs = self.runs("git fetch origin", 1)
+        self.assertEqual(self.log.measure(records=recs, repeat_runs=3, now=self.now)["shapes_enough"], 0)
+
+
+class MeasureCommand(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}), redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(list(args), ctx=self.ctx, cfg=self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def fill(self, cmd, gap_days, n=3):
+        log, now = cmdlog.CommandLog(self.home), time_now()
+        for i in range(n):
+            t = now - i * gap_days * DAY
+            log.hook("pre", ev(cmd, f"{cmd}{i}"), now=t)
+            log.hook("post", ev(cmd, f"{cmd}{i}"), now=t + 12)
+
+    def test_nothing_recorded_says_so(self):
+        code, out, err = self.run_cli("offload", "measure")
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing recorded yet", out + err)
+
+    def test_it_shows_the_data_and_the_command_that_applies_it_but_changes_nothing(self):
+        self.fill("make big", 1)
+        self.fill("make lint", 3)
+        before = sorted(p.name for p in self.home.iterdir())
+        code, out, err = self.run_cli("offload", "measure")
+        text = out + err
+        self.assertEqual(code, 0)
+        for needle in ("Suggested", "4 days", "offload.repeat_days=4", "Candidates at each setting"):
+            self.assertIn(needle, text)
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), before)
+
+    def test_too_little_data_says_how_much_more(self):
+        self.fill("make big", 1, n=2)
+        text = "".join(self.run_cli("offload", "measure")[1:])
+        self.assertIn("No suggestion yet", text)
+        self.assertNotIn("repeat_days=", text)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
   offload history                every fit check you or Claude made
   offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
   offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
+  offload measure                suggest the repeat settings from your own command log
   offload exclusions             commands that were tested and do not fit
 
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
@@ -28,7 +29,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import cap, refuse
+from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -45,7 +46,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github"):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -53,6 +54,7 @@ class Context:
         self.packs = off.PackBook(self.home)
         self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
         self.commands = off.CommandBook(self.home)
+        self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -66,7 +68,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -796,6 +798,28 @@ def cmd_propose(ctx, a):
     return 0
 
 
+def cmd_measure(ctx, a, cfg=None):
+    """`ct-run offload measure`: what the person's own log says about offload.repeat_runs and offload.repeat_days. It prints the data and the one command that would apply a
+    suggestion; it changes nothing itself."""
+    log = command_log(ctx, cfg)
+    m = log.measure(a.min_seconds, repeat_runs=ctx.repeat_runs, repeat_days=ctx.repeat_days)
+    if not m["records"]:
+        emit("Nothing recorded yet", ("Where", "ct-run offload log show"), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
+        return 0
+    _ui.table("Candidates at each setting", ["runs needed", *(f"in {plural(d, 'day')}" for d in log.GRID_DAYS)],
+              [[str(k), *(str(m["grid"][k][d]) for d in log.GRID_DAYS)] for k in sorted(m["grid"])], tag="MEASURE", stream=sys.stdout,
+              notes=(f"From {plural(m['records'], 'command')} recorded over {plural(max(1, round(m['log_days'])), 'day')}; {plural(m['shapes'], 'command shape')} could run on a worker.",
+                     f"Now: {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')} gives {plural(m['current'], 'candidate')}."))
+    if m["suggested_days"] is None:
+        emit("No suggestion yet", f"No command has been run {plural(ctx.repeat_runs, 'time')} yet; the most is {m['most_runs']}.", tag="NOTE", color=YELLOW,
+             steps=["Keep working with the hooks installed, then measure again once a command you repeat has reached that many runs."])
+        return 0
+    d = m["suggested_days"]
+    emit("Suggested", f"{plural(m['shapes_enough'], 'command shape')} of yours reached {plural(ctx.repeat_runs, 'run')}: the typical one took {plural(d, 'day')} to do it, so count {plural(ctx.repeat_runs, 'run')} within {plural(d, 'day')}.",
+         tag="SUGGESTION", color=CYAN, run_label="Apply it (nothing has been changed yet)", run=f"ct-setup install --set offload.repeat_days={d}")
+    return 0
+
+
 # ---- offload: what is worth running on the worker ----
 LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yourself)", [("Installed once in Claude Code's settings", "ct-run offload log hook pre")]),
             "top": ("rank the commands you run most that the worker could take",
@@ -814,6 +838,8 @@ def cmd_offload(ctx, a, cfg):
     c = a.offload_cmd
     if c == "fit":
         return cmd_fit(ctx, a.argv)
+    if c == "measure":
+        return cmd_measure(ctx, a, cfg)
     if c == "history":
         return cmd_history(ctx, a)
     if c == "exclusions":
@@ -825,7 +851,7 @@ def cmd_offload(ctx, a, cfg):
     if c != "log" or not a.log_cmd:
         emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
              ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
-             ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
+             ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
@@ -845,15 +871,21 @@ def cmd_offload(ctx, a, cfg):
     if not recs:
         emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
         return 0
-    rows = log.rank(a.min_seconds, a.all, recs)[:a.top]
+    rows = log.rank(a.min_seconds, a.all, recs, ctx.repeat_runs, ctx.repeat_days)[:a.top]
     out = sys.stdout
     if not rows:
         emit("No candidates yet", "A candidate is repeated, slow, runs locally, and is not a git, network or package-manager command.", tag="NOTE", color=YELLOW)
         return 0
-    _ui.table("All command shapes" if a.all else "Candidates for offloading", ["#", "runs", "median", "total", "command shape"],
+    _ui.table("All command shapes" if a.all else "Candidates for offloading", ["#", "runs", "median", "total", "command shape"] + ([] if a.all else ["why it pays"]),
               [[str(i), str(r["count"]), "?" if r["median"] is None else f"{r['median']:.0f}s", f"{r['total']:.0f}s", (r["shape"] + (f"   [{r['reason']}]" if r["reason"] else ""), "warn" if r["reason"] else None)]
-               for i, r in enumerate(rows, 1)], tag="CANDIDATES", stream=out,
-              notes=(*(() if a.all else (f"For {alias.show(ctx.product)}; median time at least {a.min_seconds:.0f} s.",)), f"From {len(recs)} commands recorded on this computer.", "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))
+               + ([] if a.all else [r["headline"] or "-"]) for i, r in enumerate(rows, 1)], tag="CANDIDATES", stream=out,
+              notes=(*(() if a.all else (f"For {alias.show(ctx.product)}; median time at least {a.min_seconds:.0f} s, or {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')}.",)), f"From {len(recs)} commands recorded on this computer.", "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))
+    if a.all:
+        verdict = {"met": "met", "not met": "no", "unknown": "?"}
+        _ui.table("Every rung, for each command shape", ["#", *(f"rung {n}" for n in sorted(candidacy.NAMES)), "headline"],
+                  [[str(i), *(verdict[x["verdict"]] for x in r["rungs"]), r["headline"] or "-"] for i, r in enumerate(rows, 1)], tag="RUNGS", stream=out,
+                  notes=("Rungs: " + ", ".join(f"{n} {candidacy.NAMES[n]}" for n in sorted(candidacy.NAMES)) + ".", "met = this reason applies; no = it does not; ? = cannot be judged yet (fewer AI tokens needs the AI layer).",
+                         "The headline is the highest-weighted rung that is met (docs/design/OFFLOAD-REASONS.md)."))
     if not a.all:
         _ui.table("Most recent example of each", ["#", "example"], [[str(i), r["example"][:150]] for i, r in enumerate(rows, 1)], tag="EXAMPLES", stream=out)
         emit("Pick the one you like", tag="NEXT", color=CYAN, run_label=f"Check whether {alias.show(ctx.product)} can take it", run="ct-run offload fit -- <the example command>")
@@ -927,6 +959,8 @@ def build_parser():
     hs.add_argument("--command", metavar="TEXT", help="only checks whose command contains this text")
     hs.add_argument("--json", action="store_true", help="print the checks as JSON")
     hs.add_argument("--clear", action="store_true", help="forget the history")
+    osp.add_parser("measure", add_help=False, help="suggest how often a command must repeat to count, from your own log (changes nothing)").add_argument(
+        "--min-seconds", type=float, default=30.0, help="the usual time a single run must take to count as long (default %(default)s)")
     osp.add_parser("exclusions", add_help=False, help="commands that were test-run on the worker and do not fit")
     pf = osp.add_parser("profile", add_help=False, help="describe one exact command and have the worker measure it (needs your approval)")
     pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")
