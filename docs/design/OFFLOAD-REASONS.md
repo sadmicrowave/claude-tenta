@@ -69,7 +69,7 @@ Candidacy today looks at rung 4 only (seconds and count). Evaluating all rungs i
 
 ## Candidacy over every rung, and the measurement utility (list item 8; design 2026-11-24)
 
-Branch `candidacy-measurement`, a feature of `theme/orchestrator`. User's direction: [[project-orchestrator-direction]] (memory); weights and "repeatable" are decided above and are not reopened here.
+Branch `feat/candidacy-measurement` (and the slice branches `feat/candidacy-show-rungs`, `feat/offload-measure`), features of `theme/orchestrator`. Weights and "repeatable" are decided above and are not reopened here.
 
 **Goal.** Judge a command against every rung of the ladder (never stopping at the first miss), name the headline reason, and give the person a measurement utility that suggests `offload.repeat_runs` / `offload.repeat_days` from their own command log.
 **Done when.**
