@@ -348,6 +348,8 @@ define("ssh.connect_failed", "error", "The real error text of a connection that 
 define("worker.name.invalid", "format", "A worker name is short and plain, so it is safe in a file and on a command line.", "A worker name is not allowed",
        "a worker name is lowercase letters, digits and dashes, starting with a letter", who="client")
 define("worker.config.missing", "error", "A worker is added from its configuration file, so a path with none is said plainly.", "There is no configuration file there", "there is no configuration file at {path}", who="client")
+define("worker.repo.shared", "security", "Each GitHub worker has its OWN private queue and results repositories: a deploy key covers a whole repository, so two workers on one repository could read or forge each other's jobs and results. No setting turns this off.", "Two workers would share a repository",
+       "{slug} is already used by {other}; every worker needs its own queue and results repositories, and a queue and results repository must differ", who="client", steps=["Give this worker its own repository names (github.queue_repo and github.results_repo), then run the command again."])
 
 define("files.held.secret_name", "security", "Protects the person from sending a credential to a worker by accident: a file whose name conventionally holds a secret (.env, *.pem, id_rsa, .npmrc ...) is held back "
        "unless an --include names it exactly. A wildcard never sends one.", "A file that usually holds a secret was held back", "{name!r} was held back: its name is one that usually holds a secret",

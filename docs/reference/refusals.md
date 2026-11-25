@@ -154,6 +154,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** The program must be a plain file owned by root, in a system folder, that nobody else can write.
 
+### `worker.repo.shared`: Two workers would share a repository
+
+- **Text:** {slug} is already used by {other}; every worker needs its own queue and results repositories, and a queue and results repository must differ
+- **Protects:** Each GitHub worker has its OWN private queue and results repositories: a deploy key covers a whole repository, so two workers on one repository could read or forge each other's jobs and results. No setting turns this off.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Give this worker its own repository names (github.queue_repo and github.results_repo), then run the command again.
+
 ### `files.held.secret_name`: A file that usually holds a secret was held back
 
 - **Text:** {name!r} was held back: its name is one that usually holds a secret

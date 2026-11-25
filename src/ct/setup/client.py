@@ -93,6 +93,10 @@ class ClientSetup:
             raise refuse.error("setup.config.invalid", problems="\n".join(problems))
         self.cfg = config.Config(clean)
         path = self.config_path()
+        from ..admin import workers as workers_mod
+        hit = workers_mod.repo_conflict(self.cfg, path, Path(path).parent / "workers.toml")          # before anything is written or created: one private repository pair per worker, never shared
+        if hit:
+            raise refuse.error("worker.repo.shared", slug=hit[0], other=hit[1])
         if self.ui is not None and not self.dry_run:
             self.say(self.r.info(f"Your configuration is written to {path}. Settings you did not change keep their defaults; the file lists only your answers."))
         else:
@@ -208,6 +212,7 @@ class ClientSetup:
             elif self.gh:
                 self.run(["gh", "repo", "create", slug, "--private", "--description", f"claude-tenta {which} (private)"], f"create {slug}")
                 self.note(f"{which} repository", "planned" if self.dry_run else "created", f"{slug} (private)")
+                self.run(["gh", "repo", "edit", slug, "--add-topic", "claude-tenta"], f"group {slug} with the fleet", check=False)          # a topic only groups the repositories on GitHub; nothing depends on it
             else:
                 self.note(f"{which} repository", "manual", slug)
                 self.say(self.r.info(f"Create a PRIVATE repository named {slug} at https://github.com/new  (empty: no README, no licence)"))
