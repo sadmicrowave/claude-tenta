@@ -120,7 +120,20 @@ def _registry_step(t):
     sh("git", "pull", "-q", cwd=t / "w-queue")
 
 
-_TEMPLATE_STEPS = {"registry": _registry_step}
+def _job_b_step(t):
+    """On top of the registry: job-b already pushed to the queue's `jobs` branch (what the signed-approval tests approve)."""
+    req = t / "requester"
+    sh("git", "checkout", "-q", "--orphan", "jobs", cwd=req)
+    sh("git", "rm", "-rfq", ".", cwd=req)
+    (req / "jobs").mkdir()
+    (req / "jobs" / "job-b.json").write_text(json.dumps({"id": "job-b", "class": "careful"}))
+    sh("git", "add", "-A", cwd=req)
+    sh("git", "commit", "-q", "-m", "job job-b", cwd=req)
+    sh("git", "push", "-q", "origin", "jobs", cwd=req)
+    sh("git", "checkout", "-q", "main", cwd=req)
+
+
+_TEMPLATE_STEPS = {"registry": _registry_step, "job-b": lambda t: (_registry_step(t), _job_b_step(t))}
 
 
 def _copy_into(src, dest):

@@ -12,6 +12,8 @@ from ct.admin import jobs
 class SignedApprovals(AdminBase):
     """Approving here: signed with a key on this computer and published; nothing is run on the worker."""
 
+    template_kind = "job-b"                # the registry and job-b are already in the queue (built once per process)
+
     def setUp(self):
         super().setUp()
         keydir = self.home / "approval"
@@ -20,7 +22,6 @@ class SignedApprovals(AdminBase):
         self.pub = (keydir / "key.pub").read_text()
         self.signers = self.tmp / "approvers"
         self.signers.write_text(approvals.with_approver("", self.pub))
-        self.put_job("job-b")
         self.digest = jobs.digest_of(jobs.job_bytes(self.repos, "job-b"))
         self.tty = True
 
