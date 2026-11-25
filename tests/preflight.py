@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ("git", "ssh-keygen")
-MACHINE_PATTERN = re.compile(r"^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)")
 NEED_GB = {"probe": 5, "e2e": 10}
 
 
@@ -49,16 +48,14 @@ def _probe_problems():
     return out + _disk("probe")
 
 
-def _e2e_problems(cap):
+def _e2e_problems():
     missing = [t for t in ("orb", "orbctl", "tar", "git") if not shutil.which(t)]
     if missing:
         return [f"the program {m} is not on the PATH" + (": install OrbStack (brew install orbstack)" if m.startswith("orb") else "") for m in missing]
     rc, text = _run(["orb", "list"])
     if rc != 0:
         return [f"OrbStack is not running ({_first_line(text)}): open -a OrbStack"] + _disk("e2e")
-    names = [line.split()[0] for line in text.splitlines() if line.split() and MACHINE_PATTERN.match(line.split()[0])]
-    out = [f"{len(names)} test machines already exist (limit {cap}): scripts/e2e-clean"] if len(names) >= cap else []
-    return out + _disk("e2e")
+    return _disk("e2e")          # the machine caps (this run's and the global one) are counted by scripts/e2e-names.sh, which knows whose machine is whose
 
 
 def _real_problems(host):
@@ -70,11 +67,11 @@ def _real_problems(host):
     return [] if rc == 0 else [f"{host} does not answer a key login ({_first_line(text)}): check the machine is on, then ssh {host} once by hand"]
 
 
-def problems(kind="unit", arg=None, cap=4):
+def problems(kind="unit", arg=None):
     if kind == "probe":
         return _probe_problems()
     if kind == "e2e":
-        return _e2e_problems(cap)
+        return _e2e_problems()
     if kind == "real":
         return _real_problems(arg)
     out = []
@@ -89,8 +86,8 @@ def problems(kind="unit", arg=None, cap=4):
     return out
 
 
-def require(kind="unit", arg=None, cap=4):
-    found = problems(kind, arg, cap)
+def require(kind="unit", arg=None):
+    found = problems(kind, arg)
     if found and kind != "unit":
         sys.stderr.write(f"The {kind} run cannot start here:\n" + "".join(f"  - {p}\n" for p in found))
         raise SystemExit(1)
@@ -105,6 +102,5 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Check the environment before a run; exit 1 with the fixes when something is missing.")
     ap.add_argument("--for", dest="kind", default="unit", choices=("unit", "probe", "e2e", "real"))
     ap.add_argument("arg", nargs="?", help="the host for --for real (user@host)")
-    ap.add_argument("--cap", type=int, default=4, help="most test machines allowed before an e2e run")
     a = ap.parse_args()
-    require(a.kind, a.arg, a.cap)
+    require(a.kind, a.arg)

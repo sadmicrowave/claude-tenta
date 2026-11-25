@@ -5,20 +5,20 @@
 #   scripts/e2e-orbstack --keep     the same, but leave the machine running afterwards (to look around; delete it yourself: scripts/e2e-clean)
 #   scripts/e2e-orbstack --delete   delete the machine and stop
 # The machine is deleted even if the scenario fails or you press Ctrl-C: a test machine left running is a machine nobody remembers. What would be lost with it (the scenario's own
-# output files and the services' journal) is copied first to /tmp/ct-e2e-logs/<machine>/. The machine only gets a copy of the tracked files (git archive), never your home folder.
-# At most 8 test machines may exist at once; scripts/e2e-clean removes every one this project ever made.
+# output files and the services' journal) is copied first to /tmp/ct-e2e-logs/<run id>/<machine>/. The machine only gets a copy of the tracked files (git archive), never your home folder.
+# At most 8 of this run id's machines (and 12 in all) may exist at once; scripts/e2e-clean removes this run id's.
 set -euo pipefail
-M=${CT_E2E_MACHINE:-ct-e2e}; IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}      # the release the supported servers run; CT_E2E_IMAGE=ubuntu:24.04 for the older one
+. "$(dirname "$0")/e2e-names.sh"; M=${CT_E2E_MACHINE:-$(e2e_machine e2e)}; IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}      # the release the supported servers run; CT_E2E_IMAGE=ubuntu:24.04 for the older one
 KEEP=${CT_E2E_KEEP:-0}; [ "${1:-}" = "--keep" ] && KEEP=1
 cd "$(dirname "$0")/.."
-"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e --cap 8 || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
+e2e_banner
+"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&2; exit 2; }
 gone() { orb delete -f "$M" >/dev/null 2>&1 || true; }
 if [ "${1:-}" = "--delete" ]; then gone; exit 0; fi
 orb list 2>/dev/null | awk '{print $1}' | grep -qx "$M" && gone                  # always a clean machine: an old one carries state from the last run
-n=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)' || true)
-[ "$n" -ge 8 ] && { echo "There are already $n test machines. Run scripts/e2e-clean first." >&2; exit 3; }
-LOGS=/tmp/ct-e2e-logs/$M
+e2e_cap_check 8 || exit 3
+LOGS=$(e2e_logs_dir "$M")
 finish() {
   rc=$?
   if orb list 2>/dev/null | awk '{print $1}' | grep -qx "$M"; then

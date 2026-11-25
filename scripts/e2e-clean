@@ -1,21 +1,36 @@
 #!/bin/bash
-# Delete every OrbStack machine this project's test scripts ever made (names starting ct-e2e, ct-mx, ct-u, ct-run or cw-e2e); the cached base machines (ct-cache-*) are kept unless you say --all. Run it at the end of any session that used them.
-#   scripts/e2e-clean           delete them all
-#   scripts/e2e-clean --list    only list them
-#   scripts/e2e-clean --all     also the cached base machines (the next scripts/e2e-routes builds them again)
+# Delete the OrbStack machines THIS RUN ID made (see scripts/e2e-names.sh: the id is printed first; CT_E2E_RUN or the checkout path decides it). Never another run's: whoever made a machine deletes it.
+#   scripts/e2e-clean               delete this run id's machines
+#   scripts/e2e-clean --list        list every test machine with its owner (this run's marked), and the caches; delete nothing
+#   scripts/e2e-clean --all         this run id's machines AND the shared cached base machines (the next scripts/e2e-routes builds them again; do not do it while another run is using them)
+#   scripts/e2e-clean --all-runs    EVERY run id's machines, and the unowned ones made before the ids existed. Says so first. Only when you know no other run is going.
 # A machine OrbStack lists but can no longer address (it happens after a name is reused quickly) is deleted by its id as a second try.
 set -uo pipefail
+cd "$(dirname "$0")/.."
+. scripts/e2e-names.sh
 command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&2; exit 2; }
-PATTERN='^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)'; [ "${1:-}" = "--all" ] && { PATTERN='^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e|ct-cache)'; shift; }
-names=$(orb list 2>/dev/null | awk '{print $1}' | grep -E "$PATTERN" || true)
-if [ -z "$names" ]; then echo "No test machines."; exit 0; fi
-if [ "${1:-}" = "--list" ]; then echo "$names"; exit 0; fi
+ID=$(e2e_id) || exit 2
+MODE=mine; WITH_CACHE=0
+case "${1:-}" in --all) WITH_CACHE=1;; --all-runs) MODE=everyone;; --list) MODE=list;; "") ;; *) echo "usage: scripts/e2e-clean [--list|--all|--all-runs]" >&2; exit 2;; esac
+caches=$(orb list 2>/dev/null | awk '{print $1}' | grep -E '^ct-cache' || true)
+if [ "$MODE" = list ]; then
+  echo "run id $ID (this checkout)"
+  for m in $(e2e_all_machines); do o=$(e2e_owner "$m"); printf '%-40s %s\n' "$m" "$([ "$o" = "$ID" ] && echo "owner $o (this run)" || echo "owner $o")"; done
+  for m in $caches; do printf '%-40s shared cache\n' "$m"; done
+  exit 0
+fi
+if [ "$MODE" = everyone ]; then names=$(e2e_all_machines); echo "Deleting EVERY run id's test machines, and the unowned ones (this run is $ID)."; else names=$(e2e_my_machines); fi
+[ "$WITH_CACHE" = 1 ] && names="$names $caches"
+names=$(echo $names)
+if [ -z "$names" ]; then echo "No test machines for run id $ID."; exit 0; fi
 for m in $names; do
   printf 'deleting %s ... ' "$m"
   if orb delete -f "$m" >/dev/null 2>&1; then echo ok; continue; fi
   id=$(orb list --format json 2>/dev/null | python3 -c "import json,sys; print(next((x['id'] for x in json.load(sys.stdin) if x['name']=='$m'), ''))" 2>/dev/null)
   if [ -n "$id" ] && orb delete -f "$id" >/dev/null 2>&1; then echo "ok (by id)"; else echo "could not delete it: delete it in the OrbStack app"; fi
 done
-left=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE "$PATTERN" || true)
+if [ "$MODE" = everyone ]; then left=$(e2e_all_machines | grep -c . || true); else left=$(e2e_my_machines | grep -c . || true); fi
 echo "$left test machine(s) left."
+others=$(e2e_all_machines | grep -vxF -f <(e2e_my_machines) | grep -c . || true)
+[ "$MODE" = mine ] && [ "$others" -gt 0 ] && echo "$others machine(s) of other runs were left alone (scripts/e2e-clean --list)."
 exit $(( left > 0 ))

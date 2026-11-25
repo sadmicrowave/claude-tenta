@@ -44,12 +44,10 @@ class Kinds(unittest.TestCase):
         self.assertIn("Cannot connect", found[0])
         self.assertIn("open -a OrbStack", found[0])
 
-    def test_e2e_needs_orbstack_running_room_and_few_machines(self):
-        names = "ct-e2e\nct-run-a\nct-run-b\nct-run-c\nct-run-d\nother\n"
+    def test_e2e_needs_orbstack_running_and_room(self):
         with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=2), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(names)):
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("ct-e2e\n")):
             found = " ".join(preflight.problems("e2e"))
-        self.assertIn("scripts/e2e-clean", found)
         self.assertIn("free disk", found)
 
     def test_real_host_must_answer_with_a_key(self):
@@ -59,15 +57,6 @@ class Kinds(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertIn("mini-host", found[0])
         self.assertIn("Permission denied", found[0])
-
-    def test_the_machine_count_reads_the_real_orb_list_format(self):
-        listing = ("ct-cache-ubuntu-24-04     stopped  ubuntu  noble     amd64  1.3 GB  \n"
-                   "ct-run-x-install          running  ubuntu  resolute  amd64  1.3 GB  \n"
-                   "ct-e2e                    running  ubuntu  resolute  amd64  1.3 GB  \n")
-        with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(listing)):
-            self.assertIn("2 test machines", " ".join(preflight.problems("e2e", cap=2)))
-            self.assertEqual(preflight.problems("e2e", cap=3), [])
 
     def test_the_docker_failure_shows_the_error_not_the_banner(self):
         real = "Client: Docker Engine - Community\n Version: 29\nfailed to connect to the docker API at unix:///x.sock; daemon running?"
