@@ -107,6 +107,12 @@ class GithubWorkerSteps(unittest.TestCase):
         self.assertEqual(addworker.fleet_names(main, "tenta2", False), {"github.queue_repo": "mainw-tenta2-queue", "github.results_repo": "mainw-tenta2-results"})
         self.assertEqual(addworker.fleet_names(main, "tenta2", True), {})
 
+    def test_the_names_are_suggested_when_the_first_worker_is_direct_and_has_no_github_account(self):
+        from ct.setup import addworker
+        (self.d / "direct.toml").write_text('[identity]\nname = "mainw"\n[server]\nhost = "m.example"\nadmin_user = "me"\n[transport]\nkind = "direct"\n')
+        main = config.load(self.d / "direct.toml", env={"CT_CONFIG": ""})
+        self.assertEqual(addworker.fleet_names(main, "wkb", False)["github.queue_repo"], "mainw-wkb-queue")
+
     def test_removing_a_worker_offers_its_repositories_but_never_one_another_worker_lists(self):
         from ct.admin import workerrepos
         _, a = self.cfg("wk-a")

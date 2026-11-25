@@ -447,7 +447,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
 def fleet_names(main_cfg, name, again):
     """The suggested repository names of a NEW worker: `<main install name>-<worker>-queue` and `-results`, so a fleet sorts together on GitHub and no two workers can be given the same pair by default.
     A worker set up again keeps the names it already has (its own answers win over any suggestion)."""
-    if again or not main_cfg.github.owner:
+    if again:                                                          # (a Direct first worker records no GitHub account, so the account is not a condition: only the transport the new worker is given uses these)
         return {}
     stem = name if name.startswith(main_cfg.identity.name) else f"{main_cfg.identity.name}-{name}"
     return {"github.queue_repo": f"{stem}-queue", "github.results_repo": f"{stem}-results"}
