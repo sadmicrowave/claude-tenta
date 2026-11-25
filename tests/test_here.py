@@ -33,7 +33,7 @@ def run(argv, cfg=None, answer=None):
     return rc, out.getvalue() + err.getvalue()
 
 
-class FolderFile(unittest.TestCase):
+class FolderFileFixture(unittest.TestCase):
     def setUp(self):
         self.t = tempfile.TemporaryDirectory()
         self.d = Path(self.t.name).resolve()
@@ -42,6 +42,8 @@ class FolderFile(unittest.TestCase):
         (self.d / "workers.toml").write_text(f'[workers.pentest]\nconfig = "{cfg_file(self.d, "pentest").source}"\n')
         self.cfg = cfg_file(self.d, "main")
 
+
+class FolderFile(FolderFileFixture):
     def test_use_writes_an_editable_file_that_is_read_back(self):
         with in_dir(self.d):
             rc, out = run(["pentest"], self.cfg)
@@ -106,7 +108,7 @@ class FolderFile(unittest.TestCase):
             self.assertIn("pentest", out)
 
 
-class Warnings(FolderFile):
+class Warnings(FolderFileFixture):
     def test_a_command_that_the_folders_worker_already_covers_is_warned_about_and_not_written(self):
         with in_dir(self.d):
             run(["pentest"], self.cfg)
@@ -143,7 +145,7 @@ class Warnings(FolderFile):
             self.assertEqual(here.pins_for().commands, {})
 
 
-class ComputerFile(FolderFile):
+class ComputerFile(FolderFileFixture):
     """~/.tenta.toml: the same file for the whole computer, written by ct-admin workers use."""
 
     def admin(self, argv):

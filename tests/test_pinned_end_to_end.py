@@ -26,7 +26,7 @@ def worker_fixture(testcase, name, running):
     return fx
 
 
-class ThePinnedCheckOnRealQueues(unittest.TestCase):
+class ThePinnedCheckOnRealQueuesFixture(unittest.TestCase):
     def setUp(self):
         self.first = worker_fixture(self, "firstw", running=0)                  # the freer one: what the scheduler would choose
         self.second = worker_fixture(self, "secondw", running=3)                # the one being checked
@@ -50,6 +50,8 @@ class ThePinnedCheckOnRealQueues(unittest.TestCase):
             code = cli.main(["submit", "sys-status", "--no-wait", *extra], ctx=self.second.ctx, cfg=self.cfg)
         return code, out.getvalue() + err.getvalue()
 
+
+class ThePinnedCheckOnRealQueues(ThePinnedCheckOnRealQueuesFixture):
     def test_an_unpinned_job_goes_to_the_freer_worker(self):
         code, text = self.submit()
         self.assertEqual(code, 0, text)
@@ -63,7 +65,7 @@ class ThePinnedCheckOnRealQueues(unittest.TestCase):
         self.assertNotIn("Sending to", text)                                        # nothing was chosen, so nothing is said about choosing
 
 
-class ABatchStaysOnOneWorker(ThePinnedCheckOnRealQueues):
+class ABatchStaysOnOneWorker(ThePinnedCheckOnRealQueuesFixture):
     """Design requirement 1: a submit that is split into several independent jobs is placed on ONE worker as a unit, even when another worker would be a fine home for some of them."""
 
     def test_every_job_of_a_split_submit_lands_on_the_same_worker(self):

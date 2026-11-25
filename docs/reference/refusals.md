@@ -298,6 +298,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Copy the file into the project and send that, or leave it out.
 
+### `files.unpack.too_big`: The files unpack to more than this worker accepts
+
+- **Text:** the files would unpack to more than {cap} MB, the most this worker unpacks right now (a quarter of its free disk, and within its memory); nothing was written
+- **Protects:** Zip-bomb guard (finding F5): a small compressed job cannot grow into more than the worker will hold, whatever size it claims.
+- **Decided by:** worker
+- **Depends on:** the worker's free disk and memory; the worker release that can unpack (the one that publishes `compress`)
+- **Configured:** none: it follows the worker's free disk
+- **What to do:** Attach fewer files with --include on ct-run submit. Or send it again without compression: add --no-compress to the same command.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -777,6 +786,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `files.unpack.unreadable`: The compressed files could not be read
+
+- **Text:** the compressed files could not be unpacked: {detail}
+- **Protects:** Compressed data that cannot be read exactly as sent is never run.
+- **Decided by:** worker
+- **Depends on:** the worker release that can unpack (the one that publishes `compress`)
+- **Configured:** not configurable
+- **What to do:** Send it again: ct-run submit does the compression itself, so a damaged copy is not repeated. Or add --no-compress to the same command.
+
 ## Limit
 
 ### `files.too_many`: Too many files are attached
@@ -921,6 +939,24 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the worker's free disk and memory, or hardware.max_job_mb
 - **Configured:** the worker's hardware.max_job_mb (unset: automatic)
 - **What to do:** Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room.
+
+### `files.compress.over_worker_cap`: These files are too big for this worker, even compressed
+
+- **Text:** {count} is {size} before compression, over the {cap} MB this worker unpacks (a quarter of its free disk, and within its memory). Attach only the files the command needs (--include).
+- **Protects:** Checked here first so a set the worker would refuse as a zip bomb is not sent at all.
+- **Decided by:** client
+- **Depends on:** the worker's free disk and memory and its release (`compress` in registry.json, from the release that added compression)
+- **Configured:** none: it follows the worker's free disk
+- **What to do:** Attach fewer files with --include on ct-run submit. Or send it without compression with --no-compress (the worker may still refuse it as too big).
+
+### `files.unpack.no_room`: This worker has no room to unpack these files
+
+- **Text:** the files unpack to {size} MB but this worker has {free} GB free and keeps {reserve} GB back; nothing was written
+- **Protects:** The worker checks free disk before it unpacks, so one job cannot fill the disk (finding F5).
+- **Decided by:** worker
+- **Depends on:** the worker's free disk; the worker release that can unpack
+- **Configured:** the worker's disk reserve (10% of the volume, at least 2 GB)
+- **What to do:** Free some disk on the worker, or send it to a worker with more room. Or attach fewer files with --include, or add --no-compress to the same command.
 
 ## Placement
 
@@ -1094,6 +1130,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Name each package like apt:jq, npm:eslint or pip:requests on ct-run offload profile.
+
+### `files.compress.worker_cannot`: This worker cannot unpack compressed files
+
+- **Text:** {count} ({size}) is over {threshold}, which Direct sends compressed, but {worker} has not said it can unpack them. It runs a release older than this one, or its worker service has not restarted since it was updated.
+- **Protects:** A job whose files are compressed would reach an older worker with its files missing, so the client sends it compressed only to a worker that said it can unpack.
+- **Decided by:** client
+- **Depends on:** the worker's release (it must publish `compress` in registry.json) and the transport (Direct)
+- **Configured:** send without compression: --no-compress
+- **What to do:** Send it again without compression: add --no-compress to the same command (it can be slow and large), or update the worker (ct-admin update) and run it again. Or attach fewer files with --include.
 
 ## Policy
 

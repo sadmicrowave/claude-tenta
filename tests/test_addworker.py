@@ -430,7 +430,7 @@ class TheScreens(unittest.TestCase):
             addworker.choose_device(ui, None, lambda m: None, self.devices(2))
 
 
-class SettingAWorkerUpAgain(Base):
+class SettingAWorkerUpAgainFixture(Base):
     """The route a user takes after the first add-worker: the same command, for a worker that is already registered. Uses ITS configuration and folder, never the first install's."""
 
     def setUp(self):
@@ -442,6 +442,8 @@ class SettingAWorkerUpAgain(Base):
         (self.w_home / "queue" / ".git" / "config").write_text("[remote]\n")
         (self.conf_dir / "workers.toml").write_text(f'[workers.tenta2]\nconfig = "{self.w_conf}"\n')
 
+
+class SettingAWorkerUpAgain(SettingAWorkerUpAgainFixture):
     def test_the_command_for_a_registered_worker_sets_that_worker_up_again_with_its_own_files(self):
         rc = self.run_flow(args(name="worker2.example", yes=True))
         self.assertEqual(rc, 0, self.text())
@@ -670,7 +672,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class InstallChoosesTheComputer(SettingAWorkerUpAgain):
+class InstallChoosesTheComputer(SettingAWorkerUpAgainFixture):
     """`ct-setup install` does not assume a computer: it scans and you pick, or you name one with --worker or an address. The wrong machine's saved answers are never the default."""
 
     def test_the_worker_named_is_set_up_again_with_its_own_files_without_a_scan(self):

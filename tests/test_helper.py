@@ -33,7 +33,7 @@ SHA = "c" * 64
 WORKER_UID = 999
 
 
-class Helper(unittest.TestCase):
+class HelperFixture(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         paths = {"state_root": str(self.d / "var"), "config": str(self.d / "etc"), "code": str(self.d / "opt")}
@@ -75,7 +75,8 @@ class Helper(unittest.TestCase):
         return helper.handle(text, self.cfg, uid, run=run or self.fake_run(), now=lambda: self.now, check_exe=lambda p, s: (self.exe_checks.append((p, s)), exe_ok)[1],
                              worker_uid=WORKER_UID, log=self.logged.append, sandbox_check=self.sandbox)
 
-    # ---- the approved case ----
+
+class Helper(HelperFixture):
     def test_a_signed_approved_job_runs_the_action_in_its_own_sandbox_and_returns_the_output(self):
         r = self.go()
         self.assertEqual((r["status"], r["exit_code"], r["output"]), ("ok", 0, "done\n"))
@@ -96,7 +97,6 @@ class Helper(unittest.TestCase):
         r = self.go(run=slow, id="fan-def456")
         self.assertEqual(r["status"], "timeout")
 
-    # ---- the approval is the only way in ----
     def test_a_job_without_a_signed_approval_never_runs(self):
         for approval in ("", "not json", json.dumps({"record": "{}", "signature": "x"})):
             r = self.go(approval=approval)
@@ -129,7 +129,6 @@ class Helper(unittest.TestCase):
         r = self.go(approval="")
         self.assertEqual(r["status"], "refused")
 
-    # ---- who may ask, and what ----
     def test_only_the_worker_account_may_ask(self):
         self.assertEqual(self.go(uid=1000)["status"], "refused")
         self.assertEqual(self.go(uid=0)["status"], "refused")
@@ -150,7 +149,6 @@ class Helper(unittest.TestCase):
             self.assertEqual(r["status"], "refused", params)
         self.assertEqual(self.ran, [])
 
-    # ---- the program on disk ----
     def test_a_program_that_does_not_pass_the_check_is_not_run_and_the_job_is_not_used_up(self):
         r = self.go(exe_ok=(False, "the program is not the one that was approved"))
         self.assertEqual(r["status"], "refused")
@@ -158,7 +156,6 @@ class Helper(unittest.TestCase):
         self.assertFalse((Path(helper.state_dir(self.cfg)) / "done" / "fan-abc123").exists())
         self.assertEqual(self.go()["status"], "ok")                                                  # fixed, so the same job may now run
 
-    # ---- at most once ----
     def test_a_job_runs_at_most_once_even_if_the_same_request_is_sent_again(self):
         self.assertEqual(self.go()["status"], "ok")
         again = self.go()
@@ -173,7 +170,6 @@ class Helper(unittest.TestCase):
         self.assertEqual(self.go(run=crash)["status"], "error")
         self.assertEqual(self.go()["status"], "refused")
 
-    # ---- malformed input, missing tools ----
     def test_malformed_requests_are_refused_not_crashes(self):
         for text in ("", "not json", "{}", json.dumps({"job_b64": "!!!", "approval": "x"}), json.dumps({"job_b64": base64.b64encode(b"[1]").decode(), "approval": "x"}),
                      json.dumps({"job_b64": base64.b64encode(b'{"id": "../../etc"}').decode(), "approval": "x"})):
@@ -193,7 +189,7 @@ class Helper(unittest.TestCase):
         self.assertTrue(any("refused" in m for m in self.logged))
 
 
-class Sandbox(Helper):
+class Sandbox(HelperFixture):
     def test_a_machine_whose_systemd_does_not_enforce_the_sandbox_refuses_and_the_job_is_not_used_up(self):
         self.sandbox = lambda: False
         r = self.go()

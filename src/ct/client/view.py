@@ -140,6 +140,8 @@ def format_result(res, admin="ct-admin", suggest_name=None, received=None, rerun
         elif pr["verdict"] == "needs-longer":
             cmd, label, steps = needs_longer_next(pr, rerun)
             tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint(label or steps[0], DIM)}\n"] + ([chip(cmd) + "\n"] if cmd else [f"  - {x}" for x in steps[1:]])
+    if rerun and str(res.get("refusal") or "").startswith("files.unpack."):
+        tail += [f"\n{paint('NEXT', BOLD, CYAN)}  {paint('send it again without compression', DIM)}\n", chip(rerun) + "\n"]
     return head, res.get("output") or "", tail
 
 
@@ -173,6 +175,8 @@ def result_card(res, admin="ct-admin", suggest_name=None, received=None, rerun=N
             rows += [f"- {x}" for x in steps]
     if res.get("refusal"):                                                      # which rule refused it: the last row, so it can be looked up (docs/reference/refusals.md)
         rows += [("Code", res["refusal"])]
+        if rerun and str(res["refusal"]).startswith("files.unpack."):
+            run, run_label = rerun, "Send it again without compression"
     measured = []
     if m:
         temp = f"{m['peak_temp_c']} C" if m.get("peak_temp_c") else "n/a"
