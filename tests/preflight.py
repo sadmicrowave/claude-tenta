@@ -31,7 +31,7 @@ def _run(cmd, timeout=20):
 
 def _first_line(text):
     """The line that says what went wrong: `docker info` prints a client banner first and the failure last."""
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("**")]   # ssh prints key-exchange warnings as "** ..."
     bad = [l for l in lines if re.search(r"error|cannot|failed|refused|denied|not running|no such", l, re.I)]
     return (bad or lines or ["no output"])[0][:200]
 
@@ -66,7 +66,7 @@ def _real_problems(host):
         return ["no host given: scripts/probe --on user@host <probe>"]
     if not shutil.which("ssh"):
         return ["the program ssh is not on the PATH"]
-    rc, text = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "AddressFamily=inet", host, "true"], timeout=15)
+    rc, text = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "AddressFamily=inet", host, "echo ok"], timeout=15)   # `true` does not exist in a Windows shell
     return [] if rc == 0 else [f"{host} does not answer a key login ({_first_line(text)}): check the machine is on, then ssh {host} once by hand"]
 
 
