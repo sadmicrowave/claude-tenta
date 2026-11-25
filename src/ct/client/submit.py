@@ -279,8 +279,22 @@ CODEC = jobs.CODEC
 
 def compress_files(files):
     """{'codec', 'size' (bytes once unpacked), 'data'}: the whole set as one text value that the worker can unpack (jobs.unpack_files). Done AFTER the secret scan, on what is going to be sent."""
-    raw = json.dumps(files).encode()
-    return {"codec": CODEC, "size": len(raw), "data": base64.b64encode(zlib.compress(raw, 6)).decode()}
+    z, size = zlib.compressobj(6), 0
+    out = []
+
+    def feed(text):
+        nonlocal size
+        raw = text.encode()
+        size += len(raw)
+        out.append(z.compress(raw))
+
+    # the same bytes as json.dumps(files), written one piece at a time so the whole set is never held a second and third time
+    feed("{")
+    for i, (name, text) in enumerate(files.items()):
+        feed(("" if i == 0 else ", ") + json.dumps(name) + ": " + json.dumps(text))
+    feed("}")
+    out.append(z.flush())
+    return {"codec": CODEC, "size": size, "data": base64.b64encode(b"".join(out)).decode()}
 
 
 class Pack:

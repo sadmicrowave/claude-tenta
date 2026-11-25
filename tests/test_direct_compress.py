@@ -75,6 +75,28 @@ class Format(unittest.TestCase):
         self.assertEqual(r.exception.code, "files.unpack.unreadable")
 
 
+class Streaming(unittest.TestCase):
+    """compress_files writes the JSON a piece at a time (task 4c): same bytes as before, and no whole-set copies."""
+
+    def test_same_bytes_as_json_dumps(self):
+        for files in ({}, FILES, {"é/ü.txt": 'q"uote\\ \n\u2028 日本', "e.txt": ""}):
+            z = submit.compress_files(files)
+            raw = zlib.decompress(base64.b64decode(z["data"]))
+            self.assertEqual(raw, json.dumps(files).encode())
+            self.assertEqual(z["size"], len(raw))
+
+    def test_peak_extra_memory_is_far_below_the_set(self):
+        import tracemalloc
+        files = {"f%d.txt" % i: ("line %d of the file\n" % i) * 20_000 for i in range(10)}      # about 4 MB of text that compresses well, so the output is small and only the input copies show
+        total = sum(len(v) for v in files.values())
+        tracemalloc.start()
+        z = submit.compress_files(files)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        self.assertGreater(len(z["data"]), 0)
+        self.assertLess(peak, total * 0.5)         # the old code peaked above 2x the set (json text, then encoded bytes)
+
+
 class Catalog(unittest.TestCase):
     def test_every_new_refusal_is_in_the_catalog_and_names_the_command_without_compression(self):
         for code in UNPACK + COMPRESS:
