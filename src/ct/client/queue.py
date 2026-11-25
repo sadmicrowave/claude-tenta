@@ -11,6 +11,7 @@ import os
 import time
 from pathlib import Path
 
+from ..words import plural
 from . import place
 
 PRIORITIES = ("low", "normal", "high")
@@ -151,7 +152,7 @@ def note(home, jid, why):
 
 def age_text(seconds):
     s = max(0, int(seconds))
-    return f"{s}s" if s < 90 else f"{s // 60} min" if s < 5400 else f"{s // 3600} h" if s < 172800 else f"{s // 86400} days"
+    return f"{s}s" if s < 90 else f"{s // 60} min" if s < 5400 else f"{s // 3600} h" if s < 172800 else plural(s // 86400, "day")
 
 
 def why_of(choice):
