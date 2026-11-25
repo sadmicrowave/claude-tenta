@@ -638,7 +638,7 @@ def repos_choice(ctx, a, mine):
             return "keep"
         emit("Its repositories on GitHub", *[("Repository", s) for _, s in mine], "Archive keeps them read-only; delete removes them and their deploy keys for good.", tag="ASK", color=YELLOW)
         how = {"a": "archive", "d": "delete"}.get(ctx.ask("Keep, archive or delete them? [k/a/d, default keep] ").strip().lower()[:1], "keep")
-    if how == "delete" and not ctx.confirm("Delete " + " and ".join(s for _, s in mine) + " for good (no undo)?"):
+    if how == "delete" and not ctx.confirm("Delete " + " and ".join(s for _, s in mine) + " for good (no undo)?", getattr(a, "yes", False)):
         return "keep"
     return how
 
@@ -670,9 +670,10 @@ def cmd_workers(ctx, a):
     if action == "remove":
         listed_at = workers.load_list(wfile).get(a.name)
         mine = workerrepos.removable(a.name, listed_at, wfile) if listed_at else []
-        if not a.name or not workers.remove(wfile, a.name):
+        if not a.name or a.name not in workers.load_list(wfile):
             raise refuse.error("worker.unlisted", ("Name", a.name), example="ct-admin workers")
-        how = repos_choice(ctx, a, mine)
+        how = repos_choice(ctx, a, mine)                                           # asked BEFORE the worker is taken off the list: a refusal here changes nothing
+        workers.remove(wfile, a.name)
         results = workerrepos.retire([s for _, s in mine], how) if how != "keep" else []
         emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.",
              *[("Repository", f"{s}: {how}d" if ok else f"{s}: could not {how} ({said[:160]})") for s, ok, said in results],
@@ -683,7 +684,7 @@ def cmd_workers(ctx, a):
         return workers_use(ctx, a)
     if action == "rename":
         return workers_rename(ctx, a)
-    rows, problems, regs = [], [], {}
+    rows, problems, regs, shared = [], [], {}, []
     for name, repos in ctx.fleet():
         try:
             if not a.no_refresh:
@@ -698,7 +699,7 @@ def cmd_workers(ctx, a):
         except Exception:
             hit = None
         if hit:
-            problems.append(f"{name}: shares {hit[0]} with {hit[1]}. Each worker needs its own private repositories; give one of them new names")
+            shared.append((name, hit))
     cells = [workers.row_for(n, d) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
@@ -717,6 +718,9 @@ def cmd_workers(ctx, a):
     import shutil
     from .. import ui as ui_mod
     _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
+    if shared:
+        emit("Two workers share a repository", *[("Worker", alias.show(n)) for n, _ in shared], *[("Shared", f"{h[0]} with {h[1]}") for _, h in shared],
+             "Each worker needs its own private repositories: give one of them new names (github.queue_repo and github.results_repo in its configuration), then set it up again.", tag="WARNING", color=RED)
     if problems:
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
@@ -1423,6 +1427,7 @@ def build_parser():
     s.add_argument("--config", help="with add: the worker's configuration file")
     s.add_argument("--github", action="store_true", help="with add: also create the worker's two private repositories on GitHub (with gh) and clone them")
     s.add_argument("--repos", choices=["keep", "archive", "delete"], help="with remove: what to do with the worker's two repositories on GitHub (asked at a terminal; default keep)")
+    yes(s)
     s.add_argument("--mask", action="store_true", help="with rename: show only aliases, never the real names")
     s.add_argument("--show-real", action="store_true", help="with rename: show an alias with the real name beside it (the default)")
     s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")

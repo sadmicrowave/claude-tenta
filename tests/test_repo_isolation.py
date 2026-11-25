@@ -123,9 +123,21 @@ class GithubWorkerSteps(unittest.TestCase):
         self.assertEqual(cli.repos_choice(ctx, SimpleNamespace(repos=None), mine), "keep")             # no terminal and no flag: kept
         self.assertEqual(cli.repos_choice(ctx, SimpleNamespace(repos="archive"), mine), "archive")
         asked = []
-        ctx = SimpleNamespace(is_tty=lambda: True, ask=lambda q: "d", confirm=lambda q: asked.append(q) or False)
+        ctx = SimpleNamespace(is_tty=lambda: True, ask=lambda q: "d", confirm=lambda q, yes=False: asked.append(q) or False)
         self.assertEqual(cli.repos_choice(ctx, SimpleNamespace(repos=None), mine), "keep")             # said delete, did not confirm: kept
         self.assertIn("someone/wk-a-queue", asked[0])
+
+    def test_a_refused_repository_choice_leaves_the_worker_listed_and_yes_confirms_a_delete(self):
+        from types import SimpleNamespace
+        from ct.admin import cli
+        from ct.client.repo import ClientError
+        _, a = self.cfg("wk-a")
+        workers_mod.add(self.wfile, "wk-a", a)
+        ctx = SimpleNamespace(workers_file=self.wfile, is_tty=lambda: False, confirm=lambda q, yes=False: True if yes else (_ for _ in ()).throw(ClientError("no terminal", "", [])))
+        with self.assertRaises(ClientError):
+            cli.cmd_workers(ctx, SimpleNamespace(action="remove", name="wk-a", config=None, github=False, repos="delete", yes=False))
+        self.assertIn("wk-a", workers_mod.load_list(self.wfile))                                # nothing changed when it was refused
+        self.assertEqual(cli.repos_choice(ctx, SimpleNamespace(repos="delete", yes=True), [("queue", "someone/wk-a-queue")]), "delete")
 
 
 if __name__ == "__main__":
