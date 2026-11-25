@@ -151,7 +151,7 @@ class Command(unittest.TestCase):
             log.hook("post", ev("python3 -m unittest discover tests", f"t{i}"), now=1060.0)
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertEqual(code, 0)
-        for needle in ("Candidates for offloading", "For homect; median time at least 30 s.", "From 4 commands recorded on this computer.", "python3 -m unittest",
+        for needle in ("Candidates for offloading", "For homect; median time at least 30 s, or 3 runs in 14 days.", "From 4 commands recorded on this computer.", "python3 -m unittest",
                        "Most recent example of each", "offload fit -- <the example command>"):
             self.assertIn(needle, out + err)
         self.assertRegex(out, r"1\s+4\s+60s\s+240s\s+python3 -m unittest")
@@ -179,6 +179,64 @@ class Command(unittest.TestCase):
         code, out, err = self.run_cli("offload", "log", "top", "--top", "2")
         table = out.split("Most recent example of each")[0]
         self.assertEqual(sum(1 for l in table.splitlines() if "--go" in l), 2)
+
+
+class Repeats(unittest.TestCase):
+    """Item 8: repeated short work is a candidate too, counted over the person's own window (offload.repeat_runs / repeat_days)."""
+
+    def setUp(self):
+        self.log = cmdlog.CommandLog(Path(tempfile.mkdtemp()))
+        self.now = time_now()
+
+    def recs(self, n, secs, age_days=0):
+        return [{"ts": int(self.now - age_days * 86400 - i), "cmd": "make big", "secs": secs} for i in range(n)]
+
+    def test_three_short_runs_in_the_window_are_a_candidate_with_the_reason_named(self):
+        rows = self.log.rank(records=self.recs(3, 12), repeat_runs=3, repeat_days=14, now=self.now)
+        self.assertEqual([r["shape"] for r in rows], ["make big"])
+        self.assertEqual(rows[0]["headline"], "Free your own computer")
+        self.assertEqual([r["rung"] for r in rows[0]["rungs"]], [1, 2, 3, 4])
+
+    def test_the_two_settings_decide(self):
+        self.assertEqual(self.log.rank(records=self.recs(3, 12), repeat_runs=4, repeat_days=14, now=self.now), [])
+        old = self.recs(3, 12, age_days=20)
+        self.assertEqual(self.log.rank(records=old, repeat_runs=3, repeat_days=14, now=self.now), [])
+        self.assertEqual(len(self.log.rank(records=old, repeat_runs=3, repeat_days=30, now=self.now)), 1)
+
+    def test_a_long_run_needs_no_repeat(self):
+        self.assertEqual(len(self.log.rank(records=self.recs(1, 90), now=self.now)), 1)
+
+    def test_show_all_keeps_the_reason_for_a_miss(self):
+        row = self.log.rank(records=self.recs(2, 12), show_all=True, repeat_runs=3, now=self.now)[0]
+        self.assertIsNone(row["headline"])
+        self.assertIn("too quick", row["reason"])
+
+
+class RungsShown(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
+        log = cmdlog.CommandLog(self.home)
+        for i in range(3):
+            log.hook("pre", ev("make big", f"m{i}"), now=1000.0)
+            log.hook("post", ev("make big", f"m{i}"), now=1060.0)
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}), redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(list(args), ctx=self.ctx, cfg=self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_top_says_why_each_candidate_pays(self):
+        code, out, err = self.run_cli("offload", "log", "top")
+        self.assertIn("Free your own computer", out + err)
+
+    def test_all_shows_every_rung_for_each_shape(self):
+        code, out, err = self.run_cli("offload", "log", "top", "--all")
+        text = out + err
+        for needle in ("Every rung", "Worker-specific work", "Fewer AI tokens", "Faster", "Free your own computer", "needs the AI layer"):
+            self.assertIn(needle.lower(), text.lower())
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import median
 
+from . import candidacy
+
 MAX_LINE = 2000
 
 # never recorded: looks like a secret
@@ -145,9 +147,11 @@ class CommandLog:
             if now - old.stat().st_mtime > 86400:
                 old.unlink(missing_ok=True)
 
-    def rank(self, min_seconds=30.0, show_all=False, records=None):
-        """Group records by shape. Returns dicts sorted by count (then total time): candidates only, unless show_all."""
-        groups = defaultdict(lambda: {"count": 0, "secs": [], "example": "", "reason": None, "tool": ""})
+    def rank(self, min_seconds=30.0, show_all=False, records=None, repeat_runs=3, repeat_days=14, now=None):
+        """Group records by shape and judge each against every rung of the ladder (candidacy.judge). Returns dicts sorted by count (then total time):
+        candidates only (a rung is met), unless show_all. Each row carries `rungs` and `headline` (the name of the highest-weighted rung met)."""
+        now = time.time() if now is None else now
+        groups = defaultdict(lambda: {"count": 0, "secs": [], "ts": [], "example": "", "reason": None, "tool": ""})
         for r in (self.read() if records is None else records):
             c = classify(r["cmd"], self.own_tools)
             if not c:
@@ -156,19 +160,20 @@ class CommandLog:
             g = groups[sh]
             g["count"] += 1
             g["tool"], g["reason"], g["example"] = tool, reason, r["cmd"]
+            g["ts"].append({"ts": r.get("ts")})
             if r.get("secs") is not None and len(segments(r["cmd"])) == 1:
                 g["secs"].append(r["secs"])
         rows = []
         for sh, g in groups.items():
             med = median(g["secs"]) if g["secs"] else None
+            res = candidacy.judge({"runs": candidacy.runs_in_window(g["ts"], repeat_days, now), "median_s": med}, repeat_runs, min_seconds)
             reason = g["reason"]
-            if reason is None and med is None:
-                reason = "no timing recorded yet"
-            elif reason is None and med < min_seconds:
-                reason = f"too quick (median {med:.0f}s < {min_seconds:.0f}s)"
+            if reason is None and res["headline"] is None:
+                reason = next(r["reason"] for r in res["rungs"] if r["rung"] == 4)
             if reason and not show_all:
                 continue
-            rows.append({"shape": sh, "count": g["count"], "median": med, "total": sum(g["secs"]), "example": g["example"], "reason": reason})
+            rows.append({"shape": sh, "count": g["count"], "median": med, "total": sum(g["secs"]), "example": g["example"], "reason": reason,
+                         "rungs": res["rungs"], "headline": candidacy.NAMES[res["headline"]] if res["headline"] else None})
         rows.sort(key=lambda r: (-r["count"], -r["total"]))
         return rows
 
