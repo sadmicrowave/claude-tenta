@@ -112,6 +112,9 @@ class WorkerSide(support.Base):
         super().setUp()
         self.registry_path.write_text(support.REGISTRY)
         self.w.load_registry()
+        p = mock.patch("ct.plat.disk_free_gb", return_value=5000)          # the free-disk check must not depend on how full the machine running the tests is
+        p.start()
+        self.addCleanup(p.stop)
 
     def validate(self, files_z):
         jid = "job-0001"

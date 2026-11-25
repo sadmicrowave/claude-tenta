@@ -12,6 +12,94 @@ from ct.admin import cli, jobs, release
 from ct.client.repo import ClientError
 
 
+class UpdateEveryWorker(AdminBase):
+    """`ct-admin update` with several workers: one lookup, one notes card, this computer once, a roster before anything is asked, each worker in turn, one summary, the worst exit code."""
+
+    def setUp(self):
+        super().setUp()
+        self.ctx.sleep = lambda s: None
+        self.ctx.home.mkdir(parents=True, exist_ok=True)
+        self.old = self.rel[0]
+        self.new = self.release_commit({"src/ct/a.py": "a=2\n"}, "the next release")
+        sh("git", "tag", "-a", "release-9.9.9", "-m", "Adds things\nFixes others", "HEAD", cwd=self.src_dir)
+        self.visited, self.lookups, self.local_updates = [], [], []
+        self.tty = True
+
+    def worker(self, name, release=None, platform=None):
+        folder = self.tmp / f"state-{name}"
+        folder.mkdir(exist_ok=True)
+        (folder / "worker-state.json").write_text(json.dumps({k: v for k, v in (("release", release), ("platform", platform)) if v}))
+        c = mock.Mock(repos=mock.Mock(results=folder), ssh=mock.Mock(host=f"{name}.lan"), home=self.ctx.home)
+        c.name = name
+        return (name, c)
+
+    def run_update(self, targets, *extra, answers=()):
+        self.answers.extend(answers)
+
+        def fake_apply(c, a):                                      # what the real apply does with the outcomes list, for each kind of worker
+            self.visited.append((c.name, a.rev))
+            if c.name == "broken":
+                raise ClientError("broken is unreachable")
+            if c.name == "declined":
+                raise SystemExit(1)
+            if c.name == "winbox":                                  # the real apply leaves another platform alone
+                a.outcomes.append((c.name, "left"))
+                return 1
+            a.outcomes.append((c.name, "installed"))
+            return 0
+        real_check = cli.updatecheck.check_now
+        with mock.patch.object(self.ctx, "targets", return_value=targets), mock.patch.dict(cli.DISPATCH, {"apply": fake_apply}), \
+                mock.patch.object(cli.updatecheck, "check_now", side_effect=lambda url, **k: self.lookups.append(url) or real_check(url, **k)), \
+                mock.patch.object(cli.selfupdate, "checkout_root", return_value=None), \
+                mock.patch.object(cli.selfupdate, "update_package", side_effect=lambda url, tag: self.local_updates.append(tag)):
+            return self.admin("update", *extra)
+
+    def fleet(self):
+        return [("testct", self.ctx), self.worker("current", self.new), self.worker("broken", self.old), self.worker("declined", self.old), self.worker("good", self.old), self.worker("winbox", self.old, "windows")]
+
+    def test_every_worker_is_visited_one_failing_one_declined_and_the_summary_and_exit_code_say_so(self):
+        (self.ctx.repos.results / "worker-state.json").write_text(json.dumps({"release": self.old}))
+        code, out, err = self.run_update(self.fleet(), "--yes")
+        text = out + err
+        self.assertEqual([n for n, _ in self.visited], ["testct", "broken", "declined", "good", "winbox"])      # the current one is not visited; the others are, whatever happened to the one before
+        self.assertEqual({r for _, r in self.visited}, {self.new})                                              # one release for all of them
+        self.assertEqual(len(self.lookups), 1, "the release is looked up once")
+        self.assertEqual(self.local_updates, ["release-9.9.9"], "this computer is updated once")
+        self.assertEqual(text.count("Fixes others"), 1, text)                                                   # what changed is shown once
+        self.assertIn("update: broken", text)                                                                  # each worker has its heading, under the command the person typed
+        self.assertEqual(code, 2)                                                                              # the worst of them (the unreachable one)
+        self.assertIn("update finished: 6 workers", text)
+        for line in ("Updated", "Already current", "Left alone", "Failed or declined"):
+            self.assertIn(line, text)
+        self.assertIn("broken", text)
+
+    def test_the_devices_are_listed_before_anything_is_installed_or_asked(self):
+        self.answers.append("n")
+        code, out, err = self.run_update(self.fleet(), answers=["n"])
+        text = out + err
+        self.assertIn("The update would touch 7 devices", text)
+        self.assertIn("good (good.lan)", text)
+        self.assertIn("current (current.lan)", text)
+        self.assertIn("winbox (winbox.lan, runs windows)", text)
+        self.assertEqual(self.local_updates, [])                    # "no" for this computer; each worker is still asked its own question (the real apply asks it)
+
+    def test_check_shows_the_devices_and_changes_nothing(self):
+        code, out, err = self.run_update(self.fleet(), "--check")
+        self.assertEqual((code, self.visited, self.local_updates), (0, [], []))
+        self.assertIn("The update would touch", out + err)
+
+    def test_every_worker_current_is_said_once(self):
+        code, out, err = self.run_update([("a", self.worker("a", self.new)[1]), self.worker("b", self.new)], answers=["n"])
+        self.assertEqual(self.visited, [])
+        self.assertIn("update finished: 2 workers", out + err)
+
+    def test_worker_narrows_it_to_one_and_the_single_worker_card_is_as_before(self):
+        (self.ctx.repos.results / "worker-state.json").write_text(json.dumps({"release": self.old}))
+        code, out, err = self.run_update([("testct", self.ctx)], "--check")
+        self.assertIn("A new release is available", out + err)
+        self.assertNotIn("The update would touch", out + err)
+
+
 class UpdateCommand(AdminBase):
     def setUp(self):
         super().setUp()

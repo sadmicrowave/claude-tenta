@@ -89,6 +89,42 @@ class Scan(unittest.TestCase):
         self.assertEqual([(d.ip, d.name) for d in found], [("198.51.100.3", "")])
 
 
+class StopAtTheFirstMatch(unittest.TestCase):
+    NETS = [("en0", ipaddress.IPv4Interface("198.51.100.6/24"))]
+
+    def scan(self, until, alive=("198.51.100.20", "198.51.100.200")):
+        asked = []
+        found, _ = discover.scan(self.NETS, threads=1, run=lambda argv: "", resolve=lambda ip: "", names=dict, until=until,
+                                 connect=lambda ip, port: asked.append(ip) or (("SSH-2.0-OpenSSH_9.6p1 Ubuntu", 0.01) if ip in alive else None))
+        return found, asked
+
+    def test_the_scan_ends_at_the_first_machine_the_caller_accepts_and_skips_the_rest_of_the_network(self):
+        found, asked = self.scan(lambda d: d.ip == "198.51.100.20")
+        self.assertEqual([d.ip for d in found], ["198.51.100.20"])
+        self.assertLess(len(asked), 40)                                      # a /24 has 254 addresses; the rest were never probed
+
+    def test_without_a_stop_the_whole_network_is_read_as_before(self):
+        found, asked = self.scan(None)
+        self.assertEqual(sorted(d.ip for d in found), ["198.51.100.20", "198.51.100.200"])
+        self.assertGreater(len(asked), 200)
+
+    def test_a_check_that_fails_does_not_end_or_break_the_scan(self):
+        def bad(d):
+            raise RuntimeError("boom")
+        found, asked = self.scan(bad)
+        self.assertEqual(len(found), 2)
+
+
+class OwnAddresses(unittest.TestCase):
+    def test_every_address_of_this_computer_is_left_out_of_a_scan_secondary_ones_too(self):
+        """Found by the first real e2e run: a worker given a SECOND address on this computer's own card is never scanned, so a test must put it on another machine or network space."""
+        nets = [("en0", ipaddress.IPv4Interface("198.51.100.2/24")), ("en0", ipaddress.IPv4Interface("198.51.100.50/24"))]
+        addrs, _ = discover.addresses_to_scan(nets)
+        self.assertNotIn("198.51.100.2", addrs)
+        self.assertNotIn("198.51.100.50", addrs)
+        self.assertIn("198.51.100.51", addrs)
+
+
 class VirtualNetworks(unittest.TestCase):
     def test_software_networks_are_recognised_by_their_interface_and_a_real_card_is_not(self):
         for virt in ("bridge100", "vmnet8", "vmenet0", "docker0", "br-abc", "veth1", "virbr0", "utun3"):
