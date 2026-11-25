@@ -61,7 +61,7 @@ while True:
     if not d: break
     out += d
     if b"[k/a/d" in out and step == 0: os.write(fd, b"d\n"); step = 1
-    elif step == 1 and b"no undo" in out: os.write(fd, b"y\n"); step = 2
+    elif step == 1 and b"[y/N]" in out: os.write(fd, b"y\n"); step = 2
 os.waitpid(pid, 0); print(re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", out.decode().replace("\r", "")))
 PY
 cat /tmp/ct-aw-rm.out
