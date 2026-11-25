@@ -1,4 +1,4 @@
-"""Placing a job: which of your workers gets it (the scheduler's wiring, `ct.sched` is the decision).
+"""Placing a job: which of your workers gets it (the orchestrator's wiring, `ct.sched` is the decision).
 
 With one worker nothing here runs: sending works as it always did. With several (the main one and those in workers.toml), `route` reads what each published (state and registry, over
 each worker's OWN connection, side by side), asks `sched.choose`, says why, and hands back the Context of the chosen worker. `--worker NAME` forces one. Where a job went is written to

@@ -1294,7 +1294,7 @@ def selftest(ctx, wait_s=240):
     info = ctx.repos.registry_info() or {}
     if release.SELFTEST_CLASS not in (info.get("classes") or {}):
         return None, f"the worker has no {release.SELFTEST_CLASS} class to test with"
-    argv = ["submit", release.SELFTEST_CLASS, "--here", "--wait", "--timeout", str(wait_s)]            # --here: the check is ABOUT this worker, so the scheduler must not pick another
+    argv = ["submit", release.SELFTEST_CLASS, "--here", "--wait", "--timeout", str(wait_s)]            # --here: the check is ABOUT this worker, so the orchestrator must not pick another
     rc = client_cli.main(argv, ctx=client_cli.Context.from_config(ctx.cfg), cfg=ctx.cfg) if getattr(ctx, "cfg", None) is not None else client_cli.main(argv)
     return rc == 0, "ok" if rc == 0 else f"exit {rc}"
 

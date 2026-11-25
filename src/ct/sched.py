@@ -1,4 +1,4 @@
-"""Choosing which worker should run a job (docs/design/ORCHESTRATION.md). Every reason a worker is left out is a catalog entry (ct/refusals.py), and ALL of them are reported, not the first.
+"""Choosing which worker should run a job (docs/design/SEVERAL-WORKERS.md). Every reason a worker is left out is a catalog entry (ct/refusals.py), and ALL of them are reported, not the first.
 
 Pure: it takes what each worker published (its state document and its registry) and says which worker should get a job of a given class, and WHY, for every worker, in plain words.
 Nothing here connects to anything, so the same function serves the submit command, the explain command and the tests, and a given set of readings always gives the same answer.

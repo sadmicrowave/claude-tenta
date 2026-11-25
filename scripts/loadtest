@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Load test across every worker you administer: send a burst of jobs AT ONCE through `ct-run submit` (so the scheduler places each one), then read every job back and report where each went and
+"""Load test across every worker you administer: send a burst of jobs AT ONCE through `ct-run submit` (so the orchestrator places each one), then read every job back and report where each went and
 how long each stage took. Uses the harmless auto-approved class (default sys-status: `uptime`), so what it measures is placement and latency, not the workers' CPU.
     scripts/loadtest [--jobs 8] [--waves 1] [--class sys-status] [--timeout 600] [--json FILE]
     scripts/loadtest --jobs 4 --pinned 4 --to tenta3      the same burst PLUS 4 jobs sent from a folder whose .tenta.toml dedicates the class to tenta3 (an alias works): all 8 go out at once;
-                                                          the report says whether every pinned job landed on tenta3 and where the scheduler put the other 4 (exit 1 if a pinned job strayed)
+                                                          the report says whether every pinned job landed on tenta3 and where the orchestrator put the other 4 (exit 1 if a pinned job strayed)
 The host's own cap (limits.max_in_flight, default 8) applies: more jobs than that in one burst are refused by design. Run it from the checkout you want to test."""
 import argparse
 import json
@@ -33,9 +33,9 @@ def plan_for(jobs, pinned, free_dir, pin_dir):
 
 
 def global_note(cls, commands):
-    """A sentence when the computer's own ~/.tenta.toml dedicates `cls` to a worker, else None: the 'scheduled' jobs would then follow it and the burst would not show the scheduler at work."""
+    """A sentence when the computer's own ~/.tenta.toml dedicates `cls` to a worker, else None: the 'scheduled' jobs would then follow it and the burst would not show the orchestrator at work."""
     w = (commands or {}).get(cls)
-    return f"~/.tenta.toml dedicates {cls} to {w}, so even the scheduled jobs go there and this burst cannot show the scheduler spreading them. Clear it first: ct-admin workers use --clear" if w else None
+    return f"~/.tenta.toml dedicates {cls} to {w}, so even the scheduled jobs go there and this burst cannot show the orchestrator spreading them. Clear it first: ct-admin workers use --clear" if w else None
 
 
 def pin_verdict(rows, to):
@@ -113,7 +113,7 @@ def report(rows, wall, sent_at):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--jobs", type=int, default=8, help="jobs left to the scheduler")
+    ap.add_argument("--jobs", type=int, default=8, help="jobs left to the orchestrator")
     ap.add_argument("--pinned", type=int, default=0, help="extra jobs sent from a folder that dedicates the class to --to")
     ap.add_argument("--keep-global", action="store_true", help="run even when ~/.tenta.toml dedicates the class to a worker")
     ap.add_argument("--to", help="with --pinned: the worker (or its alias) the class is dedicated to")

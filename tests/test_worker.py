@@ -1366,7 +1366,7 @@ class SharedComputer(Base):
         self.assertIsNone(self.w.busy_reason())
         self.sensors.people = ["agent", "alice", "bob"]
         self.assertEqual(self.w.busy_reason(), "a person is using this computer (alice, bob)")
-        self.assertEqual(self.w.snapshot()["held"], "a person is using this computer (alice, bob)")          # published, so the scheduler and the cards can say it
+        self.assertEqual(self.w.snapshot()["held"], "a person is using this computer (alice, bob)")          # published, so the orchestrator and the cards can say it
         self.job("job-0001")
         self.w.fetch()
         self.assertEqual(self.spawned, [])                                                # queued, not started
