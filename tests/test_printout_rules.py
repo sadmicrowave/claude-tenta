@@ -267,7 +267,8 @@ class NamesNeverInTitles(unittest.TestCase):
     FUNS = {"emit", "notice", "card", "say", "Card", "fail", "die", "document", "table", "rule", "ClientError", "stop", "SetupError"}
     SKIP = {"tui.py", "report.py", "install.py", "server.py", "keys.py", "questions.py", "tripwire.py", "uninstall.py", "audit.py", "client.py"}      # streamed setup lines and the wizard
     ALLOWED = {("admin/cli.py", "what"), ("admin/cli.py", "ctx.store"),                                # a fixed verb phrase ('start'); GitHub or the mailbox
-               ("admin/cli.py", "a.cmd"), ("admin/cli.py", "name"), ("admin/cli.py", "alias.show(name)"),                                   # the one-line heading that says which worker the output below is about (a heading, not a card)
+               ("admin/cli.py", "a.cmd"), ("admin/cli.py", "verb"),     # verb: our own word ("apply" or "update"), never user input
+                ("admin/cli.py", "name"), ("admin/cli.py", "alias.show(name)"),                                   # the one-line heading that says which worker the output below is about (a heading, not a card)
                ("cli.py", "len(items) - bad"), ("cli.py", "bad"),                                      # counts
                ("clihelp.py", "prog"), ("clihelp.py", "want"),                                         # the help card is titled by the command it explains, one of our own
                ("setup/addworker.py", "q['title']"), ("setup/addworker.py", "q['why']"), ("setup/addworker.py", "n"), ("setup/addworker.py", "value"), ("setup/addworker.py", "desc"),
