@@ -74,7 +74,7 @@ The project owner's own command log held **742 runs of the test script (8.9 hour
 
 Candidacy today looks at rung 4 only (seconds and count). Evaluating all rungs is list item 8.
 
-Note (2026-11-26): rung 4's command-log signal also misses compound commands today; see "Evidence from real use" above.
+Note (2026-11-26): rung 4's command-log signal missed compound commands; fixed in slice 1 (`fix/offload-sees-compound-commands`). Measured on the same log afterwards: of the 743 rows that mention the test script, 171 are runs of it (the rest are file edits, commits and waiting loops that only name it), and the end-to-end script's 17 runs surface too. Runs started in the background log about 2 s, so most of the time sits in the waiting loops that follow them (a possible later slice: credit a loop's time to the command it waits for).
 
 ## Decisions
 

@@ -6,8 +6,13 @@
 
 The log (<client home>/command-log.jsonl, mode 0600) stays on your computer and is never pushed anywhere. A command that looks like it carries
 a secret is not recorded at all. `top` prints normalised "shapes" (tool, subcommand, flag names) so paths and values stay out of what you read.
-A candidate is: not network or version control, not a package manager, not privileged or interactive, not trivial shell plumbing, not a
-compound command, and slow enough (median at least --min-seconds, default 30) to be worth the 15-60 seconds of job overhead.
+A candidate is: not network or version control, not a package manager, not privileged or interactive, not trivial shell plumbing, not
+several real commands in one line, and slow enough (median at least --min-seconds, default 30) to be worth the 15-60 seconds of job overhead.
+
+Compound lines (`cd x && scripts/t a | tail`) are judged by their real command: the line is split into segments, plumbing segments (cd, tail, grep,
+echo, tee, sleep, loop keywords and the like) are dropped, and the whole row's seconds belong to the one segment left. A segment that is network, version
+control, a package manager or privileged excludes the whole line (`cd x && git push`). With two or more real commands left the time cannot be split
+honestly between them, so the line is skipped ("compound command") rather than credited to one. A heredoc body is data, not commands.
 """
 import hashlib
 import json
@@ -40,13 +45,58 @@ NEVER = {
 }
 INTERP = {"python3", "python", "node", "bash", "sh"}
 MULTI = {"git", "npm", "docker", "kubectl", "cargo", "go", "pip", "brew", "make", "systemctl", "gh", "python3", "python", "node", "bash", "sh"}
-SEG_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
+# segments that only move around, show or wait; dropped from a compound line (the NEVER plumbing names, plus these)
+PLUMBING = {t for t, why in NEVER.items() if why == "trivial shell plumbing"} | {
+    "tee", "cut", "tr", "pgrep", "ps", "jq", "basename", "dirname", "readlink", "realpath", "stat", "du", "df", "file", "nl", "rev", "column", "paste",
+    "wait", "exit", "read", "return", "break", "continue", ":", "[", "[[", "xxd", "od", "hexdump", "diff", "cmp", "tput", "clear"}
+SHELL_OPENERS = {"for", "while", "until", "if", "case", "done", "fi", "esac", "{", "}"}      # a segment that starts with one is shell syntax, not a command
+SHELL_PREFIXES = {"do", "then", "else", "elif", "!"}                                        # these precede a real command in the same segment
+# a folder name generic enough to print beside a script name (scripts/t); any other folder may name a private project and is never kept
+GENERIC_DIRS = {"scripts", "script", "bin", "tools", "tool", "tests", "test", "ci", "dev", "build", "hack", "tasks"}
+VERSIONED = re.compile(r"python\d*\.\d+")                 # python3.13: an interpreter, not a project script
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+INTERP_FLAGS = {"-B", "-I", "-u", "-O", "-OO", "-E", "-s", "-S"}                  # interpreter flags that change nothing about what is run
+INLINE = "inline script (nothing to offload by name)"
 OWN = "this tool's own commands"
 
 
+def strip_heredocs(cmd):
+    """Remove each heredoc (`<<'EOF'` and its body up to the closing word): it is data fed to a command, not commands. What runs after it stays."""
+    out, closing = [], None
+    for line in cmd.split("\n"):
+        if closing is not None:
+            closing = None if line.strip() == closing else closing
+            continue
+        m = HEREDOC.search(line)
+        if m:
+            closing = m.group(2)
+            line = HEREDOC.sub("", line)
+        out.append(line)
+    return "\n".join(out)
+
+
 def segments(cmd):
-    """Split a command line into simple commands (a very small shell subset; good enough for ranking)."""
-    return [s for s in SEG_SPLIT.split(cmd.replace("\n", " ; ")) if s.strip()]
+    """Split a command line into simple commands at && || ; | and newlines that are outside quotes (a very small shell subset; good enough for ranking)."""
+    cmd, out, cur, quote, i = strip_heredocs(cmd), [], [], None, 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c == "\\" and quote != "'" and i + 1 < len(cmd):
+            cur.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            quote = None if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif c in ";|\n" or (c == "&" and cmd[i + 1:i + 2] == "&" and cmd[i - 1:i] != ">"):
+            out.append("".join(cur))
+            cur = []
+            i += 2 if cmd[i:i + 2] in ("&&", "||") else 1
+            continue
+        cur.append(c)
+        i += 1
+    out.append("".join(cur))
+    return [x.strip().lstrip("({").rstrip(")}").strip() for x in out if x.strip()]
 
 
 def shape(seg):
@@ -57,14 +107,27 @@ def shape(seg):
         words = seg.split()
     while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
         words.pop(0)
-    while words and words[0] in ("time", "nohup", "command", "exec"):
+    while words and words[0] in ("time", "nohup", "command", "exec") + tuple(SHELL_PREFIXES):
         words.pop(0)
+    if words and words[0] in SHELL_OPENERS:
+        return None
     if words[:1] == ["timeout"]:
         words = words[2:] if len(words) > 2 else []
     if not words:
         return None
     tool, rest = os.path.basename(words[0]), words[1:]
+    if VERSIONED.fullmatch(tool):
+        tool = re.match(r"[a-z]+\d?", tool).group()             # python3.13 -> python3
+    if not re.fullmatch(r"[\w.][\w.+-]*|:|\[\[?", tool):
+        return None                                           # $VAR, $(...), a leftover assignment: no name to judge
     parts = [tool]
+    folder = os.path.basename(os.path.dirname(words[0]))
+    if folder in GENERIC_DIRS and tool not in NEVER and tool not in MULTI and not VERSIONED.fullmatch(tool):
+        parts = [f"{folder}/{tool}"]                         # scripts/t, not just t; no other part of the path is kept
+    while tool in INTERP and rest[:1] and rest[0] in INTERP_FLAGS:
+        rest = rest[1:]                                       # python -B -m unittest is python -m unittest
+    if tool in INTERP and rest[:1] in (["-"], ["-c"], ["-e"]):
+        return tool, f"{tool} {rest[0]}"                      # code typed on the command line or fed on standard input: it has no name
     if tool in MULTI and rest:
         if tool in INTERP and rest[0] == "-m" and len(rest) > 1:
             parts += ["-m", rest[1]]
@@ -79,6 +142,17 @@ def shape(seg):
     return tool, " ".join(parts)
 
 
+def example_of(cmd):
+    """The text to print as the example of a line: its first real (non-plumbing) segment, as one line, so a compound line never shows its `cd folder` or
+    pipe tail, and a heredoc body is never shown."""
+    segs = segments(cmd)
+    for seg in segs:
+        sh = shape(seg)
+        if sh and sh[0] not in PLUMBING:
+            return seg
+    return segs[0] if segs else cmd
+
+
 def classify(cmd, own_tools=()):
     """(shape, tool, reason) for a whole command line; reason is None when it could be a candidate. `own_tools` are this install's own
     command names, which are never offloaded (they ARE the offloading)."""
@@ -86,11 +160,19 @@ def classify(cmd, own_tools=()):
     if not segs:
         return None
     for tool, sh in segs:
-        if tool in NEVER or tool in own_tools:
-            return sh, tool, NEVER.get(tool, OWN)
-    if len(segs) > 1:
-        return " | ".join(sh for _, sh in segs), segs[0][0], "compound command (offload a single command)"
-    return segs[0][1], segs[0][0], None
+        if tool in own_tools:
+            return sh, tool, OWN
+        if tool in NEVER and tool not in PLUMBING:
+            return sh, tool, NEVER[tool]
+    real = [s for s in segs if s[0] not in PLUMBING]
+    for tool, sh in real:
+        if tool in INTERP and sh.split()[1:2] in (["-"], ["-c"], ["-e"]):
+            return sh, tool, INLINE
+    if not real:
+        return segs[0][1], segs[0][0], "trivial shell plumbing"
+    if len(real) > 1:
+        return " | ".join(sh for _, sh in real), real[0][0], "compound command (several real commands in one line; offload a single command)"
+    return real[0][1], real[0][0], None
 
 
 class CommandLog:
@@ -159,9 +241,9 @@ class CommandLog:
             sh, tool, reason = c
             g = groups[sh]
             g["count"] += 1
-            g["tool"], g["reason"], g["example"] = tool, reason, r["cmd"]
+            g["tool"], g["reason"], g["example"] = tool, reason, example_of(r["cmd"])
             g["ts"].append({"ts": r.get("ts")})
-            if r.get("secs") is not None and len(segments(r["cmd"])) == 1:
+            if r.get("secs") is not None:
                 g["secs"].append(r["secs"])
         rows = []
         for sh, g in groups.items():
