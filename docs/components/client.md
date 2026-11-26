@@ -20,7 +20,7 @@ Nothing in `ct-run` can change what the worker is allowed to do. It only sends r
 | Command | What it does |
 |---|---|
 | `setup` | clone the two repositories into the client home (`~/.ct` by default) |
-| `submit <class> [-p name=value]... [--prompt T] [--file F] [--dir D --include G] [--wait] [--timeout S]` | validate the parameters against the worker's published registry, push `jobs/<id>.json` to the `jobs` branch, optionally wait |
+| `submit <class> [-p name=value]... [--prompt T] [--file F] [--dir D --include G --exclude G] [--wait] [--timeout S]` | validate the parameters against the worker's published registry, push `jobs/<id>.json` to the `jobs` branch, optionally wait |
 | `result <job> [--wait]` | read a result; `--wait` polls (exit 0 only for status `ok`, 3 if the worker is locked, 1 on timeout) |
 | `jobs [-n N]` | recent jobs and those waiting for approval, with the command to approve each |
 | `classes` | the classes the worker published, their cost, tier and limits, plus pending proposals |

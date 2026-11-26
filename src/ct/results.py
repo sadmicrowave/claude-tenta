@@ -36,6 +36,11 @@ def shape_output(cls, text, default_cap):
     return text[:cap] + ("\n[truncated]" if len(text) > cap else ""), note
 
 
+def kept_output_note(product, jid):
+    """The one line that comes with a shortened result: what was cut and the one command that reads the rest."""
+    return f"only the error lines were sent; the full output is on {product}: read it there with `ct-admin output {jid}`"
+
+
 def failure_summary(text, max_lines=8, max_len=300, where="on the worker"):
     """The top-level error messages from a failed command's output: the exception lines (the last line of each traceback), test-runner and
     build summary lines, or the last few lines when nothing like that is found."""

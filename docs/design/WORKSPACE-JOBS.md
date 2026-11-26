@@ -72,6 +72,15 @@ Default: the **exit code and a short summary** (the class's `output_keys`, cappe
 
 Unchanged: profile runs always need approval; adopt asks once; packs only get stricter; secrets never sent; the job runs in the jail with no network unless declared; output passes the guard. A workspace recipe adds no new way to run anything the registry did not approve.
 
+## Built: the recipe (slice `feat/workspace-recipe`, 2026-11-26)
+
+Built on today's transport (text files, whole set per run), before the byte-exact manifest and delta sync, which stay with slice 2; the recipe says what to send and run and does not change when they arrive. Decisions (owner approved the design 2026-11-26):
+
+- `submit:` gains `exclude`; `dir` is the working directory, because the worker runs the command at the root of what was sent and never acts on `submit:`. A separate `cwd` key would need a worker change (the jail's `--chdir`) and is in the backlog.
+- A non-git folder's `.gitignore` is added to the default rules, never replaces them (the rules only get stricter).
+- Marker proposals live in `src/ct/client/markers.py`; they propose, pins only, and `--use-detected-packages` is the person's yes.
+- Outputs: the default summary is unchanged, the failed-output fetch line names `ct-admin output JOB`; artifacts and the output of successful jobs are backlog.
+
 ## Environment lifecycle (owner, 2026-11-26)
 
 **One shared environment per package-set hash.** The hash is taken over the sorted, pinned package list plus the worker's OS release. Two classes that need the same packages share one environment; today each profile run builds its own throwaway folder (fact 6).
@@ -122,7 +131,7 @@ All branch from `theme/offload-value`, merge into it one at a time, then the the
 | 1 | `fix/offload-sees-compound-commands` | `cd x && cmd \| tail` counts as the command that took the time; `rank` and `measure` see it | 0 |
 | 2 | `feat/workspace-snapshot-sync` | selection with `.gitignore`/default rules and `exclude`, byte-exact files, content-hashed manifest, delta sync, worker cache with LRU cap | 0 |
 | 3 | `feat/shared-environments` | one environment per package-set hash, last-used stamp, `packages.keep_days`, in-use lock, disk backstop, apt manifest, rebuild note, the failure table's tests | 0 |
-| 4 | `feat/workspace-recipe` | the saved recipe (command, working directory, environment, outputs), marker-file proposals, full log kept with a fetch line | 2, 3 |
+| 4 | `feat/workspace-recipe` | the saved recipe (command, working directory, environment, outputs), marker-file proposals, full log kept with a fetch line | 2, 3 (built before them, on today's text-only transport: see "Built: the recipe") |
 | 5 | `feat/busy-host-rung` | the "your computer is busy" rung (host load against core count) in the candidacy ladder | 0 and the owner's weight (not chosen here) |
 | 6 | `feat/offload-review-summary` | post-install saved-hours summary, ranked recommendations, `ct-run offload review` listing and the setup offer | 1 |
 | 7 | `feat/offload-review-profile-all` | y/n per command, profile on every worker, per-worker adopt, a remembered no | 4, 6 |

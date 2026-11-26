@@ -180,7 +180,7 @@ def platform_problems(classes, platform):
     return errs
 
 
-PACK_KEYS = ("dir", "include", "files")
+PACK_KEYS = ("dir", "include", "exclude", "files")
 
 
 def pack_problem(recipe):
@@ -192,13 +192,15 @@ def pack_problem(recipe):
         return not isinstance(v, str) or not v or len(v) > 200 or "\0" in v or v.startswith(("/", "~")) or "\\" in v or ".." in v.split("/")
     if "dir" in recipe and bad_path(recipe["dir"]):
         return "submit dir must be a folder below the one you run it in (not absolute, no `..`)"
-    for k in ("include", "files"):
+    for k in ("include", "exclude", "files"):
         if k in recipe:
             v = recipe[k]
             if not isinstance(v, list) or not v or len(v) > 20 or any(not isinstance(x, str) or not x or len(x) > 200 or "\0" in x for x in v):
                 return f"submit {k} must be a list of 1 to 20 short strings"
             if k == "files" and any(bad_path(x) for x in v):
                 return "submit files must be below the folder you run it in (not absolute, no `..`)"
+            if k == "exclude" and any(bad_path(x) for x in v):
+                return "submit exclude patterns must be below the folder you run it in (not absolute, no `..`)"
     return None
 
 

@@ -231,11 +231,11 @@ class PackRecipe(unittest.TestCase):
     def test_a_submit_uses_the_saved_recipe_only_when_nothing_was_typed(self):
         cwd = Path(tempfile.mkdtemp()).resolve()
         r = {"dir": "src", "include": ["*.js"], "files": ["a.txt"]}
-        d, f, inc, used = off.use_recipe(r, None, None, None, cwd)
-        self.assertEqual((d, f, inc, used), (str(cwd / "src"), [str(cwd / "a.txt")], ["*.js"], True))
-        self.assertEqual(off.use_recipe(r, "other", None, None, cwd), ("other", None, None, False))
-        self.assertEqual(off.use_recipe(r, None, ["x"], None, cwd)[3], False)
-        self.assertEqual(off.use_recipe(None, None, None, None, cwd)[3], False)
+        d, f, inc, exc, used = off.use_recipe(r, None, None, None, cwd)
+        self.assertEqual((d, f, inc, exc, used), (str(cwd / "src"), [str(cwd / "a.txt")], ["*.js"], None, True))
+        self.assertEqual(off.use_recipe(r, "other", None, None, cwd), ("other", None, None, None, False))
+        self.assertEqual(off.use_recipe(r, None, ["x"], None, cwd)[4], False)
+        self.assertEqual(off.use_recipe(None, None, None, None, cwd)[4], False)
 
     def test_an_unsafe_recipe_is_refused_not_followed(self):
         for bad in ({"dir": "/etc"}, {"dir": "../x"}, {"files": ["../../secret"]}):

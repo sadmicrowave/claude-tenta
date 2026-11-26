@@ -76,7 +76,25 @@ into a throwaway tools folder with install scripts disabled, and never put on th
 
 ## Files a class was profiled with
 
-When a profiling run is sent with `--dir`, `--include` or `--file`, the packaging (folder, patterns, files, relative to where the command was typed) is kept on this computer. `ct-admin adopt` writes it into the proposed class as a `submit:` section. The worker never acts on it; it only publishes it. `ct-run submit CLASS` then packages the same files when no `--dir`, `--file` or `--include` is given. Anything typed wins, `--no-pack` sends none, and a recipe with an absolute folder or `..` is refused (`pack.recipe.unsafe`). A folder outside the one you were in is not saved, and the profile output says so.
+When a profiling run is sent with `--dir`, `--include`, `--exclude` or `--file`, the packaging (folder, patterns, files, relative to where the command was typed) is kept on this computer. `ct-admin adopt` writes it into the proposed class as a `submit:` section (`dir`, `include`, `exclude`, `files`). The worker never acts on it; it only publishes it. `ct-run submit CLASS` then packages the same files when no `--dir`, `--file`, `--include` or `--exclude` is given. Anything typed wins, `--no-pack` sends none, and a recipe with an absolute folder or `..` (also in an `exclude` pattern) is refused (`pack.recipe.unsafe`). A folder outside the one you were in is not saved, and the profile output says so. The command and its working directory are the class's own `run:` and the root of the sent folder (the worker runs the command at the root of what was sent, so `dir` is the working directory); the environment is the class's `packages:`.
+
+A worker older than this release does not know `exclude` and refuses a registry that carries it (`submit may only set dir, include, files`): update the worker first, then adopt.
+
+### Which files go (any folder, git or not)
+
+- **A git folder:** tracked files plus untracked files that are not ignored, never `.git`.
+- **Not a git folder:** the default rules (hidden files and folders, build output and dependency folders; the language templates when a marker file such as `package.json` is present) **plus the folder's own `.gitignore`**, nested ones too, matched by git's own matcher. A `.gitignore` only ever *adds* to the defaults: a `.gitignore` that forgets `node_modules` does not send it.
+- **`--include`** narrows to what the command needs; **`--exclude`** removes more and wins over `--include`. Every file left out is listed, with the rule that decided; a hidden or skipped file is sent only when `--include` names it.
+- **Secrets are unchanged:** names and text that look like secrets are held back, whatever the rules say.
+- **Nothing left to send** (a `.gitignore` of `*`, an `--include` that matches nothing) is refused with the deciding rule (`files.dir.empty`) before anything is sent.
+
+### What this folder seems to need (environment markers)
+
+`ct-run offload profile --dir D` reads the top of the folder (read-only, on your computer, links and files over 1 MB not followed) and **proposes**: `requirements*.txt`, `pyproject.toml`, `setup.cfg` (`apt:python3`, `apt:python3-pip` and the `pip:` pins), `package.json` with `package-lock.json` (`apt:nodejs`, `apt:npm` and the `npm:` pins taken from the lock file), `Makefile` (`apt:make`, and what its first target calls, shown for you to check). `Cargo.toml` and `go.mod` are reported as not installable on a worker yet; nothing is invented for them. A dependency without an exact pin is listed as "needs a pin", never guessed. **Nothing is installed by a proposal:** you add the pinned packages to the run with `--use-detected-packages` (the card prints the exact command), the profiling run still needs your approval, and adopting the class asks once as before. More than 8 packages is reported, never cut short (`packages.markers.too_many`).
+
+### Full output
+
+A failed command's result says how much was cut and the one command that reads the rest: `only the error lines were sent; the full output is on WORKER: read it there with ct-admin output JOB`. Keeping the output of a job that succeeded is not built yet (backlog).
 
 ## Adopting a profile result automatically
 

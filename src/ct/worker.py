@@ -577,7 +577,7 @@ class Worker:
         if summarised:
             self.keeper.keep(jid, out)                       # a failed command: send back only its error messages, not the stack traces
             shaped = results.failure_summary(out, where=f"on {self.s.product}")
-            shape_note = "; ".join(x for x in (shape_note, f"only the error lines were sent; the full output is on {self.s.product}") if x)
+            shape_note = "; ".join(x for x in (shape_note, results.kept_output_note(self.s.product, jid)) if x)
         res.update(status=st, exit_code=rc, output=guard.scrub(shaped, self.limits["output_max_chars"]), metrics=metrics)
         if note or shape_note:
             res["note"] = "; ".join(x for x in (note, shape_note) if x)

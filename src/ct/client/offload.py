@@ -353,7 +353,7 @@ class CommandBook(NameBook):
         self.path = Path(home) / "profile-commands.json"
 
 
-def make_recipe(dir_arg, includes, file_args, cwd):
+def make_recipe(dir_arg, includes, file_args, cwd, exclude=None):
     """(recipe, note): the packaging of a profile run, relative to `cwd` so it still means something when someone else runs `ct-run submit`. A folder
     outside `cwd` is not saved (the note says why); no files means no recipe."""
     recipe, note, cwd = {}, None, Path(cwd).resolve()
@@ -364,6 +364,8 @@ def make_recipe(dir_arg, includes, file_args, cwd):
             return None, f"The folder {dir_arg} is outside the one you are in, so how it was packaged was not saved with the class."
     if includes:
         recipe["include"] = list(includes)
+    if exclude:
+        recipe["exclude"] = list(exclude)
     rel = []
     for f in file_args or []:
         try:
@@ -381,15 +383,27 @@ def with_recipe(entry, jid, packs):
     return {**entry, "submit": recipe} if recipe and entry.get("accepts_files") else entry
 
 
-def use_recipe(recipe, dir_arg, file_args, include, cwd):
-    """(dir, files, include, used): what `ct-run submit` packages. Anything typed wins; the class's saved recipe fills in only when nothing was typed."""
-    if dir_arg or file_args or include or not recipe:
-        return dir_arg, file_args, include, False
+def use_recipe(recipe, dir_arg, file_args, include, cwd, exclude=None):
+    """(dir, files, include, exclude, used): what `ct-run submit` packages. Anything typed wins; the class's saved recipe fills in only when nothing was typed."""
+    if dir_arg or file_args or include or exclude or not recipe:
+        return dir_arg, file_args, include, exclude, False
     problem = registry.pack_problem(recipe)
     if problem:
         raise refuse.error("pack.recipe.unsafe", reason=problem)
     cwd = Path(cwd)
-    return (str(cwd / recipe["dir"]) if "dir" in recipe else None), [str(cwd / f) for f in recipe.get("files", [])] or None, recipe.get("include"), True
+    return (str(cwd / recipe["dir"]) if "dir" in recipe else None), [str(cwd / f) for f in recipe.get("files", [])] or None, recipe.get("include"), recipe.get("exclude"), True
+
+
+def read_recipe_files(paths):
+    """{file name: text} for the single files a saved recipe names. One that is gone, or not text, is a refusal that names it, never a stack trace."""
+    out = {}
+    for f in paths or []:
+        p = Path(f)
+        try:
+            out[p.name] = p.read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            raise refuse.error("pack.recipe.file_missing", ("File", f), reason=f"{getattr(e, 'strerror', None) or 'it is not text'}")
+    return out
 
 
 def class_yaml_lines(name, entry, pr, jid):

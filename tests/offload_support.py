@@ -22,8 +22,8 @@ class OffloadFixture(RepoFixture):
         args = ["offload", "profile", "--what", "lists files", "--expect", "instant", "--est-time-s", "1", "--est-mem-mb", "10", *extra, "--", *argv]
         return self.run_cli(*args)
 
-    def run_profile_to_a_result(self, *extra):
-        code, out, err = self.profile(*extra)
+    def run_profile_to_a_result(self, *extra, argv=("ls", "-l")):
+        code, out, err = self.profile(*extra, argv=argv)
         self.assertEqual(code, 0, out + err)
         jid = out.strip()
         self.w.fetch()
