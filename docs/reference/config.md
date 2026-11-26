@@ -118,6 +118,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt |
 | `repeat_runs` | `3` | int | a command you run this many times within repeat_days counts as repeated work worth offloading |
 | `repeat_days` | `14` | int | the number of days repeat_runs is counted over |
+| `busy_load_ratio` | `1.0` | float | this computer counts as busy when its 5-minute load average divided by its number of cores is at least this (1 means one waiting task per core); a busy computer makes a command worth offloading |
+| `busy_min_seconds` | `10` | float | while this computer is busy, a command whose usual run takes at least this many seconds is worth offloading; quicker ones are not worth the trip |
 
 ## [limits]
 

@@ -21,7 +21,8 @@ The tool is a command-line application. Nothing here is specific to one AI model
 | 2 | **Fewer AI tokens**: work taken away from the model | The model reads a short result instead of doing or waiting on the long work | none yet (needs the AI layer; see the token-saving foundation, list item 5) | 80 |
 | 3 | **Faster**: parallel work across devices | Many pieces at once finish sooner than one after another | batchable classes, files split into independent jobs | 60 |
 | 4 | **Free your own computer**: long or repeated work leaves your CPU alone | Your computer stays quick while the work runs elsewhere | the command log: seconds and how often (`ct-run offload log top`) | 40 |
-| 5 | **More to find** | | | |
+| 5 | **Your computer is busy**: it is already loaded, so offloading keeps it responsive | Several AI sessions and test suites at once slow an older computer to a crawl | a live reading: 5-minute load average per core (`offload.busy_load_ratio`); `ct-run offload log top` | 50 |
+| 6 | **More to find** | | | |
 
 ### 1. Worker-specific work (three kinds)
 
@@ -49,12 +50,21 @@ Long runs, and short runs that repeat, take your computer's CPU. **"Repeatable"*
 The two numbers are settings (`offload.repeat_runs`, `offload.repeat_days` in `ct.toml`, overridable in a folder's `.tenta.toml`), not constants in code. The measurement utility
 later suggests `repeat_days` as the typical time the person's repeated commands took to reach `repeat_runs` runs (`repeat_runs` itself is only shown as a grid: the log cannot say what it should be) instead of a guess.
 
-### 5. More to find
+### 5. Your computer is busy (built 2026-11-26, slice 2 of `theme/offload-value`)
+
+Older computers cannot run several AI sessions and test suites at once, and they are who this tool is for (on the owner's Mac the load average reached 203 on 8 cores while tests, a virtual machine and Finder ran together). **Weight 50, decided by the owner 2026-11-26**: below the structural reasons (a property of the job), above rung 4 (a measured fact now beats a guess about the future); when a command is both repeated and the computer is busy, the headline names the busy computer.
+
+- **Signal:** the 5-minute load average divided by the number of cores (`src/ct/client/hostload.py`); the 5-minute window means a short spike does not count and no state is kept. Windows, or a failed read, is "cannot be judged".
+- **Settings:** `offload.busy_load_ratio` (default 1.0: one waiting task per core) and `offload.busy_min_seconds` (default 10).
+- **How it combines with the log:** the rung is a live reading, never stored. It is met only while the computer is busy now, for a command that could run on a worker and whose usual run takes at least `busy_min_seconds`. It can lift a command that no other rung picks (the floor keeps a one-second command from being "worth offloading"). `log top` says "your computer is busy now" as a note under the table; `offload measure` ignores it.
+- **Not built:** offloading automatically when busy; it only reports the reason.
+
+### 6. More to find
 
 Keep a list here as ideas arrive; none is promised. Examples to test: privacy (work that should not leave a controlled device), cost (a worker that is cheaper to run than a
 cloud service), energy or heat (work that should not warm your laptop), network position (work that is faster close to the data), time zone or schedule (work that must run overnight).
 
-**Proposed rung, no weight yet: "your computer is busy".** Offloading also pays when your own computer is already working hard: its load (run queue or CPU use) is high against its core count, so a job started there would slow both the job and everything else you are doing. The signal is cheap and local (host load divided by core count, read when the job is about to start). It is a **proposal only**: the owner sets the weight and where it sits in the ladder, and it is not built until then. Open questions for that decision: what load-per-core counts as busy, how long it must stay busy, and whether it can lift a job that no other rung picks.
+**Rung 5 "your computer is busy" was a proposal here and is now built (weight 50; see section 5).** The original proposal, kept for the record: Offloading also pays when your own computer is already working hard: its load (run queue or CPU use) is high against its core count, so a job started there would slow both the job and everything else you are doing. The signal is cheap and local (host load divided by core count, read when the job is about to start). It is a **proposal only**: the owner sets the weight and where it sits in the ladder, and it is not built until then. Open questions for that decision: what load-per-core counts as busy, how long it must stay busy, and whether it can lift a job that no other rung picks.
 
 **More to find (ideas, none promised):**
 - Run the test suite for branch X on a worker while you keep editing branch Y here (the snapshot of X is taken once, so later edits do not change the run; see [workspace jobs](WORKSPACE-JOBS.md)).

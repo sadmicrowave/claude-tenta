@@ -7,8 +7,8 @@ import math
 import time
 from statistics import median
 
-WEIGHTS = {1: 100, 2: 80, 3: 60, 4: 40}
-NAMES = {1: "Worker-specific work", 2: "Fewer AI tokens", 3: "Faster", 4: "Free your own computer"}
+WEIGHTS = {1: 100, 2: 80, 3: 60, 4: 40, 5: 50}
+NAMES = {1: "Worker-specific work", 2: "Fewer AI tokens", 3: "Faster", 4: "Free your own computer", 5: "Your computer is busy"}
 MET, NOT_MET, UNKNOWN = "met", "not met", "unknown"
 
 
@@ -55,9 +55,27 @@ def _free_computer(f, repeat_runs, min_seconds):
     return _rung(4, NOT_MET, f"too quick ({med:.0f} s) and run {runs} of {repeat_runs} times needed")
 
 
-def judge(facts, repeat_runs, min_seconds):
-    """facts: runs (in the window), median_s (or None), pinned, class_bound, batchable, splittable. Returns {'rungs': [...], 'headline': rung number or None}."""
-    rungs = [_worker_specific(facts), _fewer_tokens(facts), _faster(facts), _free_computer(facts, repeat_runs, min_seconds)]
+def _busy(f, busy_ratio, busy_min_seconds):
+    """A live reading, never a stored fact: met only while this computer is loaded now (`load_ratio`, 5-minute load average per core) AND the command could run
+    on a worker and takes long enough to be worth the trip."""
+    ratio, med = f.get("load_ratio"), f.get("median_s")
+    if ratio is None:
+        return _rung(5, UNKNOWN, "this computer's load cannot be read here")
+    if ratio < busy_ratio:
+        return _rung(5, NOT_MET, f"your computer is not busy (load {ratio:.1f} per core, busy from {busy_ratio:g})")
+    if f.get("refused"):
+        return _rung(5, NOT_MET, "this command cannot run on a worker")
+    if med is None:
+        return _rung(5, UNKNOWN, "busy now, but no timing recorded for this command yet")
+    if med < busy_min_seconds:
+        return _rung(5, NOT_MET, f"busy now, but too quick ({med:.0f} s) to be worth the trip (from {busy_min_seconds:.0f} s)")
+    return _rung(5, MET, f"your computer is busy now (load {ratio:.1f} per core, busy from {busy_ratio:g}) and a run takes {med:.0f} s")
+
+
+def judge(facts, repeat_runs, min_seconds, busy_ratio=1.0, busy_min_seconds=10.0):
+    """facts: runs (in the window), median_s (or None), pinned, class_bound, batchable, splittable, refused (cannot run on a worker), load_ratio (live reading or None).
+    Returns {'rungs': [...], 'headline': rung number or None}."""
+    rungs = [_worker_specific(facts), _fewer_tokens(facts), _faster(facts), _free_computer(facts, repeat_runs, min_seconds), _busy(facts, busy_ratio, busy_min_seconds)]
     met = [r["rung"] for r in rungs if r["verdict"] == MET]
     return {"rungs": rungs, "headline": max(met, key=WEIGHTS.get) if met else None}
 
