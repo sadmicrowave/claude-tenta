@@ -29,7 +29,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import candidacy, cap, refuse
+from . import candidacy, cap, hostload, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -46,7 +46,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, busy_load_ratio=1.0, busy_min_seconds=10.0, host_load=None):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -55,6 +55,8 @@ class Context:
         self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
+        self.busy_load_ratio, self.busy_min_seconds = float(busy_load_ratio), float(busy_min_seconds)
+        self.host_load = host_load or hostload.read       # a live reading of this computer, or None when it cannot be read
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -68,7 +70,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, busy_load_ratio=cfg.offload.busy_load_ratio, busy_min_seconds=cfg.offload.busy_min_seconds, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -887,7 +889,10 @@ def cmd_offload(ctx, a, cfg):
     if not recs:
         emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
         return 0
-    rows = log.rank(a.min_seconds, a.all, recs, ctx.repeat_runs, ctx.repeat_days)[:a.top]
+    host = ctx.host_load()
+    rows = log.rank(a.min_seconds, a.all, recs, ctx.repeat_runs, ctx.repeat_days, load_ratio=host["ratio"] if host else None, busy_ratio=ctx.busy_load_ratio, busy_min_seconds=ctx.busy_min_seconds)[:a.top]
+    busy_note = (f"Your computer is busy now: load {host['ratio']:.1f} per core on {plural(host['cores'], 'core')} (busy from {ctx.busy_load_ratio:g}). A live reading, not stored in the log: it only shows while the load lasts.",) \
+        if host and host["ratio"] >= ctx.busy_load_ratio else ()
     out = sys.stdout
     if not rows:
         emit("No candidates yet", "A candidate is repeated, slow, runs locally, and is not a git, network or package-manager command.", tag="NOTE", color=YELLOW)
@@ -895,12 +900,12 @@ def cmd_offload(ctx, a, cfg):
     _ui.table("All command shapes" if a.all else "Candidates for offloading", ["#", "runs", "median", "total", "command shape"] + ([] if a.all else ["why it pays"]),
               [[str(i), str(r["count"]), "?" if r["median"] is None else f"{r['median']:.0f}s", f"{r['total']:.0f}s", (r["shape"] + (f"   [{r['reason']}]" if r["reason"] else ""), "warn" if r["reason"] else None)]
                + ([] if a.all else [r["headline"] or "-"]) for i, r in enumerate(rows, 1)], tag="CANDIDATES", stream=out,
-              notes=(*(() if a.all else (f"For {alias.show(ctx.product)}; median time at least {a.min_seconds:.0f} s, or {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')}.",)), f"From {len(recs)} commands recorded on this computer.", "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))
+              notes=(*(() if a.all else (f"For {alias.show(ctx.product)}; median time at least {a.min_seconds:.0f} s, or {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')}.",)), f"From {len(recs)} commands recorded on this computer.", *busy_note, "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))
     if a.all:
         verdict = {"met": "met", "not met": "no", "unknown": "?"}
         _ui.table("Every rung, for each command shape", ["#", *(f"rung {n}" for n in sorted(candidacy.NAMES)), "headline"],
                   [[str(i), *(verdict[x["verdict"]] for x in r["rungs"]), r["headline"] or "-"] for i, r in enumerate(rows, 1)], tag="RUNGS", stream=out,
-                  notes=("Rungs: " + ", ".join(f"{n} {candidacy.NAMES[n]}" for n in sorted(candidacy.NAMES)) + ".", "met = this reason applies; no = it does not; ? = cannot be judged yet (fewer AI tokens needs the AI layer).",
+                  notes=("Rungs: " + ", ".join(f"{n} {candidacy.NAMES[n]}" for n in sorted(candidacy.NAMES)) + ".", "met = this reason applies; no = it does not; ? = cannot be judged yet (fewer AI tokens needs the AI layer; your computer is busy needs a load reading).",
                          "The headline is the highest-weighted rung that is met (docs/design/OFFLOAD-REASONS.md)."))
     if not a.all:
         _ui.table("Most recent example of each", ["#", "example"], [[str(i), r["example"][:150]] for i, r in enumerate(rows, 1)], tag="EXAMPLES", stream=out)

@@ -229,7 +229,7 @@ class CommandLog:
             if now - old.stat().st_mtime > 86400:
                 old.unlink(missing_ok=True)
 
-    def rank(self, min_seconds=30.0, show_all=False, records=None, repeat_runs=3, repeat_days=14, now=None):
+    def rank(self, min_seconds=30.0, show_all=False, records=None, repeat_runs=3, repeat_days=14, now=None, load_ratio=None, busy_ratio=1.0, busy_min_seconds=10.0):
         """Group records by shape and judge each against every rung of the ladder (candidacy.judge). Returns dicts sorted by count (then total time):
         candidates only (a rung is met), unless show_all. Each row carries `rungs` and `headline` (the name of the highest-weighted rung met)."""
         now = time.time() if now is None else now
@@ -248,7 +248,8 @@ class CommandLog:
         rows = []
         for sh, g in groups.items():
             med = median(g["secs"]) if g["secs"] else None
-            res = candidacy.judge({"runs": candidacy.runs_in_window(g["ts"], repeat_days, now), "median_s": med}, repeat_runs, min_seconds)
+            res = candidacy.judge({"runs": candidacy.runs_in_window(g["ts"], repeat_days, now), "median_s": med, "refused": g["reason"] is not None, "load_ratio": load_ratio},
+                                  repeat_runs, min_seconds, busy_ratio, busy_min_seconds)
             reason = g["reason"]
             if reason is None and res["headline"] is None:
                 reason = next(r["reason"] for r in res["rungs"] if r["rung"] == 4)

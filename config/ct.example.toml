@@ -71,6 +71,8 @@ update_days = 7                 # days between automatic updates of the claude t
 auto_adopt = true                # on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt
 repeat_runs = 3                 # a command you run this many times within repeat_days counts as repeated work worth offloading
 repeat_days = 14                 # the number of days repeat_runs is counted over
+busy_load_ratio = 1.0           # this computer counts as busy when its 5-minute load average divided by its cores is at least this; a busy computer makes a command worth offloading
+busy_min_seconds = 10           # while busy, a command whose usual run takes at least this many seconds is worth offloading
 
 [limits]
 max_in_flight = 8               # the most jobs this computer has queued or running at once across every worker it administers; ct-run submit refuses past it. Jobs waiting for your approval do not count. 0 = no cap

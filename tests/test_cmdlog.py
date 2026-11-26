@@ -19,6 +19,9 @@ def ev(cmd, tid="t1", tool="Bash"):
     return json.dumps({"tool_name": tool, "tool_use_id": tid, "session_id": "s", "tool_input": {"command": cmd}, "cwd": "/x"})
 
 
+IDLE = lambda: {"load": 0.1, "cores": 4, "ratio": 0.03}   # a computer that is not busy, so output never depends on the machine running the tests
+
+
 class Log(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
@@ -121,7 +124,7 @@ def time_now():
 class Command(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
         self.env = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
         self.env.start()
@@ -195,7 +198,7 @@ class Repeats(unittest.TestCase):
         rows = self.log.rank(records=self.recs(3, 12), repeat_runs=3, repeat_days=14, now=self.now)
         self.assertEqual([r["shape"] for r in rows], ["make big"])
         self.assertEqual(rows[0]["headline"], "Free your own computer")
-        self.assertEqual([r["rung"] for r in rows[0]["rungs"]], [1, 2, 3, 4])
+        self.assertEqual([r["rung"] for r in rows[0]["rungs"]], [1, 2, 3, 4, 5])
 
     def test_the_two_settings_decide(self):
         self.assertEqual(self.log.rank(records=self.recs(3, 12), repeat_runs=4, repeat_days=14, now=self.now), [])
@@ -212,10 +215,37 @@ class Repeats(unittest.TestCase):
         self.assertIn("too quick", row["reason"])
 
 
+class BusyHost(unittest.TestCase):
+    """Rung 5 is a live reading at display time: it is never stored, and `measure` ignores it."""
+
+    def setUp(self):
+        self.log = cmdlog.CommandLog(Path(tempfile.mkdtemp()))
+        self.now = time_now()
+        self.recs = [{"ts": int(self.now), "cmd": "make big", "secs": 15}]
+
+    def test_a_quick_single_run_becomes_a_candidate_only_while_busy(self):
+        self.assertEqual(self.log.rank(records=self.recs, now=self.now), [])
+        self.assertEqual(self.log.rank(records=self.recs, now=self.now, load_ratio=0.3), [])
+        rows = self.log.rank(records=self.recs, now=self.now, load_ratio=4.0)
+        self.assertEqual([r["headline"] for r in rows], ["Your computer is busy"])
+
+    def test_the_settings_are_passed_through(self):
+        self.assertEqual(self.log.rank(records=self.recs, now=self.now, load_ratio=4.0, busy_ratio=5.0), [])
+        self.assertEqual(self.log.rank(records=self.recs, now=self.now, load_ratio=4.0, busy_min_seconds=20), [])
+
+    def test_a_refused_command_never_gets_it(self):
+        rows = self.log.rank(records=[{"ts": int(self.now), "cmd": "git push", "secs": 99}], show_all=True, now=self.now, load_ratio=9.0)
+        self.assertEqual({r["verdict"] for row in rows for r in row["rungs"] if r["rung"] == 5}, {"not met"})
+
+    def test_measure_does_not_move_with_the_load(self):
+        m = self.log.measure(records=self.recs, now=self.now)
+        self.assertEqual(m["current"], 0)
+
+
 class RungsShown(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
         log = cmdlog.CommandLog(self.home)
         for i in range(3):
@@ -231,6 +261,25 @@ class RungsShown(unittest.TestCase):
     def test_top_says_why_each_candidate_pays(self):
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertIn("Free your own computer", out + err)
+
+    def test_a_busy_computer_is_a_live_note_in_top_and_a_rung_in_all(self):
+        self.ctx.host_load = lambda: {"load": 203.0, "cores": 8, "ratio": 25.4}
+        code, out, err = self.run_cli("offload", "log", "top", "--min-seconds", "300")
+        self.assertIn("Your computer is busy", out + err)
+        self.assertIn("25.4", out + err)
+        self.assertIn("not stored", out + err)
+        code, out, err = self.run_cli("offload", "log", "top", "--all", "--min-seconds", "300")
+        self.assertIn("rung 5", (out + err).lower())
+
+    def test_an_idle_computer_adds_no_note(self):
+        self.ctx.host_load = lambda: {"load": 0.4, "cores": 8, "ratio": 0.05}
+        code, out, err = self.run_cli("offload", "log", "top")
+        self.assertNotIn("Your computer is busy", out + err)
+
+    def test_an_unreadable_load_is_said_nowhere_loudly(self):
+        self.ctx.host_load = lambda: None
+        code, out, err = self.run_cli("offload", "log", "top", "--all")
+        self.assertEqual(code, 0)
 
     def test_all_shows_every_rung_for_each_shape(self):
         code, out, err = self.run_cli("offload", "log", "top", "--all")
@@ -281,7 +330,7 @@ class Measure(unittest.TestCase):
 class MeasureCommand(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
 
     def run_cli(self, *args):
