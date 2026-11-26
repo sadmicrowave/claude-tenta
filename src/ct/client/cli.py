@@ -34,7 +34,7 @@ from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import health, here, place, queue, view
+from . import health, here, place, queue, retry, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -288,6 +288,15 @@ def show_summary(ctx, files, left, pack=None):
     emit("What will be sent", *rows, tag="NOTE", color=CYAN)
 
 
+def attempt_for(ctx, res):
+    """(attempt, attempts allowed) of a job whose class retries, else None: asked of the main home, where the plan was written, then of this one."""
+    for home in dict.fromkeys(h for h in (getattr(ctx, "home_main", None), getattr(ctx, "home", None)) if h):
+        got = retry.attempt_of(home, res.get("id"))
+        if got:
+            return got
+    return None
+
+
 def rerun_for(ctx, res):
     """The command that sends a job again: for a profile run that stopped only for time, with the next limit; for a job the worker could not unpack, without compression (None when there is none to suggest)."""
     if str(res.get("refusal") or "").startswith("files.unpack."):
@@ -359,6 +368,7 @@ def cmd_submit(ctx, a):
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
         health.keep_sent(ctx.home_main, info, a.cls, ids, batches, job)
+        retry.plan_sent(ctx.home_main, info, a.cls, ids)
     if place.prune_due(ctx.home):                         # housekeeping, an hour apart: it is a network round trip that almost never finds anything to do
         try:
             r.prune_jobs()
@@ -407,6 +417,22 @@ def health_sweep(ctx, cfg, a):
     if not getattr(a, "json", False) and a.cmd != "jobs":                 # the jobs list shows every lost job itself
         for jid, worker, why, again, outcome in lost:
             emit_lost(jid, worker, None, why, again, outcome)
+
+
+def retry_sweep(ctx, cfg, a):
+    """The jobs that ended killed, and whose class may be retried, are queued again here (never stops the command asked for)."""
+    try:
+        done = retry.sweep(ctx, cfg)
+    except Exception as e:
+        emit("Retries could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if getattr(a, "json", False):
+        return
+    for jid, new, attempt, of, status, why in done:
+        if new:
+            emit("A job is tried again", ("Job", jid), ("Ended", status), ("Attempt", f"{attempt} of {of}"), ("New job", new), tag="RETRY", color=YELLOW, run="ct-run jobs")
+        else:
+            emit("A job is not tried again", ("Job", jid), ("Ended", status), ("Why", why), tag="NOTE", color=YELLOW)
 
 
 LOST_OUTCOME = {"again": "It was queued again as {again} (its own row is in ct-run jobs).",
@@ -516,7 +542,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
                 LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
-                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res), attempt=attempt_for(ctx, res))
                 auto_adopt(ctx, res)
                 return rc
             if locked:
@@ -580,7 +606,7 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res), attempt=attempt_for(ctx, res))
     auto_adopt(ctx, res)
     return rc
 
@@ -1247,6 +1273,7 @@ def main(argv=None, ctx=None, cfg=None):
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
         if cfg is not None and a.cmd in ("submit", "jobs", "result", "classes", "where", "queue"):
             health_sweep(ctx, cfg, a)
+            retry_sweep(ctx, cfg, a)
             drain_queue(ctx, cfg, a)
         if a.cmd == "use":
             return cmd_use(ctx, cfg, a)

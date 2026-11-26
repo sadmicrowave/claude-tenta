@@ -49,7 +49,7 @@ Each is a feature of `theme/orchestrator`, one session, one small branch. Not in
 **Done when.** A reading older than a limit (setting, default 1 day) marks the worker `silent` with its age; a job sent to a silent worker with no result is marked `lost` with the reason and, if it is safe to repeat (class flag), re-queued through R1; the card says which; `ct-admin workers` shows the state; tests for each state and for a worker that comes back.
 **Not in scope.** Restarting or repairing the worker, heartbeats beyond what workers already publish.
 
-### R3. Retries and timeouts per job class (`feat/orchestrator-retries`)
+### R3. Retries and timeouts per job class (`feat/orchestrator-retries`; built 2026-11-26: `retries`, `retry_delay_s`, only `killed` is retried, `ct.client.retry`)
 **Goal.** A transient failure is retried a limited number of times, and a job that runs too long is stopped and reported, per class.
 **Done when.** Class settings `retries` (default 0) and a retry delay; a retry only for classes marked safe to repeat; the result card says "attempt 2 of 3"; the existing `timeout_s` and `max_timeout_s` are the stop rule and are shown in `ct-admin class show`; tests.
 **Not in scope.** Retrying a job that ran to a clean error (the person decides), changing how approvals work.

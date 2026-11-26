@@ -23,6 +23,7 @@ from .. import alias, cards, transport, __version__, approvals, clihelp, config,
 from .. import ui as _ui
 from ..client import offload as off
 from ..client import refuse
+from ..client import retry
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -1193,6 +1194,20 @@ def class_facts(c):
     return c.get("tier", "approve"), bool(c.get("network", False)), list(c.get("tools") or [])
 
 
+def retry_rows(c, from_pack=False):
+    """The rows of `class show` for the stop rule (timeout_s, max_timeout_s) and the retry rule (R3)."""
+    kind = c.get("kind", "command")
+    rows = [("Stops after", f"{int(c.get('timeout_s') or (600 if kind == 'claude' else 60))} s: a job that runs longer is stopped and reported as timeout, and is never run again")] if kind != "profile" else []
+    if c.get("max_timeout_s"):
+        rows += [("Longest allowed", f"{int(c['max_timeout_s'])} s: the most any job of this class may be given")]
+    n = c.get("retries") or 0
+    if n:
+        rows += [("Retries", f"up to {n} more (attempt 2 of {n + 1} and so on): a job stopped from outside is run again after at least {c.get('retry_delay_s') or retry.DEFAULT_DELAY_S} s; an error or a timeout is never run again")]
+    else:
+        rows += [("Retries", "none: a job that is stopped from outside is not run again" + ("" if from_pack else "   (ct-admin class set CLASS --repeatable on --retries 2)"))]
+    return rows
+
+
 def cmd_class(ctx, a):
     """`ct-admin class show CLASS` says what a class may do; `ct-admin class set CLASS ...` changes its approval tier, its network access and its tool folders without editing registry.yaml by hand
     (the change is shown first, asked about, merged and installed the way retire and adopt are)."""
@@ -1209,13 +1224,15 @@ def cmd_class(ctx, a):
     if from_pack and a.verb == "set":
         raise refuse.error("class.from_pack", ("Class", name), example=f"ct-admin class show {name}")
     tier, network, tools = class_facts(mine[name] if name in mine else published[name])
-    repeat = bool((mine[name] if name in mine else published[name]).get("repeatable"))
+    cur = mine[name] if name in mine else published[name]
+    repeat = bool(cur.get("repeatable"))
     if a.verb == "show":
         state = workers.read_state(r.results) or {}
         iso = state.get("isolation") or {}
         roots = list(iso.get("tool_roots") or [])
         rows = [("Class", name), ("Defined in", "a pack (change it there)" if from_pack else "your registry"), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
         rows += [("Safe to repeat", "yes: if a worker goes silent before it answers, the job is sent again to another" if repeat else "no: if a worker goes silent before it answers, the job is only marked lost")]
+        rows += retry_rows(cur, from_pack)
         if tools:
             allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
             rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]
@@ -1233,6 +1250,10 @@ def cmd_class(ctx, a):
         changes["network"] = a.network == "on"
     if a.repeatable:
         changes["repeatable"] = a.repeatable == "on"
+    if a.retries is not None:
+        changes["retries"] = a.retries or None
+    if a.retry_delay is not None:
+        changes["retry_delay_s"] = a.retry_delay
     if a.tools:
         flat = [t for group in a.tools for t in group]
         changes["tools"] = None if flat == ["none"] else flat
@@ -1248,8 +1269,10 @@ def cmd_class(ctx, a):
     if problems:
         raise refuse.error("class.set.invalid", ("Class", name), problems="\n".join(problems[:5]))
     now_tier, now_net, now_tools = class_facts(registry.parse(new_text)["classes"][name])
-    now_repeat = bool(registry.parse(new_text)["classes"][name].get("repeatable"))
-    if (now_tier, now_net, now_tools, now_repeat) == (tier, network, tools, repeat):
+    now_cls = registry.parse(new_text)["classes"][name]
+    now_repeat = bool(now_cls.get("repeatable"))
+    now_retry = (now_cls.get("retries") or 0, now_cls.get("retry_delay_s"))
+    if (now_tier, now_net, now_tools, now_repeat, now_retry) == (tier, network, tools, repeat, (cur.get("retries") or 0, cur.get("retry_delay_s"))):
         emit("Nothing to change", ("Class", name), "It already is that way.", tag="NOTE", color=YELLOW)
         return 0
     rows = [("Class", name)]
@@ -1259,6 +1282,8 @@ def cmd_class(ctx, a):
         rows.append(("Network", f"{'yes' if network else 'no'}  ->  {'yes' if now_net else 'no'}"))
     if now_repeat != repeat:
         rows.append(("Safe to repeat", f"{'yes' if repeat else 'no'}  ->  {'yes' if now_repeat else 'no'}"))
+    if now_retry != (cur.get("retries") or 0, cur.get("retry_delay_s")):
+        rows += [("Retries", f"{cur.get('retries') or 0}  ->  {now_retry[0]}"), ("Retry delay", f"{now_retry[1] or retry.DEFAULT_DELAY_S} s")]
     if now_tools != tools:
         rows += [("Tool folders" if i == 0 else "", f) for i, f in enumerate(now_tools)] or [("Tool folders", "none (removed)")]
     emit("Change a class", *rows, *notes, tag="CHANGE", color=RED if (now_net and now_tier == "auto") else CYAN)
@@ -1466,6 +1491,8 @@ def build_parser():
     s.add_argument("--tier", choices=["auto", "approve"], help="auto runs as soon as it is sent; approve waits for your OK each time")
     s.add_argument("--network", choices=["on", "off"], help="may jobs of this class reach the network?")
     s.add_argument("--repeatable", choices=["on", "off"], help="on: a job of this class that is lost because its worker went silent may be run again on another worker (only if running it twice does no harm)")
+    s.add_argument("--retries", type=int, metavar="N", help="0 to 5: a job of this class that is stopped from outside (ended killed) is run again up to N more times; needs --repeatable on; a job that ran to an error or ran too long is never run again")
+    s.add_argument("--retry-delay", dest="retry_delay", type=int, metavar="SECONDS", help="the least time to wait before a retry (default 60)")
     s.add_argument("--tools", action="append", nargs="+", metavar="FOLDER", help="folders of tools that already exist on the worker (repeat or list several; none removes them); each must be inside a folder the worker allows")
     yes(s)
     s = sp.add_parser("action", add_help=False)

@@ -165,6 +165,8 @@ def sweep(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, now=None):
                 again = _new_id(ctx.home, jid)
                 queue.add(ctx.home, again, p.get("class"), queue.DEFAULT, job, f"{p['worker']} went silent, so {jid} is sent again", now=now)   # added first: a crash before the mark can only repeat a repeatable job
                 drop(ctx.home, jid)
+                from . import retry
+                retry.carry(ctx.home, jid, again)                       # the same attempt, on the new id
             outcome = "again" if again else ("no_copy" if is_repeatable(v.registry, p.get("class")) else "not_repeatable")
             _mark(ctx.home, jid, {"why": why, "at": int(now), "outcome": outcome}, again)
         out.append((jid, p["worker"], why, again, outcome))
@@ -180,6 +182,8 @@ def lost_now(home, final_ids, now=None):
 
 def forget_final(home, final_ids):
     """The jobs list has seen these results: their copies have no more use, so they do not stay on disk until the limit."""
+    from . import retry
+    waiting = retry.pending(home)                                      # a job that may still be retried keeps its copy until that is decided
     for jid in final_ids:
-        if jid in _placements(home):
+        if jid in _placements(home) and jid not in waiting:
             drop(home, jid)
