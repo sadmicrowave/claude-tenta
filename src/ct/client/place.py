@@ -221,6 +221,34 @@ def reserve(home, worker, cls=None):
     return token
 
 
+def reserved(home, skip=None, now=None):
+    """[(worker, class)] of the sends in progress on this computer (not stale, not `skip`, the caller's own token)."""
+    now = time.time() if now is None else now
+    try:
+        data = json.loads((Path(home) / "placements.json").read_text()) or {}
+    except (OSError, ValueError, TypeError):
+        return []
+    return [(p.get("worker"), p.get("class")) for k, p in data.items() if p.get("reserve") and k != skip and now - p.get("at", 0) <= RESERVE_FOR_S]
+
+
+def choose_within_share(cls, views, prefs, share, ch):
+    """(choice, why) for `ch`, the choice already made. A worker at its own limit is left out and the next best is tried; `why` is the sentence when every worker that could take the job is over its
+    share (the caller queues it); None when the returned choice has room."""
+    pool, first = list(views), None
+    while True:
+        over = share(ch.worker)
+        if not over:
+            return ch, None
+        first = first or (ch, over[1])
+        if over[0] != "worker" or len(pool) < 2:
+            return first
+        pool = [v for v in pool if v.name != ch.worker]
+        nxt = decide(cls, pool)
+        if nxt.worker is None or nxt.busy_all:
+            return first
+        ch = nxt
+
+
 def release(home, token):
     if token:
         _update(home, lambda data: data.pop(token, None))
@@ -233,7 +261,7 @@ def worker_of(home, jid):
         return None
 
 
-def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None, hold=False):
+def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None, hold=False, share=None):
     """The Context to send a job of class `cls` with. With one worker, or when there is no configuration (a test), the one it was given. `forced` is a worker name (--worker).
     With `hold`, a job that fits no worker right now is not placed: the Context comes back with `.held` set to the explanation, nothing is reserved, and the caller queues it (queue.py)."""
     ents = (entries_fn or entries)(cfg) if cfg is not None else []
@@ -260,6 +288,11 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         if hold and ch.busy_all:
             ctx.held = ch
             return ctx, ch
+        if hold and share:                                           # checked in the same step as the reservation, so two sends at once cannot both take the last place
+            ch, why = choose_within_share(cls, views, prefs, share, ch)
+            if why:
+                ctx.held, ctx.share_why = ch, why
+                return ctx, ch
         token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)

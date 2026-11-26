@@ -74,17 +74,31 @@ def check(fleet, cap, adding, now=None):
     return total
 
 
-def share_problem(fleet, worker, cls, per_worker, per_class, now=None, extra_worker=0, extra_class=0):
-    """Why a job of class `cls` bound for `worker` is over its share, as one plain sentence, or None when it fits. `per_worker` is the most jobs in flight on one worker, `per_class` the most of one
-    class across every worker (0 = no limit for either). `extra_*` count jobs of the same batch already decided but not yet visible. A job over its share is queued, never refused:
-    the limit is a turn, not a ban (the queue of R1 sends it when a place frees)."""
+def share_problem(per, worker, cls, per_worker, per_class, extra_worker=0, extra_class=0, reserved=()):
+    """Why a job of class `cls` bound for `worker` is over its share, as (kind, sentence) with kind "worker" or "class", or None when it fits. `per` is {worker: {job id: class}} (in_flight_detail
+    of each), `per_worker` the most jobs in flight on one worker, `per_class` the most of one class across every worker (0 = no limit for either). `extra_*` are jobs of this batch or drain already
+    decided but not yet visible, `reserved` the (worker, class) of sends in progress on this computer. A job over its share is queued, never refused: the limit is a turn, not a ban."""
+    here = len(per.get(worker, {})) + extra_worker + sum(1 for w, _ in reserved if w == worker)
+    if per_worker and here >= per_worker:
+        return "worker", f"{worker} already has {here} in flight, its limit is {per_worker} (limits.max_per_worker)"
+    same = sum(1 for jobs in per.values() for c in jobs.values() if c == cls) + extra_class + sum(1 for _, c in reserved if c == cls)
+    if per_class and cls and same >= per_class:
+        return "class", f"{same} of {cls} are already in flight, the limit for one command is {per_class} (limits.max_per_class)"
+    return None
+
+
+def checker_for(ctx, now=None):
+    """None when neither limit is set (nothing is read, nothing changes); else `check(worker, cls, extra_worker=0, extra_class=0, skip=None)` -> share_problem's answer. The workers are looked at
+    ONCE, the first time it is asked (a drain over fifty waiting jobs is one look, not fifty); sends in progress on this computer are read fresh each time, so two sends at the same moment see each other.
+    `skip` is the caller's own reservation token (it must not count itself)."""
+    from . import place
+    per_worker, per_class = getattr(ctx, "max_per_worker", 0), getattr(ctx, "max_per_class", 0)
     if not per_worker and not per_class:
         return None
-    per = {name: in_flight_detail(repos, now) for name, repos in fleet}
-    here = len(per.get(worker, {})) + extra_worker
-    if per_worker and here >= per_worker:
-        return f"{worker} already has {here} in flight, its limit is {per_worker} (limits.max_per_worker)"
-    same = sum(1 for jobs in per.values() for c in jobs.values() if c == cls) + extra_class
-    if per_class and cls and same >= per_class:
-        return f"{same} of {cls} are already in flight, the limit for one command is {per_class} (limits.max_per_class)"
-    return None
+    seen = {}
+
+    def check(worker, cls, extra_worker=0, extra_class=0, skip=None):
+        if "per" not in seen:
+            seen["per"] = {name: in_flight_detail(repos, now) for name, repos in ctx.fleet()}
+        return share_problem(seen["per"], worker, cls, per_worker, per_class, extra_worker, extra_class, place.reserved(ctx.home, skip))
+    return check

@@ -141,7 +141,8 @@ def route_submit(ctx, cfg, a):
         forced, why = pinned_worker(cfg, a.cls)
     if why:
         emit("Sending a job", (cards.Chip("WHERE", "primary"), alias.show(forced)), ("Command", a.cls), ("Why", why), tag="PINNED", color=CYAN)
-    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say, hold=not forced)          # a named or pinned worker gets the job; only the orchestrator's own choice may queue it
+    share = cap.checker_for(ctx)
+    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say, hold=not forced, share=(lambda w: share(w, a.cls)) if share else None)          # a named or pinned worker gets the job; only the orchestrator's own choice may queue it
     ctx2.orchestrated = not forced                           # the same rule for a job over its share (limits.max_per_worker / max_per_class)
     return ctx2
 
@@ -321,13 +322,13 @@ def cmd_submit(ctx, a):
     job = sub.build_job(a.cls, params, prompt)
     held = getattr(ctx, "held", None)
     if held is not None:
-        return hold_jobs(ctx, a, batches, job, held)
-    per_worker, per_class = getattr(ctx, "max_per_worker", 0), getattr(ctx, "max_per_class", 0)
-    if getattr(ctx, "orchestrated", False) and (per_worker or per_class):
+        return hold_jobs(ctx, a, batches, job, held, why=getattr(ctx, "share_why", None))
+    share = cap.checker_for(ctx) if getattr(ctx, "orchestrated", False) and len(batches) > 1 else None
+    if share:                                                                                  # a set split into several jobs counts as the jobs it is (one was already checked when the worker was chosen)
         with view.Busy("checking: how many jobs are already running on the workers"):
-            over = cap.share_problem(ctx.fleet(), ctx.product, a.cls, per_worker, per_class, extra_worker=len(batches) - 1, extra_class=len(batches) - 1)   # a split set counts as the jobs it is
-        if over:                                                                               # over its share: it waits its turn behind the others, it is not refused
-            return hold_jobs(ctx, a, batches, job, None, why=over)
+            over = share(ctx.product, a.cls, len(batches) - 1, len(batches) - 1, getattr(ctx, "reservation", None))
+        if over:
+            return hold_jobs(ctx, a, batches, job, None, why=over[1])
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
@@ -364,7 +365,7 @@ def hold_jobs(ctx, a, batches, job, held, why=None):
     prio = getattr(a, "priority", None) or queue.DEFAULT
     for jid, chunk in zip(ids, batches):
         queue.add(ctx.home, jid, a.cls, prio, {**job, **({"files": chunk} if chunk else {})}, why)
-    emit("Waiting for a worker", *[("Job", j) for j in ids], ("Priority", prio), ("Why", why), "It is sent by the next ct-run command once a worker has room; ct-run jobs shows it waiting.", tag="WAITING", color=YELLOW,
+    emit("Waiting for a worker", *[("Job", j) for j in ids], ("Priority", prio), ("Why", why), "It is sent by the next ct-run command once there is room; ct-run jobs shows it waiting.", tag="WAITING", color=YELLOW,
          run=f"ct-run jobs")
     print("\n".join(ids))                                                   # output: data (job ids for a script)
     return 0

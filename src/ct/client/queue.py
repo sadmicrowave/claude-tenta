@@ -216,7 +216,8 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
     dropped = [] if dropped is None else dropped
     now = time.time() if now is None else now
     by_name, sent = {e[0]: e for e in ents}, []
-    share = share or _share_check
+    from . import cap
+    share = share or cap.checker_for(ctx)                                       # None with no limit set
     by_worker, by_class = {}, {}                                                # what this drain has sent so far: a look at the workers may not show it yet
     with _drain_lock(ctx.home) as mine:
         if not mine:
@@ -239,12 +240,14 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 if ch.worker is None or ch.busy_all:
                     note(ctx.home, it["id"], why_of(ch))
                     continue
+                if share:                                                       # over its share: it keeps its place and the next job gets a look (this is what stops one batch taking every place)
+                    cls = it["class"]
+                    ch, over = place.choose_within_share(cls, views, None, lambda w: share(w, cls, by_worker.get(w, 0), by_class.get(cls, 0)), ch)
+                    if over:
+                        note(ctx.home, it["id"], over)
+                        continue
                 token = place.reserve(ctx.home, ch.worker, it["class"])
             try:
-                over = share(ctx, ch.worker, it["class"], by_worker.get(ch.worker, 0), by_class.get(it["class"], 0))
-                if over:                                                        # over its share: it keeps its place and the next job gets a look (this is what stops one batch taking every place)
-                    note(ctx.home, it["id"], over)
-                    continue
                 if not claim(ctx.home, it["id"], ch.worker, now):               # someone cancelled it, or it is already being sent
                     continue
                 check(ctx, 1)
@@ -260,12 +263,6 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
             finally:
                 place.release(ctx.home, token)
     return sent
-
-
-def _share_check(ctx, worker, cls, extra_worker=0, extra_class=0):
-    """The sentence saying why a job is over its per-worker or per-command share, or None (no look at the network at all when neither limit is set)."""
-    from . import cap
-    return cap.share_problem(ctx.fleet(), worker, cls, getattr(ctx, "max_per_worker", 0), getattr(ctx, "max_per_class", 0), extra_worker=extra_worker, extra_class=extra_class)
 
 
 def _cap_check(ctx, adding):

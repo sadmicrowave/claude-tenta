@@ -109,7 +109,7 @@ class Drain(Setup):
         for i in (1, 2, 3):
             queue.add(self.main.home, f"big-{i}", "big", "normal", {}, "", now=time.time() - 100 + i)             # the burst, oldest first
         queue.add(self.main.home, "one-1", "sys-status", "normal", {}, "", now=time.time() - 10)                 # a single job that arrived after it
-        share = lambda c, worker, cls, ew, ec: f"{ec} of {cls} in flight, limit 1" if cls == "big" and ec >= 1 else None   # noqa: E731
+        share = lambda worker, cls, ew, ec: ("class", f"{ec} of {cls} in flight, limit 1") if cls == "big" and ec >= 1 else None   # noqa: E731
         done = queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=lambda repos, jid, job: self.sent.append(jid), check=lambda c, n: None, share=share)
         self.assertEqual(sorted(j for j, _ in done), ["big-1", "one-1"])
         self.assertEqual([i["id"] for i in queue.waiting(self.main.home)], ["big-2", "big-3"])      # keep their order, with the reason
@@ -120,10 +120,52 @@ class Drain(Setup):
             self.add(n, running=0, capacity=4, classes=("sys-status", "big"))
         queue.add(self.main.home, "big-1", "big", "normal", {}, "", now=time.time() - 100)
         send = lambda repos, jid, job: self.sent.append(jid)    # noqa: E731
-        queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=send, check=lambda c, n: None, share=lambda *a: "full")
+        queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=send, check=lambda c, n: None, share=lambda *a: ("class", "full"))
         self.assertEqual(self.sent, [])
         queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=send, check=lambda c, n: None, share=lambda *a: None)
         self.assertEqual(self.sent, ["big-1"])
+
+    def test_a_worker_at_its_own_limit_is_passed_over_for_one_with_room(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, running=0, capacity=4, classes=("sys-status", "big"))
+        queue.add(self.main.home, "big-1", "big", "normal", {}, "", now=time.time() - 100)
+        full = {}
+        share = lambda worker, cls, ew, ec: ("worker", f"{worker} is full") if worker in full else None    # noqa: E731
+        first = queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=lambda r, j, job: None, check=lambda c, n: None, share=share)
+        full[first[0][1]] = 1                                                    # the worker it went to is now at its limit
+        queue.add(self.main.home, "big-2", "big", "normal", {}, "", now=time.time() - 50)
+        second = queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=lambda r, j, job: None, check=lambda c, n: None, share=share)
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(second[0][1], first[0][1])
+
+    def test_every_worker_at_its_limit_keeps_the_job_waiting_with_the_reason(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, running=0, capacity=4, classes=("sys-status", "big"))
+        queue.add(self.main.home, "big-1", "big", "normal", {}, "", now=time.time() - 100)
+        done = queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=lambda r, j, job: None, check=lambda c, n: None,
+                           share=lambda worker, cls, ew, ec: ("worker", f"{worker} is full"))
+        self.assertEqual(done, [])
+        self.assertIn("is full", queue.find(self.main.home, "big-1")["why"])
+        self.assertEqual(place.reserved(self.main.home), [])                      # nothing was reserved for a job that waits
+
+    def test_a_submit_over_its_share_is_held_with_the_reason_and_reserves_nothing(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, running=0, capacity=4)
+        main = Ctx("mini", self.tmp / "home")
+        ctx, ch = place.route(main, self.cfgs["mini"], "sys-status", None, entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], hold=True,
+                              share=lambda w: ("class", "3 of sys-status are already in flight"))
+        self.assertIs(ctx.held, ch)
+        self.assertIn("already in flight", ctx.share_why)
+        self.assertEqual(place.reserved(main.home), [])
+
+    def test_a_send_in_progress_counts_for_the_next_one_but_not_for_itself(self):
+        home = self.tmp / "h"
+        mine = place.reserve(home, "mini", "big")
+        other = place.reserve(home, "vmx", "big")
+        self.assertEqual(sorted(place.reserved(home)), [("mini", "big"), ("vmx", "big")])
+        self.assertEqual(place.reserved(home, skip=mine), [("vmx", "big")])
+        place.release(home, other)
+        self.assertEqual(place.reserved(home, skip=mine), [])
 
     def test_a_failed_send_keeps_the_job_with_the_real_error(self):
         for n in ("mini", "vmx", "ghx"):

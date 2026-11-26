@@ -74,29 +74,51 @@ class Cap(unittest.TestCase):
 
 
 class Share(unittest.TestCase):
-    """limits.max_per_worker and limits.max_per_class: a job over its share is told why (it is queued by the caller), never refused here."""
-    FLEET = [("main", Repos({"a": 1, "b": 1, "c": 1}, classes={"a": "big", "b": "big", "c": "small"})), ("studio", Repos({"d": 1}, classes={"d": "big"}))]
-
-    def test_no_limit_reads_nothing(self):
-        self.assertIsNone(cap.share_problem([("main", Repos({"a": 1}, fail=True))], "main", "big", 0, 0, NOW))
+    """limits.max_per_worker and limits.max_per_class: a job over its share is told why (the caller queues it), never refused here."""
+    PER = {"main": {"a": "big", "b": "big", "c": "small"}, "studio": {"d": "big"}}
 
     def test_a_worker_at_its_limit_is_named_with_the_count_and_the_setting(self):
-        why = cap.share_problem(self.FLEET, "main", "other", 3, 0, NOW)
+        kind, why = cap.share_problem(self.PER, "main", "other", 3, 0)
+        self.assertEqual(kind, "worker")
         self.assertIn("main already has 3 in flight", why)
         self.assertIn("limits.max_per_worker", why)
-        self.assertIsNone(cap.share_problem(self.FLEET, "studio", "other", 3, 0, NOW))
+        self.assertIsNone(cap.share_problem(self.PER, "studio", "other", 3, 0))
 
     def test_a_command_at_its_limit_counts_across_every_worker(self):
-        why = cap.share_problem(self.FLEET, "studio", "big", 0, 3, NOW)
+        kind, why = cap.share_problem(self.PER, "studio", "big", 0, 3)
+        self.assertEqual(kind, "class")
         self.assertIn("3 of big", why)
         self.assertIn("limits.max_per_class", why)
-        self.assertIsNone(cap.share_problem(self.FLEET, "studio", "small", 0, 3, NOW))      # another command is not held back by the big batch
+        self.assertIsNone(cap.share_problem(self.PER, "studio", "small", 0, 3))      # another command is not held back by the big batch
 
-    def test_jobs_of_the_same_batch_not_yet_visible_count(self):
-        self.assertIsNotNone(cap.share_problem(self.FLEET, "studio", "small", 0, 2, NOW, extra_class=1))
+    def test_jobs_not_yet_visible_and_sends_in_progress_count(self):
+        self.assertIsNotNone(cap.share_problem(self.PER, "studio", "small", 0, 2, extra_class=1))
+        self.assertIsNotNone(cap.share_problem(self.PER, "studio", "x", 2, 0, reserved=[("studio", "x")]))
+        self.assertIsNone(cap.share_problem(self.PER, "studio", "x", 3, 0, reserved=[("main", "x")]))
 
     def test_in_flight_detail_reads_the_class(self):
-        self.assertEqual(cap.in_flight_detail(self.FLEET[0][1], NOW), {"a": "big", "b": "big", "c": "small"})
+        self.assertEqual(cap.in_flight_detail(Repos({"a": 1, "b": 1}, classes={"a": "big", "b": "small"}), NOW), {"a": "big", "b": "small"})
+
+    def test_no_limit_gives_no_checker_and_reads_nothing(self):
+        ctx = type("C", (), {"max_per_worker": 0, "max_per_class": 0, "fleet": lambda self: 1 / 0})()
+        self.assertIsNone(cap.checker_for(ctx))
+
+    def test_the_checker_looks_at_the_workers_once_however_many_jobs_ask(self):
+        import tempfile
+        looks = []
+
+        class Fleet:
+            max_per_worker, max_per_class, home = 2, 0, tempfile.mkdtemp()
+
+            def fleet(self):
+                looks.append(1)
+                return [("main", Repos({"a": 1}, classes={"a": "big"}))]
+        check = cap.checker_for(Fleet(), NOW)
+        for _ in range(5):
+            check("main", "big")
+        self.assertEqual(len(looks), 1)
+        self.assertIsNone(check("main", "big"))
+        self.assertEqual(check("main", "big", extra_worker=1)[0], "worker")
 
 
 if __name__ == "__main__":
