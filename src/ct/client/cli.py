@@ -4,6 +4,7 @@
   submit <class> [options]       queue a job (-p name=value, --prompt, --file, --dir/--include); waits for the result in a terminal
   result <job> [--wait]          read a job's result; --wait keeps checking until it finishes
   jobs [-n N]                    your most recent jobs, and the ones waiting for your approval
+  audit [<job>] [-n N] [--json]  where jobs ran, why, and what happened (kept for audit.keep_days)
   classes                        what the worker can run today, as it published it
   prune [--days N] [--force]     squash old job files out of the jobs branch
   offload log hook|top|show|clear   learn which of your commands are worth running on the worker
@@ -34,7 +35,7 @@ from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import health, here, place, queue, retry, view
+from . import audit, health, here, place, queue, retry, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -47,7 +48,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24, silent_hours=24):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24, silent_hours=24, audit_keep_days=90):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -58,6 +59,7 @@ class Context:
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.recommend_runs, self.recommend_gain = int(recommend_runs), int(recommend_gain)
         self.silent_hours = int(silent_hours)
+        self.audit_keep_days = int(audit_keep_days)
         self.recommend_hint, self.recommend_hint_hours = bool(recommend_hint), int(recommend_hint_hours)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
@@ -73,7 +75,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, silent_hours=cfg.health.silent_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, silent_hours=cfg.health.silent_hours, audit_keep_days=cfg.audit.keep_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -367,6 +369,7 @@ def cmd_submit(ctx, a):
         emit("Queued", ("Job", jid), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
+        audit.placed(ctx, ids, a.cls, ctx.product, getattr(ctx, "choice", None))
         health.keep_sent(ctx.home_main, info, a.cls, ids, batches, job)
         retry.plan_sent(ctx.home_main, info, a.cls, ids)
     if place.prune_due(ctx.home):                         # housekeeping, an hour apart: it is a network round trip that almost never finds anything to do
@@ -485,6 +488,35 @@ def cmd_queue(ctx, a):
     for i in items:
         emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW,
              run=f"ct-run queue cancel {i['id']}", run_label="Cancel it")
+    return 0
+
+
+def cmd_audit(ctx, a):
+    """Where jobs ran, why, and what happened (the audit trail, audit.py): the latest jobs, or one job's whole story with the jobs it was sent again as."""
+    from types import SimpleNamespace
+    rows = audit.read(audit.home_of(ctx))
+    if a.id:
+        rows = audit.chain(rows, a.id)
+    if a.json:
+        print(json.dumps(rows[-a.n:] if not a.id else rows, indent=1))
+        return 0
+    if not rows:
+        emit("Nothing recorded for that job" if a.id else "Nothing recorded yet", *([("Job", a.id)] if a.id else []), "The trail holds jobs this computer placed with several workers, from the day it was turned on.", tag="NOTE", color=YELLOW)
+        return 0 if not a.id else 1
+    when = lambda t: time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(t))
+    if a.id:
+        for r in rows:
+            if r["event"] == "placed":
+                shown = SimpleNamespace(lines=[(x[0], x[1], " / ".join(x[2:])) for x in r.get("rows") or []], reasons=None)
+                emit("Placed", ("Job", r["job"]), ("Command", r.get("class", "")), ("Worker", alias.show(r.get("worker", ""))), ("Priority", r.get("priority") or "-"), ("When", when(r["at"])), *(["\n", *place.rows(shown)] if shown.lines else [("Why", r.get("why", ""))]), tag="AUDIT", color=CYAN)
+            else:
+                emit(r["event"].capitalize(), ("Job", r["job"]), ("When", when(r["at"])), ("What", audit.story([r])[0][3]), tag="AUDIT", color=CYAN)
+        return 0
+    outcome = {r["job"]: r for r in rows if r["event"] == "outcome"}
+    for r in [r for r in rows if r["event"] == "placed"][-a.n:][::-1]:
+        o = outcome.get(r["job"])
+        emit("A job", ("Job", r["job"]), ("Command", r.get("class", "")), ("Worker", alias.show(r.get("worker", ""))), ("Priority", r.get("priority") or "-"), ("When", when(r["at"])), ("Outcome", o["status"] if o else "no result seen yet"), tag="AUDIT", color=CYAN,
+             run=f"ct-run audit {r['job']}", run_label="Why there, and the rest of its story")
     return 0
 
 
@@ -634,6 +666,7 @@ def jobs_of(repos, admin):
 def note_runs(ctx, results):
     """Remember each finished job's worker and run time (recommend.RunLog), so `ct-run offload recommend` has evidence. Never breaks the command."""
     from . import recommend
+    audit.outcomes(ctx, results)                               # never raises
     try:
         recommend.RunLog(ctx.home).observe(results, lambda jid: place.worker_of(getattr(ctx, "home_main", ctx.home), jid) or ctx.product, view.parse_when)
     except (OSError, TypeError, ValueError):                   # a recorder: whatever is wrong with it, the command that looked at the jobs still answers
@@ -1164,6 +1197,10 @@ def build_parser():
     pt.add_argument("--yes", action="store_true", help="with --apply: do not ask")
     s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
+    au = sp.add_parser("audit", add_help=False)
+    au.add_argument("id", nargs="?", help="one job id: its whole story, with the jobs it was sent again as")
+    au.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
+    au.add_argument("--json", action="store_true", help="the raw entries, for a script")
     q = sp.add_parser("queue", add_help=False)
     qsp = q.add_subparsers(dest="queue_cmd", metavar="command")
     qc = qsp.add_parser("cancel", add_help=False, help="take a waiting job off the list")
@@ -1231,6 +1268,7 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "result": ("read a job's result", [("Read it now", "ct-run result job-abc123"), ("Wait for it", "ct-run result job-abc123 --wait")]),
         "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "ct-run jobs"), ("Show more", "ct-run jobs -n 40")]),
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
+        "audit": ("where jobs ran, why, and what happened (kept for audit.keep_days)", [("The latest 15 jobs", "ct-run audit"), ("One job in full", "ct-run audit job-abc123")]),
         "queue": ("the jobs waiting on this computer for a worker with room", [("List them", "ct-run queue"), ("Take one off", "ct-run queue cancel <job>"), ("Move one up", "ct-run queue priority <job> high")]),
         "classes": ("every class your workers can run, and which workers offer each", [("List them", "ct-run classes"), ("One worker's own list", "ct-run classes --worker tenta3")]),
         "where": ("which of your workers a job of this class would go to, and why each of the others would not (nothing is sent)", [("Explain the choice for a class", "ct-run where sys-status")]),
@@ -1291,6 +1329,8 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_jobs(ctx, a.n, cfg)
         if a.cmd == "queue":
             return cmd_queue(ctx, a)
+        if a.cmd == "audit":
+            return cmd_audit(ctx, a)
         if a.cmd == "offload":
             return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":

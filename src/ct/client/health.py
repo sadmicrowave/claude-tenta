@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from ..jobs import ID_RE
-from . import place, queue
+from . import audit, place, queue
 from .repo import PENDING
 
 LOOK_EVERY_S = 3600                     # the workers are looked at for this at most once an hour
@@ -169,6 +169,7 @@ def sweep(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, now=None):
                 retry.carry(ctx.home, jid, again)                       # the same attempt, on the new id
             outcome = "again" if again else ("no_copy" if is_repeatable(v.registry, p.get("class")) else "not_repeatable")
             _mark(ctx.home, jid, {"why": why, "at": int(now), "outcome": outcome}, again)
+            audit.lost(ctx, jid, p["worker"], p.get("class"), why, again, now)
         out.append((jid, p["worker"], why, again, outcome))
     return out
 

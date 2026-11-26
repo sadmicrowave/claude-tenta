@@ -305,6 +305,7 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
         say(ch)
     chosen = _with(make_ctx(by_name[ch.worker]), ctx)
     chosen.reservation = token
+    chosen.choice = ch                                                 # kept for the audit trail (audit.placed)
     return chosen, ch
 
 

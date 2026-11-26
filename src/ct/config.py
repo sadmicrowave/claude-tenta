@@ -275,6 +275,9 @@ SCHEMA = {
     "health": {
         "silent_hours": (24, _int(1, 312), "a worker whose latest reading is older than this many hours is called silent (at most 312, a bit under the 14 days placements are remembered): no new job is placed on it, and a job sent to it that has no result by then is called lost (re-queued only if its class is repeatable)"),
     },
+    "audit": {
+        "keep_days": (90, _int(1, 3650), "days the audit trail (ct-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour)"),
+    },
     "offload": {
         "auto_adopt": (True, _bool, "on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt"),
         "repeat_runs": (3, _int(1, 1000), "a command you run this many times within repeat_days counts as repeated work worth offloading"),
