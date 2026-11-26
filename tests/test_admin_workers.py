@@ -317,6 +317,25 @@ class FleetWideCommands(AdminBase):
         self.assertEqual(text.count("card for"), 2)                                     # the content is still repeated for every worker
         self.assertGreater(text.index("From here you can"), text.rindex("card for"))              # and the footer comes after the last of them
 
+    def test_the_status_overview_is_drawn_once_for_the_whole_fleet_not_per_worker(self):
+        """R6: the panel covers every worker, so several workers must not repeat it."""
+        a, b = self.two()
+        shown = []
+        with mock.patch.object(self.ctx, "targets", side_effect=lambda n=None: [("first", a), ("second", b)]), \
+                mock.patch.object(cli.overview, "show", side_effect=lambda d, **k: shown.append(d)), \
+                mock.patch.object(cli, "overview_data", return_value={}), \
+                mock.patch.dict(cli.DISPATCH, {"status": lambda c, args: 0}):
+            code, out, err = self.admin("status")
+        self.assertEqual((code, len(shown)), (0, 1))
+
+    def test_status_every_draws_only_the_overview_and_stops_on_ctrl_c(self):
+        shown = []
+        with mock.patch.object(cli, "overview_data", return_value={}), mock.patch.object(cli.overview, "show", side_effect=lambda d, **k: shown.append(d)), \
+                mock.patch.object(cli.time, "sleep", side_effect=[None, KeyboardInterrupt]), \
+                mock.patch.dict(cli.DISPATCH, {"status": lambda c, args: self.fail("a worker was asked")}):
+            code, out, err = self.admin("status", "--every", "3")
+        self.assertEqual((code, len(shown)), (0, 2))
+
     def test_a_single_worker_still_gets_its_footer_straight_after_its_card(self):
         from ct import ui as _ui
         a, b = self.two()

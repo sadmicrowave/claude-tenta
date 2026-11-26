@@ -4,6 +4,7 @@ import io
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -58,7 +59,19 @@ def _update_cards(out):
         admin_cli.fleet_apply_summary([(LONG, "installed"), ("tenta2", "current"), ("win1", "left"), ("tenta3", "failed")], "a" * 40, verb="update")
 
 
+def _status_panel(out):
+    """The R6 panel with a long worker name, a silent worker, a full queue and results of every kind."""
+    from ct.client import overview
+    row = lambda **k: {"silent": False, "stale": False, "paused": False, "locked": False, "age": "5 min ago", "load_value": 1.5, "cores_value": 4, **k}
+    data = overview.collect(Path(tempfile.mkdtemp()), [(LONG, row()), ("tenta2", row(silent=True, age="30 h ago SILENT", load_value=None)), ("none", None)], now=2_000_000_000)
+    data["queue"] = {"depth": {"high": 9, "normal": 3, "low": 0}, "total": 12, "oldest": "3 h"}
+    data["running"] = [{"job": "sys-status-qpr7xp", "class": "sys-status", "worker": LONG, "for": "4 min"}]
+    data["recent"] = [{"job": "profile-bkhudd", "class": "profile-run", "worker": LONG, "status": "error", "ago": "9 min"}, {"job": "x-1", "class": "x", "worker": "", "status": "ok", "ago": "now"}]
+    overview.show(data, stream=out)
+
+
 KINDS = {
+    "the status panel": _status_panel,
     "the update cards for several workers": _update_cards,
     "a short card": say("Ready", "It is done.", tag="DONE", color=ui.GREEN),
     "facts, why, steps and a command": say("A step of the Windows setup failed", ("Step", "tools"), ("Computer", "192.0.2.50"), cards.Why("The Python installer finished, but python.exe is not where it was expected"),

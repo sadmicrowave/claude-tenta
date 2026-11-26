@@ -161,3 +161,11 @@ A worker's capacity is in points (a light job 1, a medium 2, a heavy 4, the work
 ## Worker aliases (design, 2026-11-19)
 
 A name you give a worker for the `ct-` commands, kept only on your computer in `~/.ct/aliases.toml` (`tenta3 = "lab-vm"`); the worker, its hostname and its install are not touched. `ct-admin workers rename WORKER NEW` names one; `ct-admin workers rename` with nothing else is the fleet wizard (each worker in turn: Enter keeps, `-` clears); `--clear` removes one; `--mask` / `--show-real` choose whether `lab-vm  (tenta3)` or only `lab-vm` is shown. Typing: the alias or the real name works wherever a worker is named (`--worker`, `ct-run use`, `ct-admin workers use`, `ct-run classes --worker`, `ct-setup --worker`). Showing: every card shows a worker through `alias.show`. Files such as `.tenta.toml` keep the real name, so renaming an alias breaks nothing. A name cannot be the real name or the alias of another worker. `ct-setup rename` is a different, heavy command: it renames the install itself (server folders, services, GitHub repositories). Limit: a worker draws its own `status`, so its first lines still show its real name.
+
+## The status panel (R6)
+
+`ct-admin status` begins with one card, "Your workers and jobs", drawn once for the whole fleet (the per-worker reports follow it as before). It reads only this computer's own files, so it asks no worker and needs no login:
+the published worker states (state ok / SILENT / STALE / PAUSED / LOCKED by the same rules as `ct-admin workers`, with a load bar against the cores), the waiting list by priority (R1, bars scaled to the fullest priority, the oldest wait),
+the jobs placed in the last 24 hours with no outcome yet ("running", R5), and the latest finished results (R5). `ct-admin status --every SECONDS` draws that card alone again and again until Ctrl-C; nothing else is live.
+Bars and lines are cut to the width of the terminal (the narrow-width guard draws the card at eight widths). Code: `ct.client.overview` (`collect` is plain data, `lines` draws it). Limit: a plain single-worker send is not in the trail (as for R2, R3, R5), so it is not shown as running.
+
