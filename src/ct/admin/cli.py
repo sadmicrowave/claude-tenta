@@ -27,7 +27,7 @@ from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from ..setup import tui
-from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workers
+from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workerrepos, workers
 from .proposals import Proposals
 from .ssh import Ssh
 from ..words import plural
@@ -688,6 +688,21 @@ def workers_use(ctx, a):
     return rc
 
 
+def repos_choice(ctx, a, mine):
+    """keep | archive | delete for a removed worker's repositories. Never silent: --repos says it, a person at a terminal is asked (default keep, delete asks twice), anything else keeps."""
+    if not mine:
+        return "keep"
+    how = getattr(a, "repos", None)
+    if not how:
+        if not ctx.is_tty():
+            return "keep"
+        emit("Its repositories on GitHub", *[("Repository", s) for _, s in mine], "Archive keeps them read-only; delete removes them and their deploy keys for good.", tag="ASK", color=YELLOW)
+        how = {"a": "archive", "d": "delete"}.get(ctx.ask("Keep, archive or delete them? [k/a/d, default keep] ").strip().lower()[:1], "keep")
+    if how == "delete" and not ctx.confirm("Delete " + " and ".join(s for _, s in mine) + " for good (no undo)?", getattr(a, "yes", False)):
+        return "keep"
+    return how
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -698,19 +713,38 @@ def cmd_workers(ctx, a):
         try:
             workers.add(wfile, a.name, a.config)
         except ValueError as e:
+            if getattr(e, "code", "") == "worker.repo.shared":                 # its own card, with the way out
+                raise refuse.error("worker.repo.shared", ("Worker", alias.show(a.name)), **e.facts)
             raise refuse.error("worker.add.failed", reason=str(e))
-        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
+        prepared = []
+        if getattr(a, "github", False):
+            try:
+                prepared = workerrepos.prepare(config.load(Path(a.config).expanduser(), env={"CT_CONFIG": ""}), Path(a.config).expanduser(), wfile)
+            except Exception as e:                                                   # listed already; the repositories step is said, and runs again with the same command
+                if getattr(e, "code", "") == "worker.repo.shared":
+                    raise refuse.error("worker.repo.shared", ("Worker", alias.show(a.name)), **e.facts)
+                raise refuse.error("worker.add.failed", reason=str(e))
+        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), *[("Queue", f"{w} ({s})") for r, w, s in prepared if r == "queue"], *[("Results", f"{w} ({s})") for r, w, s in prepared if r == "results"], *([("Clones", str(Path(prepared[-1][1]).parent))] if prepared and prepared[-1][0] == "clone" else []),
+             *(["Its machine's deploy keys are added by ct-setup add-worker (or install), which also sets the machine up."] if prepared else []), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
         return 0
     if action == "remove":
-        if not a.name or not workers.remove(wfile, a.name):
+        listed_at = workers.load_list(wfile).get(a.name)
+        mine = workerrepos.removable(a.name, listed_at, wfile) if listed_at else []
+        if not a.name or a.name not in workers.load_list(wfile):
             raise refuse.error("worker.unlisted", ("Name", a.name), example="ct-admin workers")
-        emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
+        how = repos_choice(ctx, a, mine)                                           # asked BEFORE the worker is taken off the list: a refusal here changes nothing
+        workers.remove(wfile, a.name)
+        results = workerrepos.retire([s for _, s in mine], how) if how != "keep" else []
+        emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.",
+             *[("Repository", f"{s}: {how}d" if ok else f"{s}: could not {how} ({said[:160]})") for s, ok, said in results],
+             *[("Repository", f"{s}: kept (private, still yours)") for _, s in mine if how == "keep"],
+             tag="DONE", color=GREEN)
         return 0
     if action == "use":
         return workers_use(ctx, a)
     if action == "rename":
         return workers_rename(ctx, a)
-    rows, problems, regs = [], [], {}
+    rows, problems, regs, shared = [], [], {}, []
     for name, repos in ctx.fleet():
         try:
             if not a.no_refresh:
@@ -719,6 +753,13 @@ def cmd_workers(ctx, a):
             problems.append(f"{name}: could not refresh ({str(e).strip()[:80]})")
         rows.append((name, workers.read_state(repos.results)))
         regs[name] = repos.registry_info()
+    for name, path in workers.load_list(wfile).items():                                    # a hand-edited list can still name one repository twice: said, never ignored
+        try:
+            hit = workers.repo_conflict(config.load(path, env={"CT_CONFIG": ""}), path, wfile)
+        except Exception:
+            hit = None
+        if hit:
+            shared.append((name, hit))
     cells = [workers.row_for(n, d) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
@@ -737,6 +778,9 @@ def cmd_workers(ctx, a):
     import shutil
     from .. import ui as ui_mod
     _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
+    if shared:
+        emit("Two workers share a repository", *[("Worker", alias.show(n)) for n, _ in shared], *[("Shared", f"{h[0]} with {h[1]}") for _, h in shared],
+             "Each worker needs its own private repositories: give one of them new names (github.queue_repo and github.results_repo in its configuration), then set it up again.", tag="WARNING", color=RED)
     if problems:
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
@@ -1441,6 +1485,9 @@ def build_parser():
     s.add_argument("name", nargs="?", help="with add or remove: the worker's name")
     s.add_argument("new", nargs="?", help="with rename: the new name (an alias, kept on this computer only)")
     s.add_argument("--config", help="with add: the worker's configuration file")
+    s.add_argument("--github", action="store_true", help="with add: also create the worker's two private repositories on GitHub (with gh) and clone them")
+    s.add_argument("--repos", choices=["keep", "archive", "delete"], help="with remove: what to do with the worker's two repositories on GitHub (asked at a terminal; default keep)")
+    yes(s)
     s.add_argument("--mask", action="store_true", help="with rename: show only aliases, never the real names")
     s.add_argument("--show-real", action="store_true", help="with rename: show an alias with the real name beside it (the default)")
     s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")

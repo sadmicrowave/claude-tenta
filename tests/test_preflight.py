@@ -31,6 +31,17 @@ class Preflight(unittest.TestCase):
         self.assertIn("preflight.require()", (ROOT / "tests" / "support.py").read_text())
 
 
+class RealMachine(unittest.TestCase):
+    def test_the_login_probe_runs_a_command_every_shell_has(self):
+        with mock.patch.object(preflight, "_run", return_value=(0, "")) as run:
+            preflight._real_problems("u@h")
+        self.assertEqual(run.call_args[0][0][-1], "echo ok")   # `true` fails in cmd.exe
+
+    def test_a_key_exchange_warning_is_not_named_as_the_problem(self):
+        text = "** WARNING: connection is not using a post-quantum key exchange algorithm.\nu@h: Permission denied (publickey)."
+        self.assertIn("Permission denied", preflight._first_line(text))
+
+
 class Kinds(unittest.TestCase):
     def ok(self, out="", rc=0):
         return mock.Mock(returncode=rc, stdout=out, stderr="")
