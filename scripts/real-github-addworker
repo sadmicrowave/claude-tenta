@@ -4,8 +4,8 @@
 # What it does to your GitHub account: creates those two PRIVATE repositories, adds the second worker's deploy keys, and DELETES the repositories again at the end (through `ct-admin workers remove --repos delete`, answered at a pseudo terminal;
 # the trap deletes them with gh if that did not happen). Needs the delete_repo scope. Your own configuration is not touched (throwaway HOME); both machines are deleted when the run ends. The code under test is THIS checkout (PYTHONPATH), not the installed copy.
 set -u
-cd "$(dirname "$0")/.."; REPO=$PWD
-REAL_HOME=$HOME; NAME=${1:-ctaw}; WN=wkb; BASE=ct-cache-ubuntu-26-04; M1=ct-e2e-awmain; M2=ct-e2e-awnew; ADMIN=ctadmin
+cd "$(dirname "$0")/.."; REPO=$PWD; . scripts/e2e-names.sh
+REAL_HOME=$HOME; NAME=${1:-ctaw}; WN=wkb; BASE=$(e2e_cache_name ubuntu-26-04); M1=$(e2e_machine e2e awmain); M2=$(e2e_machine e2e awnew); ADMIN=ctadmin
 OWNER=$(gh api user --jq .login) || { echo "gh is not signed in"; exit 2; }
 Q=$NAME-$WN-queue; R=$NAME-$WN-results   # the names add-worker suggests: <first install>-<worker>-queue
 for r in $Q $R $NAME-other; do gh repo view "$OWNER/$r" >/dev/null 2>&1 && { echo "$OWNER/$r already exists: choose another NAME"; exit 3; }; done

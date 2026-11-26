@@ -6,8 +6,8 @@
 # Your own configuration is not touched: ct-setup runs with a throwaway HOME (so ~/.config and ~/.ct are not used), the machine is deleted when the run ends, and the machine's ssh host key is removed
 # from known_hosts. Your gh token is handed to the commands in an environment variable for the run only (never written down).
 set -u
-cd "$(dirname "$0")/.."; REPO=$PWD
-REAL_HOME=$HOME; REUSE=0; [ "${1:-}" = "--reuse" ] && { REUSE=1; shift; }; NAME=${1:-ctxtest}; BASE=ct-cache-ubuntu-26-04; M=ct-e2e-ghreal; ADMIN=ctadmin
+cd "$(dirname "$0")/.."; REPO=$PWD; . scripts/e2e-names.sh
+REAL_HOME=$HOME; REUSE=0; [ "${1:-}" = "--reuse" ] && { REUSE=1; shift; }; NAME=${1:-ctxtest}; BASE=$(e2e_cache_name ubuntu-26-04); M=$(e2e_machine e2e ghreal); ADMIN=ctadmin
 OWNER=$(gh api user --jq .login) || { echo "gh is not signed in"; exit 2; }
 [ $REUSE = 1 ] || for r in queue results; do gh repo view "$OWNER/$NAME-$r" >/dev/null 2>&1 && { echo "$OWNER/$NAME-$r already exists: choose another NAME, or --reuse"; exit 3; }; done
 orb delete -f $M >/dev/null 2>&1
