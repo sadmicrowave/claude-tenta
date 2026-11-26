@@ -443,10 +443,10 @@ LOST_OUTCOME = {"again": "It was queued again as {again} (its own row is in ct-r
                 "no_copy": "Its command is safe to repeat, but this computer has no copy of the job (it was sent before copies were kept, from another computer, or it was too big to copy), so it was not sent again. Send it again yourself, or wait: if the worker comes back its result appears."}
 
 
-def emit_lost(jid, worker, cls, why, again, outcome=None):
+def emit_lost(jid, worker, cls, why, again, outcome=None, run="ct-run jobs"):
     """One card for a lost job: which, why, and what happened to it (sent again, or only marked lost and what to do)."""
     text = LOST_OUTCOME[outcome or ("again" if again else "not_repeatable")].format(again=again)
-    emit("A job was lost", ("Job", jid), ("Worker", alias.show(worker)), ("Why", why), text, tag="LOST", color=YELLOW, run="ct-run jobs")
+    emit("A job was lost", ("Job", jid), ("Worker", alias.show(worker)), ("Why", why), text, tag="LOST", color=YELLOW, run=run)
 
 
 def drain_queue(ctx, cfg, a):
@@ -753,7 +753,7 @@ def cmd_jobs(ctx, n=15, cfg=None):
     final = {k for k, v in results.items() if (v or {}).get("status") not in PENDING} if isinstance(results, dict) else set()
     health.forget_final(ctx.home, final)
     for jid, worker, cls, why, again, outcome in health.lost_now(ctx.home, final):
-        emit_lost(jid, worker, cls, why, again, outcome)
+        emit_lost(jid, worker, cls, why, again, outcome, run=None)             # this IS `ct-run jobs`: it never tells you to run it
     for i in queue.waiting(ctx.home):
         emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW)
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)

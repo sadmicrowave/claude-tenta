@@ -192,11 +192,15 @@ def cmd_review(ctx, a):
         _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
-        emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
-        if ctx.remote("review", *gone):
+        emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} {'is' if len(gone) == 1 else 'are'} no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
+        failed = []
+        for jid in gone:                                                  # one at a time: only a job the worker really showed is noted as viewed
+            if ctx.remote("review", jid):
+                failed.append(jid)
+            else:
+                ctx.viewed.mark(jid, "")
+        if failed:
             raise refuse.error("review.show_failed", example="ct-admin check")
-        for jid in gone:
-            ctx.viewed.mark(jid, "")
     emit("Viewed", f"{plural(len(todo), 'job')} noted as viewed.", tag="DONE", color=GREEN, run_label="Approve the ones you viewed", run="ct-admin approve --all")
     return 0
 
@@ -1638,8 +1642,11 @@ def run_fleet(ctx, cmd, targets, a, label=None):
 def run_command(ctx, a):
     """Run a command on the workers it is about. A fleet command visits every worker in turn with a heading each; one that fails, or is declined, does not stop the rest, and the exit code is the worst of them.
     `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
-    if a.cmd == "status" and status_overview(ctx, a):
-        return 0
+    if a.cmd == "status":
+        if getattr(a, "worker", None):
+            ctx.targets(a.worker)                                         # a name that is not a worker is refused before anything is drawn, as `check` does
+        if status_overview(ctx, a):
+            return 0
     if a.cmd in FLEET_COMMANDS:
         targets = ctx.targets(getattr(a, "worker", None))
         if a.cmd == "update":                                             # one worker: as it always was; several: the release is looked up and shown once, then each worker in turn

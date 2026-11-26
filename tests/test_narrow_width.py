@@ -16,7 +16,7 @@ from ct import cards, ui  # noqa: E402
 from ct.client import view  # noqa: E402
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]|\x1b\][^\x07]*\x07")
-WIDTHS = (30, 36, 40, 50, 59, 60, 80, 100)
+WIDTHS = (20, 24, 30, 36, 40, 43, 44, 45, 50, 59, 60, 61, 80, 100, 140, 200)      # the edges of every switch (stack below 44, rail below 60) on both sides, and the extremes
 LONG = "a-long-worker-name-that-is-longer-than-the-pane"
 PATH = "/home/example/.local/share/claude-tenta/workers/win/mailbox/key"
 
@@ -70,7 +70,39 @@ def _status_panel(out):
     overview.show(data, stream=out)
 
 
+def _help_screen(out):
+    from contextlib import redirect_stdout
+    from ct import help as ct_help
+    with redirect_stdout(out):
+        ct_help.main()
+
+
+def _worker_status_card(out):
+    """The rows of `ct-worker status`: a value with an explanation after it (the first part must not push the line past the pane), a value ending in chips, a long path, a long explanation."""
+    S = cards.Styled
+    ui.say("Status, Thu 2026-11-26 20:07 UTC", ("Worker", "claude-tenta"), ("Needs attention", "Registry sync, Security"),
+           ("Memory", S([("14.1 GB free of 14.9 GB", "ok"), ("enough for the next job", "muted")])),
+           ("Disk", S([("458 GB free of 488 GB", "ok"), ("plenty of room", "muted")])),
+           ("Registry sync", S([("REFUSED", "bad"), ("20:04 UTC: refused: the signed approval is for a different registry.yaml than the one on the queue repository", None)])),
+           ("Runs on", S([("claude-tenta", None), ("DEDICATED", "warn_chip")])), tag="ATTENTION", color=ui.YELLOW, stream=out)
+
+
+def _classes_card(out):
+    ui.say("What your workers can run for you today", *[(cards.Chip("Class", "primary"), cards.Styled([("claude-read", "strong")])), ("Runs", "read-only Claude on files you attach"),
+           ("Runs on", cards.Styled([("claude-tenta", None), ("DEDICATED", "warn_chip")])), ("Cost", "medium, waits for your approval")], "\n",
+           "A dedicated class goes only to its worker (the command below).", tag="CLASSES", color=ui.PRIMARY, run=["ct-admin workers use WORKER --command CLASS", "ct-run classes --worker NAME"], stream=out)
+
+
+def _fleet_rule(out):
+    out.write(cards.rule("status: a-long-worker-name-that-is-longer-than-the-pane", "WORKER", ui.PRIMARY) + "\n")
+
+
 KINDS = {
+    "the ct-help screen": _help_screen,
+    "the rows of ct-worker status": _worker_status_card,
+    "a class list card with two commands": _classes_card,
+    "a fleet heading with a long name": _fleet_rule,
+    "a card with a long steps heading": say("The workers do not all run the same release", ("Worker", "claude-tenta"), tag="RELEASES", color=ui.YELLOW, steps=["`ct-admin apply` (every worker in turn)"], steps_label="How to bring them together"),
     "the status panel": _status_panel,
     "the update cards for several workers": _update_cards,
     "a short card": say("Ready", "It is done.", tag="DONE", color=ui.GREEN),
@@ -95,14 +127,15 @@ KINDS = {
 }
 
 
-COMMANDS = ("ct-setup add-worker 192.0.2.50", "ct-admin approve job-1", "ct-admin approve profile-bkhudd", "python3 -m unittest discover -s tests")      # a command longer than the pane is drawn alone and never cut, so it can be copied whole
+FLOOR = {"a setup progress row": 30}                      # the installer progress rows have an 11-column status label: below 30 columns there is no layout for them, and no real pane is that narrow
+COMMANDS = ("ct-admin workers use WORKER --command CLASS", "ct-run classes --worker NAME", "ct-setup add-worker 192.0.2.50", "ct-admin approve job-1", "ct-admin approve profile-bkhudd", "python3 -m unittest discover -s tests")      # a command longer than the pane is drawn alone and never cut, so it can be copied whole
 
 
 class Fits(unittest.TestCase):
     def test_no_line_is_wider_than_the_terminal(self):
         bad = []
         for kind, fn in KINDS.items():
-            for cols in WIDTHS:
+            for cols in [c for c in WIDTHS if c >= FLOOR.get(kind, 0)]:
                 for line in at(cols, fn).split("\n"):
                     if len(line) > cols and line.strip() not in COMMANDS:
                         bad.append(f"{kind} at {cols}: {len(line)} wide: {line[:50]!r}")

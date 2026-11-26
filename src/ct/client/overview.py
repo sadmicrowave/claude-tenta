@@ -6,6 +6,7 @@ It reads only what R1 (queue.json), R2 (the published worker states, the silent 
 import time
 
 from .. import alias, diffview, theme, ui
+from ..words import plural
 from . import audit, queue
 
 RUNNING_MAX_S = 86400            # a job placed longer ago than this with no outcome is not "running": it is lost or unseen, and R2 says so elsewhere
@@ -86,7 +87,7 @@ def lines(data, room, color=True):
         detail = f"  {w['running']} running · reading {w['age']}"
         out.append(sgr(_cut(detail, room), "muted"))
         if w["load"] is not None and w["cores"]:
-            used = f"  load {w['load']:.1f} of {w['cores']}"
+            used = f"  load {w['load']:.1f} of {plural(w['cores'], 'core')}"
             out.append(sgr(_cut(used, room), "muted"))
             out.append("  " + sgr(bar(w["load"], w["cores"], bar_room), "accent"))
     out.append("")
