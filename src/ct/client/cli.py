@@ -498,7 +498,7 @@ def cmd_audit(ctx, a):
     if a.id:
         rows = audit.chain(rows, a.id)
     if a.json:
-        print(json.dumps(rows[-a.n:] if not a.id else rows, indent=1))
+        print(json.dumps(rows[-a.n:] if not a.id else rows, indent=1))   # output: data (the raw audit lines for a script)
         return 0
     if not rows:
         emit("Nothing recorded for that job" if a.id else "Nothing recorded yet", *([("Job", a.id)] if a.id else []), "The trail holds jobs this computer placed with several workers, from the day it was turned on.", tag="NOTE", color=YELLOW)
