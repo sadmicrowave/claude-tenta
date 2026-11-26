@@ -22,7 +22,8 @@ JSON at `jobs/<id>.json` on the queue repository's `jobs` branch.
 | `class` | a class in the installed registry |
 | `params` | the class's declared parameters, each checked against its type (`enum`, `int [lo, hi]` or `regex`, fully anchored); unknown or missing ones are refused |
 | `created` | ISO timestamp with a time zone; a job older than 24 hours, or more than 5 minutes in the future, is refused (replay protection) |
-| `files` | optional small text files for classes with `accepts_files`; plain relative names (no dot-names, so a job cannot plant a settings file), bounded count and size |
+| `files` | optional small text files for classes with `accepts_files`; plain relative names (no dot-names for a Claude class, so a job cannot plant a settings file), bounded count and size |
+| `manifest`, `snapshot`, `blobs` | instead of `files`, for a worker that publishes `cache`: the folder as `{path: {sha256, size, mode}}`, the SHA-256 of that list, and only the files the worker lacks as `{sha256: text}` (see "Repeat runs") |
 | `prompt` | for `claude` classes only, 1 to 8000 characters |
 | `argv`, `what`, `expect`, `est_*`, `packages`, `flags` | for a profile run: exactly one command as an argument list, what it does and what is expected, and honest estimates |
 
@@ -73,6 +74,27 @@ failed command stays on the worker (mode 0600, 30 days) and is read with `ct-adm
 
 A class (or profile run) may list `apt:`, `npm:` or `pip:` packages. They must be pinned to an exact version unless the install turns pinning off, are fetched
 into a throwaway tools folder with install scripts disabled, and never put on the search path of other jobs.
+
+## Repeat runs: only what changed is sent
+
+A worker that keeps files by hash (its `registry.json` says `cache: {version: 1, epoch}`) takes a folder as a **manifest**: every file's relative path, SHA-256, size and mode (`644` or `755`), and the **snapshot id**, the SHA-256 of the sorted list. `ct-run submit` sends the manifest of the whole folder and, in `blobs`, only the files it does not believe the worker holds. The first run sends everything; an unchanged re-run sends the list only; one changed file sends one file; a deleted or renamed file sends nothing (the worker already holds the content). The card says which: `Sent` and `Already on the worker`. Direct and GitHub work the same way: neither needs a question and an answer.
+
+- **Text only.** A file must be valid UTF-8 (read and written byte for byte: a CRLF file stays CRLF). A binary file is reported as `files.not_text` and stops the job unless `--send-incomplete`; the job is JSON text, and `returns: patch` is text-only too.
+- **The worker's cache** is `<state>/filecache/` (0700, its own account), a store of file contents by SHA-256, least recently used first, within `cache.max_mb` (unset: the smaller of 2048 MB and a quarter of the free disk). The worker computes every hash itself; a file sent under another hash refuses the job (`files.cache.hash_mismatch`), and every read is checked again. A job gets **copies** in its own folder and can never change the cache. A file a waiting job needs is never evicted; below the disk reserve everything else goes.
+- **Limits.** One job still carries at most what `limits.files` allows for what it sends (the per-file size, and the delta). A whole folder has its own caps, `limits.files.snapshot_count` (5000) and `snapshot_total_kb` (50000). A folder over them is sent the old way.
+- **A reset worker.** This computer keeps, per worker, a list of hashes it sent (never content). A new `epoch` from the worker empties it, so everything is sent at once. If the guess was wrong anyway, the worker leaves the job as `needs-files` and says how many files it lacks; `ct-run submit` (while it waits), `ct-run result` and `ct-run jobs` send exactly those, and the job runs with no new approval (the approved job file pins every file by hash). If a file changed on this computer since, the job is refused with `files.cache.source_changed` and the command to send it again; `--resend-all` sends every file whatever the guess.
+- **Never a silent wrong result.** A file that is missing or damaged when the job starts is `files.cache.damaged`: the job does not run.
+- **Updating.** A worker older than this release publishes no `cache`, and gets the whole set as before. Update it with `ct-admin apply`.
+
+### Known problems
+
+| Problem | What you see | What to run |
+| ------- | ------------ | ----------- |
+| The worker was reset or cleared old files | status `needs-files`; the missing files are sent | `ct-run result JOB` |
+| A file changed after the job was sent | `files.cache.source_changed` | the same `ct-run submit` with `--resend-all` |
+| A file kept on the worker was damaged | `files.cache.damaged`, job not run | the same `ct-run submit` with `--resend-all` |
+| An older worker | the whole set is sent each time | `ct-admin apply` |
+| Binary files in the folder | `files.not_text` | leave them out with `--exclude` |
 
 ## Files a class was profiled with
 

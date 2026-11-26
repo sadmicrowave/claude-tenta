@@ -44,7 +44,7 @@ The selection becomes a **manifest**: for every file its relative path, mode, si
 
 ### 3. Delta sync against a worker-side cache keyed by hash
 
-The worker keeps a content-addressed store of file bytes by SHA-256 (the cache) and a snapshot index. A run sends the manifest first; the worker answers with the hashes it lacks; only those files travel (compressed). The worker then materialises the folder for the job from the store (hard links or copies; the job's own folder stays the only writable place, so a job can never change a cached file). The store has a size cap and evicts least recently used first; a missing file is just sent again. A second run of an unchanged folder transfers a manifest only. Transport detail (Direct versus GitHub, which cannot do a request-and-answer round trip cheaply) is a slice-2 design question: on GitHub the first job may need to carry the manifest plus the files the client believes are absent, recorded from the last result, with the worker asking again when a file is missing.
+The worker keeps a content-addressed store of file bytes by SHA-256 (the cache) and a snapshot index. A run sends the manifest first; the worker answers with the hashes it lacks; only those files travel (compressed). The worker then materialises the folder for the job from the store (hard links or copies; the job's own folder stays the only writable place, so a job can never change a cached file). The store has a size cap and evicts least recently used first; a missing file is just sent again. A second run of an unchanged folder transfers a manifest only. Transport detail is settled in "Built: delta sync" (no round trip on either transport): on GitHub the first job may need to carry the manifest plus the files the client believes are absent, recorded from the last result, with the worker asking again when a file is missing.
 
 ### 4. Environment
 
@@ -80,6 +80,45 @@ Built on today's transport (text files, whole set per run), before the byte-exac
 - A non-git folder's `.gitignore` is added to the default rules, never replaces them (the rules only get stricter).
 - Marker proposals live in `src/ct/client/markers.py`; they propose, pins only, and `--use-detected-packages` is the person's yes.
 - Outputs: the default summary is unchanged, the failed-output fetch line names `ct-admin output JOB`; artifacts and the output of successful jobs are backlog.
+
+## Built: delta sync (slice `feat/workspace-delta-sync`, 2026-11-26)
+
+Owner approved the design and the four decisions below on 2026-11-26. Same code and format on Direct and on GitHub: both are git repositories with no request-and-answer, so nothing in it needs a round trip.
+
+**Decisions (owner).**
+1. **Text only, documented.** A file must be valid UTF-8; a binary file is still reported as `files.not_text` and stops the job unless `--send-incomplete`. Reasons: the job file is JSON text (a binary blob would be base64, a third larger) and `returns: patch` is text-only. The hash-addressed blobs make binary a small later step (backlog).
+2. **A miss is a top-up, not a new job.** The worker says which files it lacks (`needs-files`); this computer sends exactly those as `blobs/<job>.json` on the jobs branch; no new approval, because the approved job file pins every file by hash.
+3. **Two sets of limits.** The per-file limit (500 KB on GitHub) and the count and size of what one job carries stay. A whole folder has its own caps, `limits.files.snapshot_count` (5000) and `snapshot_total_kb` (50000), published in `registry.json`. A folder over them goes the old way (whole set, Direct compression over 1 GB).
+4. **Cache cap `cache.max_mb`**: unset means the smaller of 2048 and a quarter of free disk; shared by all classes on the worker; least recently used first.
+
+**The job.** `manifest` (path to `{sha256, size, mode}`, mode `644` or `755`), `snapshot` (SHA-256 of the sorted manifest), `blobs` (`{sha256: text}` for the files the worker is not believed to hold). It replaces `files`; a job with both is refused. The hash is over the file's exact UTF-8 bytes, read and written without newline translation (a CRLF file arrives as CRLF; before this slice `read_text` turned it into LF).
+
+**The worker's cache** (`<state>/filecache/`, 0700, the worker's own account; code `src/ct/filecache.py`). A file is stored under the SHA-256 **the worker computes**; a blob whose key is not its hash refuses the job (`files.cache.hash_mismatch`), so one sender cannot plant content under another file's hash. Every read is checked again; a changed entry is dropped. Intake stores the blobs, checks the manifest (names by the same rule as any attached file, shape, size, snapshot id, caps) and asks for what is missing. Exec copies the files from the cache into the job's own folder (copies, never hard links: a job could change a linked file) and applies the mode. The cache has a random `epoch`, made with the folder and published in `registry.json` as `cache: {version, epoch, max_mb}`.
+
+**What the client sends.** A ledger per worker (hashes only, in the client's home next to its clone) is its guess of what the worker holds. A different published `epoch` empties it (the worker was reset); `--resend-all` ignores it. After a push, every file of the job is recorded as held. A wrong guess is caught by the worker.
+
+**A miss.** `needs-files` is a pending status (the wait loop, `ct-run result` and `ct-run jobs` show it). The client reads the missing files from where they were, checks each still matches its hash, and pushes them; the worker verifies each by hash, stores it, and the job goes on. A file that changed on this computer since is `files.cache.source_changed` (send again with `--resend-all`). At exec nothing can be asked: a file that is missing or damaged then is `files.cache.damaged`, never a run on wrong files. Files a waiting job needs are never evicted.
+
+**Eviction.** At most every 10 minutes, in the worker's cleanup pass: over the cap, least recently used first, never a pinned file; below the disk reserve, everything not pinned goes, and the log says so.
+
+**Security.** A job cannot name a hash: only the client-made, approval-pinned job file does, and a 256-bit hash is held only by whoever holds the content, within one owner's own worker. A secret-looking file is held back before hashing, so it is never in a manifest. A file sent with a warning on Direct sits in the 0700 cache until evicted (as it already did in the inbox copy of the job). Under the `unshare` jail (which cannot hide folders) a job can see the state folder, as it could see the inbox before; the bubblewrap jail shows only the job's own folder.
+
+**Updating workers.** A worker must run this release to take a manifest. Until then it publishes no `cache` and this computer keeps sending the whole set; nothing changes for it. Update with the normal path (`ct-admin apply`).
+
+**Out of this slice.** Profile runs still send the whole set (they are a one-off; backlog). Windows workers.
+
+### End-user failures (every one: how a person reaches it, the message, the test)
+
+| Failure | How a person reaches it | What they see | Test |
+| ------- | ----------------------- | ------------- | ---- |
+| The worker was reset or cleared old files | Reinstall, wiped state, the cache over its cap | `needs-files`; the client sends exactly those; the job runs | `test_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs` |
+| The reset was seen in advance | The worker republished its registry with a new epoch | Everything is sent again at once, nothing waits | `test_a_reset_worker_is_noticed_from_its_epoch_and_everything_is_sent_again` |
+| A file changed on this computer between send and top-up | Editing while a job waits | `files.cache.source_changed`: send again with `--resend-all` | `test_a_changed_source_is_refused_not_sent` |
+| A cached file damaged on the worker | Disk damage, another process | `files.cache.damaged`; the job did not run | `test_a_cached_file_damaged_before_it_runs_is_never_run_and_says_so` |
+| A file sent under the wrong hash | A damaged copy, a hostile sender | `files.cache.hash_mismatch`; nothing stored | `test_a_blob_whose_key_is_not_its_hash_rejects_the_whole_job` |
+| An older worker | Not updated yet | The whole set is sent as before | `test_a_worker_that_does_not_say_it_has_a_cache_gets_the_old_whole_set` |
+| A binary file | Any folder with an image | `files.not_text`, as before | `test_a_binary_file_is_still_not_text_and_still_stops_the_job` |
+| A folder over the snapshot caps | A very large tree | The old way, with its own limits and compression | `test_a_folder_over_the_snapshot_caps_goes_the_old_way` |
 
 ## Environment lifecycle (owner, 2026-11-26)
 
@@ -142,6 +181,6 @@ Slices 2 and 3 do not touch the same files (the file packaging and the worker's 
 ## Not decided here
 
 - The weight of the busy-host rung (the owner sets it).
-- Whether the GitHub transport can do the manifest exchange or must carry a best-guess delta (slice 2).
+- ~~Whether the GitHub transport can do the manifest exchange~~ decided: a best-guess delta from a ledger plus a top-up on a miss, on both transports ("Built: delta sync").
 - The retention period of full logs for successful jobs (slice 4).
 - Windows workers: Special Use only (`WINDOWS-SPECIAL-USE.md`); the environment and cache rules above are written for Linux workers.

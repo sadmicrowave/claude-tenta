@@ -393,7 +393,7 @@ def cmd_clean(ctx, a):
                 old.append((name, "expired order"))
         elif name.startswith("approvals/"):
             result = ctx.repos.read_result(rec.get("job") or Path(name).stem)
-            if (result and result.get("status") not in ("awaiting_approval", "running", "queued")) or rec.get("expires", 0) < now:
+            if (result and result.get("status") not in ("awaiting_approval", "running", "queued", "needs-files")) or rec.get("expires", 0) < now:
                 old.append((name, "job finished or approval expired"))
     if not old:
         emit("Nothing to tidy", f"{plural(len(names), 'file')} on {ctx.store}, none finished or stale.", tag="OK", color=GREEN)

@@ -224,6 +224,9 @@ class EndToEnd(RepoFixture):
             (d / f"f{i}.txt").write_text("x")
         self.w.fetch()                                                                          # publishes the registry info (limits)
         self.repos.pull_results()
+        info = json.loads((self.repos.results / "registry.json").read_text())
+        info.pop("cache")                                                                        # a worker that does not keep files by hash (an older release) takes the whole set in the job: the per-job limit applies
+        (self.repos.results / "registry.json").write_text(json.dumps(info))
         code, out, err = self.run_cli("submit", "files", "--dir", str(d), "--no-wait")
         self.assertEqual(code, 2)
         self.assertIn("These files do not fit in one job", out + err)

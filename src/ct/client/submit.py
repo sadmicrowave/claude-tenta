@@ -286,7 +286,7 @@ def collect_dir(d, limits, include=None, left=None, hold_secret_text=False, excl
             left.unsend(rel, problem[0], reason=problem[1])
             continue
         try:
-            text = path.read_text()
+            text = path.read_bytes().decode("utf-8")                       # the file's exact bytes (no newline translation), so what is hashed and sent is what is on disk
         except UnicodeDecodeError:
             left.unsend(rel, "files.not_text")
             continue

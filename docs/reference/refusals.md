@@ -316,6 +316,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** none: it follows the worker's free disk
 - **What to do:** Attach fewer files with --include on ct-run submit. Or send it again without compression: add --no-compress to the same command.
 
+### `files.cache.hash_mismatch`: A file does not match its hash
+
+- **Text:** a file was sent under hash {claimed}... but its content hashes to {actual}...; nothing was stored and the job was refused
+- **Protects:** A file is stored under the hash the worker computes from its content, so a sender cannot plant content under the name (hash) of another file.
+- **Decided by:** worker
+- **Depends on:** the worker release that publishes `cache` in registry.json
+- **Configured:** not configurable
+- **What to do:** Send the job again with ct-run submit: it hashes the files itself, so a damaged copy is not repeated. If it happens again on the same files, run ct-admin status for the worker and look at its security log.
+
 ## Format
 
 ### `job.id.invalid`: The job id is not allowed
@@ -803,6 +812,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the worker release that can unpack (the one that publishes `compress`)
 - **Configured:** not configurable
 - **What to do:** Send it again: ct-run submit does the compression itself, so a damaged copy is not repeated. Or add --no-compress to the same command.
+
+### `files.manifest.invalid`: The file list of this job is not valid
+
+- **Text:** the file list is not valid: {detail}
+- **Protects:** A manifest that is not exactly a set of named files with hashes, sizes and modes, or that does not match its own id or its blobs, is never run: the job could otherwise run on files nobody approved.
+- **Decided by:** worker
+- **Depends on:** the worker release that publishes `cache` in registry.json
+- **Configured:** not configurable
+- **What to do:** Send the job again with ct-run submit, which builds the list itself. Or send every file again, ignoring what the worker is thought to hold: add --resend-all to the same command.
 
 ## Limit
 
@@ -2188,3 +2206,30 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Try the connection again with ct-admin check. If it still fails, restore the old key from the file shown and run ct-setup install again.
+
+### `files.cache.damaged`: A file kept on the worker was damaged
+
+- **Text:** a file this job needs (hash {hash}...) no longer matches what was stored, so the job did not run; the damaged copy was removed
+- **Protects:** A file kept on the worker that no longer matches its hash (disk damage, or something changed it) is never run: the result would be wrong without saying so.
+- **Decided by:** worker
+- **Depends on:** the worker release that publishes `cache` in registry.json
+- **Configured:** not configurable
+- **What to do:** Send the job again with every file: add --resend-all to the same ct-run submit command. If it keeps happening, check the worker's disk with ct-admin status.
+
+### `files.cache.missing`: The worker needs some files again
+
+- **Text:** the worker does not hold {count} of this job's (it was reset, or it cleared old files to make room); this computer sends them when it next looks at the job, and the job then runs
+- **Protects:** A worker that was reset or that evicted a file cannot run on files it does not have, so it says which it lacks and the client sends exactly those, with no new approval.
+- **Decided by:** both
+- **Depends on:** the worker release that publishes `cache` in registry.json
+- **Configured:** cache.max_mb on the worker
+- **What to do:** Run ct-run result JOB: it sends the missing files and the job then runs. Or send every file again: add --resend-all to the same ct-run submit command.
+
+### `files.cache.source_changed`: Some files changed since the job was sent
+
+- **Text:** {count} the worker needs have changed or gone on this computer since the job was sent, so they cannot be sent for this job
+- **Protects:** The worker needs files that this computer no longer has in the form that was approved; sending the changed ones would run a different job than the one approved.
+- **Decided by:** client
+- **Depends on:** the worker release that publishes `cache` in registry.json
+- **Configured:** not configurable
+- **What to do:** Send the job again: run the same ct-run submit command with --resend-all added.
