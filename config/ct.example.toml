@@ -67,6 +67,9 @@ jobs_per_day = 20               # the most Claude jobs this worker starts in a U
 turns_per_day = 300             # the most Claude turns the jobs of a UTC day may use in total; reaching it pauses new Claude jobs too. 0 = no limit
 update_days = 7                 # days between automatic updates of the claude tool (it cannot update itself inside a job's jail)
 
+[health]
+silent_hours = 24              # a worker whose latest reading is older than this many hours is silent: no new job is placed on it, and a job sent to it with no result by then is lost (queued again only if its class is repeatable)
+
 [offload]
 auto_adopt = true                # on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt
 repeat_runs = 3                 # a command you run this many times within repeat_days counts as repeated work worth offloading

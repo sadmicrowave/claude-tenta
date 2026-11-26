@@ -263,6 +263,8 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
                 errs.append(f"{w}: submit needs accepts_files: true (it says how the files are packaged)")
             elif pack_problem(c["submit"]):
                 errs.append(f"{w}: {pack_problem(c['submit'])}")
+        if "repeatable" in c and not isinstance(c["repeatable"], bool):
+            errs.append(f"{w}: repeatable must be true or false")
         if "batchable" in c and not isinstance(c["batchable"], bool):
             errs.append(f"{w}: batchable must be true or false")
         if "returns" in c and kind != "claude":
@@ -314,7 +316,7 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
                 errs.append(f"{w}: action must name one of the registry's actions ({', '.join(sorted(reg.get('actions') or {})) or 'none are defined'})")
             if c.get("tier", "approve") != "approve":
                 errs.append(f"{w}: a privileged class always needs approval (tier: approve); it runs as root")
-            for forbidden in ("run", "params", "packages", "network", "env", "accepts_files", "batchable", "submit", "kind_extra"):
+            for forbidden in ("run", "params", "packages", "network", "env", "accepts_files", "batchable", "repeatable", "submit", "kind_extra"):
                 if forbidden in c:
                     errs.append(f"{w}: a privileged class takes its program, parameters and limits from its action, so it must not set {forbidden}")
     return errs

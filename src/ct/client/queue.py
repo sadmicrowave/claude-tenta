@@ -231,7 +231,7 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 dropped.append((it["id"], f"it waited {age_text(now - it['at'])} and no worker had room"))
                 continue
             with place._locked(ctx.home, "placements.decide.lock"):             # the same step as a live placement: looking, choosing and reserving are one
-                views = place.gather_shared(ents, repos_of, fetch, home=ctx.home)
+                views = place.gather_shared(ents, repos_of, fetch, home=ctx.home, silent_s=place._silent_s(ctx))
                 if views and all(v.reachable for v in views) and not any(it["class"] in ((v.registry or {}).get("classes") or {}) for v in views):
                     remove(ctx.home, it["id"])
                     dropped.append((it["id"], f"no worker offers {it['class']} any more"))
@@ -253,6 +253,9 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 check(ctx, 1)
                 send(repos_of(by_name[ch.worker]), it["id"], job_of(ctx.home, it))
                 place.record(ctx.home, [it["id"]], ch.worker, it["class"])
+                from . import health
+                if health.is_repeatable(next((v.registry for v in views if v.name == ch.worker), None), it["class"]):
+                    health.keep(ctx.home, it["id"], job_of(ctx.home, it))
                 remove(ctx.home, it["id"])
                 sent.append((it["id"], ch.worker))
                 by_worker[ch.worker] = by_worker.get(ch.worker, 0) + 1

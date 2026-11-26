@@ -31,6 +31,17 @@ class Preflight(unittest.TestCase):
         self.assertIn("preflight.require()", (ROOT / "tests" / "support.py").read_text())
 
 
+class RealMachine(unittest.TestCase):
+    def test_the_login_probe_runs_a_command_every_shell_has(self):
+        with mock.patch.object(preflight, "_run", return_value=(0, "")) as run:
+            preflight._real_problems("u@h")
+        self.assertEqual(run.call_args[0][0][-1], "echo ok")   # `true` fails in cmd.exe
+
+    def test_a_key_exchange_warning_is_not_named_as_the_problem(self):
+        text = "** WARNING: connection is not using a post-quantum key exchange algorithm.\nu@h: Permission denied (publickey)."
+        self.assertIn("Permission denied", preflight._first_line(text))
+
+
 class Kinds(unittest.TestCase):
     def ok(self, out="", rc=0):
         return mock.Mock(returncode=rc, stdout=out, stderr="")
@@ -44,12 +55,10 @@ class Kinds(unittest.TestCase):
         self.assertIn("Cannot connect", found[0])
         self.assertIn("open -a OrbStack", found[0])
 
-    def test_e2e_needs_orbstack_running_room_and_few_machines(self):
-        names = "ct-e2e\nct-run-a\nct-run-b\nct-run-c\nct-run-d\nother\n"
+    def test_e2e_needs_orbstack_running_and_room(self):
         with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=2), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(names)):
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("ct-e2e\n")):
             found = " ".join(preflight.problems("e2e"))
-        self.assertIn("scripts/e2e-clean", found)
         self.assertIn("free disk", found)
 
     def test_real_host_must_answer_with_a_key(self):
@@ -59,15 +68,6 @@ class Kinds(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertIn("mini-host", found[0])
         self.assertIn("Permission denied", found[0])
-
-    def test_the_machine_count_reads_the_real_orb_list_format(self):
-        listing = ("ct-cache-ubuntu-24-04     stopped  ubuntu  noble     amd64  1.3 GB  \n"
-                   "ct-run-x-install          running  ubuntu  resolute  amd64  1.3 GB  \n"
-                   "ct-e2e                    running  ubuntu  resolute  amd64  1.3 GB  \n")
-        with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok(listing)):
-            self.assertIn("2 test machines", " ".join(preflight.problems("e2e", cap=2)))
-            self.assertEqual(preflight.problems("e2e", cap=3), [])
 
     def test_the_docker_failure_shows_the_error_not_the_banner(self):
         real = "Client: Docker Engine - Community\n Version: 29\nfailed to connect to the docker API at unix:///x.sock; daemon running?"

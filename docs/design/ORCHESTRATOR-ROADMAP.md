@@ -44,7 +44,7 @@ Each is a feature of `theme/orchestrator`, one session, one small branch. Not in
 **Done when.** A local queue file (mode 0600, written under the same lock as `placements.json`) holds waiting jobs with class, priority (`low`, `normal`, `high`; default `normal`) and age; `ct-run submit --priority`; `ct-run jobs` shows waiting jobs and why; a drain step places the oldest highest-priority job whenever capacity frees (on every `ct-run` command, never a background process); a job never waits forever without being said; tests failing on the old code, including a queue that survives a kill.
 **Not in scope.** Dependencies between jobs, a background daemon, fair share (R4).
 
-### R2. Worker health and failover (`feat/orchestrator-health`)
+### R2. Worker health and failover (`feat/orchestrator-health`; built 2026-11-26, see SEVERAL-WORKERS.md)
 **Goal.** A worker that has gone silent is named, no new job goes to it, and the jobs it was holding are not left hanging.
 **Done when.** A reading older than a limit (setting, default 1 day) marks the worker `silent` with its age; a job sent to a silent worker with no result is marked `lost` with the reason and, if it is safe to repeat (class flag), re-queued through R1; the card says which; `ct-admin workers` shows the state; tests for each state and for a worker that comes back.
 **Not in scope.** Restarting or repairing the worker, heartbeats beyond what workers already publish.

@@ -444,12 +444,21 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     return install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, ask=ask, interactive=interactive)
 
 
+def fleet_names(main_cfg, name, again):
+    """The suggested repository names of a NEW worker: `<main install name>-<worker>-queue` and `-results`, so a fleet sorts together on GitHub and no two workers can be given the same pair by default.
+    A worker set up again keeps the names it already has (its own answers win over any suggestion)."""
+    if again:                                                          # (a Direct first worker records no GitHub account, so the account is not a condition: only the transport the new worker is given uses these)
+        return {}
+    stem = name if name.startswith(main_cfg.identity.name) else f"{main_cfg.identity.name}-{name}"
+    return {"github.queue_repo": f"{stem}-queue", "github.results_repo": f"{stem}-results"}
+
+
 def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, server_host, user, again=False, extra=None, ask=None, interactive=False):
     """Run the installer for ONE worker with its own configuration and folder, prove nothing of the others changed, and register it. `again`: the worker already exists and is being set up again
     (its own files are of course allowed to change; everything else is not)."""
     before = fingerprint(protected_files(cfg, wfile, leave=name if again else None))
     share_approval_key(cfg, home)
-    suggest = {"identity.name": name, "server.host": server_host, "server.admin_user": user, "paths.client_home": str(home), **(extra or {})}
+    suggest = {"identity.name": name, "server.host": server_host, "server.admin_user": user, "paths.client_home": str(home), **fleet_names(cfg, name, again), **(extra or {})}
     old_env = os.environ.get("CT_CONFIG")
     os.environ["CT_CONFIG"] = str(conf)                                                         # the first job and every command the install runs read THIS worker's configuration
     try:

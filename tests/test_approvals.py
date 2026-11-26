@@ -18,7 +18,7 @@ def keygen(path):
     return Path(str(path) + ".pub").read_text()
 
 
-class Signing(unittest.TestCase):
+class SigningFixture(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.pub = keygen(self.d / "key")
@@ -29,6 +29,8 @@ class Signing(unittest.TestCase):
         record = approvals.make_record(jid, digest, now=now, ttl=ttl)
         return approvals.bundle(record, approvals.sign(record, self.d / key))
 
+
+class Signing(SigningFixture):
     def test_a_good_approval_is_accepted(self):
         ok, why = approvals.check(self.approval(), "job-0001", DIGEST, self.signers, now=2000)
         self.assertEqual((ok, why), (True, ""))
@@ -77,7 +79,7 @@ class Signing(unittest.TestCase):
             self.assertFalse(approvals.check(text, "job-0001", DIGEST, self.signers, now=2000)[0], text)
 
 
-class Orders(Signing):
+class Orders(SigningFixture):
     def order(self, action="cancel", key="key", now=1000, ns=approvals.CONTROL_NAMESPACE, **kw):
         record = approvals.make_control_record(action, now=now, nonce="ab12cd34", **kw)
         return approvals.bundle(record, approvals.sign(record, self.d / key, namespace=ns))

@@ -52,13 +52,21 @@ class WindowsLine(unittest.TestCase):
 
 class Pending(unittest.TestCase):
     def test_a_newer_tag_than_this_computer_is_pending(self):
-        self.assertEqual(updatecheck.pending({"tag": "release-0.2.0", "commit": "ccc333"}, "0.1.0"), {"tag": "release-0.2.0", "this_computer": True, "worker": False})
+        self.assertEqual(updatecheck.pending({"tag": "release-0.2.0", "commit": "ccc333"}, "0.1.0"), {"tag": "release-0.2.0", "this_computer": True, "worker": False, "workers": []})
         self.assertIsNone(updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa111"}, "0.1.0"))
         self.assertIsNone(updatecheck.pending({}, "0.1.0"))
 
     def test_a_worker_BEHIND_the_release_is_pending_even_when_this_computer_is_current(self):
         info = updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release="zzz9999", behind=lambda worker, tag: True)
         self.assertEqual((info["this_computer"], info["worker"]), (False, True))
+
+    def test_several_workers_are_each_judged_and_the_banner_counts_them(self):
+        behind = lambda worker, tag: worker != "ahead"
+        info = updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release=[("one", "zzz1"), ("two", "yyy2"), ("three", "ahead")], behind=behind)
+        self.assertEqual(info["workers"], ["one", "two"])
+        self.assertIn("2 workers are on a different release", updatecheck.banner_text(info, "0.1.0"))
+        one = updatecheck.pending({"tag": "release-0.1.0", "commit": "aaa1111222"}, "0.1.0", worker_release=[("one", "zzz1")], behind=behind)
+        self.assertIn("the worker is on a different release", updatecheck.banner_text(one, "0.1.0"))
 
     def test_a_worker_AHEAD_of_the_newest_tag_is_not_called_out_of_date(self):
         """Seen on a real fleet: workers running main, newer than the old release-0.1.0 tag, were told 'a newer release is available: release-0.1.0'."""

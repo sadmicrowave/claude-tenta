@@ -169,6 +169,9 @@ define("placement.unreachable", "placement", "A worker that cannot be reached ca
        "cannot be reached now ({reason})", who="client", steps=["Run ct-admin check to see why it does not answer."])
 define("placement.no_state", "placement", "A worker that has published no state cannot be described, so no job is placed on it blind.", "A worker has published no state",
        "has published no state (an older release, or not set up yet), so nothing can be said about it", who="client", steps=["Update it with ct-admin apply."])
+define("placement.silent", "placement", "A worker that has not published for a day may be off, broken or cut off, so no new job goes to it until it does.", "A worker has gone silent",
+       "has published nothing for {age} (its latest reading is older than health.silent_hours), so no job is placed on it", who="client", config="the client setting health.silent_hours (default 24 hours)",
+       steps=["Look at the computer: is it on and on the network?", "It is used again as soon as it publishes a new reading."])
 define("placement.locked", "placement", "The worker locked itself after a security event and runs nothing until the owner has looked.", "A worker is locked",
        "is LOCKED (a security lockdown): unlock it after you have looked", who="client", steps=["Look at what happened with ct-admin quarantine, then run ct-admin unlock."])
 define("placement.isolation_off", "placement", "A job runs only where its isolation is on.", "A worker's job isolation is off", "has its job isolation OFF", who="client",
@@ -348,6 +351,8 @@ define("ssh.connect_failed", "error", "The real error text of a connection that 
 define("worker.name.invalid", "format", "A worker name is short and plain, so it is safe in a file and on a command line.", "A worker name is not allowed",
        "a worker name is lowercase letters, digits and dashes, starting with a letter", who="client")
 define("worker.config.missing", "error", "A worker is added from its configuration file, so a path with none is said plainly.", "There is no configuration file there", "there is no configuration file at {path}", who="client")
+define("worker.repo.shared", "security", "Each GitHub worker has its OWN private queue and results repositories: a deploy key covers a whole repository, so two workers on one repository could read or forge each other's jobs and results. No setting turns this off.", "Two workers would share a repository",
+       "{slug} is already used by {other}; every worker needs its own queue and results repositories, and a queue and results repository must differ", who="client", steps=["Give this worker its own repository names (github.queue_repo and github.results_repo), then run the command again."])
 
 define("files.held.secret_name", "security", "Protects the person from sending a credential to a worker by accident: a file whose name conventionally holds a secret (.env, *.pem, id_rsa, .npmrc ...) is held back "
        "unless an --include names it exactly. A wildcard never sends one.", "A file that usually holds a secret was held back", "{name!r} was held back: its name is one that usually holds a secret",
@@ -527,3 +532,24 @@ define("rotate.install_failed", "error", "The worker did not take the new key, s
 define("rotate.verify_failed", "error", "The worker was given the new key but the check that it works failed; the worker now trusts only the new key, so it is kept as the key in use and the old one is kept aside.",
        "The new key is installed but the check failed", "The worker now trusts only the new key, which is in place here; the check said: {reason}", who="client",
        steps=["Try the connection again with ct-admin check.", "If it still fails, restore the old key from the file shown and run ct-setup install again."])
+
+# ---- a big set sent compressed on Direct (task direct-compress; security finding F5) ----
+# Release compatibility: a worker can unpack only from the release that added the `compress` entry to its registry.json (published when it starts). A client that does not find it refuses before sending.
+define("files.compress.worker_cannot", "placement", "A job whose files are compressed would reach an older worker with its files missing, so the client sends it compressed only to a worker that said it can unpack.",
+       "This worker cannot unpack compressed files", "{count} ({size}) is over {threshold}, which Direct sends compressed, but {worker} has not said it can unpack them. It runs a release older than this one, or its worker service has not restarted since it was updated.",
+       who="client", depends="the worker's release (it must publish `compress` in registry.json) and the transport (Direct)", config="send without compression: --no-compress",
+       steps=["Send it again without compression: add --no-compress to the same command (it can be slow and large), or update the worker (ct-admin update) and run it again.", "Or attach fewer files with --include."])
+define("files.compress.over_worker_cap", "limit", "Checked here first so a set the worker would refuse as a zip bomb is not sent at all.", "These files are too big for this worker, even compressed",
+       "{count} is {size} before compression, over the {cap} MB this worker unpacks (a quarter of its free disk, and within its memory). Attach only the files the command needs (--include).",
+       who="client", depends="the worker's free disk and memory and its release (`compress` in registry.json, from the release that added compression)", config="none: it follows the worker's free disk",
+       steps=["Attach fewer files with --include on ct-run submit.", "Or send it without compression with --no-compress (the worker may still refuse it as too big)."])
+define("files.unpack.too_big", "security", "Zip-bomb guard (finding F5): a small compressed job cannot grow into more than the worker will hold, whatever size it claims.", "The files unpack to more than this worker accepts",
+       "the files would unpack to more than {cap} MB, the most this worker unpacks right now (a quarter of its free disk, and within its memory); nothing was written",
+       depends="the worker's free disk and memory; the worker release that can unpack (the one that publishes `compress`)", config="none: it follows the worker's free disk",
+       steps=["Attach fewer files with --include on ct-run submit.", "Or send it again without compression: add --no-compress to the same command."])
+define("files.unpack.no_room", "limit", "The worker checks free disk before it unpacks, so one job cannot fill the disk (finding F5).", "This worker has no room to unpack these files",
+       "the files unpack to {size} MB but this worker has {free} GB free and keeps {reserve} GB back; nothing was written", depends="the worker's free disk; the worker release that can unpack",
+       config="the worker's disk reserve (10% of the volume, at least 2 GB)", steps=["Free some disk on the worker, or send it to a worker with more room.", "Or attach fewer files with --include, or add --no-compress to the same command."])
+define("files.unpack.unreadable", "format", "Compressed data that cannot be read exactly as sent is never run.", "The compressed files could not be read",
+       "the compressed files could not be unpacked: {detail}", depends="the worker release that can unpack (the one that publishes `compress`)",
+       steps=["Send it again: ct-run submit does the compression itself, so a damaged copy is not repeated.", "Or add --no-compress to the same command."])

@@ -26,6 +26,33 @@ check "ct-run submit sys-status came back with a result" test $rc -eq 0
 # the step timer's first pass comes within its own interval of the job finishing: a faster machine (this one, now) reaches this line before it, so wait for it rather than assume it has run
 check "ct-admin status reads the worker and fetch and step are healthy" bash -c 'for _ in $(seq 30); do out=$(runuser -u '$ADMIN' -- env PATH=/opt/ctvenv/bin:/usr/local/bin:/usr/bin:/bin HOME='$H/$ADMIN' ct-admin status 2>&1); echo "$out" | grep -qE "Fetch +OK" && echo "$out" | grep -qE "Step +OK" && exit 0; sleep 3; done; echo "$out"; exit 1'
 
+step "A set over 1 GB goes compressed over SSH, and the real worker unpacks it (what unit tests cannot show: the real size, memory, disk and terminal)"
+# no shipped class takes files, so add one to the installed registry for this machine only; the worker republishes registry.json when it changes
+/opt/ctvenv/bin/python - "$NAME" <<'PY'
+import sys, yaml
+p = f"/etc/{sys.argv[1]}/registry.yaml"
+reg = yaml.safe_load(open(p))
+reg["classes"]["bigfiles"] = {"tier": "auto", "cost": "light", "accepts_files": True, "timeout_s": 120, "run": ["/usr/bin/wc", "-c"] + [f"f{i:02d}.txt" for i in range(11)]}
+open(p, "w").write(yaml.safe_dump(reg, sort_keys=False))
+PY
+check "the worker published that it can unpack compressed files" wait_for 40 bash -c 'as_admin ct-run classes 2>&1 | grep -q bigfiles && as_admin python3 -c "import json,sys; sys.exit(0 if json.load(open(\"$H/$ADMIN/.ct/results/registry.json\")).get(\"compress\") else 1)"'
+install -d -o $ADMIN /tmp/big
+for i in $(seq 0 10); do head -c 100000000 /dev/zero | tr '\0' 'a' > /tmp/big/$(printf 'f%02d.txt' $i); done
+chown -R $ADMIN /tmp/big; free -m | sed 's/^/  /'; df -h /var/lib | sed 's/^/  /'
+RSS="python3 -c 'import resource,subprocess,sys; r=subprocess.call(sys.argv[1:]); print(\"CLIENT PEAK MEMORY MB\", resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss//1024); sys.exit(r)'"
+as_admin script -qec "stty cols 100 rows 40; $RSS ct-run submit bigfiles --dir /tmp/big --wait --timeout 600" /tmp/e2e-big.out >/dev/null 2>&1; rc=$?
+plain() { sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$1" | tr '\r' '\n' | grep -av 'CHECKING\|SENDING\|COMPRESSING\|waiting for\|^ *$'; }; export -f plain      # what the person reads, without the colours and the progress line
+plain /tmp/e2e-big.out | sed 's/^/  | /'
+check "the run finished" test $rc -eq 0
+check "the card says compressed, with the sizes before and after" bash -c "plain /tmp/e2e-big.out | grep -aiE 'compressed +1\.[0-9] GB to [0-9.]+ (MB|KB)'"
+check "the old over-1 GB notice is gone" bash -c "! plain /tmp/e2e-big.out | grep -aqi 'very large set'"
+check "the worker unpacked every file whole and ran the job on them" bash -c "grep -a -c '100000000' /tmp/e2e-big.out | grep -qx -E '[1-9][0-9]*' && grep -aq 1100000000 /tmp/e2e-big.out"
+check "the job file in the mailbox is small, not a gigabyte" bash -c "test \$(rgit -C /var/lib/$NAME-mail/queue.git ls-tree -r -l jobs | awk '{s+=\$4} END {print s}') -lt 50000000"
+check "the unpacked files were cleaned up or kept within the disk reserve" bash -c "df --output=avail -B1G /var/lib | tail -1 | awk '{exit \$1 < 2}'"
+as_admin script -qec "stty cols 100 rows 40; ct-run submit bigfiles --dir /tmp/big --no-compress --no-wait" /tmp/e2e-big2.out >/dev/null 2>&1
+plain /tmp/e2e-big2.out | sed 's/^/  | /'
+check "--no-compress says so on the card" bash -c "plain /tmp/e2e-big2.out | grep -aiq 'not compressed'"
+
 step "What the mailbox key must NOT be able to do"
 KEY=$H/$ADMIN/.ct/mailbox/key; export KEY
 MSSH="ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes $MAIL@localhost"

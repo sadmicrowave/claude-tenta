@@ -18,6 +18,7 @@ from ..words import plural
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 STALE_S = 7200
+SILENT_S = 86400            # the default of the setting health.silent_hours (ct.sched.SILENT_S says the same to the placement)
 
 
 def load_list(path):
@@ -37,12 +38,63 @@ def save_list(path, workers):
     Path(path).write_text("".join(lines))
 
 
+def repo_slugs(cfg):
+    """{"queue": "owner/repo", "results": ...} in lower case (GitHub names are not case sensitive), or {} when no GitHub account is configured."""
+    g = cfg.github
+    if not g.owner:
+        return {}
+    return {"queue": f"{g.owner}/{g.queue_repo}".lower(), "results": f"{g.owner}/{g.results_repo}".lower()}
+
+
+def others(own_path, wfile):
+    """[(label, config)] for every worker on this computer except the one whose configuration file is `own_path`: the main configuration (beside the workers list) and each listed worker. A file that cannot be read is skipped (`ct-admin workers` reports it)."""
+    own = Path(own_path).expanduser().resolve() if own_path else None
+    wfile = Path(wfile).expanduser()
+    files = {}
+    for name in ("ct.toml", config.LEGACY_CONFIG):
+        if (wfile.parent / name).is_file():
+            files.setdefault("the main worker", wfile.parent / name)
+            break
+    for n, p in load_list(wfile).items():
+        files[f"worker {n}"] = Path(p).expanduser()
+    out = []
+    for label, f in files.items():
+        if own is not None and f.resolve() == own:
+            continue
+        try:
+            out.append((label, config.load(f, env={"CT_CONFIG": ""})))
+        except Exception:
+            continue
+    return out
+
+
+def repo_conflict(cfg, own_path, wfile):
+    """(slug, who) of the first repository `cfg` shares with its own other repository or with another worker, or None. THE one check of "one private repository pair per worker": every path that
+    configures, creates or lists a worker calls it, and no setting turns it off."""
+    mine = repo_slugs(cfg)
+    if mine and mine["queue"] == mine["results"]:
+        return mine["queue"], "its own results repository"
+    for label, other in others(own_path, wfile):
+        theirs = set(repo_slugs(other).values())
+        for slug in mine.values():
+            if slug in theirs:
+                return slug, label
+    return None
+
+
+def require_own_repos(cfg, own_path, wfile):
+    hit = repo_conflict(cfg, own_path, wfile)
+    if hit:
+        raise refusals.refuse("worker.repo.shared", slug=hit[0], other=hit[1])
+
+
 def add(path, name, config_path):
     if not NAME_RE.match(name or ""):
         raise refusals.refuse("worker.name.invalid")
     cfg_file = Path(config_path).expanduser()
     if not cfg_file.is_file():
         raise refusals.refuse("worker.config.missing", path=cfg_file)
+    require_own_repos(config.load(cfg_file, env={"CT_CONFIG": ""}), cfg_file, path)
     workers = load_list(path)
     workers[name] = str(cfg_file)
     save_list(path, workers)
@@ -106,11 +158,11 @@ def profile_time_text(pt):
     return f"estimate x {pt['factor']:g} x {pt.get('margin', 3):g}; {ceiling}; from {pt.get('basis', 'none yet')}"
 
 
-def row_for(name, doc, now=None):
+def row_for(name, doc, now=None, silent_s=SILENT_S):
     """The cells of one worker's row (plain text; the caller adds colour)."""
     if doc is None:
         return {"name": name, "os": "-", "cpu": "-", "memory": "-", "claude": "-", "state": "no state published (an older release, or not set up yet)",
-                "release": "-", "load": "-", "age": "-", "has_claude": False, "locked": False, "stale": True}
+                "release": "-", "load": "-", "age": "-", "has_claude": False, "locked": False, "stale": True, "silent": False}
     hw, obs = doc.get("hardware") or {}, doc.get("observed") or {}
     age = age_s(doc, now)
     o = doc.get("os") or {}
@@ -125,8 +177,8 @@ def row_for(name, doc, now=None):
             "claude": text, "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
             "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "profile_time": profile_time_text(doc.get("profile_time")), "platform": doc.get("platform") or "",
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
-            "age": human_age(age) + (" STALE" if age is None or age > STALE_S else ""),
-            "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S,
+            "age": human_age(age) + (" SILENT" if age is not None and age > silent_s else " STALE" if age is None or age > STALE_S else ""),
+            "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S, "silent": age is not None and age > silent_s,
             "packages": len(doc.get("packages") or []), "classes": len(doc.get("classes") or []), "class_names": sorted(doc.get("classes") or [])}
 
 
@@ -139,7 +191,7 @@ HANG = 15           # the widest label (AVAILABILITY, PROFILE LIMIT) plus a gap:
 
 def fact_rows(r, upper=False):
     """The measurements of one worker as (label, value) rows, with what it is used for after its state when it has said (an older release does not)."""
-    rows = [(label, (str(r.get(key, "-")).replace(" STALE", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
+    rows = [(label, (str(r.get(key, "-")).replace(" STALE", "").replace(" SILENT", "") if key == "age" else str(r.get(key, "-")))) for label, key in ROWS]
     if r.get("ceiling"):                                                                   # the largest job file it accepts right now (it moves with its free disk and memory)
         rows.insert([k for _, k in ROWS].index("memory") + 1, ("LARGEST JOB" if upper else "Largest job", r["ceiling"]))
     if r.get("purpose"):
@@ -196,7 +248,7 @@ def cards(rows, width=80, color=True):
         out = []
         for r in rows:
             from .. import alias
-            out += [f"{alias.show(r['name']).upper()}" + (" (LOCKED)" if r["locked"] else " (STALE)" if r["stale"] else "")]
+            out += [f"{alias.show(r['name']).upper()}" + (" (LOCKED)" if r["locked"] else " (SILENT)" if r.get("silent") else " (STALE)" if r["stale"] else "")]
             facts = fact_rows(r, upper=True)
             extra = installed_rows(r, plain=True)                          # what is set up here, apart from the measurements above it
             out += [f"  {label:<{HANG}}{value if len(value) <= room else value[:room - 1] + '…'}" if (label or value) else "" for label, value in facts + ([("", "")] if extra else []) + extra]
@@ -208,7 +260,7 @@ def cards(rows, width=80, color=True):
         facts = fact_rows(r)
         extra = installed_rows(r)                                         # what is set up here: a blank line apart from the measurements, and bold
         facts += (["\n"] if extra else []) + extra
-        tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
+        tag, colour = ("LOCKED", ui_mod.RED) if r["locked"] else ("SILENT", ui_mod.RED) if r.get("silent") else ("STALE", ui_mod.YELLOW) if r["stale"] else ("WORKER", ui_mod.PRIMARY)
         out += [""] + card_mod.card(alias.show(r["name"]), facts, tag=tag, color=colour, cols=width)
     return out
 

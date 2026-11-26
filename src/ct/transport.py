@@ -133,3 +133,14 @@ def copy_history_commands(clone, bare):
     push = ["git", "-C", clone, "push", "--quiet", "--force", bare]
     return [trusted(push + ["refs/remotes/origin/*:refs/heads/*"]), trusted(push + ["refs/heads/*:refs/heads/*"]),
             trusted(["git", "-C", bare, "update-ref", "-d", "refs/heads/HEAD"])]
+
+
+def canonical_origin(cfg, url):
+    """A worker's remote URL with its own GitHub ssh alias (git@github-NAME-queue:owner/repo.git, one per repository so each has its own deploy key) written as github.com, so that "which connection is this
+    remote" has one answer for the worker and for this computer. Anything else (a path, a mailbox URL, a plain GitHub URL, nothing) is returned as it was."""
+    t = GitHub()
+    for which in ("queue", "results"):
+        prefix = f"git@{t.alias(cfg, which)}:"
+        if url.startswith(prefix):
+            return "git@github.com:" + url[len(prefix):]
+    return url

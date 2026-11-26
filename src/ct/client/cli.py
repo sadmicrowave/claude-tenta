@@ -34,7 +34,7 @@ from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import here, place, queue, view
+from . import health, here, place, queue, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -47,7 +47,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24, silent_hours=24):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -57,6 +57,7 @@ class Context:
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.recommend_runs, self.recommend_gain = int(recommend_runs), int(recommend_gain)
+        self.silent_hours = int(silent_hours)
         self.recommend_hint, self.recommend_hint_hours = bool(recommend_hint), int(recommend_hint_hours)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
@@ -72,7 +73,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, silent_hours=cfg.health.silent_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -243,7 +244,7 @@ def cmd_where(ctx, cfg, a):
     if len(ents) < 2:
         emit("There is only one worker", f"Everything goes to {alias.show(ctx.product)}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
         return 0
-    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home, silent_s=place._silent_s(ctx))
     ch = place.decide(a.cls, views)
     explain(ch, a.cls)
     return 0 if ch.worker else 1
@@ -269,24 +270,29 @@ def show_left_out(left):
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
 
 
-def show_summary(ctx, files, left):
-    """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. Above 1 GB on Direct it says so once (nothing blocks it)."""
+def show_summary(ctx, files, left, pack=None):
+    """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. A set over 1 GB on Direct is sent compressed: the card says so, with the sizes before and after."""
     if not files:
         return
     count, size = sub.totals(files)
     where = "your own network (Direct)" if ctx.kind == "direct" else "a private GitHub repository"
     rows = [("Files", plural(count, "file")), ("Size", sub.size_text(size)), ("Goes to", where)]
+    if pack and pack.state == "compressed":
+        rows.append(("Compressed", f"{sub.size_text(pack.before)} to {sub.size_text(pack.after)} (the worker unpacks it)"))
+    elif pack and pack.state == "declined":
+        rows.append(("Not compressed", f"you asked for it, so all {sub.size_text(pack.before)} is sent as it is"))
     if left.held:
         rows.append(("Held back", plural(len(left.held), "file")))
     if left.warn:
         rows.append(("May hold a secret", plural(len(left.warn), "file")))
-    big = ctx.kind == "direct" and size > sub.BIG_SET_BYTES
-    emit("What will be sent", *rows, *(["This is a very large set. Direct has no size limit, but the worker needs the room and the transfer will take a while. Narrow it with --include if you can."] if big else []),
-         tag="NOTE", color=YELLOW if big else CYAN)
+    emit("What will be sent", *rows, tag="NOTE", color=CYAN)
 
 
 def rerun_for(ctx, res):
-    """For a profile run that stopped only for time: the command that sends it again with the next limit (None when there is none to suggest)."""
+    """The command that sends a job again: for a profile run that stopped only for time, with the next limit; for a job the worker could not unpack, without compression (None when there is none to suggest)."""
+    if str(res.get("refusal") or "").startswith("files.unpack."):
+        raw = ctx.commands.get(res["id"])
+        return off.own_command_with(raw, "--no-compress") if raw else None
     pr = res.get("profile") or {}
     raw = ctx.commands.get(res["id"]) if pr.get("verdict") == "needs-longer" and pr.get("next_limit_s") else None
     return off.rerun_with_limit(raw, pr["next_limit_s"]) if raw else None
@@ -314,12 +320,22 @@ def cmd_submit(ctx, a):
     if a_dir:
         files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct"))
     show_left_out(left)
-    show_summary(ctx, files, left)
+    pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files else sub.Pack()
+    if pack.state == "compressed":                                      # after the secret scan above, on exactly what is sent
+        with view.Busy("compressing: the files"):
+            pack.z = sub.compress_files(files)
+        pack.after = len(pack.z["data"])
+        if pack.after > limits["max_total_kb"] * 1000:
+            raise refuse.error("files.set.too_big", count=plural(len(files), "file"), kb=pack.after // 1000, limit=limits["max_total_kb"])
+    show_summary(ctx, files, left, pack)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
-    if files:
+    if files and pack.state != "compressed":
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
+    if pack.state == "compressed":
+        batches = [None]
+        job["files_z"] = pack.z
     held = getattr(ctx, "held", None)
     if held is not None:
         return hold_jobs(ctx, a, batches, job, held, why=getattr(ctx, "share_why", None))
@@ -331,16 +347,18 @@ def cmd_submit(ctx, a):
             return hold_jobs(ctx, a, batches, job, None, why=over[1])
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
-    base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
+    base = given_id(a) or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
     ids = sub.job_ids(base, len(batches))
     if len(batches) > 1:
         emit(f"{plural(len(files), 'file')} split into {plural(len(batches), 'independent job')}", *ids, tag="NOTE", color=YELLOW)
     for jid, chunk in zip(ids, batches):
         with view.Busy(f"sending: the job to {alias.show(ctx.product)}"):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
+        ctx.commands.remember(jid, list(a.raw))
         emit("Queued", ("Job", jid), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
+        health.keep_sent(ctx.home_main, info, a.cls, ids, batches, job)
     if place.prune_due(ctx.home):                         # housekeeping, an hour apart: it is a network round trip that almost never finds anything to do
         try:
             r.prune_jobs()
@@ -353,9 +371,17 @@ def cmd_submit(ctx, a):
     return max(wait(ctx, jid, a.timeout, a.json) for jid in ids)
 
 
+def given_id(a):
+    """The id the person chose with --id, checked here (the worker would refuse a bad one anyway, and this computer uses the id as a file name for the waiting list and the kept copies)."""
+    from ..jobs import ID_RE
+    if a.id and not ID_RE.match(a.id):
+        raise refuse.error("job.id.invalid", ("Job id", a.id), steps=["Use 4 to 64 lowercase letters, digits and dashes, starting with a letter or digit."])
+    return a.id
+
+
 def hold_jobs(ctx, a, batches, job, held, why=None):
     """Every worker is busy (or none can take it now): the job waits on this computer, in order, and goes when one has room (queue.py)."""
-    base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), set(ctx.repos.result_ids()) | queue.ids(ctx.home))
+    base = given_id(a) or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), set(ctx.repos.result_ids()) | queue.ids(ctx.home))
     ids = sub.job_ids(base, len(batches))
     clash = [j for j in ids if j in queue.ids(ctx.home)]
     if clash:
@@ -369,6 +395,29 @@ def hold_jobs(ctx, a, batches, job, held, why=None):
          run=f"ct-run jobs")
     print("\n".join(ids))                                                   # output: data (job ids for a script)
     return 0
+
+
+def health_sweep(ctx, cfg, a):
+    """Every ct-run command first notices the jobs lost to a silent worker (and queues the repeatable ones again), before the waiting list is sent; a failure here never stops the command asked for."""
+    try:
+        lost = health.sweep(ctx, cfg)
+    except Exception as e:
+        emit("The workers' health could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if not getattr(a, "json", False) and a.cmd != "jobs":                 # the jobs list shows every lost job itself
+        for jid, worker, why, again, outcome in lost:
+            emit_lost(jid, worker, None, why, again, outcome)
+
+
+LOST_OUTCOME = {"again": "It was queued again as {again} (its own row is in ct-run jobs).",
+                "not_repeatable": "Its command is not marked safe to repeat, so it was not sent again. Send it again yourself if you still want it, or wait: if the worker comes back its result appears.",
+                "no_copy": "Its command is safe to repeat, but this computer has no copy of the job (it was sent before copies were kept, from another computer, or it was too big to copy), so it was not sent again. Send it again yourself, or wait: if the worker comes back its result appears."}
+
+
+def emit_lost(jid, worker, cls, why, again, outcome=None):
+    """One card for a lost job: which, why, and what happened to it (sent again, or only marked lost and what to do)."""
+    text = LOST_OUTCOME[outcome or ("again" if again else "not_repeatable")].format(again=again)
+    emit("A job was lost", ("Job", jid), ("Worker", alias.show(worker)), ("Why", why), text, tag="LOST", color=YELLOW, run="ct-run jobs")
 
 
 def drain_queue(ctx, cfg, a):
@@ -642,6 +691,10 @@ def cmd_jobs(ctx, n=15, cfg=None):
         floor = datetime.min.replace(tzinfo=timezone.utc)
         rows.sort(key=lambda r_: r_[0] or floor, reverse=True)
     note_runs(ctx, results)
+    final = {k for k, v in results.items() if (v or {}).get("status") not in PENDING} if isinstance(results, dict) else set()
+    health.forget_final(ctx.home, final)
+    for jid, worker, cls, why, again, outcome in health.lost_now(ctx.home, final):
+        emit_lost(jid, worker, cls, why, again, outcome)
     for i in queue.waiting(ctx.home):
         emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW)
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)
@@ -680,7 +733,7 @@ def one_worker_classes(ctx, product):
 
 def fleet_classes(ctx, ents):
     ctx.repos.need_setup()
-    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home, silent_s=place._silent_s(ctx))
     classes, unreachable = {}, []
     for v in views:
         if not v.reachable:
@@ -1053,6 +1106,7 @@ def build_parser():
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")
     s.add_argument("--no-pack", action="store_true", help="do not use the files this class was profiled with")
     s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
+    s.add_argument("--no-compress", action="store_true", help="on Direct, send a set over 1 GB as it is instead of compressed (for a worker that cannot unpack)")
     s.add_argument("--id", help="choose the job id (4 to 64 lowercase letters, digits and dashes)")
     s.add_argument("--wait", action="store_true", help="block until it finishes (the default in a terminal)")
     s.add_argument("--no-wait", action="store_true", help="queue it and return the id")
@@ -1192,6 +1246,7 @@ def main(argv=None, ctx=None, cfg=None):
             atexit.register(show_hint, ctx)
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
         if cfg is not None and a.cmd in ("submit", "jobs", "result", "classes", "where", "queue"):
+            health_sweep(ctx, cfg, a)
             drain_queue(ctx, cfg, a)
         if a.cmd == "use":
             return cmd_use(ctx, cfg, a)

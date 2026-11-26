@@ -91,7 +91,7 @@ def channel_problem(c, repos):
     return (sends, listens) if listens and listens != sends else None
 
 
-def view_of(name, c, repos, fetch=None, now=None, home=None):
+def view_of(name, c, repos, fetch=None, now=None, home=None, silent_s=None):
     """What is known about one worker, after one look over its own connection. A look that fails is a worker that is not reachable now, with what was said."""
     from ..admin import workers as workers_mod
     configured = transport.for_config(c).kind
@@ -103,19 +103,25 @@ def view_of(name, c, repos, fetch=None, now=None, home=None):
         return sched.worker_view(name, kind, workers_mod.read_state(repos.results), repos.registry_info(), None, pickup_s(c, kind), reachable=False, why_not=first, configured=configured)
     state = workers_mod.read_state(repos.results)
     return sched.worker_view(name, kind, state, repos.registry_info(), workers_mod.age_s(state, now) if state else None, pickup_s(c, kind), configured=configured,
-                             sent_pending=pending_sent(home, name, repos, now) if home else 0)
+                             sent_pending=pending_sent(home, name, repos, now) if home else 0,
+                             silent_after_s=silent_s or sched.SILENT_S)
 
 
-def gather(ents, repos_of, fetch=None, home=None):
+def _silent_s(ctx):
+    hours = getattr(ctx, "silent_hours", 24)
+    return (hours if isinstance(hours, (int, float)) else 24) * 3600
+
+
+def gather(ents, repos_of, fetch=None, home=None, silent_s=None):
     """One view per worker, all looked at at the same time (a slow or dead one does not hold up the others)."""
     with ThreadPoolExecutor(max_workers=max(1, len(ents))) as pool:
-        return list(pool.map(lambda e: view_of(e[0], e[1], repos_of(e), fetch, home=home), ents))
+        return list(pool.map(lambda e: view_of(e[0], e[1], repos_of(e), fetch, home=home, silent_s=silent_s), ents))
 
 
 SNAPSHOT_FOR_S = 5
 
 
-def gather_shared(ents, repos_of, fetch=None, home=None):
+def gather_shared(ents, repos_of, fetch=None, home=None, silent_s=None):
     """`gather`, but a look taken in the last few seconds by another placement is reused (a burst of sends reads each worker once, not once per send). What is NOT shared is this computer's own record of
     what it has sent: that is worked out fresh, so every placement still sees the ones before it."""
     f = Path(home) / "views.json" if home else None
@@ -131,12 +137,13 @@ def gather_shared(ents, repos_of, fetch=None, home=None):
                     if d.get("age_s") is not None:
                         d["age_s"] += now - snap["at"]
                     v = sched.Worker(**d)
+                    v.silent_after_s = silent_s or sched.SILENT_S                   # the limit is today's setting, not the one when the look was taken
                     v.sent_pending = pending_sent(home, e[0], repos_of(e))
                     out.append(v)
                 return out
         except (OSError, ValueError, KeyError, TypeError):
             pass
-    views = gather(ents, repos_of, fetch, home=home)
+    views = gather(ents, repos_of, fetch, home=home, silent_s=silent_s)
     if f:
         try:
             keep = ("name", "connection", "reachable", "why_not", "state", "registry", "age_s", "pickup_s", "configured")
@@ -281,7 +288,7 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
             raise refuse.error("placement.transport.mismatch", ("Worker", forced), connection=wrong[0], listens=wrong[1])
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
-        views = gather_shared(ents, repos_of, fetch, home=ctx.home)
+        views = gather_shared(ents, repos_of, fetch, home=ctx.home, silent_s=_silent_s(ctx))
         ch = decide(cls, views, prefs)
         if ch.worker is None:
             raise none_error(cls, ch)
