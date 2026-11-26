@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .. import alias, cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
+from ..client import audit, overview
 from ..client import offload as off
 from ..client import refuse
 from ..client import retry
@@ -118,6 +119,32 @@ def fail_from(e):
 
 
 # ---- worker ----
+def overview_data(ctx):
+    """The panel's facts from this computer's own files (queue, worker states, audit trail): no login to any worker."""
+    silent_s = ctx.cfg.health.silent_hours * 3600 if ctx.cfg else workers.SILENT_S
+    rows = []
+    for n, c in ctx.targets():
+        try:
+            rows.append((n, workers.row_for(n, workers.read_state(c.repos.results), silent_s=silent_s)))
+        except Exception:                                                       # one unreadable worker is a row with no state, never a missing panel
+            rows.append((n, workers.row_for(n, None)))
+    return overview.collect(audit.home_of(ctx), rows)
+
+
+def status_overview(ctx, a):
+    """The panel, once before the per-worker reports (it covers every worker, so it is not repeated for each); with --every, the panel alone, redrawn until Ctrl-C (no login to a worker on every turn). True when that was all."""
+    if not getattr(a, "every", None):
+        overview.show(overview_data(ctx))
+        return False
+    try:
+        while True:
+            print("\x1b[2J\x1b[H", end="")                                  # output: data (clears the screen between redraws)
+            overview.show(overview_data(ctx))
+            time.sleep(a.every)
+    except KeyboardInterrupt:
+        return True
+
+
 def cmd_status(ctx, a):
     rc = ctx.remote("status", "--hours", str(a.hours))
     _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), ("See what a worker can run", "ct-run classes"))
@@ -1440,7 +1467,7 @@ GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "work
           ("Registry", ["adopt", "retire", "class", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
-    "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
+    "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48"), ("Watch the overview", "ct-admin status --every 5")]),
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml"), ("Give a worker a name here", "ct-admin workers rename tenta3 lab-vm"), ("Name every worker in turn", "ct-admin workers rename")]),
     "locate": ("find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address", [("Look for the main worker", "ct-admin locate"), ("Look for another one", "ct-admin locate --worker studio")]),
     "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
@@ -1476,6 +1503,7 @@ def build_parser():
     yes = lambda s: s.add_argument("--yes", action="store_true", help="do not ask; answer yes")      # noqa: E731
     s = sp.add_parser("status", add_help=False)
     s.add_argument("--hours", type=int, default=12, metavar="N", help="hours of use to summarise (default %(default)s, at most 168)")
+    s.add_argument("--every", type=int, default=None, metavar="SECONDS", help="only the overview, redrawn every SECONDS until you press Ctrl-C (it reads this computer's files, so it asks no worker)")
     sp.add_parser("check", add_help=False)
     s = sp.add_parser("review", add_help=False)
     s.add_argument("ids", nargs="*", metavar="job-id", help="job ids (default: every job waiting for approval)")
@@ -1610,6 +1638,8 @@ def run_fleet(ctx, cmd, targets, a, label=None):
 def run_command(ctx, a):
     """Run a command on the workers it is about. A fleet command visits every worker in turn with a heading each; one that fails, or is declined, does not stop the rest, and the exit code is the worst of them.
     `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
+    if a.cmd == "status" and status_overview(ctx, a):
+        return 0
     if a.cmd in FLEET_COMMANDS:
         targets = ctx.targets(getattr(a, "worker", None))
         if a.cmd == "update":                                             # one worker: as it always was; several: the release is looked up and shown once, then each worker in turn

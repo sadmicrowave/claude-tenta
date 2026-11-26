@@ -4,6 +4,7 @@ Ideas for future features, one per line, newest first. Each becomes its own smal
 
 In scope now: [Windows tools installer](design/WINDOWS-TOOLS-INSTALLER.md).
 
+- 2026-11-26 A plain single-worker send (no placement among several workers) is not in the audit trail, so `ct-admin status` and `ct-run audit` never show it as running or finished (same limit as R2, R3 and R5): record it too, if the trail should cover every job.
 - 2026-11-25 The installer's `apt-get install` fails at once when another apt job holds the package lock (a machine that has just booted runs unattended upgrades): add `-o DPkg::Lock::Timeout=300` to its apt calls (src/ct/packages.py), and cover it with a test of the command line. The e2e machines now wait for the lock themselves (`quiet_apt`), so this is only a gap for a real user on a freshly started machine, who today sees the lock message and runs the same command again.
 - 2026-11-25 After `ct-admin locate` saves a new address, this computer has the worker's key only under the OLD address, so an immediate second `locate` says "no recorded host key" until the person connects once. The key was just proved, so locate could record it for the new address itself (found by the `locate` e2e route; today the card names the one command to run).
 - 2026-11-20 The server half shows `ssh ctadmin@None` in its "real reason" hint (the server's own configuration has no host): print the address the person used.

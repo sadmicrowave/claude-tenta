@@ -162,7 +162,7 @@ def row_for(name, doc, now=None, silent_s=SILENT_S):
     """The cells of one worker's row (plain text; the caller adds colour)."""
     if doc is None:
         return {"name": name, "os": "-", "cpu": "-", "memory": "-", "claude": "-", "state": "no state published (an older release, or not set up yet)",
-                "release": "-", "load": "-", "age": "-", "has_claude": False, "locked": False, "stale": True, "silent": False}
+                "release": "-", "load": "-", "age": "-", "load_value": None, "cores_value": None, "paused": False, "has_claude": False, "locked": False, "stale": True, "silent": False}
     hw, obs = doc.get("hardware") or {}, doc.get("observed") or {}
     age = age_s(doc, now)
     o = doc.get("os") or {}
@@ -178,7 +178,7 @@ def row_for(name, doc, now=None, silent_s=SILENT_S):
             "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "profile_time": profile_time_text(doc.get("profile_time")), "platform": doc.get("platform") or "",
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" SILENT" if age is not None and age > silent_s else " STALE" if age is None or age > STALE_S else ""),
-            "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S, "silent": age is not None and age > silent_s,
+            "load_value": load, "cores_value": hw.get("cores"), "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S, "silent": age is not None and age > silent_s,
             "packages": len(doc.get("packages") or []), "classes": len(doc.get("classes") or []), "class_names": sorted(doc.get("classes") or [])}
 
 
