@@ -10,8 +10,10 @@ lightest load per core, then the name (so a tie is never random). Standard libra
 from dataclasses import dataclass, field
 
 from . import refusals
+from .words import plural
 
 STALE_S = 7200                     # a reading older than this is still used, but ranked after every fresh one. A healthy idle worker publishes about every half hour, so a shorter limit would call every idle worker stale
+SILENT_S = 86400                   # a reading older than this (setting health.silent_hours) makes the worker silent: no new job goes to it (R2). Softer than STALE_S, which only ranks it later
 LIVE_S = 120                       # the worker's own running and waiting counts are believed only this long: they are published rarely, and a count that old says nothing about now
 COST = {"light": 1, "medium": 2, "heavy": 4}
 
@@ -26,6 +28,7 @@ class Worker:
     state: dict = None                         # worker-state.json, or None when none was published
     registry: dict = None                      # registry.json (the classes it offers), or None
     age_s: float = None                        # how old the reading is
+    silent_after_s: int = SILENT_S             # health.silent_hours in seconds
     pickup_s: int = 5                          # how long, at most, until it notices a job (its idle pace)
     sent_pending: int = 0                      # capacity POINTS of the jobs THIS computer sent to it that have no final result yet (a light job 1, medium 2, heavy 4): the only live measure of its load here
     configured: str = None                     # what this computer's configuration SAYS the connection is, when that differs from the one its copies really use
@@ -97,6 +100,11 @@ class Worker:
         return (load / cores) if load is not None else 0.0
 
     @property
+    def silent(self):
+        """Has published before, but not within the limit. A worker that never published is not silent, it has no reading (placement.no_state says that)."""
+        return self.age_s is not None and self.age_s > self.silent_after_s
+
+    @property
     def stale(self):
         return self.age_s is None or self.age_s > STALE_S
 
@@ -129,6 +137,8 @@ def _left_out(w, cls, kind, prefs):
         return [why("placement.unreachable", reason=w.why_not or "no answer")]
     if w.state is None:
         return [why("placement.no_state")]
+    if w.silent:
+        return [why("placement.silent", age=silent_text(w.age_s))]
     out = []
     if w.doc("locked", default=False):
         out.append(why("placement.locked"))
@@ -229,5 +239,10 @@ def _worse_than(w, best, order, cls):
     return f"equal in every way; {best.name} comes first by name"
 
 
-def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not="", configured=None, sent_pending=0):
-    return Worker(name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not, configured=configured, sent_pending=sent_pending)
+def silent_text(age_s):
+    d = int(age_s // 86400)
+    return plural(d, "day") if d >= 1 else plural(int(age_s // 3600), "hour")
+
+
+def worker_view(name, connection, state, registry, age_s, pickup_s, reachable=True, why_not="", configured=None, sent_pending=0, silent_after_s=SILENT_S):
+    return Worker(silent_after_s=silent_after_s, name=name, connection=connection, state=state, registry=registry, age_s=age_s, pickup_s=pickup_s, reachable=reachable, why_not=why_not, configured=configured, sent_pending=sent_pending)

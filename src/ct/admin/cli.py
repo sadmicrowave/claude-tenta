@@ -760,7 +760,7 @@ def cmd_workers(ctx, a):
             hit = None
         if hit:
             shared.append((name, hit))
-    cells = [workers.row_for(n, d) for n, d in rows]
+    cells = [workers.row_for(n, d, silent_s=(ctx.cfg.health.silent_hours if ctx.cfg else 24) * 3600) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
         c["dedicated"] = workers.dedicated_text(mine, c["name"])
@@ -1209,11 +1209,13 @@ def cmd_class(ctx, a):
     if from_pack and a.verb == "set":
         raise refuse.error("class.from_pack", ("Class", name), example=f"ct-admin class show {name}")
     tier, network, tools = class_facts(mine[name] if name in mine else published[name])
+    repeat = bool((mine[name] if name in mine else published[name]).get("repeatable"))
     if a.verb == "show":
         state = workers.read_state(r.results) or {}
         iso = state.get("isolation") or {}
         roots = list(iso.get("tool_roots") or [])
         rows = [("Class", name), ("Defined in", "a pack (change it there)" if from_pack else "your registry"), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
+        rows += [("Safe to repeat", "yes: if a worker goes silent before it answers, the job is sent again to another" if repeat else "no: if a worker goes silent before it answers, the job is only marked lost")]
         if tools:
             allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
             rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]
@@ -1229,6 +1231,8 @@ def cmd_class(ctx, a):
         changes["tier"] = a.tier
     if a.network:
         changes["network"] = a.network == "on"
+    if a.repeatable:
+        changes["repeatable"] = a.repeatable == "on"
     if a.tools:
         flat = [t for group in a.tools for t in group]
         changes["tools"] = None if flat == ["none"] else flat
@@ -1244,7 +1248,8 @@ def cmd_class(ctx, a):
     if problems:
         raise refuse.error("class.set.invalid", ("Class", name), problems="\n".join(problems[:5]))
     now_tier, now_net, now_tools = class_facts(registry.parse(new_text)["classes"][name])
-    if (now_tier, now_net, now_tools) == (tier, network, tools):
+    now_repeat = bool(registry.parse(new_text)["classes"][name].get("repeatable"))
+    if (now_tier, now_net, now_tools, now_repeat) == (tier, network, tools, repeat):
         emit("Nothing to change", ("Class", name), "It already is that way.", tag="NOTE", color=YELLOW)
         return 0
     rows = [("Class", name)]
@@ -1252,6 +1257,8 @@ def cmd_class(ctx, a):
         rows.append(("Tier", f"{tier}  ->  {now_tier}"))
     if now_net != network:
         rows.append(("Network", f"{'yes' if network else 'no'}  ->  {'yes' if now_net else 'no'}"))
+    if now_repeat != repeat:
+        rows.append(("Safe to repeat", f"{'yes' if repeat else 'no'}  ->  {'yes' if now_repeat else 'no'}"))
     if now_tools != tools:
         rows += [("Tool folders" if i == 0 else "", f) for i, f in enumerate(now_tools)] or [("Tool folders", "none (removed)")]
     emit("Change a class", *rows, *notes, tag="CHANGE", color=RED if (now_net and now_tier == "auto") else CYAN)
@@ -1458,6 +1465,7 @@ def build_parser():
     s.add_argument("cls", metavar="class", help="the class (ct-run classes lists them)")
     s.add_argument("--tier", choices=["auto", "approve"], help="auto runs as soon as it is sent; approve waits for your OK each time")
     s.add_argument("--network", choices=["on", "off"], help="may jobs of this class reach the network?")
+    s.add_argument("--repeatable", choices=["on", "off"], help="on: a job of this class that is lost because its worker went silent may be run again on another worker (only if running it twice does no harm)")
     s.add_argument("--tools", action="append", nargs="+", metavar="FOLDER", help="folders of tools that already exist on the worker (repeat or list several; none removes them); each must be inside a folder the worker allows")
     yes(s)
     s = sp.add_parser("action", add_help=False)

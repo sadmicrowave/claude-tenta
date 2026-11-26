@@ -823,7 +823,7 @@ class Worker:
             classes[name] = {k: v for k, v in {
                 "privileged": c.get("privileged"), "writable": c.get("writable"),
                 "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind in ("profile", "privileged") else c.get("tier", "approve"),
-                "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"), "submit": c.get("submit"),
+                "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"), "repeatable": c.get("repeatable") or None, "submit": c.get("submit"),
                 "packages": c.get("packages"), "tools": c.get("tools"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
         when, since_file = iso(self.clock()), self._p("registry.since")

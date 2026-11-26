@@ -157,6 +157,14 @@ class ClassSetTests(AdminBase):
         self.assertRegex(self.registry(), r"(?m)^  careful:\n(?:    .*\n)*?    tier: auto\n")
         self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
 
+    def test_a_class_is_marked_safe_to_repeat_and_class_show_says_so(self):
+        self.assertIn("no: if a worker goes silent", "".join(self.admin("class", "show", "echo")[1:]))
+        code, out, err = self.admin("class", "set", "echo", "--repeatable", "on", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Safe to repeat", out + err)
+        self.assertRegex(self.registry(), r"(?m)^  echo:\n(?:    .*\n)*?    repeatable: true\n")
+        self.assertEqual(self.admin("class", "set", "echo", "--repeatable", "on", "--yes")[0], 0)          # already so: nothing to change, not a second install
+
     def test_turning_the_network_on_for_an_automatic_class_also_makes_it_need_approval(self):
         code, out, err = self.admin("class", "set", "echo", "--network", "on", "--yes")
         self.assertEqual(code, 0, err)

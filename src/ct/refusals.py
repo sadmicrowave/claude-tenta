@@ -169,6 +169,9 @@ define("placement.unreachable", "placement", "A worker that cannot be reached ca
        "cannot be reached now ({reason})", who="client", steps=["Run ct-admin check to see why it does not answer."])
 define("placement.no_state", "placement", "A worker that has published no state cannot be described, so no job is placed on it blind.", "A worker has published no state",
        "has published no state (an older release, or not set up yet), so nothing can be said about it", who="client", steps=["Update it with ct-admin apply."])
+define("placement.silent", "placement", "A worker that has not published for a day may be off, broken or cut off, so no new job goes to it until it does.", "A worker has gone silent",
+       "has published nothing for {age} (its latest reading is older than health.silent_hours), so no job is placed on it", who="client", config="the client setting health.silent_hours (default 24 hours)",
+       steps=["Look at the computer: is it on and on the network?", "It is used again as soon as it publishes a new reading."])
 define("placement.locked", "placement", "The worker locked itself after a security event and runs nothing until the owner has looked.", "A worker is locked",
        "is LOCKED (a security lockdown): unlock it after you have looked", who="client", steps=["Look at what happened with ct-admin quarantine, then run ct-admin unlock."])
 define("placement.isolation_off", "placement", "A job runs only where its isolation is on.", "A worker's job isolation is off", "has its job isolation OFF", who="client",

@@ -124,9 +124,16 @@ class WorkersCommand(AdminBase):
         self.assertIn("no state published", out)
 
     def test_an_old_reading_is_marked_stale(self):
-        self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
+        from datetime import datetime, timedelta, timezone
+        self.put_state(self.other, state_doc(updated=(datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")))
         _, out, _ = self.admin("workers")
         self.assertIn("(STALE)", out)
+        self.assertNotIn("(SILENT)", out)
+
+    def test_a_reading_older_than_the_limit_is_marked_silent(self):
+        self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
+        _, out, _ = self.admin("workers")
+        self.assertIn("(SILENT)", out)
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
         self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, True))]
