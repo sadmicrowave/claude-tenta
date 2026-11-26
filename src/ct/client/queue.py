@@ -256,6 +256,8 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 from . import health
                 if health.is_repeatable(next((v.registry for v in views if v.name == ch.worker), None), it["class"]):
                     health.keep(ctx.home, it["id"], job_of(ctx.home, it))
+                    from . import retry
+                    retry.plan_sent(ctx.home, next((v.registry for v in views if v.name == ch.worker), None), it["class"], [it["id"]])
                 remove(ctx.home, it["id"])
                 sent.append((it["id"], ch.worker))
                 by_worker[ch.worker] = by_worker.get(ch.worker, 0) + 1

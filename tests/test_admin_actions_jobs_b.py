@@ -165,6 +165,22 @@ class ClassSetTests(AdminBase):
         self.assertRegex(self.registry(), r"(?m)^  echo:\n(?:    .*\n)*?    repeatable: true\n")
         self.assertEqual(self.admin("class", "set", "echo", "--repeatable", "on", "--yes")[0], 0)          # already so: nothing to change, not a second install
 
+    def test_retries_are_set_shown_and_need_a_class_that_is_safe_to_repeat(self):
+        code, out, err = self.admin("class", "set", "echo", "--retries", "2", "--yes")
+        self.assertNotEqual(code, 0)                                                                   # not repeatable yet: refused with the reason
+        self.assertIn("repeatable", out + err)
+        code, out, err = self.admin("class", "set", "echo", "--repeatable", "on", "--retries", "2", "--retry-delay", "90", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertRegex(self.registry(), r"(?m)^  echo:\n(?:    .*\n)*?    retries: 2\n(?:    .*\n)*?    retry_delay_s: 90\n")
+        shown = "".join(self.admin("class", "show", "echo")[1:])
+        for text in ("Stops after", "never run again", "up to 2 more", "attempt 2 of 3", "90 s"):
+            self.assertIn(text, shown)
+
+    def test_class_show_says_there_are_no_retries_by_default(self):
+        shown = "".join(self.admin("class", "show", "echo")[1:])
+        self.assertIn("Stops after", shown)
+        self.assertIn("none: a job that is stopped from outside is not run again", shown)
+
     def test_turning_the_network_on_for_an_automatic_class_also_makes_it_need_approval(self):
         code, out, err = self.admin("class", "set", "echo", "--network", "on", "--yes")
         self.assertEqual(code, 0, err)

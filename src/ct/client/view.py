@@ -96,11 +96,13 @@ def describe_profile(pr):
     return "\n".join(L) + "\n"
 
 
-def format_result(res, admin="ct-admin", suggest_name=None, received=None, rerun=None):
+def format_result(res, admin="ct-admin", suggest_name=None, received=None, rerun=None, attempt=None):
     """A result as the lines the person reads (to stderr, with the OUTPUT block printed separately by the caller). Returns (head, output, tail)."""
     status = res["status"]
     head = [f"\n{paint('JOB', BOLD, CYAN)}     {res['id']}",
             f"{paint('STATUS', BOLD, CYAN)}  {paint(status, BOLD, STATUS_COLOR.get(status, '0'))}" + (f"   {paint(res['note'], DIM)}" if res.get("note") else "")]
+    if attempt:
+        head.append(f"{paint('ATTEMPT', BOLD, CYAN)} {attempt_text(attempt)}")
     if res.get("profile"):
         head.append(describe_profile(res["profile"]))
     head.append(paint("OUTPUT", BOLD, CYAN))
@@ -153,12 +155,18 @@ def needs_longer_next(pr, rerun):
     return None, "", [f"A shared computer holds a profile run to {pr.get('ceiling_s'):g} s. If this computer is not shared, say so: ct-setup install --worker <its name> --set isolation.purpose=tenta-only"]
 
 
-def result_card(res, admin="ct-admin", suggest_name=None, received=None, rerun=None):
+def attempt_text(attempt):
+    """'attempt 2 of 3' for a job that has a retry plan; the last one says there is no more."""
+    n, of = attempt
+    return f"{n} of {of}" + ("  (the last: it is not tried again)" if n >= of else "")
+
+
+def result_card(res, admin="ct-admin", suggest_name=None, received=None, rerun=None, attempt=None):
     """A result as the three things a person looks at, kept apart: `head` (who and what: the job, its status as a chip, its command and verdict), `output` (the job's own
     output, to be drawn in a box in the status colour) and `meta` (how long it took and what it used: quiet, beneath). Plus the command that usually comes next."""
     import shlex
     status, m, pr, trip = res["status"], res.get("metrics"), res.get("profile"), round_trip(res, received)
-    rows = ([("Note", res["note"])] if res.get("note") else [])
+    rows = ([("Note", res["note"])] if res.get("note") else []) + ([("Attempt", attempt_text(attempt))] if attempt else [])
     if pr:
         rows += [("Command", " ".join(shlex.quote(str(a)) for a in pr.get("argv", [])))]
         rows += [(label, pr[key]) for label, key in (("What it does", "what"), ("Why", "why"), ("Expected", "expect"), ("Reads/writes/contacts", "side_effects"), ("Bad signs", "watch_for")) if pr.get(key)]
