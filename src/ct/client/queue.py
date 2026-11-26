@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from ..words import plural
-from . import place
+from . import audit, place
 
 PRIORITIES = ("low", "normal", "high")
 DEFAULT = "normal"
@@ -196,6 +196,7 @@ def _recover(ctx, items, by_name, repos_of, sent, dropped, now):
             continue
         if arrived:
             place.record(ctx.home, [it["id"]], s["worker"], it["class"])
+            audit.placed(ctx, [it["id"]], it["class"], s["worker"], None, it.get("priority"), "a send was cut short; the worker has the job")
             remove(ctx.home, it["id"])
             sent.append((it["id"], s["worker"]))
         else:
@@ -253,6 +254,7 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 check(ctx, 1)
                 send(repos_of(by_name[ch.worker]), it["id"], job_of(ctx.home, it))
                 place.record(ctx.home, [it["id"]], ch.worker, it["class"])
+                audit.placed(ctx, [it["id"]], it["class"], ch.worker, ch, it.get("priority"), it.get("why"))
                 from . import health
                 if health.is_repeatable(next((v.registry for v in views if v.name == ch.worker), None), it["class"]):
                     health.keep(ctx.home, it["id"], job_of(ctx.home, it))

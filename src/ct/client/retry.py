@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from ..jobs import ID_RE
-from . import health, place, queue
+from . import audit, health, place, queue
 from .repo import PENDING
 
 RETRY_STATUSES = ("killed",)           # a stop from outside: the job did not run to its own end, and nothing says running it again would end differently
@@ -145,5 +145,6 @@ def sweep(ctx, cfg, *, entries_fn=None, repos_of=None, now=None):
             queue.add(ctx.home, new, placed[jid].get("class") or job.get("class"), queue.DEFAULT, job, why, now=now)     # queued first: a crash before the plan is written repeats at most this one
             _update(ctx.home, lambda d, j=jid, n=new, q=p: (d[j].update(next=n), d.update({n: {"attempt": q["attempt"] + 1, "of": q["of"], "delay": q["delay"]}})))
             health.drop(ctx.home, jid)
+            audit.retried(ctx, jid, new, placed[jid].get("class") or job.get("class"), p["attempt"] + 1, p["of"], why, now)
         out.append((jid, new, p["attempt"] + 1, p["of"], status, ""))
     return out

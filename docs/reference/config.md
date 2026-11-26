@@ -117,6 +117,12 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 |---|---|---|---|
 | `silent_hours` | `24` | int | a worker whose latest reading is older than this many hours is called silent (at most 312, a bit under the 14 days placements are remembered): no new job is placed on it, and a job sent to it that has no result by then is called lost (re-queued only if its class is repeatable) |
 
+## [audit]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `keep_days` | `90` | int | days the audit trail (ct-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour) |
+
 ## [offload]
 
 | Setting | Default | Allowed | What it does |
