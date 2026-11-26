@@ -169,7 +169,7 @@ class NoScriptBuildsNamesByHand(unittest.TestCase):
         self.assertEqual(bad, [], "build the name with e2e_machine / e2e_out_dir / e2e_logs_dir / e2e_cache_name (scripts/e2e-names.sh)")
 
     def test_every_script_that_makes_or_counts_machines_uses_the_shared_names_and_caps(self):
-        for name in ("e2e-routes", "e2e-orbstack", "e2e-base", "e2e-clean", "probe", "real-github-check"):
+        for name in ("e2e-routes", "e2e-orbstack", "e2e-base", "e2e-clean", "probe", "real-github-check", "real-github-addworker"):
             self.assertIn("e2e-names.sh", (ROOT / "scripts" / name).read_text(), name)
         for name in ("e2e-routes", "e2e-orbstack"):
             self.assertIn("e2e_cap_check", (ROOT / "scripts" / name).read_text(), name)
