@@ -25,7 +25,7 @@ worker reached by address (Direct) can have moved; a GitHub worker does not use 
 `ct-admin locate [--worker NAME]` reports the machine whose key matches, says which rung found it, and offers to save it: the new address replaces `server.host` (asks first; the old value stays in a comment),
 and this computer's copies of the queue and results are pointed at it. Several matches (a cloned machine shares its key) or none are reported as such, never guessed.
 
-Not done: stopping the scan itself at the first match (it still reads every address of a network before the keys are checked).
+The scan stops at the first match: each machine's key is read as it answers, and the first one that shows the recorded key ends the scan (addresses not yet probed are skipped). Consequence, decided 2026-11-25: a cloned machine that shares the key and sits later in the same scan is not seen, so `several` can only come from one rung's candidates, not from a scan; `locate` still asks before saving anything.
 
 ## Decision to make: should the worker also announce itself?
 

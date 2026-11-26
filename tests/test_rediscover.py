@@ -1,4 +1,5 @@
 """Finding a worker by its SSH host key, run over what the real tools print on every supported release (tests/fixtures/real/<release>/)."""
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -101,8 +102,8 @@ class TheLadder(unittest.TestCase):
             calls.append(ip)
             return shown.get(ip, set())
         scans = []
-        kw.setdefault("scan_real", lambda: scans.append("real") or ([discover.Device("192.0.2.50")], []))
-        kw.setdefault("scan_virtual", lambda: scans.append("virtual") or ([discover.Device("192.0.2.60")], []))
+        kw.setdefault("scan_real", lambda until=None: scans.append("real") or ([discover.Device("192.0.2.50")], []))
+        kw.setdefault("scan_virtual", lambda until=None: scans.append("virtual") or ([discover.Device("192.0.2.60")], []))
         r = rediscover.ladder("w.example", 22, "w", recorded=self.KEY, shown=read, mdns=kw.pop("mdns", lambda h: None), arp=kw.pop("arp", lambda: {}), **kw)
         return r, calls, scans
 
@@ -145,6 +146,18 @@ class TheLadder(unittest.TestCase):
     def test_the_virtual_networks_are_scanned_last_and_only_if_needed(self):
         (m, rung, _), calls, scans = self.run_ladder({"192.0.2.60": self.KEY})
         self.assertEqual((m.addresses, scans), (["192.0.2.60"], ["real", "virtual"]))
+
+    def test_the_scan_is_told_to_stop_at_the_machine_that_shows_the_recorded_key_and_no_key_is_read_twice(self):
+        reads = []
+
+        def scan(until):
+            devs = [discover.Device("192.0.2.40"), discover.Device("192.0.2.50")]
+            stopped_at = next(d.ip for d in devs if until(d))
+            return [d for d in devs if d.ip <= stopped_at], []
+        r = rediscover.ladder("w.example", 22, "w", tempfile.mkdtemp(), recorded=self.KEY, shown=lambda ip: reads.append(ip) or (self.KEY if ip == "192.0.2.50" else set()),
+                              mdns=lambda h: None, arp=lambda: {}, scan_real=scan, scan_virtual=lambda until: ([], []))
+        self.assertEqual((r[0].addresses, r[1]), (["192.0.2.50"], "a scan of your real networks"))
+        self.assertEqual(sorted(reads), ["192.0.2.40", "192.0.2.50", "w.example"])      # the configured address once, each scanned machine once
 
     def test_the_multicast_answer_is_read_from_avahi_or_dns_sd(self):
         self.assertEqual(rediscover.resolve_mdns(BOX, run=lambda argv, t=0: "box.lo" + "cal\t192.0.2.9\n"), "192.0.2.9")

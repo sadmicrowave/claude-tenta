@@ -115,9 +115,14 @@ def pending(cache, local_version, worker_release=None, behind=None):
     if not tag:
         return None
     newer = (version_tuple(tag) or (0, 0, 0)) > (version_tuple(local_version) or (0, 0, 0))
-    differs = bool(worker_release) and bool(cache.get("commit")) and not str(cache["commit"]).startswith(str(worker_release)[:7]) and not str(worker_release).startswith(str(cache["commit"])[:7])
-    worker = bool(differs and behind and behind(worker_release, cache["commit"]) is True)
-    return {"tag": tag, "this_computer": newer, "worker": worker} if (newer or worker) else None
+    each = list(worker_release) if isinstance(worker_release, (list, tuple)) else [(None, worker_release)]         # one release, or [(worker name, release)] for several workers
+
+    def is_out_of_date(rel):
+        differs = bool(rel) and bool(cache.get("commit")) and not str(cache["commit"]).startswith(str(rel)[:7]) and not str(rel).startswith(str(cache["commit"])[:7])
+        return bool(differs and behind and behind(rel, cache["commit"]) is True)
+    late = [n for n, rel in each if is_out_of_date(rel)]
+    worker = bool(late)
+    return {"tag": tag, "this_computer": newer, "worker": worker, "workers": late} if (newer or worker) else None
 
 
 def banner_text(info, local_version):
@@ -125,7 +130,7 @@ def banner_text(info, local_version):
     if info["this_computer"]:
         parts.append(f"this computer has {local_version}")
     if info["worker"]:
-        parts.append("the worker is on a different release")
+        parts.append(f"{len(info['workers'])} workers are on a different release" if len(info.get("workers") or ()) > 1 else "the worker is on a different release")
     return f"A newer release is available: {info['tag']} ({'; '.join(parts)}). See what changed and update: ct-admin update"
 
 

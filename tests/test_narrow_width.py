@@ -48,7 +48,18 @@ def _setup_rows():
                       r.note("registered", "worker task", "starts at boot as the worker account; started now")])
 
 
+def _update_cards(out):
+    """The two cards `ct-admin update` prints for several workers: the devices it would touch, and how each went."""
+    from contextlib import redirect_stdout
+    from ct.admin import cli as admin_cli
+    ws = [(LONG, mock.Mock(ssh=mock.Mock(host="192.0.2.50"))), ("tenta2", mock.Mock(ssh=mock.Mock(host="tenta2.lan"))), ("win1", mock.Mock(ssh=mock.Mock(host="192.0.2.77")))]
+    with redirect_stdout(out):
+        admin_cli.update_roster(None, ws, {"commit": "a" * 40}, "release-0.2.0", [("update", None), ("current", None), ("left", "windows")])
+        admin_cli.fleet_apply_summary([(LONG, "installed"), ("tenta2", "current"), ("win1", "left"), ("tenta3", "failed")], "a" * 40, verb="update")
+
+
 KINDS = {
+    "the update cards for several workers": _update_cards,
     "a short card": say("Ready", "It is done.", tag="DONE", color=ui.GREEN),
     "facts, why, steps and a command": say("A step of the Windows setup failed", ("Step", "tools"), ("Computer", "192.0.2.50"), cards.Why("The Python installer finished, but python.exe is not where it was expected"),
                                            tag="STOPPED", color=ui.RED, steps=["Run the same command again: it continues from where it stopped."], run="ct-setup add-worker 192.0.2.50"),

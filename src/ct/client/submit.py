@@ -3,6 +3,7 @@
 The size limits are not decided here: the worker publishes the limits it actually enforces in registry.json, and these functions use
 exactly those, so a job is never sent that the worker would refuse. (Until a worker publishes them, the conservative old defaults apply.)
 """
+import base64
 import fnmatch
 import hashlib
 import json
@@ -11,10 +12,12 @@ import re
 import secrets
 import subprocess
 import tempfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import guard, refusals
+from .. import jobs
 from ..jobs import file_name_problem
 from . import refuse
 from .repo import ClientError
@@ -270,7 +273,53 @@ def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
     return files
 
 
-BIG_SET_BYTES = 1_000_000_000                                                  # Direct has no size limit; above this the person is told once, before the job is sent
+BIG_SET_BYTES = 1_000_000_000                                                  # Direct has no size limit; above this the set is compressed (unless --no-compress), and the card says so
+CODEC = jobs.CODEC
+
+
+def compress_files(files):
+    """{'codec', 'size' (bytes once unpacked), 'data'}: the whole set as one text value that the worker can unpack (jobs.unpack_files). Done AFTER the secret scan, on what is going to be sent."""
+    z, size = zlib.compressobj(6), 0
+    out = []
+
+    def feed(text):
+        nonlocal size
+        raw = text.encode()
+        size += len(raw)
+        out.append(z.compress(raw))
+
+    # the same bytes as json.dumps(files), written one piece at a time so the whole set is never held a second and third time
+    feed("{")
+    for i, (name, text) in enumerate(files.items()):
+        feed(("" if i == 0 else ", ") + json.dumps(name) + ": " + json.dumps(text))
+    feed("}")
+    out.append(z.flush())
+    return {"codec": CODEC, "size": size, "data": base64.b64encode(b"".join(out)).decode()}
+
+
+class Pack:
+    """What happens to the files of a submit: `state` is "plain" (sent as they are), "compressed" (over BIG_SET_BYTES on Direct: `z` is the value to send, `before` and `after` the sizes) or "declined" (the person said --no-compress)."""
+
+    def __init__(self, state="plain", z=None, before=0, after=0):
+        self.state, self.z, self.before, self.after = state, z, before, after
+
+
+def plan_pack(kind, files, info, no_compress, example, worker="the worker"):
+    """Decide how a set is sent. Over BIG_SET_BYTES on Direct it is compressed unless the person asked not to; a worker that did not say it can unpack, or that would refuse the unpacked size, is refused HERE,
+    before anything is sent, with the command that sends the job again without compression."""
+    count, size = totals(files)
+    if kind != "direct" or size <= BIG_SET_BYTES:
+        return Pack()
+    if no_compress:
+        return Pack("declined", before=size)
+    can = (info or {}).get("compress")
+    if not isinstance(can, dict) or can.get("codec") != CODEC:
+        raise refuse.error("files.compress.worker_cannot", ("Files", plural(count, "file")), ("Size", size_text(size)), count=plural(count, "file"), size=size_text(size),
+                           threshold=size_text(BIG_SET_BYTES), worker=worker, example=example)
+    if size > float(can.get("max_unpacked_mb") or 0) * 1_000_000:
+        raise refuse.error("files.compress.over_worker_cap", ("Files", plural(count, "file")), ("Size", size_text(size)), count=plural(count, "file"), size=size_text(size),
+                           cap=can.get("max_unpacked_mb"), example=example)
+    return Pack("compressed", before=size)                    # the caller compresses (it shows progress) and fills in `z` and `after`
 
 
 def totals(files):

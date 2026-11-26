@@ -385,7 +385,7 @@ class HardeningTests(unittest.TestCase):
             self.assertTrue(m.title and m.why and m.risk, mid)
 
 
-class ServerTests(unittest.TestCase):
+class ServerTestsFixture(unittest.TestCase):
     def setUp(self):
         self.h = FakeHost()
         self.h.replies["id me"] = Result(0)
@@ -415,6 +415,8 @@ class ServerTests(unittest.TestCase):
                                   registry_installer=lambda cfg, src, **k: self.registry_calls.append(src) or "bootstrapped",
                                   **{"calibrator": lambda code_dir: {"hash": 0.5, "git": 0.25}, **kw})
 
+
+class ServerTests(ServerTestsFixture):
     def test_the_install_records_how_fast_the_computer_is_and_never_fails_because_of_it(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()
@@ -998,7 +1000,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ClaudeSignIn(ServerTests):
+class ClaudeSignIn(ServerTestsFixture):
     """The Claude step: nothing for `none`; the tool and the stored sign-in otherwise."""
 
     class Screen:

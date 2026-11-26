@@ -4,6 +4,8 @@ Ideas for future features, one per line, newest first. Each becomes its own smal
 
 In scope now: [Windows tools installer](design/WINDOWS-TOOLS-INSTALLER.md).
 
+- 2026-11-25 The installer's `apt-get install` fails at once when another apt job holds the package lock (a machine that has just booted runs unattended upgrades): add `-o DPkg::Lock::Timeout=300` to its apt calls (src/ct/packages.py), and cover it with a test of the command line. The e2e machines now wait for the lock themselves (`quiet_apt`), so this is only a gap for a real user on a freshly started machine, who today sees the lock message and runs the same command again.
+- 2026-11-25 After `ct-admin locate` saves a new address, this computer has the worker's key only under the OLD address, so an immediate second `locate` says "no recorded host key" until the person connects once. The key was just proved, so locate could record it for the new address itself (found by the `locate` e2e route; today the card names the one command to run).
 - 2026-11-20 The server half shows `ssh ctadmin@None` in its "real reason" hint (the server's own configuration has no host): print the address the person used.
 - 2026-11-20 The installer's SSH session from a computer to an OrbStack machine stalled for an hour after `ufw --force enable` (outbound deny for 192.168.0.0/16): give the session keep-alives and a visible timeout so a hang says what it is waiting for.
 - 2026-11-20 The test machines' cached image points github.com at a local stand-in (127.0.0.1): say so in the testing docs, since anything meant to reach real GitHub must remove it first.
@@ -56,3 +58,15 @@ Question from the user: can a worker or fleet reduce AI token use by taking work
 ## Auto-adoption conditions for the AI layer (decision 2026-11-23)
 - Auto-adoption installs a fitting class with the owner's key at a terminal, with loose defaults (any cost, packages allowed; only a heavy class is adopted as `approve`). When an AI agent can submit profile runs, add the tighter conditions: who or what triggered the run, per-source limits, a cap on classes adopted per day, a review step for anything an agent started.
 
+## Direct compress: the full memory fix, client and worker (explained to the user 2026-11-25; follows 4c)
+After 4c (streamed compression) a 1.1 GB set still costs about 1x its size on the client and about 2x on the worker. Two separate later tasks, independent of each other:
+- **Client, contents out of memory.** `collect_dir`, `totals`, the summary card and `plan_batches` keep paths and sizes, not contents; each file is read from disk twice (scan, then compress). Client peak falls from about 1x to tens of MB at any set size. Costs: double disk read; a file that changes between scan and send needs a rule (re-check size and mtime). Touches files the orchestrator slices edit: start after theme/orchestrator settles. No wire change.
+- **Worker, one file at a time.** Unpack now decompresses to the full bytes and `json.loads` makes a second copy (about 2x peak on small spare machines; safe because the cap counts memory, but it refuses sets a file-by-file unpack could take). Fix: tar inside zlib, a new codec name, so a wire-format change with the same compatibility rules as the first one (`compress` capability in registry.json; client refuses or falls back for a worker without it; every worker updated again). Choose which first by which side runs out of memory in practice.
+
+## After `ct-admin update` for every worker (feat/update-all-workers, 2026-11-25)
+- **Update an installed Windows worker.** The Windows release line (`release-win-X.Y.Z`) and its fetch exist (`winrelease.fetch`, `wintask.stop/start`), but `apply` and `update` leave a Windows worker alone. Build: look up the latest Windows tag once, fetch and swap on each Windows worker, restart its task, ask per worker, count it in the roster, summary and banner. Test on the Windows 11 VM.
+- The same "devices it would touch" roster card for `ct-admin apply` with several workers.
+- Canary option: update one worker first and stop the rest if it fails.
+- After this computer is updated, the rest of the run still uses the old code that was loaded; a re-exec would give workers the new `apply` logic.
+- Updating workers in parallel (the per-worker sudo prompts make it unsuitable for now); rolling back every worker after a failed fleet update (`verify` offers a per-worker rollback).
+- 2026-11-25 (chore/e2e-unique-names): two full `scripts/e2e-routes` runs at once (14 machines) made the `install` route's first job time out at 240 s in both (alone: 37 of 37 in 85 s). The global cap of 12 is checked only when a run starts. Decide: re-check the cap per clone, or raise the job timeout when the Mac is loaded, or document "one full run at a time, or `e2e-routes` with a route list for the second".

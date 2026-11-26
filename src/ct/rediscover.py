@@ -150,10 +150,18 @@ def resolve_mdns(name, run=None):
 
 def ladder(host, port, name, home, *, recorded=None, shown=None, mdns=None, arp=None, scan_real=None, scan_virtual=None, full=True, progress=None):
     """Find the worker by the cheapest proof first. Rungs: the configured address, the last address that worked, the name's multicast answer, the neighbour table entry for the same network
-    card, then (only when `full`) a scan of the real networks and, last, the virtual ones. Returns (Match, rung, devices-seen). Stops at the first rung whose candidates show the recorded key;
+    card, then (only when `full`) a scan of the real networks and, last, the virtual ones. A scan is called as `scan(until)` and ends at the first machine for which `until(device)` is true. Returns (Match, rung, devices-seen). Stops at the first rung whose candidates show the recorded key;
     a rung that finds only other machines is not a failure, the next one runs."""
     rec = recorded if recorded is not None else recorded_keys(host, port)
-    read = shown or (lambda ip: shown_keys(ip, port))
+    raw, keys = shown or (lambda ip: shown_keys(ip, port)), {}
+
+    def read(ip):                                   # each machine's key is read once, whether the scan or the check asks first
+        if ip not in keys:
+            keys[ip] = raw(ip)
+        return keys[ip]
+
+    def is_it(device):                              # a scan stops here: the first machine that shows the recorded key
+        return bool(rec & read(device.ip))
     seen = []
 
     tried = set()
@@ -182,7 +190,7 @@ def ladder(host, port, name, home, *, recorded=None, shown=None, mdns=None, arp=
         for rung, scan in (("a scan of your real networks", scan_real), ("a scan of the virtual networks inside this computer", scan_virtual)):
             if scan is None:
                 continue
-            devices, _ = scan()
+            devices, _ = scan(is_it)
             seen += devices
             m = check([d.ip for d in devices], rung)
             if m:

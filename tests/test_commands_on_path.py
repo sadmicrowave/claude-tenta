@@ -8,7 +8,7 @@ from ct.setup.client import COMMANDS, ClientSetup
 from ct.setup.host import Host
 
 
-class OnPath(unittest.TestCase):
+class OnPathFixture(unittest.TestCase):
     """The ct-* commands must work from any new terminal without typing where they live."""
 
     def setUp(self):
@@ -31,6 +31,8 @@ class OnPath(unittest.TestCase):
     def links(self):
         return {c: os.path.realpath(self.home / ".local" / "bin" / c) for c in COMMANDS if os.path.lexists(self.home / ".local" / "bin" / c)}
 
+
+class OnPath(OnPathFixture):
     def test_the_commands_are_linked_into_the_users_local_bin_and_a_second_run_changes_nothing(self):
         s = self.setup_obj(path=f"{self.home}/.local/bin:/usr/bin")
         s.commands_on_path()
@@ -108,7 +110,7 @@ class OnPath(unittest.TestCase):
         self.assertEqual([r for r in s.report if r[0] == "commands on your PATH"][-1][1], "skipped")
 
 
-class ApprovalKey(OnPath):
+class ApprovalKey(OnPathFixture):
     """The key that signs approvals on this computer."""
 
     def make(self, **kw):

@@ -27,7 +27,7 @@ from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from ..setup import tui
-from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workers
+from . import actionadd, jobs, regedit, release, selfupdate, watch as watch_mod, workerrepos, workers
 from .proposals import Proposals
 from .ssh import Ssh
 from ..words import plural
@@ -406,15 +406,42 @@ def cmd_clean(ctx, a):
     return 0
 
 
-def cmd_update(ctx, a):
-    """Is there a newer release? Show what changed, then (only if you say yes) update this computer and, separately, the worker."""
+def _latest_release(ctx):
+    """(entry, tag): the newest release, asked once. tag is None when the source has none yet."""
     entry = updatecheck.check_now(ctx.source.url)
     if "error" in entry:
         raise refuse.error("update.check_failed", steps=[f"Is {ctx.source.url} reachable? Try: git ls-remote --tags {ctx.source.url}"], reason=entry["error"])
-    old = updatecheck.load(ctx.home)
-    updatecheck.save(ctx.home, {**old, **entry})
+    updatecheck.save(ctx.home, {**updatecheck.load(ctx.home), **entry})
+    return entry, entry.get("tag")
+
+
+def _show_release_notes(ctx, tag):
+    try:
+        ctx.source.update()
+        notes = ctx.source.git("tag", "-l", "--format=%(contents)", tag, check=False).stdout.strip()
+        if notes:
+            _ui.document("What changed", "\n".join(notes.splitlines()[:15]), tag="NOTES", stream=sys.stdout)
+    except ClientError:
+        pass                                                          # the notes are a courtesy; the update does not depend on them
+
+
+def _update_this_computer(ctx, a, tag):
+    if ctx.confirm(f"Update this computer to {tag}?", a.yes):
+        root = selfupdate.checkout_root()
+        if root:
+            new = selfupdate.update_checkout(root, ctx.source.url, tag)
+            emit("This computer is updated", f"{root} is now at {new[:9]}.", tag="DONE", color=GREEN)
+        else:
+            selfupdate.update_package(ctx.source.url, tag)
+            emit("This computer is updated", f"Installed {tag} with pip.", tag="DONE", color=GREEN)
+    else:
+        emit("Left as it is", "Nothing on this computer was changed.", tag="NOTE", color=YELLOW)
+
+
+def cmd_update(ctx, a):
+    """Is there a newer release? Show what changed, then (only if you say yes) update this computer and, separately, the worker."""
+    entry, tag = _latest_release(ctx)
     state = workers.read_state(ctx.repos.results) or {}
-    tag = entry.get("tag")
     if not tag:
         emit("No releases yet", f"{ctx.source.url} has no release-X.Y.Z tag.", tag="NOTE", color=YELLOW)
         return 0
@@ -423,31 +450,64 @@ def cmd_update(ctx, a):
         emit("Up to date", f"This computer is on {__version__} and the latest release is {tag}.", tag="OK", color=GREEN)
         return 0
     emit("A new release is available", ("Latest release", f"{tag} ({entry['commit'][:9]})"), ("This computer", __version__), ("The worker", (state.get("release") or "unknown")[:9]), tag="UPDATE", color=CYAN)
-    try:
-        ctx.source.update()
-        notes = ctx.source.git("tag", "-l", "--format=%(contents)", tag, check=False).stdout.strip()
-        if notes:
-            _ui.document("What changed", "\n".join(notes.splitlines()[:15]), tag="NOTES", stream=sys.stdout)
-    except ClientError:
-        pass                                                          # the notes are a courtesy; the update does not depend on them
+    _show_release_notes(ctx, tag)
     if a.check:
         return 0
     if info["this_computer"]:
-        if ctx.confirm(f"Update this computer to {tag}?", a.yes):
-            root = selfupdate.checkout_root()
-            if root:
-                new = selfupdate.update_checkout(root, ctx.source.url, tag)
-                emit("This computer is updated", f"{root} is now at {new[:9]}.", tag="DONE", color=GREEN)
-            else:
-                selfupdate.update_package(ctx.source.url, tag)
-                emit("This computer is updated", f"Installed {tag} with pip.", tag="DONE", color=GREEN)
-        else:
-            emit("Left as it is", "Nothing on this computer was changed.", tag="NOTE", color=YELLOW)
+        _update_this_computer(ctx, a, tag)
     if info["worker"]:
         if ctx.confirm(f"Install {tag} on {ctx.ssh.host} now? (this logs in to it and asks for its sudo password)", a.yes):
             return apply(ctx, argparse.Namespace(rev=entry["commit"], yes=a.yes, force=False, no_verify=False, full=False))
         emit("The worker was not touched", "To do it later:", tag="NOTE", color=YELLOW, run="ct-admin apply")
     return 0
+
+
+def update_plan(c, entry, home):
+    """What `update` would do to one worker: "left" (it runs another platform), "current" (provably at or ahead of the release) or "update" (behind, or its release is not known: apply decides over SSH)."""
+    state = workers.read_state(c.repos.results) or {}
+    if state.get("platform") and state["platform"] != release.PLATFORM:
+        return "left", state["platform"]
+    rel = state.get("release")
+    if not rel:
+        return "update", None
+    behind = updatecheck.pending(entry, "999.0.0", rel, behind=lambda w, t: updatecheck.is_behind(home, w, t) is not False)      # as `update` always asked: behind or not known is offered, only provably ahead is not. This computer's own version is not what is asked here: only whether THIS worker is behind
+    return ("update" if behind and behind["worker"] else "current"), rel
+
+
+def update_roster(ctx, targets, entry, tag, plans):
+    """The devices an update would touch, said before anything is installed or asked."""
+    local = updatecheck.pending(entry, __version__)
+    by = {}
+    for (name, c), (what, extra) in zip(targets, plans):
+        by.setdefault(what, []).append(f"{alias.show(name)} ({c.ssh.host}{', runs ' + extra if what == 'left' else ''})")
+    rows = [("This computer", f"{__version__} to {tag}" if local else f"{__version__}, already current")]
+    rows += [(label, ", ".join(by[key])) for key, label in (("update", "To update"), ("current", "Already current"), ("left", "Left alone")) if key in by]
+    emit(f"The update would touch {plural(len(targets) + 1, 'device')}", *rows, ("Release", f"{tag} ({entry['commit'][:9]})"), tag="ROSTER", color=CYAN, stream=sys.stdout)
+
+
+def cmd_update_fleet(ctx, targets, a):
+    """`update` with several workers: the release is looked up once, what changed is shown once, this computer is updated once, then each worker is updated in turn like `apply` does, and one card says how each went."""
+    entry, tag = _latest_release(ctx)
+    if not tag:
+        emit("No releases yet", f"{ctx.source.url} has no release-X.Y.Z tag.", tag="NOTE", color=YELLOW)
+        return 0
+    plans = [update_plan(c, entry, ctx.home) for _, c in targets]
+    local = updatecheck.pending(entry, __version__)
+    if not local and all(w == "current" for w, _ in plans):
+        emit("Up to date", f"This computer is on {__version__}, every worker is at {tag}.", tag="OK", color=GREEN)
+        return 0
+    emit("A new release is available", ("Latest release", f"{tag} ({entry['commit'][:9]})"), ("This computer", __version__), tag="UPDATE", color=CYAN)
+    _show_release_notes(ctx, tag)
+    update_roster(ctx, targets, entry, tag, plans)
+    if a.check:
+        return 0
+    if local:
+        _update_this_computer(ctx, a, tag)
+    todo = [t for t, (w, _) in zip(targets, plans) if w != "current"]
+    sub = argparse.Namespace(rev=entry["commit"], yes=a.yes, force=False, no_verify=False, full=False, outcomes=[(n, "current") for (n, _), (w, _) in zip(targets, plans) if w == "current"], worker=None, cmd="apply")
+    rc = run_fleet(ctx, "apply", todo, sub, label="update") if todo else 0
+    fleet_apply_summary(sub.outcomes, entry["commit"], verb="update")
+    return rc
 
 
 def cmd_locate(ctx, a):
@@ -462,7 +522,7 @@ def cmd_locate(ctx, a):
     nets = discover.local_networks()
     real, virtual = [(i, n) for i, n in nets if not discover.is_virtual(i)], [(i, n) for i, n in nets if discover.is_virtual(i)]
     emit("Looking for the worker", f"Checking where {name} was, then the quicker places, then your networks. Each step stops as soon as a computer shows the key this computer recorded for the worker.", tag="SCAN", color=_ui.PRIMARY, stream=sys.stdout)
-    m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda: discover.scan(real) if real else ([], []), scan_virtual=lambda: discover.scan(virtual) if virtual else ([], []))
+    m, rung, devices = rediscover.ladder(host, port, name, ctx.home, recorded=recorded, scan_real=lambda until: discover.scan(real, until=until) if real else ([], []), scan_virtual=lambda until: discover.scan(virtual, until=until) if virtual else ([], []))
     if m.kind == "one" and rung == "the configured address":
         rediscover.remember(ctx.home, name, host, port)
         emit("A worker is where its configuration says", ("Worker", alias.show(name)), ("Address", host), "Its SSH host key is the one this computer recorded.", tag="OK", color=GREEN, stream=sys.stdout)
@@ -628,6 +688,21 @@ def workers_use(ctx, a):
     return rc
 
 
+def repos_choice(ctx, a, mine):
+    """keep | archive | delete for a removed worker's repositories. Never silent: --repos says it, a person at a terminal is asked (default keep, delete asks twice), anything else keeps."""
+    if not mine:
+        return "keep"
+    how = getattr(a, "repos", None)
+    if not how:
+        if not ctx.is_tty():
+            return "keep"
+        emit("Its repositories on GitHub", *[("Repository", s) for _, s in mine], "Archive keeps them read-only; delete removes them and their deploy keys for good.", tag="ASK", color=YELLOW)
+        how = {"a": "archive", "d": "delete"}.get(ctx.ask("Keep, archive or delete them? [k/a/d, default keep] ").strip().lower()[:1], "keep")
+    if how == "delete" and not ctx.confirm("Delete " + " and ".join(s for _, s in mine) + " for good (no undo)?", getattr(a, "yes", False)):
+        return "keep"
+    return how
+
+
 def cmd_workers(ctx, a):
     """List and compare the workers this computer administers, from what each one published (no login to any of them)."""
     action = a.action or "list"
@@ -638,19 +713,38 @@ def cmd_workers(ctx, a):
         try:
             workers.add(wfile, a.name, a.config)
         except ValueError as e:
+            if getattr(e, "code", "") == "worker.repo.shared":                 # its own card, with the way out
+                raise refuse.error("worker.repo.shared", ("Worker", alias.show(a.name)), **e.facts)
             raise refuse.error("worker.add.failed", reason=str(e))
-        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
+        prepared = []
+        if getattr(a, "github", False):
+            try:
+                prepared = workerrepos.prepare(config.load(Path(a.config).expanduser(), env={"CT_CONFIG": ""}), Path(a.config).expanduser(), wfile)
+            except Exception as e:                                                   # listed already; the repositories step is said, and runs again with the same command
+                if getattr(e, "code", "") == "worker.repo.shared":
+                    raise refuse.error("worker.repo.shared", ("Worker", alias.show(a.name)), **e.facts)
+                raise refuse.error("worker.add.failed", reason=str(e))
+        emit("Worker added", ("Worker", alias.show(a.name)), ("Listed in", str(wfile)), *[("Queue", f"{w} ({s})") for r, w, s in prepared if r == "queue"], *[("Results", f"{w} ({s})") for r, w, s in prepared if r == "results"], *([("Clones", str(Path(prepared[-1][1]).parent))] if prepared and prepared[-1][0] == "clone" else []),
+             *(["Its machine's deploy keys are added by ct-setup add-worker (or install), which also sets the machine up."] if prepared else []), tag="DONE", color=GREEN, run_label="Compare them", run="ct-admin workers")
         return 0
     if action == "remove":
-        if not a.name or not workers.remove(wfile, a.name):
+        listed_at = workers.load_list(wfile).get(a.name)
+        mine = workerrepos.removable(a.name, listed_at, wfile) if listed_at else []
+        if not a.name or a.name not in workers.load_list(wfile):
             raise refuse.error("worker.unlisted", ("Name", a.name), example="ct-admin workers")
-        emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.", tag="DONE", color=GREEN)
+        how = repos_choice(ctx, a, mine)                                           # asked BEFORE the worker is taken off the list: a refusal here changes nothing
+        workers.remove(wfile, a.name)
+        results = workerrepos.retire([s for _, s in mine], how) if how != "keep" else []
+        emit("Worker removed", ("Worker", alias.show(a.name)), "Its install on its own machine was not touched.",
+             *[("Repository", f"{s}: {how}d" if ok else f"{s}: could not {how} ({said[:160]})") for s, ok, said in results],
+             *[("Repository", f"{s}: kept (private, still yours)") for _, s in mine if how == "keep"],
+             tag="DONE", color=GREEN)
         return 0
     if action == "use":
         return workers_use(ctx, a)
     if action == "rename":
         return workers_rename(ctx, a)
-    rows, problems, regs = [], [], {}
+    rows, problems, regs, shared = [], [], {}, []
     for name, repos in ctx.fleet():
         try:
             if not a.no_refresh:
@@ -659,6 +753,13 @@ def cmd_workers(ctx, a):
             problems.append(f"{name}: could not refresh ({str(e).strip()[:80]})")
         rows.append((name, workers.read_state(repos.results)))
         regs[name] = repos.registry_info()
+    for name, path in workers.load_list(wfile).items():                                    # a hand-edited list can still name one repository twice: said, never ignored
+        try:
+            hit = workers.repo_conflict(config.load(path, env={"CT_CONFIG": ""}), path, wfile)
+        except Exception:
+            hit = None
+        if hit:
+            shared.append((name, hit))
     cells = [workers.row_for(n, d) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
@@ -677,6 +778,9 @@ def cmd_workers(ctx, a):
     import shutil
     from .. import ui as ui_mod
     _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
+    if shared:
+        emit("Two workers share a repository", *[("Worker", alias.show(n)) for n, _ in shared], *[("Shared", f"{h[0]} with {h[1]}") for _, h in shared],
+             "Each worker needs its own private repositories: give one of them new names (github.queue_repo and github.results_repo in its configuration), then set it up again.", tag="WARNING", color=RED)
     if problems:
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
@@ -1201,16 +1305,16 @@ def cmd_diff(ctx, a):
     return 0
 
 
-def fleet_apply_summary(outcomes, rev):
+def fleet_apply_summary(outcomes, rev, verb="apply"):
     """One card after `apply` has visited several workers: who was already current, who was updated, who was left alone and why."""
     by = {}
     for name, what in outcomes:
         by.setdefault(what, []).append(name)
-    rows = [(label, ", ".join(alias.show(n) for n in by[key])) for key, label in (("installed", "Updated"), ("current", "Already current"), ("left", "Left alone"), ("failed", "Not installed (failed or declined)")) if key in by]
+    rows = [(label, ", ".join(alias.show(n) for n in by[key])) for key, label in (("installed", "Updated"), ("current", "Already current"), ("left", "Left alone"), ("failed", "Failed or declined")) if key in by]
     bad = "failed" in by or "left" in by
-    emit(f"apply finished: {plural(len(outcomes), 'worker')}", *rows, ("Release", release.short(rev) if rev else "?"),
-         *(["A worker left alone runs a commit the release source does not have (see above): nothing was replaced."] if "left" in by else []),
-         tag="APPLY", color=YELLOW if bad else GREEN, stream=sys.stdout)
+    emit(f"{verb} finished: {plural(len(outcomes), 'worker')}", *rows, ("Release", release.short(rev) if rev else "?"),
+         *(["A worker left alone was not changed: the card above says why (another platform, or a commit the release source does not have)."] if "left" in by else []),
+         tag=verb.upper(), color=YELLOW if bad else GREEN, stream=sys.stdout)
 
 
 def apply(ctx, a):
@@ -1219,7 +1323,7 @@ def apply(ctx, a):
     if theirs and theirs != release.PLATFORM:                                                   # this release installs on Linux; another platform has its own release line
         emit("This release is not for that worker", ("Worker", alias.show(ctx.name)), ("It runs", theirs), ("This release is for", release.PLATFORM),
              "Nothing was changed. A worker on another platform is brought up to date with the release line made for it.", tag="NOT CHANGED", color=YELLOW,
-             steps=["The Windows release is not available yet (docs/design/WINDOWS-SPECIAL-USE.md)."] if theirs == "windows" else None, steps_label="What to do")
+             steps=["Updating a Windows worker that is already installed is not built yet (docs/design/WINDOWS-SPECIAL-USE.md); its own release line exists."] if theirs == "windows" else None, steps_label="What to do")
         if outcomes is not None:
             outcomes.append((ctx.name, "left"))
         return 1
@@ -1327,7 +1431,7 @@ HELP = {
     "action-hash": ("print the SHA-256 to pin for a root-level action's program, and check it could be one", [("Hash a program on the worker", "ct-admin action-hash /usr/local/sbin/fan-profile")]),
     "proposals": ("list, merge or tidy the changes waiting on branches", [("See what is waiting", "ct-admin proposals"), ("Merge one", "ct-admin proposals merge registry/ssh-version"), ("Merge them all", "ct-admin proposals merge --all"), ("Delete merged branches", "ct-admin proposals tidy"), ("Sign the registry on main so the worker installs it", "ct-admin proposals publish")]),
     "clean": ("remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox)", [("Show what can go and ask", "ct-admin clean")]),
-    "update": ("is there a newer release? show what changed, then update this computer and the worker if you agree", [("Look and ask", "ct-admin update"), ("Only say whether there is one", "ct-admin update --check")]),
+    "update": ("is there a newer release? show what changed, then update this computer and every worker if you agree (each asks its own question)", [("Look and ask", "ct-admin update"), ("Only say whether there is one", "ct-admin update --check")]),
     "diff": ("show what installing a version would change", [("Compare the installed version with the latest, on every worker", "ct-admin diff"), ("One worker only", "ct-admin diff --worker tenta2"), ("All the code, not only root-run files", "ct-admin diff --full")]),
     "apply": ("install a version on the worker, check it, offer to roll back", [("Install the latest on every worker, one after the other (each asks first)", "ct-admin apply"), ("Install on one worker only", "ct-admin apply --worker tenta2"), ("Install one commit", "ct-admin apply 1a2b3c4d"), ("Install again even if nothing differs", "ct-admin apply --force")]),
 }
@@ -1381,6 +1485,9 @@ def build_parser():
     s.add_argument("name", nargs="?", help="with add or remove: the worker's name")
     s.add_argument("new", nargs="?", help="with rename: the new name (an alias, kept on this computer only)")
     s.add_argument("--config", help="with add: the worker's configuration file")
+    s.add_argument("--github", action="store_true", help="with add: also create the worker's two private repositories on GitHub (with gh) and clone them")
+    s.add_argument("--repos", choices=["keep", "archive", "delete"], help="with remove: what to do with the worker's two repositories on GitHub (asked at a terminal; default keep)")
+    yes(s)
     s.add_argument("--mask", action="store_true", help="with rename: show only aliases, never the real names")
     s.add_argument("--show-real", action="store_true", help="with rename: show an alias with the real name beside it (the default)")
     s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")
@@ -1433,8 +1540,36 @@ def build_parser():
     return ap, sp
 
 
-FLEET_COMMANDS = ("apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
-PICK_COMMANDS = ("update", "clean", "adopt", "retire", "class", "action", "proposals")      # one worker: the main one, or the one named with --worker
+FLEET_COMMANDS = ("update", "apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
+PICK_COMMANDS = ("clean", "adopt", "retire", "class", "action", "proposals")      # one worker: the main one, or the one named with --worker
+
+
+def worker_releases(ctx):
+    """[(worker name, the release it runs)] for every Linux worker, for the banner: it counts them all, not only the main one."""
+    try:
+        got = [(n, workers.read_state(c.repos.results) or {}) for n, c in ctx.targets()]
+    except Exception:                                                 # the banner is a courtesy: fall back to the main worker alone
+        got = [(ctx.name, workers.read_state(ctx.repos.results) or {})]
+    return [(n, st.get("release")) for n, st in got if not st.get("platform") or st["platform"] == release.PLATFORM]
+
+
+def run_fleet(ctx, cmd, targets, a, label=None):
+    """Visit each worker in turn with a heading; one that fails or is declined does not stop the rest. Returns the worst exit code."""
+    rc = 0
+    verb = label or cmd
+    for name, c in targets:
+        _ui.show([cards.rule(f"{verb}: {alias.show(name)}", "WORKER", _ui.PRIMARY)], stream=sys.stdout)          # one line, not an empty frame
+        try:
+            r = DISPATCH[cmd](c, a)
+        except ClientError as e:
+            fail_from(e)
+            r = 2
+        except SystemExit as e:                               # a declined question or a stop() on one worker: carry on with the next
+            r = e.code if isinstance(e.code, int) else 1
+        if getattr(a, "outcomes", None) is not None and not any(n == name for n, _ in a.outcomes):
+            a.outcomes.append((name, "failed" if r else "current"))        # raised or declined before it could say what it did
+        rc = max(rc, r or 0)
+    return rc
 
 
 def run_command(ctx, a):
@@ -1442,6 +1577,13 @@ def run_command(ctx, a):
     `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
     if a.cmd in FLEET_COMMANDS:
         targets = ctx.targets(getattr(a, "worker", None))
+        if a.cmd == "update":                                             # one worker: as it always was; several: the release is looked up and shown once, then each worker in turn
+            if len(targets) == 1:
+                return DISPATCH["update"](targets[0][1], a)
+            with _ui.collecting_related() as footer:
+                rc = cmd_update_fleet(ctx, targets, a)
+            footer.flush()
+            return rc
         if a.cmd == "apply" and len(targets) > 1 and not getattr(a, "rev", None):
             a = copy.copy(a)                                              # ONE release for the whole fleet, decided once (each worker keeps its own copy of the release source, fetched at its own time)
             a.rev = ctx.source.resolve(None)
@@ -1450,20 +1592,8 @@ def run_command(ctx, a):
             a.outcomes = []                                               # what happened to each worker, said once at the end: a worker that is already current needs no card of its own
         if len(targets) == 1:
             return DISPATCH[a.cmd](targets[0][1], a)
-        rc = 0
         with _ui.collecting_related() as footer:                      # what to do next is the same for every worker: said once, after the last one
-            for name, c in targets:
-                _ui.show([cards.rule(f"{a.cmd}: {alias.show(name)}", "WORKER", _ui.PRIMARY)], stream=sys.stdout)          # one line, not an empty frame
-                try:
-                    r = DISPATCH[a.cmd](c, a)
-                except ClientError as e:
-                    fail_from(e)
-                    r = 2
-                except SystemExit as e:                               # a declined question or a stop() on one worker: carry on with the next
-                    r = e.code if isinstance(e.code, int) else 1
-                if getattr(a, "outcomes", None) is not None and not any(n == name for n, _ in a.outcomes):
-                    a.outcomes.append((name, "failed" if r else "current"))        # raised or declined before it could say what it did
-                rc = max(rc, r or 0)
+            rc = run_fleet(ctx, a.cmd, targets, a)
         if a.cmd == "apply" and getattr(a, "outcomes", None):
             fleet_apply_summary(a.outcomes, a.rev)
         if a.cmd in ("status", "check"):                              # the pulse: who runs what, once, with the fix
@@ -1517,7 +1647,7 @@ def main(argv=None, ctx=None, cfg=None):
             except Exception:
                 pass
         if real and a.cmd != "update" and not getattr(a, "json", False):
-            updatecheck.after_command(cfg.updates, ctx.home, __version__, (workers.read_state(ctx.repos.results) or {}).get("release"))
+            updatecheck.after_command(cfg.updates, ctx.home, __version__, worker_releases(ctx))
         return rc
     except ClientError as e:
         return fail_from(e)

@@ -3,27 +3,35 @@
 # accounts, the keys, the GitHub stand-in, and the packages the installer itself installs), so a run never waits on apt again. Routes are cloned from it (copy-on-write: no extra disk to speak of).
 #   scripts/e2e-base [image]        reuse it when it is current, build it when missing or out of date (image default $CT_E2E_IMAGE or ubuntu:26.04)
 #   scripts/e2e-base --rebuild [image]
+# It is SHARED by every run id (one build per release, not one per session): the build and every clone from it go through one lock (scripts/e2e-names.sh), a run that finds it busy waits and says so.
 # It is a cache, not a test machine: stopped between runs, kept by scripts/e2e-clean unless told --all, and rebuilt when tests/e2e/lib.sh or this script changes.
 # A cache cannot prove that the installer can install its own packages: scripts/probe release does that per release, and `scripts/e2e-orbstack` starts from a bare machine for the cold run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. scripts/e2e-names.sh
 "${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 REBUILD=0; [ "${1:-}" = "--rebuild" ] && { REBUILD=1; shift; }
 IMAGE=${1:-${CT_E2E_IMAGE:-ubuntu:26.04}}
-TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG
+TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=$(e2e_cache_name "$TAG")
 HASH=$(cat tests/e2e/lib.sh scripts/e2e-base | shasum | cut -c1-12)
+HASHFILE=$(e2e_cache_hashfile "$TAG")      # the current hash is also kept here, so asking "is it current?" never starts or stops the shared machine under a run that is cloning it
 exists() { orb list 2>/dev/null | awk '{print $1}' | grep -qx "$1"; }
-if exists "$CACHE" && [ "$REBUILD" = 0 ]; then
-  have=$(orb -m "$CACHE" -u root cat /etc/ct-cache-hash 2>/dev/null || true)
+build() {      # runs holding the cache lock: another run that wants the cache waits (and says so), then finds it current
+  if exists "$CACHE" && [ "$REBUILD" = 0 ]; then
+    have=$(cat "$HASHFILE" 2>/dev/null || true)
+    [ -n "$have" ] || { have=$(orb -m "$CACHE" -u root cat /etc/ct-cache-hash 2>/dev/null || true); orbctl stop "$CACHE" >/dev/null 2>&1 || true; }       # a cache built before the hash file existed
+    [ "$have" = "$HASH" ] && { echo "$HASH" > "$HASHFILE"; echo "cache $CACHE is current"; return 0; }
+    echo "cache $CACHE is out of date: rebuilding"
+  fi
+  exists "$CACHE" && orb delete -f "$CACHE" >/dev/null 2>&1 || true
+  echo "building $CACHE from $IMAGE"
+  orb create "$IMAGE" "$CACHE" >/dev/null
+  tar -cf - -C tests/e2e lib.sh | COPYFILE_DISABLE=1 orb -m "$CACHE" -u root bash -c 'mkdir -p /opt/ct-e2e && tar -xf - -C /opt/ct-e2e'
+  orb -m "$CACHE" -u root env WARM=1 bash -c '. /opt/ct-e2e/lib.sh; prepare_system' 2>&1 | sed "/^tar:/d" | tail -5
+  echo "$HASH" | orb -m "$CACHE" -u root tee /etc/ct-cache-hash >/dev/null
   orbctl stop "$CACHE" >/dev/null 2>&1 || true
-  [ "$have" = "$HASH" ] && { echo "cache $CACHE is current"; exit 0; }
-  echo "cache $CACHE is out of date: rebuilding"
-fi
-exists "$CACHE" && orb delete -f "$CACHE" >/dev/null 2>&1 || true
-echo "building $CACHE from $IMAGE"
-orb create "$IMAGE" "$CACHE" >/dev/null
-tar -cf - -C tests/e2e lib.sh | COPYFILE_DISABLE=1 orb -m "$CACHE" -u root bash -c 'mkdir -p /opt/ct-e2e && tar -xf - -C /opt/ct-e2e'
-orb -m "$CACHE" -u root env WARM=1 bash -c '. /opt/ct-e2e/lib.sh; prepare_system' 2>&1 | sed "/^tar:/d" | tail -5
-echo "$HASH" | orb -m "$CACHE" -u root tee /etc/ct-cache-hash >/dev/null
-orbctl stop "$CACHE" >/dev/null 2>&1 || true
-echo "cache $CACHE built"
+  echo "$HASH" > "$HASHFILE"
+  echo "cache $CACHE built"
+}
+mkdir -p "$(dirname "$HASHFILE")"
+e2e_locked "cache-$TAG" build

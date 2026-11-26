@@ -1,26 +1,27 @@
 #!/bin/bash
 # Run the end-to-end ROUTES (tests/e2e/routes/*.sh) in parallel, each in its own machine cloned from the cached base machine, and print one line per route. Each machine is deleted when its
-# route ends; the logs are kept in /tmp/ct-e2e-logs/<machine>/.
+# route ends; the logs are kept in /tmp/ct-e2e-logs/<run id>/<machine>/ (the run id is printed first; see scripts/e2e-names.sh).
 #   scripts/e2e-routes                      every route, on $CT_E2E_IMAGE (default ubuntu:26.04)
 #   scripts/e2e-routes rename move          only these
 #   scripts/e2e-routes --image debian:trixie [routes]
-# Routes: install rename uninstall move switch direct. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
+# Routes: install rename uninstall move switch direct locate. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
 # Needs OrbStack. Exit status is the number of routes that failed. Use it to CONFIRM what the unit tests and probes already proved (see docs/components/testing.md).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+. scripts/e2e-names.sh; e2e_banner
 "${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
 IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}
 [ "${1:-}" = "--image" ] && { IMAGE=$2; shift 2; }
-ROUTES=${*:-"install rename uninstall move switch direct"}
-TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=ct-cache-$TAG
-OUT=/tmp/ct-routes/$TAG; mkdir -p "$OUT"
-n=$(orb list 2>/dev/null | awk '{print $1}' | grep -cE '^(ct-e2e|ct-mx|ct-u|ct-run|cw-e2e)' || true)
-[ "$n" -ge 4 ] && { echo "There are already $n test machines. Run scripts/e2e-clean first." >&2; exit 3; }
+ROUTES=${*:-"install rename uninstall move switch direct locate"}
+TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=$(e2e_cache_name "$TAG")
+OUT=$(e2e_out_dir "$TAG"); mkdir -p "$OUT"
+e2e_cap_check 4 || exit 3
 scripts/e2e-base "$IMAGE" >/dev/null || { echo "could not prepare the cached base machine" >&2; exit 2; }
 one() {  # one route: clone (from the cache, or from the shared baseline), copy the checkout in unless it is already there, run, save the logs, delete
-  local route=$1 FROM=${2:-$CACHE} M=ct-run-$TAG-$1 logs=/tmp/ct-e2e-logs/ct-run-$TAG-$1 script=${3:-$1}
+  local route=$1 FROM=${2:-$CACHE} M=$(e2e_machine run "$TAG-$1") logs=$(e2e_logs_dir "$(e2e_machine run "$TAG-$1")") script=${3:-$1}
   orb delete -f "$M" >/dev/null 2>&1 || true
-  orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }
+  if [ "$FROM" = "$CACHE" ]; then e2e_locked "cache-$TAG" orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }      # the cache is shared: no run rebuilds it while another clones from it
+  else orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }; fi
   [ "$FROM" = "$CACHE" ] && { git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"; } || true
   [ "$route" = upgrade ] && git archive "${E2E_FROM_REV:-f4c9ae706}" | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-old && mkdir -p /opt/ct-old && tar -xf - -C /opt/ct-old'       # the OLDER release the upgrade route installs first
   local sub=routes/$script.sh; [ "$script" = baseline ] && sub=baseline.sh
@@ -33,8 +34,8 @@ one() {  # one route: clone (from the cache, or from the shared baseline), copy 
   return $rc
 }
 START=$(date +%s)
-BASE_M=ct-run-$TAG-baseline
-trap 'orb delete -f "$BASE_M" >/dev/null 2>&1; for r in $ROUTES; do orb delete -f ct-run-$TAG-$r >/dev/null 2>&1; done' EXIT      # whatever ends the run, no machine is left (rule: tests delete what they made)
+BASE_M=$(e2e_machine run "$TAG-baseline")
+trap 'orb delete -f "$BASE_M" >/dev/null 2>&1; for r in $ROUTES; do orb delete -f "$(e2e_machine run "$TAG-$r")" >/dev/null 2>&1; done' EXIT      # whatever ends the run, no machine is left (rule: tests delete what they made)
 DEPENDENT=""; INDEPENDENT=""
 for r in $ROUTES; do case $r in move|rename|switch|uninstall) DEPENDENT="$DEPENDENT $r";; *) INDEPENDENT="$INDEPENDENT $r";; esac; done
 for r in $INDEPENDENT; do ( one "$r"; echo "route-ended $?" >> "$OUT/$r.out" ) & done          # these need no baseline: they run while it is built

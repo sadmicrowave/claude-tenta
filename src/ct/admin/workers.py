@@ -37,12 +37,63 @@ def save_list(path, workers):
     Path(path).write_text("".join(lines))
 
 
+def repo_slugs(cfg):
+    """{"queue": "owner/repo", "results": ...} in lower case (GitHub names are not case sensitive), or {} when no GitHub account is configured."""
+    g = cfg.github
+    if not g.owner:
+        return {}
+    return {"queue": f"{g.owner}/{g.queue_repo}".lower(), "results": f"{g.owner}/{g.results_repo}".lower()}
+
+
+def others(own_path, wfile):
+    """[(label, config)] for every worker on this computer except the one whose configuration file is `own_path`: the main configuration (beside the workers list) and each listed worker. A file that cannot be read is skipped (`ct-admin workers` reports it)."""
+    own = Path(own_path).expanduser().resolve() if own_path else None
+    wfile = Path(wfile).expanduser()
+    files = {}
+    for name in ("ct.toml", config.LEGACY_CONFIG):
+        if (wfile.parent / name).is_file():
+            files.setdefault("the main worker", wfile.parent / name)
+            break
+    for n, p in load_list(wfile).items():
+        files[f"worker {n}"] = Path(p).expanduser()
+    out = []
+    for label, f in files.items():
+        if own is not None and f.resolve() == own:
+            continue
+        try:
+            out.append((label, config.load(f, env={"CT_CONFIG": ""})))
+        except Exception:
+            continue
+    return out
+
+
+def repo_conflict(cfg, own_path, wfile):
+    """(slug, who) of the first repository `cfg` shares with its own other repository or with another worker, or None. THE one check of "one private repository pair per worker": every path that
+    configures, creates or lists a worker calls it, and no setting turns it off."""
+    mine = repo_slugs(cfg)
+    if mine and mine["queue"] == mine["results"]:
+        return mine["queue"], "its own results repository"
+    for label, other in others(own_path, wfile):
+        theirs = set(repo_slugs(other).values())
+        for slug in mine.values():
+            if slug in theirs:
+                return slug, label
+    return None
+
+
+def require_own_repos(cfg, own_path, wfile):
+    hit = repo_conflict(cfg, own_path, wfile)
+    if hit:
+        raise refusals.refuse("worker.repo.shared", slug=hit[0], other=hit[1])
+
+
 def add(path, name, config_path):
     if not NAME_RE.match(name or ""):
         raise refusals.refuse("worker.name.invalid")
     cfg_file = Path(config_path).expanduser()
     if not cfg_file.is_file():
         raise refusals.refuse("worker.config.missing", path=cfg_file)
+    require_own_repos(config.load(cfg_file, env={"CT_CONFIG": ""}), cfg_file, path)
     workers = load_list(path)
     workers[name] = str(cfg_file)
     save_list(path, workers)

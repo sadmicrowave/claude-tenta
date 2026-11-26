@@ -266,24 +266,29 @@ def show_left_out(left):
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
 
 
-def show_summary(ctx, files, left):
-    """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. Above 1 GB on Direct it says so once (nothing blocks it)."""
+def show_summary(ctx, files, left, pack=None):
+    """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. A set over 1 GB on Direct is sent compressed: the card says so, with the sizes before and after."""
     if not files:
         return
     count, size = sub.totals(files)
     where = "your own network (Direct)" if ctx.kind == "direct" else "a private GitHub repository"
     rows = [("Files", plural(count, "file")), ("Size", sub.size_text(size)), ("Goes to", where)]
+    if pack and pack.state == "compressed":
+        rows.append(("Compressed", f"{sub.size_text(pack.before)} to {sub.size_text(pack.after)} (the worker unpacks it)"))
+    elif pack and pack.state == "declined":
+        rows.append(("Not compressed", f"you asked for it, so all {sub.size_text(pack.before)} is sent as it is"))
     if left.held:
         rows.append(("Held back", plural(len(left.held), "file")))
     if left.warn:
         rows.append(("May hold a secret", plural(len(left.warn), "file")))
-    big = ctx.kind == "direct" and size > sub.BIG_SET_BYTES
-    emit("What will be sent", *rows, *(["This is a very large set. Direct has no size limit, but the worker needs the room and the transfer will take a while. Narrow it with --include if you can."] if big else []),
-         tag="NOTE", color=YELLOW if big else CYAN)
+    emit("What will be sent", *rows, tag="NOTE", color=CYAN)
 
 
 def rerun_for(ctx, res):
-    """For a profile run that stopped only for time: the command that sends it again with the next limit (None when there is none to suggest)."""
+    """The command that sends a job again: for a profile run that stopped only for time, with the next limit; for a job the worker could not unpack, without compression (None when there is none to suggest)."""
+    if str(res.get("refusal") or "").startswith("files.unpack."):
+        raw = ctx.commands.get(res["id"])
+        return off.own_command_with(raw, "--no-compress") if raw else None
     pr = res.get("profile") or {}
     raw = ctx.commands.get(res["id"]) if pr.get("verdict") == "needs-longer" and pr.get("next_limit_s") else None
     return off.rerun_with_limit(raw, pr["next_limit_s"]) if raw else None
@@ -311,12 +316,22 @@ def cmd_submit(ctx, a):
     if a_dir:
         files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct"))
     show_left_out(left)
-    show_summary(ctx, files, left)
+    pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files else sub.Pack()
+    if pack.state == "compressed":                                      # after the secret scan above, on exactly what is sent
+        with view.Busy("compressing: the files"):
+            pack.z = sub.compress_files(files)
+        pack.after = len(pack.z["data"])
+        if pack.after > limits["max_total_kb"] * 1000:
+            raise refuse.error("files.set.too_big", count=plural(len(files), "file"), kb=pack.after // 1000, limit=limits["max_total_kb"])
+    show_summary(ctx, files, left, pack)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
-    if files:
+    if files and pack.state != "compressed":
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
+    if pack.state == "compressed":
+        batches = [None]
+        job["files_z"] = pack.z
     held = getattr(ctx, "held", None)
     if held is not None:
         return hold_jobs(ctx, a, batches, job, held)
@@ -329,6 +344,7 @@ def cmd_submit(ctx, a):
     for jid, chunk in zip(ids, batches):
         with view.Busy(f"sending: the job to {alias.show(ctx.product)}"):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
+        ctx.commands.remember(jid, list(a.raw))
         emit("Queued", ("Job", jid), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
@@ -1044,6 +1060,7 @@ def build_parser():
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")
     s.add_argument("--no-pack", action="store_true", help="do not use the files this class was profiled with")
     s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
+    s.add_argument("--no-compress", action="store_true", help="on Direct, send a set over 1 GB as it is instead of compressed (for a worker that cannot unpack)")
     s.add_argument("--id", help="choose the job id (4 to 64 lowercase letters, digits and dashes)")
     s.add_argument("--wait", action="store_true", help="block until it finishes (the default in a terminal)")
     s.add_argument("--no-wait", action="store_true", help="queue it and return the id")

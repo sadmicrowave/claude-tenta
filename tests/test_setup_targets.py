@@ -38,7 +38,7 @@ class EverySetupCommandKnowsWhichComputerItActsOn(unittest.TestCase):
             self.assertEqual(aim.call_count, len(cli.PICK_COMMANDS))
 
 
-class InstallGivesTheInstallerTheComputerYouMeant(unittest.TestCase):
+class InstallGivesTheInstallerTheComputerYouMeantFixture(unittest.TestCase):
     """The glue in main(): the ordinary installer must be handed the picked computer's address, not whatever the saved answers of another machine say."""
 
     def setUp(self):
@@ -62,6 +62,8 @@ class InstallGivesTheInstallerTheComputerYouMeant(unittest.TestCase):
             rc = cli.main(argv)
         return rc, seen
 
+
+class InstallGivesTheInstallerTheComputerYouMeant(InstallGivesTheInstallerTheComputerYouMeantFixture):
     def test_the_first_install_named_with_worker_is_installed_at_its_own_address(self):
         rc, given = self.installer_given(["install", "--worker", "claude-tenta", "--yes"])
         self.assertEqual((rc, given.get("server.host")), (0, "mini.example"))
@@ -77,7 +79,7 @@ class InstallGivesTheInstallerTheComputerYouMeant(unittest.TestCase):
         self.assertEqual(given.get("server.host"), "other.example")
 
 
-class ANewComputerIsAskedHowItPassesJobs(InstallGivesTheInstallerTheComputerYouMeant):
+class ANewComputerIsAskedHowItPassesJobs(InstallGivesTheInstallerTheComputerYouMeantFixture):
     """Seen on a real run: a new computer silently took the first install's transport (GitHub after that was changed), so it asked for a GitHub account the earlier Direct installs never needed, and the answer
     given there (the server's login name) made the repository step fail. The first install's choice is the DEFAULT, never an answer given on the person's behalf."""
 

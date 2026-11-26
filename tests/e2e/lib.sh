@@ -28,7 +28,13 @@ wait_for() { local tries=$1; shift; for _ in $(seq "$tries"); do "$@" >/dev/null
 export -f as_admin; export H ADMIN NAME WORKER OWNER SRC
 
 # ---- the machine: what can be baked into a cached base machine (prepare_system) and what must be done per run (prepare_checkout) ----------------------
+quiet_apt() {   # a freshly cloned machine starts apt's own background jobs (unattended upgrades) a few minutes after boot, and the installer's apt-get then fails on the package lock (found on the first full e2e run: five routes stopped there)
+  systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1
+  for _ in $(seq 60); do fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1 || return 0; sleep 3; done
+  echo "apt is still locked after 3 minutes: $(fuser -v /var/lib/dpkg/lock-frontend 2>&1)"
+}
 prepare_system() {
+  quiet_apt
   # NO_GITHUB=1: no GitHub stand-in at all (the Direct route proves nothing here is needed).  WARM=1: also the packages the installer itself installs, so a run does not wait on apt.
   apt-get update -qq && apt-get install -y -qq git python3 python3-yaml python3-venv python3-pip sudo openssh-server openssh-client iproute2 util-linux >/dev/null
   [ "${WARM:-0}" = 1 ] && apt-get install -y -qq bubblewrap ufw auditd unattended-upgrades >/dev/null 2>&1
