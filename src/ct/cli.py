@@ -233,15 +233,17 @@ def cmd_show(ctx, jid):
 
 def cmd_review(ctx, ids):
     ctx.w.io.sync()
+    missing = 0
     for jid in ids:
         raw = ctx.w.io.job_bytes(jid) if jobs.ID_RE.match(jid) else None
         if raw is None:
+            missing += 1
             emit(jid, f"{ctx.product} has no copy of this job.", tag="MISSING", color=RED, stream=sys.stdout)
             continue
         text = describe_job(ctx, raw) or raw.decode("utf-8", "replace")
         card = review.text_card(jid, text, ctx.product, hashlib.sha256(raw).hexdigest())
         _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
-    return 0
+    return 1 if missing else 0                                            # a job that could not be shown is a failure: the computer that asked must not note it as viewed
 
 
 def cmd_approve(ctx, jid, sha=None, yes=False):

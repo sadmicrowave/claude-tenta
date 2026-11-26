@@ -84,7 +84,7 @@ class Reading(CliBase):
         self.job("profile-aaa111", "profile-run", argv=["ls", "-l"], what="lists files", expect="instant", est_time_s=1, est_mem_mb=10, flags={"-l": "long"})
         self.w.fetch()
         code, out = self.run_cli("review", "profile-aaa111", "profile-nosuch1")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)                                           # a job it could not show is a failure (the asking computer must not note it as viewed); the one it had is still shown
         for needle in ("PROFILE RUN. If you approve, testct will run exactly this command", "    ls -l", "WHAT IT DOES", "LOOKED UP BY TESTCT ITSELF", "AT A GLANCE"):
             self.assertIn(needle, out)
         self.assertIn("testct has no copy of this job", out)

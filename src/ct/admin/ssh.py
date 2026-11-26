@@ -7,6 +7,7 @@ shared for at most a minute so that one command that makes several calls asks fo
 import os
 import shlex
 import subprocess
+import sys
 
 from .. import refusals
 from ..client import refuse
@@ -85,4 +86,10 @@ class Ssh:
 
     def interactive(self, remote):
         """Run `remote` on your terminal (sudo may ask for your password). Returns its exit code."""
-        return self._run(self.argv(remote, tty=True)).returncode
+        r = self._run(self.argv(remote, tty=True), stderr=subprocess.PIPE, text=True)        # ssh's own errors are read, not dumped: a connection that failed is a card like every other failure; the remote's output (and the sudo question) is on the terminal, not here
+        said = getattr(r, "stderr", None) or ""
+        if r.returncode == 255 and said.strip():
+            raise refuse.error("ssh.connect_failed", ("Host", self.host), example=f"ssh {self.target} true", reason=said.strip().splitlines()[-1])
+        if said:
+            sys.stderr.write(said)                                       # output: passthrough (ssh's own warning on a command that did run)
+        return r.returncode
