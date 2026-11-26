@@ -54,6 +54,17 @@ later suggests `repeat_days` as the typical time the person's repeated commands 
 Keep a list here as ideas arrive; none is promised. Examples to test: privacy (work that should not leave a controlled device), cost (a worker that is cheaper to run than a
 cloud service), energy or heat (work that should not warm your laptop), network position (work that is faster close to the data), time zone or schedule (work that must run overnight).
 
+**Proposed rung, no weight yet: "your computer is busy".** Offloading also pays when your own computer is already working hard: its load (run queue or CPU use) is high against its core count, so a job started there would slow both the job and everything else you are doing. The signal is cheap and local (host load divided by core count, read when the job is about to start). It is a **proposal only**: the owner sets the weight and where it sits in the ladder, and it is not built until then. Open questions for that decision: what load-per-core counts as busy, how long it must stay busy, and whether it can lift a job that no other rung picks.
+
+**More to find (ideas, none promised):**
+- Run the test suite for branch X on a worker while you keep editing branch Y here (the snapshot of X is taken once, so later edits do not change the run; see [workspace jobs](WORKSPACE-JOBS.md)).
+- A pre-push gate on a worker: the checks that should pass before a push run on a worker against a snapshot of exactly what would be pushed, and the push waits for the short answer.
+- A scanner, a build or a document generator you run on a schedule: any command on any folder, not only tests (the workspace job is command-agnostic).
+
+### Evidence from real use (2026-11-26)
+
+The project owner's own command log held **742 runs of the test script (8.9 hours in all) and 340 end-to-end runs (3.9 hours)**, about 12.8 hours of work that a worker could have done, yet `ct-run offload log top` listed **no candidates**. The commands are written as compound lines such as `cd folder && command | tail`, and the candidacy check skips any line with more than one segment (`src/ct/client/cmdlog.py:91`, "compound command (offload a single command)"). A tool that shows no value from a person's own history on day one gives them no reason to continue. Fixing it is slice 1 of `theme/offload-value`; showing the value is the review flow described in [workspace jobs](WORKSPACE-JOBS.md).
+
 ## How a job is judged
 
 1. Describe the job: its class or command shape, how long it takes, how often it runs, whether it is pinned, whether it can be split.
@@ -62,6 +73,8 @@ cloud service), energy or heat (work that should not warm your laptop), network 
 4. Show it where a person decides: `ct-run offload log top`, a profile result, and the placement explanation.
 
 Candidacy today looks at rung 4 only (seconds and count). Evaluating all rungs is list item 8.
+
+Note (2026-11-26): rung 4's command-log signal also misses compound commands today; see "Evidence from real use" above.
 
 ## Decisions
 
@@ -80,3 +93,13 @@ Branch `feat/candidacy-measurement` (and the slice branches `feat/candidacy-show
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
 **Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
+
+## Workspace jobs and the offload review (design 2026-11-26)
+
+Branch `docs/offload-workspace-design`, slice 0 of `theme/offload-value`. The full design is [WORKSPACE-JOBS.md](WORKSPACE-JOBS.md); the decisions that touch this ladder:
+
+- **Any command on any folder.** A "workspace job" sends a folder (git or not) and runs one command, so rungs 1, 3 and 4 are available to a linter, a build, a scanner or a data job as much as to a test suite.
+- **Review after setup.** The tool reads the person's command log, shows the saved hours, recommends commands ranked by the rung each meets, and asks yes or no per command. A yes profiles the command on every worker; each worker where it succeeds is a candidate and the orchestrator picks per job. The yes or no is the per-command approval; there is no blanket yes.
+- **A usage-history hint** (rate-limited, default on, with an off switch) points at the review when the log shows a worthwhile command.
+- **Environment cleanup** is a setting (`packages.keep_days`, default 30), not a constant: an unused environment is removed after that many days and rebuilt on the next use, and the result says so.
+- **Not decided here:** the weight of the "your computer is busy" rung.
