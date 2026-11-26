@@ -1176,7 +1176,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable
-- **What to do:** Check the folder's `.gitignore`, `--include` and `--exclude`. To see what was left out by rule, read the note above.
+- **What to do:** Open the folder's `.gitignore` and remove the rule that hides everything, or loosen `--include` and `--exclude`. To see what was left out by rule, read the note above.
 
 ### `files.incomplete`: Some files could not be sent
 

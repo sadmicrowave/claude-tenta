@@ -222,7 +222,7 @@ define("job.packages.plan", "placement", "The packages a job asks for must be in
 # ---- what the client does before sending ----
 define("files.dir.empty", "policy", "A job that runs on no files answers a question about nothing, so a folder whose rules leave nothing to send is refused, with the rule that decided.",
        "There is nothing to send from this folder", "No file in the folder was left to send. Decided by {decided}; {left} left out.", who="client",
-       steps=["Check the folder's `.gitignore`, `--include` and `--exclude`.", "To see what was left out by rule, read the note above."])
+       steps=["Open the folder's `.gitignore` and remove the rule that hides everything, or loosen `--include` and `--exclude`.", "To see what was left out by rule, read the note above."])
 define("files.dir.missing", "error", "A folder that is not there is said to be missing, not reported as an empty selection, so a recipe used from another folder points at the real cause.",
        "That folder does not exist here", "The folder is not below the one you are in, or it was moved or deleted.", who="client",
        steps=["Run the command from the folder the class was profiled in.", "Or name the folder yourself: `ct-run submit <class> --dir <folder>`."])
