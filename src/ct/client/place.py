@@ -279,6 +279,7 @@ def _with(chosen, original):
     """The chosen worker's Context, counting the cap across the WHOLE fleet and keeping where results are looked up."""
     if chosen is not original:
         chosen.fleet, chosen.max_in_flight = original.fleet, original.max_in_flight
+        chosen.max_per_worker, chosen.max_per_class = getattr(original, "max_per_worker", 0), getattr(original, "max_per_class", 0)
     chosen.home_main = original.home                                   # every placement is remembered, the main worker's too: it is how pending jobs are counted
     return chosen
 

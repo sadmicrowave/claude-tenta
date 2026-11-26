@@ -19,6 +19,11 @@ MAX_AGE_S = 24 * 3600
 
 def jobs_sent(repos):
     """{job id: created epoch seconds} of the job files on the jobs branch (what this computer sent and has not had pruned)."""
+    return {jid: created for jid, (created, _) in jobs_sent_detail(repos).items()}
+
+
+def jobs_sent_detail(repos):
+    """{job id: (created epoch seconds, class)} of the same files; the class is "" when the file does not say."""
     out = {}
     names = [n for n in repos.git(repos.queue, "ls-tree", "-r", "--name-only", f"origin/{repos.jobs_branch}", check=False).stdout.split("\n") if n]
     texts = repos.show_files(f"origin/{repos.jobs_branch}", names)                 # one git process for all of them
@@ -26,27 +31,34 @@ def jobs_sent(repos):
         txt = texts.get(path) or ""
         try:
             from datetime import datetime
-            out[Path(path).stem] = datetime.fromisoformat(json.loads(txt)["created"].replace("Z", "+00:00")).timestamp()
+            doc = json.loads(txt)
+            cls = doc.get("class") or (doc.get("job") or {}).get("class") or ""
+            out[Path(path).stem] = (datetime.fromisoformat(doc["created"].replace("Z", "+00:00")).timestamp(), cls if isinstance(cls, str) else "")
         except Exception:
-            out[Path(path).stem] = time.time()                       # a file we cannot date counts as new: the cap errs on the side of fewer jobs
+            out[Path(path).stem] = (time.time(), "")                       # a file we cannot date counts as new: the cap errs on the side of fewer jobs
     return out
 
 
 def in_flight(repos, now=None):
     """The ids of jobs sent through `repos` that are queued or running (or not yet seen) and younger than a day."""
+    return list(in_flight_detail(repos, now))
+
+
+def in_flight_detail(repos, now=None):
+    """{job id: class} of those jobs (class "" when unknown)."""
     now = time.time() if now is None else now
     try:
         repos.fetch_queue(max_age=15)                        # a brake, not a gate: a look made moments ago (the placement's, the send's) is good enough
         repos.pull_results(max_age=15)
     except Exception:
         pass                                                         # the last downloaded state is good enough for a brake
-    live = []
-    for jid, created in jobs_sent(repos).items():
+    live = {}
+    for jid, (created, cls) in jobs_sent_detail(repos).items():
         if now - created > MAX_AGE_S:
             continue
         res = repos.read_result(jid)
         if res is None or res.get("status") in RUNNING:
-            live.append(jid)
+            live[jid] = cls
     return live
 
 
@@ -60,3 +72,19 @@ def check(fleet, cap, adding, now=None):
         where = ", ".join(f"{name}: {len(v)}" for name, v in per.items() if v) or "none"
         raise refuse.error("placement.capacity.in_flight", ("In flight", str(total)), ("Cap", str(cap)), adding=adding, where=where)
     return total
+
+
+def share_problem(fleet, worker, cls, per_worker, per_class, now=None, extra_worker=0, extra_class=0):
+    """Why a job of class `cls` bound for `worker` is over its share, as one plain sentence, or None when it fits. `per_worker` is the most jobs in flight on one worker, `per_class` the most of one
+    class across every worker (0 = no limit for either). `extra_*` count jobs of the same batch already decided but not yet visible. A job over its share is queued, never refused:
+    the limit is a turn, not a ban (the queue of R1 sends it when a place frees)."""
+    if not per_worker and not per_class:
+        return None
+    per = {name: in_flight_detail(repos, now) for name, repos in fleet}
+    here = len(per.get(worker, {})) + extra_worker
+    if per_worker and here >= per_worker:
+        return f"{worker} already has {here} in flight, its limit is {per_worker} (limits.max_per_worker)"
+    same = sum(1 for jobs in per.values() for c in jobs.values() if c == cls) + extra_class
+    if per_class and cls and same >= per_class:
+        return f"{same} of {cls} are already in flight, the limit for one command is {per_class} (limits.max_per_class)"
+    return None

@@ -17,8 +17,8 @@ class Repos:
     """A client repository with a jobs branch of {id: age seconds} and results {id: status}."""
     jobs_branch, queue = "jobs", "q"
 
-    def __init__(self, jobs, results=None, fail=False):
-        self.jobs, self.results, self.fail = jobs, results or {}, fail
+    def __init__(self, jobs, results=None, fail=False, classes=None):
+        self.jobs, self.results, self.fail, self.classes = jobs, results or {}, fail, classes or {}
 
     def fetch_queue(self):
         if self.fail:
@@ -34,7 +34,7 @@ class Repos:
 
     def show_file(self, ref, path):
         jid = path.split("/")[-1][:-5]
-        return json.dumps({"created": stamp(self.jobs[jid])})
+        return json.dumps({"created": stamp(self.jobs[jid]), **({"class": self.classes[jid]} if jid in self.classes else {})})
 
     def show_files(self, ref, paths):                           # the real one reads them in one git process (tested in test_concurrent_submit); a fake only has to give the same answer
         return {p: self.show_file(ref, p) for p in paths}
@@ -71,6 +71,32 @@ class Cap(unittest.TestCase):
 
     def test_an_unreachable_worker_does_not_block_sending_it_is_counted_from_what_was_last_downloaded(self):
         self.assertEqual(cap.check([("main", Repos({"a": 1}, fail=True))], 5, 1, NOW), 1)
+
+
+class Share(unittest.TestCase):
+    """limits.max_per_worker and limits.max_per_class: a job over its share is told why (it is queued by the caller), never refused here."""
+    FLEET = [("main", Repos({"a": 1, "b": 1, "c": 1}, classes={"a": "big", "b": "big", "c": "small"})), ("studio", Repos({"d": 1}, classes={"d": "big"}))]
+
+    def test_no_limit_reads_nothing(self):
+        self.assertIsNone(cap.share_problem([("main", Repos({"a": 1}, fail=True))], "main", "big", 0, 0, NOW))
+
+    def test_a_worker_at_its_limit_is_named_with_the_count_and_the_setting(self):
+        why = cap.share_problem(self.FLEET, "main", "other", 3, 0, NOW)
+        self.assertIn("main already has 3 in flight", why)
+        self.assertIn("limits.max_per_worker", why)
+        self.assertIsNone(cap.share_problem(self.FLEET, "studio", "other", 3, 0, NOW))
+
+    def test_a_command_at_its_limit_counts_across_every_worker(self):
+        why = cap.share_problem(self.FLEET, "studio", "big", 0, 3, NOW)
+        self.assertIn("3 of big", why)
+        self.assertIn("limits.max_per_class", why)
+        self.assertIsNone(cap.share_problem(self.FLEET, "studio", "small", 0, 3, NOW))      # another command is not held back by the big batch
+
+    def test_jobs_of_the_same_batch_not_yet_visible_count(self):
+        self.assertIsNotNone(cap.share_problem(self.FLEET, "studio", "small", 0, 2, NOW, extra_class=1))
+
+    def test_in_flight_detail_reads_the_class(self):
+        self.assertEqual(cap.in_flight_detail(self.FLEET[0][1], NOW), {"a": "big", "b": "big", "c": "small"})
 
 
 if __name__ == "__main__":

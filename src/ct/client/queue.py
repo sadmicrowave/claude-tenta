@@ -202,7 +202,7 @@ def _recover(ctx, items, by_name, repos_of, sent, dropped, now):
             unclaim(ctx.home, it["id"])
 
 
-def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, check=None, now=None, dropped=None):
+def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, check=None, share=None, now=None, dropped=None):
     """Send every waiting job that now fits a worker, highest priority then oldest first; returns [(job id, worker)] for the ones placed. A job that still fits nowhere stays, with the reason of this look.
     A job that has waited past EXPIRE_S, or whose command no worker offers any more, ends: it is removed and appended to `dropped` as (job id, reason)."""
     if not _read(ctx.home) or cfg is None:
@@ -216,6 +216,8 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
     dropped = [] if dropped is None else dropped
     now = time.time() if now is None else now
     by_name, sent = {e[0]: e for e in ents}, []
+    share = share or _share_check
+    by_worker, by_class = {}, {}                                                # what this drain has sent so far: a look at the workers may not show it yet
     with _drain_lock(ctx.home) as mine:
         if not mine:
             return []
@@ -239,6 +241,10 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                     continue
                 token = place.reserve(ctx.home, ch.worker, it["class"])
             try:
+                over = share(ctx, ch.worker, it["class"], by_worker.get(ch.worker, 0), by_class.get(it["class"], 0))
+                if over:                                                        # over its share: it keeps its place and the next job gets a look (this is what stops one batch taking every place)
+                    note(ctx.home, it["id"], over)
+                    continue
                 if not claim(ctx.home, it["id"], ch.worker, now):               # someone cancelled it, or it is already being sent
                     continue
                 check(ctx, 1)
@@ -246,12 +252,20 @@ def drain(ctx, cfg, *, entries_fn=None, repos_of=None, fetch=None, send=None, ch
                 place.record(ctx.home, [it["id"]], ch.worker, it["class"])
                 remove(ctx.home, it["id"])
                 sent.append((it["id"], ch.worker))
+                by_worker[ch.worker] = by_worker.get(ch.worker, 0) + 1
+                by_class[it["class"]] = by_class.get(it["class"], 0) + 1
             except Exception as ex:                                             # the send failed (the cap, a locked or unreachable worker): it waits, with the real error
                 unclaim(ctx.home, it["id"])
                 note(ctx.home, it["id"], _real_text(ex))
             finally:
                 place.release(ctx.home, token)
     return sent
+
+
+def _share_check(ctx, worker, cls, extra_worker=0, extra_class=0):
+    """The sentence saying why a job is over its per-worker or per-command share, or None (no look at the network at all when neither limit is set)."""
+    from . import cap
+    return cap.share_problem(ctx.fleet(), worker, cls, getattr(ctx, "max_per_worker", 0), getattr(ctx, "max_per_class", 0), extra_worker=extra_worker, extra_class=extra_class)
 
 
 def _cap_check(ctx, adding):

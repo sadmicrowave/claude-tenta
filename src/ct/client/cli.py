@@ -47,7 +47,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -61,6 +61,7 @@ class Context:
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
+        self.max_per_worker, self.max_per_class = int(max_per_worker or 0), int(max_per_class or 0)
         self.max_in_flight, self.fleet = int(max_in_flight or 0), fleet or (lambda: [("main", repos)])
         self.is_tty = is_tty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
 
@@ -71,7 +72,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -141,6 +142,7 @@ def route_submit(ctx, cfg, a):
     if why:
         emit("Sending a job", (cards.Chip("WHERE", "primary"), alias.show(forced)), ("Command", a.cls), ("Why", why), tag="PINNED", color=CYAN)
     ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say, hold=not forced)          # a named or pinned worker gets the job; only the orchestrator's own choice may queue it
+    ctx2.orchestrated = not forced                           # the same rule for a job over its share (limits.max_per_worker / max_per_class)
     return ctx2
 
 
@@ -320,6 +322,12 @@ def cmd_submit(ctx, a):
     held = getattr(ctx, "held", None)
     if held is not None:
         return hold_jobs(ctx, a, batches, job, held)
+    per_worker, per_class = getattr(ctx, "max_per_worker", 0), getattr(ctx, "max_per_class", 0)
+    if getattr(ctx, "orchestrated", False) and (per_worker or per_class):
+        with view.Busy("checking: how many jobs are already running on the workers"):
+            over = cap.share_problem(ctx.fleet(), ctx.product, a.cls, per_worker, per_class, extra_worker=len(batches) - 1, extra_class=len(batches) - 1)   # a split set counts as the jobs it is
+        if over:                                                                               # over its share: it waits its turn behind the others, it is not refused
+            return hold_jobs(ctx, a, batches, job, None, why=over)
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
@@ -344,7 +352,7 @@ def cmd_submit(ctx, a):
     return max(wait(ctx, jid, a.timeout, a.json) for jid in ids)
 
 
-def hold_jobs(ctx, a, batches, job, held):
+def hold_jobs(ctx, a, batches, job, held, why=None):
     """Every worker is busy (or none can take it now): the job waits on this computer, in order, and goes when one has room (queue.py)."""
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), set(ctx.repos.result_ids()) | queue.ids(ctx.home))
     ids = sub.job_ids(base, len(batches))
@@ -352,7 +360,7 @@ def hold_jobs(ctx, a, batches, job, held):
     if clash:
         emit("That job id is already waiting", ("Job", clash[0]), "Choose another with --id, or leave it out.", tag="ERROR", color=RED)
         return 2
-    why = queue.why_of(held)
+    why = why or queue.why_of(held)
     prio = getattr(a, "priority", None) or queue.DEFAULT
     for jid, chunk in zip(ids, batches):
         queue.add(ctx.home, jid, a.cls, prio, {**job, **({"files": chunk} if chunk else {})}, why)

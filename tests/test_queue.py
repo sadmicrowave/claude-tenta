@@ -5,6 +5,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -101,6 +102,28 @@ class Drain(Setup):
         self.assertEqual([j for j, _ in done][0], "high-1")
         self.assertEqual([j for j, _ in self.sent][0], "high-1")
         self.assertIsNone(queue.find(self.main.home, "high-1"))
+
+    def test_a_burst_over_its_share_waits_and_a_single_job_behind_it_still_goes(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, running=0, capacity=4, classes=("sys-status", "big"))
+        for i in (1, 2, 3):
+            queue.add(self.main.home, f"big-{i}", "big", "normal", {}, "", now=time.time() - 100 + i)             # the burst, oldest first
+        queue.add(self.main.home, "one-1", "sys-status", "normal", {}, "", now=time.time() - 10)                 # a single job that arrived after it
+        share = lambda c, worker, cls, ew, ec: f"{ec} of {cls} in flight, limit 1" if cls == "big" and ec >= 1 else None   # noqa: E731
+        done = queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=lambda repos, jid, job: self.sent.append(jid), check=lambda c, n: None, share=share)
+        self.assertEqual(sorted(j for j, _ in done), ["big-1", "one-1"])
+        self.assertEqual([i["id"] for i in queue.waiting(self.main.home)], ["big-2", "big-3"])      # keep their order, with the reason
+        self.assertIn("limit 1", queue.find(self.main.home, "big-2")["why"])
+
+    def test_a_job_waiting_over_its_share_goes_once_the_limit_has_room(self):
+        for n in ("mini", "vmx", "ghx"):
+            self.add(n, running=0, capacity=4, classes=("sys-status", "big"))
+        queue.add(self.main.home, "big-1", "big", "normal", {}, "", now=time.time() - 100)
+        send = lambda repos, jid, job: self.sent.append(jid)    # noqa: E731
+        queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=send, check=lambda c, n: None, share=lambda *a: "full")
+        self.assertEqual(self.sent, [])
+        queue.drain(self.main, self.cfgs["mini"], entries_fn=self.ents, repos_of=lambda e: self.repos[e[0]], send=send, check=lambda c, n: None, share=lambda *a: None)
+        self.assertEqual(self.sent, ["big-1"])
 
     def test_a_failed_send_keeps_the_job_with_the_real_error(self):
         for n in ("mini", "vmx", "ghx"):
