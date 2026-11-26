@@ -19,6 +19,9 @@ def ev(cmd, tid="t1", tool="Bash"):
     return json.dumps({"tool_name": tool, "tool_use_id": tid, "session_id": "s", "tool_input": {"command": cmd}, "cwd": "/x"})
 
 
+IDLE = lambda: {"load": 0.1, "cores": 4, "ratio": 0.03}   # a computer that is not busy, so output never depends on the machine running the tests
+
+
 class Log(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
@@ -121,7 +124,7 @@ def time_now():
 class Command(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
         self.env = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
         self.env.start()
@@ -242,7 +245,7 @@ class BusyHost(unittest.TestCase):
 class RungsShown(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
         log = cmdlog.CommandLog(self.home)
         for i in range(3):
@@ -327,7 +330,7 @@ class Measure(unittest.TestCase):
 class MeasureCommand(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home)
+        self.ctx = cli.Context(ClientRepos(self.home / "q", self.home / "r", "x", "y"), product="homect", own_tools=("ct-run", "homect"), home=self.home, host_load=IDLE)   # never the real load: a busy CI machine would change the output
         self.cfg = type("C", (), {"paths": type("P", (), {"client_home": str(self.home)})()})()
 
     def run_cli(self, *args):
