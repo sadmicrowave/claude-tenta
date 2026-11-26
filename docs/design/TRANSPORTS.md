@@ -1,6 +1,6 @@
 # Transports: how a job reaches a worker and its result comes back
 
-Status: **decided, not built.** Planned for after the first release (0.1.0), together with the several-workers branch (`ORCHESTRATION.md`). Today there is one transport, GitHub. This note records the decision and the reasoning so the work starts from it.
+Status: **decided, not built.** Planned for after the first release (0.1.0), together with the several-workers branch (`SEVERAL-WORKERS.md`). Today there is one transport, GitHub. This note records the decision and the reasoning so the work starts from it.
 
 ## The decision
 
@@ -16,7 +16,7 @@ The administrator can pick any of them. GitHub stays supported because "nothing 
 
 1. **Finding a worker:** a name or address in the configuration (`server.host`), as today. mDNS discovery for a computer that moves between networks is a **later enhancement**, not part of 0.2.
 2. **A worker that is off or unreachable:** `ct-run submit` fails with a clear message. No outbox in 0.2 (store and forward stays an open question).
-3. **State and alerts:** the worker never needs to reach your LAN for them. Each worker writes its own state (`worker-state.json`, `security.json`) into its results repository, and the computer collects it; the computer raises the alerts it sees. This is the state-polling the several-workers scheduler needs, so it is built once and shared. Who moves the state depends on the transport, so the strain on the host does not grow with the number of workers:
+3. **State and alerts:** the worker never needs to reach your LAN for them. Each worker writes its own state (`worker-state.json`, `security.json`) into its results repository, and the computer collects it; the computer raises the alerts it sees. This is the state-polling the several-workers orchestrator needs, so it is built once and shared. Who moves the state depends on the transport, so the strain on the host does not grow with the number of workers:
    - **GitHub and LAN git server:** workers already push to a shared place, so state check-ins flow *to* the host's reading point, and the host reads them with one cheap fetch (device to host, no per-device connection from the host).
    - **Direct:** the worker makes no connection to anything, which is the point of Direct. The host reads each worker's state over the SSH it already opens for jobs, with a per-worker schedule and a back-off for quiet workers, in parallel. Letting a worker connect out to the host would give up Direct's isolation, so it is not done.
 
@@ -81,7 +81,7 @@ Each worker owns two bare repositories, `<state>/queue.git` and `<state>/results
 
 ### Several workers
 
-Each worker is its own mailbox, so routing is your computer's job, which is where the scheduling logic lives anyway (`ORCHESTRATION.md`): a batch is delivered to one worker, preferences and candidate locks decide which, and `ct-admin workers` reads each worker's `worker-state.json` over the same connection.
+Each worker is its own mailbox, so routing is your computer's job, which is where the scheduling logic lives anyway (`SEVERAL-WORKERS.md`): a batch is delivered to one worker, preferences and candidate locks decide which, and `ct-admin workers` reads each worker's `worker-state.json` over the same connection.
 
 ## Transport 2: LAN git server
 
@@ -148,4 +148,4 @@ kind = "direct"        # direct | lan | github
 ## Phasing
 
 1. **0.2.** Introduce the transport interface; GitHub implements it unchanged; add Direct; add the `ct-setup transport` command; extend the end-to-end test with a Direct scenario.
-2. **0.3.** LAN git server 2a, then the packaged Gitea (2b). The several-workers scheduler lands on top of Direct.
+2. **0.3.** LAN git server 2a, then the packaged Gitea (2b). The several-workers orchestrator lands on top of Direct.

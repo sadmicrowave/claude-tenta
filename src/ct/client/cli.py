@@ -4,6 +4,7 @@
   submit <class> [options]       queue a job (-p name=value, --prompt, --file, --dir/--include); waits for the result in a terminal
   result <job> [--wait]          read a job's result; --wait keeps checking until it finishes
   jobs [-n N]                    your most recent jobs, and the ones waiting for your approval
+  audit [<job>] [-n N] [--json]  where jobs ran, why, and what happened (kept for audit.keep_days)
   classes                        what the worker can run today, as it published it
   prune [--days N] [--force]     squash old job files out of the jobs branch
   offload log hook|top|show|clear   learn which of your commands are worth running on the worker
@@ -12,6 +13,7 @@
   offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
   offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
   offload measure                suggest the repeat settings from your own command log
+  offload recommend              a better worker for a pinned command, from your own finished jobs
   offload exclusions             commands that were tested and do not fit
 
 Everything (the two repo addresses, the folders, the names in messages) comes from the configuration; nothing here knows an install.
@@ -33,7 +35,7 @@ from . import candidacy, cap, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
-from . import here, place, view
+from . import audit, health, here, place, queue, retry, view
 from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
@@ -46,7 +48,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, max_per_worker=0, max_per_class=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, recommend_runs=3, recommend_gain=25, recommend_hint=True, recommend_hint_hours=24, silent_hours=24, audit_keep_days=90):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -55,9 +57,14 @@ class Context:
         self.adopted, self.auto_adopt = off.AdoptBook(self.home), bool(auto_adopt)
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
+        self.recommend_runs, self.recommend_gain = int(recommend_runs), int(recommend_gain)
+        self.silent_hours = int(silent_hours)
+        self.audit_keep_days = int(audit_keep_days)
+        self.recommend_hint, self.recommend_hint_hours = bool(recommend_hint), int(recommend_hint_hours)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
+        self.max_per_worker, self.max_per_class = int(max_per_worker or 0), int(max_per_class or 0)
         self.max_in_flight, self.fleet = int(max_in_flight or 0), fleet or (lambda: [("main", repos)])
         self.is_tty = is_tty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
 
@@ -68,7 +75,7 @@ class Context:
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   max_in_flight=cfg.limits.max_in_flight, max_per_worker=cfg.limits.max_per_worker, max_per_class=cfg.limits.max_per_class, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, recommend_runs=cfg.offload.recommend_runs, recommend_gain=cfg.offload.recommend_gain, recommend_hint=cfg.offload.recommend_hint, recommend_hint_hours=cfg.offload.recommend_hint_hours, silent_hours=cfg.health.silent_hours, audit_keep_days=cfg.audit.keep_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -137,7 +144,9 @@ def route_submit(ctx, cfg, a):
         forced, why = pinned_worker(cfg, a.cls)
     if why:
         emit("Sending a job", (cards.Chip("WHERE", "primary"), alias.show(forced)), ("Command", a.cls), ("Why", why), tag="PINNED", color=CYAN)
-    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say)
+    share = cap.checker_for(ctx)
+    ctx2, _ch = place.route(ctx, cfg, a.cls, forced, say=say, hold=not forced, share=(lambda w: share(w, a.cls)) if share else None)          # a named or pinned worker gets the job; only the orchestrator's own choice may queue it
+    ctx2.orchestrated = not forced                           # the same rule for a job over its share (limits.max_per_worker / max_per_class)
     return ctx2
 
 
@@ -170,7 +179,7 @@ def cmd_use(ctx, cfg, a):
     if a.worker:
         return use_set(cfg, a, pins, scope)
     if pins.empty():
-        emit("Nothing is set for this computer" if a.glob else "Nothing is set for this folder", "Jobs are placed by the scheduler, on whichever worker fits best.", tag="NOTE", color=YELLOW,
+        emit("Nothing is set for this computer" if a.glob else "Nothing is set for this folder", "Jobs are placed by the orchestrator, on whichever worker fits best.", tag="NOTE", color=YELLOW,
              run=["ct-run use <worker>", "ct-run use <worker> --command <class>"], run_label="Send this folder's jobs to one worker")
         return 0
     emit("Where jobs from this computer go" if a.glob else "Where this folder's jobs go", *use_rows(pins), tag="PINNED", color=CYAN, run=["ct-run use <worker>", "ct-run use --clear"], run_label="Change it")
@@ -221,7 +230,7 @@ def by_worker(commands):
 
 
 def use_rows(pins):
-    rows = [("File", str(pins.path)), ("Jobs worker", alias.show(pins.worker) if pins.worker else "placed by the scheduler")]
+    rows = [("File", str(pins.path)), ("Jobs worker", alias.show(pins.worker) if pins.worker else "placed by the orchestrator")]
     if pins.commands:
         rows += ["\n", *by_worker(pins.commands)]
     return rows
@@ -237,7 +246,7 @@ def cmd_where(ctx, cfg, a):
     if len(ents) < 2:
         emit("There is only one worker", f"Everything goes to {alias.show(ctx.product)}. Add more with ct-setup add-worker.", tag="NOTE", color=YELLOW)
         return 0
-    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home, silent_s=place._silent_s(ctx))
     ch = place.decide(a.cls, views)
     explain(ch, a.cls)
     return 0 if ch.worker else 1
@@ -279,6 +288,15 @@ def show_summary(ctx, files, left, pack=None):
     if left.warn:
         rows.append(("May hold a secret", plural(len(left.warn), "file")))
     emit("What will be sent", *rows, tag="NOTE", color=CYAN)
+
+
+def attempt_for(ctx, res):
+    """(attempt, attempts allowed) of a job whose class retries, else None: asked of the main home, where the plan was written, then of this one."""
+    for home in dict.fromkeys(h for h in (getattr(ctx, "home_main", None), getattr(ctx, "home", None)) if h):
+        got = retry.attempt_of(home, res.get("id"))
+        if got:
+            return got
+    return None
 
 
 def rerun_for(ctx, res):
@@ -329,9 +347,18 @@ def cmd_submit(ctx, a):
     if pack.state == "compressed":
         batches = [None]
         job["files_z"] = pack.z
+    held = getattr(ctx, "held", None)
+    if held is not None:
+        return hold_jobs(ctx, a, batches, job, held, why=getattr(ctx, "share_why", None))
+    share = cap.checker_for(ctx) if getattr(ctx, "orchestrated", False) and len(batches) > 1 else None
+    if share:                                                                                  # a set split into several jobs counts as the jobs it is (one was already checked when the worker was chosen)
+        with view.Busy("checking: how many jobs are already running on the workers"):
+            over = share(ctx.product, a.cls, len(batches) - 1, len(batches) - 1, getattr(ctx, "reservation", None))
+        if over:
+            return hold_jobs(ctx, a, batches, job, None, why=over[1])
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
-    base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
+    base = given_id(a) or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
     ids = sub.job_ids(base, len(batches))
     if len(batches) > 1:
         emit(f"{plural(len(files), 'file')} split into {plural(len(batches), 'independent job')}", *ids, tag="NOTE", color=YELLOW)
@@ -342,6 +369,9 @@ def cmd_submit(ctx, a):
         emit("Queued", ("Job", jid), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
+        audit.placed(ctx, ids, a.cls, ctx.product, getattr(ctx, "choice", None))
+        health.keep_sent(ctx.home_main, info, a.cls, ids, batches, job)
+        retry.plan_sent(ctx.home_main, info, a.cls, ids)
     if place.prune_due(ctx.home):                         # housekeeping, an hour apart: it is a network round trip that almost never finds anything to do
         try:
             r.prune_jobs()
@@ -352,6 +382,142 @@ def cmd_submit(ctx, a):
         print("\n".join(ids))                                               # output: data (job ids for a script)
         return 0
     return max(wait(ctx, jid, a.timeout, a.json) for jid in ids)
+
+
+def given_id(a):
+    """The id the person chose with --id, checked here (the worker would refuse a bad one anyway, and this computer uses the id as a file name for the waiting list and the kept copies)."""
+    from ..jobs import ID_RE
+    if a.id and not ID_RE.match(a.id):
+        raise refuse.error("job.id.invalid", ("Job id", a.id), steps=["Use 4 to 64 lowercase letters, digits and dashes, starting with a letter or digit."])
+    return a.id
+
+
+def hold_jobs(ctx, a, batches, job, held, why=None):
+    """Every worker is busy (or none can take it now): the job waits on this computer, in order, and goes when one has room (queue.py)."""
+    base = given_id(a) or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), set(ctx.repos.result_ids()) | queue.ids(ctx.home))
+    ids = sub.job_ids(base, len(batches))
+    clash = [j for j in ids if j in queue.ids(ctx.home)]
+    if clash:
+        emit("That job id is already waiting", ("Job", clash[0]), "Choose another with --id, or leave it out.", tag="ERROR", color=RED)
+        return 2
+    why = why or queue.why_of(held)
+    prio = getattr(a, "priority", None) or queue.DEFAULT
+    for jid, chunk in zip(ids, batches):
+        queue.add(ctx.home, jid, a.cls, prio, {**job, **({"files": chunk} if chunk else {})}, why)
+    emit("Waiting for a worker", *[("Job", j) for j in ids], ("Priority", prio), ("Why", why), "It is sent by the next ct-run command once there is room; ct-run jobs shows it waiting.", tag="WAITING", color=YELLOW,
+         run=f"ct-run jobs")
+    print("\n".join(ids))                                                   # output: data (job ids for a script)
+    return 0
+
+
+def health_sweep(ctx, cfg, a):
+    """Every ct-run command first notices the jobs lost to a silent worker (and queues the repeatable ones again), before the waiting list is sent; a failure here never stops the command asked for."""
+    try:
+        lost = health.sweep(ctx, cfg)
+    except Exception as e:
+        emit("The workers' health could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if not getattr(a, "json", False) and a.cmd != "jobs":                 # the jobs list shows every lost job itself
+        for jid, worker, why, again, outcome in lost:
+            emit_lost(jid, worker, None, why, again, outcome)
+
+
+def retry_sweep(ctx, cfg, a):
+    """The jobs that ended killed, and whose class may be retried, are queued again here (never stops the command asked for)."""
+    try:
+        done = retry.sweep(ctx, cfg)
+    except Exception as e:
+        emit("Retries could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if getattr(a, "json", False):
+        return
+    for jid, new, attempt, of, status, why in done:
+        if new:
+            emit("A job is tried again", ("Job", jid), ("Ended", status), ("Attempt", f"{attempt} of {of}"), ("New job", new), tag="RETRY", color=YELLOW, run="ct-run jobs")
+        else:
+            emit("A job is not tried again", ("Job", jid), ("Ended", status), ("Why", why), tag="NOTE", color=YELLOW)
+
+
+LOST_OUTCOME = {"again": "It was queued again as {again} (its own row is in ct-run jobs).",
+                "not_repeatable": "Its command is not marked safe to repeat, so it was not sent again. Send it again yourself if you still want it, or wait: if the worker comes back its result appears.",
+                "no_copy": "Its command is safe to repeat, but this computer has no copy of the job (it was sent before copies were kept, from another computer, or it was too big to copy), so it was not sent again. Send it again yourself, or wait: if the worker comes back its result appears."}
+
+
+def emit_lost(jid, worker, cls, why, again, outcome=None):
+    """One card for a lost job: which, why, and what happened to it (sent again, or only marked lost and what to do)."""
+    text = LOST_OUTCOME[outcome or ("again" if again else "not_repeatable")].format(again=again)
+    emit("A job was lost", ("Job", jid), ("Worker", alias.show(worker)), ("Why", why), text, tag="LOST", color=YELLOW, run="ct-run jobs")
+
+
+def drain_queue(ctx, cfg, a):
+    """Every ct-run command first sends the waiting jobs that now fit (nothing runs in the background)."""
+    dropped = []
+    try:
+        sent = queue.drain(ctx, cfg, dropped=dropped)
+    except Exception as e:                                                   # a failure here must never stop the command that was asked for
+        emit("The waiting jobs could not be checked", ("Why", (str(getattr(e, "title", "") or e).strip().splitlines() or ["unknown"])[0][:150]), tag="NOTE", color=YELLOW)
+        return
+    if not getattr(a, "json", False):
+        for jid, why in dropped:
+            emit("A waiting job ended", ("Job", jid), ("Why", why), "It was not sent. Submit it again if you still want it.", tag="NOTE", color=YELLOW)
+        for jid, worker in sent:
+            emit("Sent from the waiting list", ("Job", jid), ("Worker", alias.show(worker)), tag="QUEUED", color=CYAN)
+        long = [i for i in queue.waiting(ctx.home) if time.time() - i.get("at", 0) > queue.WAITED_LONG_S]
+        for i in long:
+            emit("A job has waited a long time", ("Job", i["id"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="NOTE", color=YELLOW, run="ct-run jobs")
+
+
+def cmd_queue(ctx, a):
+    """The jobs waiting on this computer for a worker with room: list them, cancel one, or change its priority."""
+    c = a.queue_cmd
+    if c in ("cancel", "priority"):
+        item = queue.find(ctx.home, a.id)
+        if not item:
+            emit("No such waiting job", ("Job", a.id), "ct-run queue lists the jobs waiting for a worker. A job that was already sent is read with ct-run result.", tag="ERROR", color=RED)
+            return 1
+        done = queue.cancel(ctx.home, a.id) if c == "cancel" else queue.set_priority(ctx.home, a.id, a.level)
+        if not done:
+            emit("That job is being sent right now", ("Job", a.id), "It is already on its way to a worker; read it with ct-run result.", tag="NOTE", color=YELLOW)
+            return 1
+        emit("Cancelled" if c == "cancel" else "Priority changed", ("Job", a.id), *([] if c == "cancel" else [("Priority", a.level)]), tag="DONE", color=GREEN)
+        return 0
+    items = queue.waiting(ctx.home)
+    if not items:
+        emit("Nothing is waiting for a worker", "Jobs that every worker is too busy for wait here; ct-run submit --priority sets their place in line.", tag="QUEUE", color=CYAN)
+        return 0
+    for i in items:
+        emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW,
+             run=f"ct-run queue cancel {i['id']}", run_label="Cancel it")
+    return 0
+
+
+def cmd_audit(ctx, a):
+    """Where jobs ran, why, and what happened (the audit trail, audit.py): the latest jobs, or one job's whole story with the jobs it was sent again as."""
+    from types import SimpleNamespace
+    rows = audit.read(audit.home_of(ctx))
+    if a.id:
+        rows = audit.chain(rows, a.id)
+    if a.json:
+        print(json.dumps(rows[-a.n:] if not a.id else rows, indent=1))   # output: data (the raw audit lines for a script)
+        return 0
+    if not rows:
+        emit("Nothing recorded for that job" if a.id else "Nothing recorded yet", *([("Job", a.id)] if a.id else []), "The trail holds jobs this computer placed with several workers, from the day it was turned on.", tag="NOTE", color=YELLOW)
+        return 0 if not a.id else 1
+    when = lambda t: time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(t))
+    if a.id:
+        for r in rows:
+            if r["event"] == "placed":
+                shown = SimpleNamespace(lines=[(x[0], x[1], " / ".join(x[2:])) for x in r.get("rows") or []], reasons=None)
+                emit("Placed", ("Job", r["job"]), ("Command", r.get("class", "")), ("Worker", alias.show(r.get("worker", ""))), ("Priority", r.get("priority") or "-"), ("When", when(r["at"])), *(["\n", *place.rows(shown)] if shown.lines else [("Why", r.get("why", ""))]), tag="AUDIT", color=CYAN)
+            else:
+                emit(r["event"].capitalize(), ("Job", r["job"]), ("When", when(r["at"])), ("What", audit.story([r])[0][3]), tag="AUDIT", color=CYAN)
+        return 0
+    outcome = {r["job"]: r for r in rows if r["event"] == "outcome"}
+    for r in [r for r in rows if r["event"] == "placed"][-a.n:][::-1]:
+        o = outcome.get(r["job"])
+        emit("A job", ("Job", r["job"]), ("Command", r.get("class", "")), ("Worker", alias.show(r.get("worker", ""))), ("Priority", r.get("priority") or "-"), ("When", when(r["at"])), ("Outcome", o["status"] if o else "no result seen yet"), tag="AUDIT", color=CYAN,
+             run=f"ct-run audit {r['job']}", run_label="Why there, and the rest of its story")
+    return 0
 
 
 def should_wait(ctx, a):
@@ -408,7 +574,7 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
             res = r.read_result(jid)
             if res and res["status"] not in PENDING:
                 LAST_RESULT.update(status=res["status"], note=res.get("note") or "")
-                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+                rc = view.print_result(res, as_json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res), attempt=attempt_for(ctx, res))
                 auto_adopt(ctx, res)
                 return rc
             if locked:
@@ -454,19 +620,25 @@ def suggestion_for(ctx, res):
 def cmd_result(ctx, a):
     r = ctx.repos
     r.need_setup()
-    if a.wait:
+    if a.wait and not queue.find(ctx.home, a.id):
         return wait(ctx, a.id, a.timeout, a.json, approved=getattr(a, "approved", False))
+    held = queue.find(ctx.home, a.id)
+    if held:                                                                     # still on this computer's waiting list: no worker has it yet
+        emit("Waiting for a worker", ("Job", a.id), ("Priority", held["priority"]), ("Waiting", queue.age_text(time.time() - held["at"])), ("Why", held.get("why", "")), tag="WAITING", color=YELLOW)
+        return 0
     r.pull_results()
     res = r.read_result(a.id)
+    if res is not None:
+        note_runs(ctx, {a.id: res})
     if res is None:
         if not r.job_known(a.id):
-            emit("No such job", ("Job", a.id), "Check the id (ct-run status lists your jobs).", tag="ERROR", color=RED)
+            emit("No such job", ("Job", a.id), "Check the id (ct-run jobs lists your jobs).", tag="ERROR", color=RED)
             return 1
         emit("No result yet", ("Job", a.id), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} has not picked it up. It looks about once a minute.", tag="QUEUED", color=YELLOW, run=f"ct-run result {a.id} --wait")
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
-    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
+    rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res), attempt=attempt_for(ctx, res))
     auto_adopt(ctx, res)
     return rc
 
@@ -489,6 +661,67 @@ def jobs_of(repos, admin):
     def created_of(jid):
         return next((view.parse_when(j.get("created", "")) for i, j in listing if i == jid), None)
     return results, view.status_rows(results, created_of, None, view.queued_rows(ids, listing, admin=admin))
+
+
+def note_runs(ctx, results):
+    """Remember each finished job's worker and run time (recommend.RunLog), so `ct-run offload recommend` has evidence. Never breaks the command."""
+    from . import recommend
+    audit.outcomes(ctx, results)                               # never raises
+    try:
+        recommend.RunLog(ctx.home).observe(results, lambda jid: place.worker_of(getattr(ctx, "home_main", ctx.home), jid) or ctx.product, view.parse_when)
+    except (OSError, TypeError, ValueError):                   # a recorder: whatever is wrong with it, the command that looked at the jobs still answers
+        pass
+
+
+def show_hint(ctx):
+    """After a ct-run command: one line when a pinned command has run clearly faster on another worker (setting offload.recommend_hint, on by default). Reads only local
+    files, says each suggestion once and at most once a day, and never fails or changes the command's exit status."""
+    try:
+        if not ctx.recommend_hint:
+            return
+        from . import recommend
+        pins = {}
+        for p in (here.global_pins(), here.pins_for()):
+            pins.update(p.commands if p else {})
+        rows = recommend.RunLog(ctx.home).read() if pins else []
+        if not rows:
+            return
+        st = recommend.HintState(ctx.home)
+        v, new = recommend.hint(recommend.recommend(rows, pins, ctx.recommend_runs, ctx.recommend_gain), st.read(), ctx.clock(), ctx.recommend_hint_hours)
+        if v:
+            emit("A faster worker for a pinned command", ("Command", v["class"]), ("Faster on", alias.show(v["worker"])), f"It took {v['gain_pct']}% less time than on the pinned worker. Turn these hints off: offload.recommend_hint = false.",
+                 tag="HINT", color=CYAN, run_label="See the numbers", run="ct-run offload recommend")
+        st.write(new)
+    except Exception:                                          # a hint is a courtesy: whatever is wrong with it, the command's answer stands
+        pass
+
+
+def cmd_recommend(ctx, a, cfg=None):
+    """`ct-run offload recommend`: for each command pinned to a worker, whether another worker has run it clearly faster. Changes nothing; prints the line that would."""
+    from . import recommend
+    rows = recommend.RunLog(ctx.home).read()
+    pins = {}
+    for p in (here.global_pins(), here.pins_for()):
+        pins.update(p.commands if p else {})
+    if not pins:
+        emit("No command is pinned to a worker", "Pin one with ct-run use <worker> --command <class>; then this compares the workers that ran it.", tag="NOTE", color=YELLOW)
+        return 0
+    if not rows:
+        emit("No finished jobs recorded yet", "Jobs are recorded when you look at them: ct-run jobs or ct-run result <job>.", tag="NOTE", color=YELLOW)
+        return 0
+    for v in recommend.recommend(rows, pins, ctx.recommend_runs, ctx.recommend_gain):
+        def took(w):
+            return f"{v['median'][w]:g} s, median of {plural(v['runs'][w], 'run')}"
+        if v["verdict"] == "better":
+            emit("Another worker runs this command faster", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Pinned took", took(v["pinned"])), ("Faster on", alias.show(v["worker"])), ("It took", took(v["worker"])),
+                 f"That is {v['gain_pct']}% shorter.", tag="RECOMMEND", color=CYAN, run_label="Move the pin (nothing has been changed yet)", run=f"ct-run use {v['worker']} --command {v['class']}")
+        elif v["verdict"] == "keep":
+            emit("This command is fine where it is", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Pinned took", took(v["pinned"])), tag="OK", color=GREEN)
+        else:
+            for w, n in v["need"].items():
+                emit("Not enough runs to compare yet", ("Command", v["class"]), ("Pinned to", alias.show(v["pinned"])), ("Worker", alias.show(w)), ("Successful runs", f"{n} of {ctx.recommend_runs} needed"),
+                     tag="NOTE", color=YELLOW)
+    return 0
 
 
 def cmd_jobs(ctx, n=15, cfg=None):
@@ -516,6 +749,13 @@ def cmd_jobs(ctx, n=15, cfg=None):
                 emit("A worker's jobs could not be read", ("Worker", alias.show(name)), ("Why", problem), tag="NOTE", color=YELLOW)
         floor = datetime.min.replace(tzinfo=timezone.utc)
         rows.sort(key=lambda r_: r_[0] or floor, reverse=True)
+    note_runs(ctx, results)
+    final = {k for k, v in results.items() if (v or {}).get("status") not in PENDING} if isinstance(results, dict) else set()
+    health.forget_final(ctx.home, final)
+    for jid, worker, cls, why, again, outcome in health.lost_now(ctx.home, final):
+        emit_lost(jid, worker, cls, why, again, outcome)
+    for i in queue.waiting(ctx.home):
+        emit("Waiting for a worker", ("Job", i["id"]), ("Command", i["class"]), ("Priority", i["priority"]), ("Waiting", queue.age_text(time.time() - i["at"])), ("Why", i.get("why", "")), tag="WAITING", color=YELLOW)
     view.render_status(rows, results, ctx.label_of, ctx.hints, ctx.admin, n=n, where=where)
     _ui.related(("Read one result in full", "ct-run result <job>"), ("Send another job", "ct-run submit <class>"), ("Approve a job that is waiting", f"{ctx.admin} approve <job>"))
     return 0
@@ -552,7 +792,7 @@ def one_worker_classes(ctx, product):
 
 def fleet_classes(ctx, ents):
     ctx.repos.need_setup()
-    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home)
+    views = place.gather(ents, lambda e: ctx.repos if e[0] == ents[0][0] else ClientRepos.from_config(e[1]), home=ctx.home, silent_s=place._silent_s(ctx))
     classes, unreachable = {}, []
     for v in views:
         if not v.reachable:
@@ -856,6 +1096,8 @@ def cmd_offload(ctx, a, cfg):
         return cmd_fit(ctx, a.argv)
     if c == "measure":
         return cmd_measure(ctx, a, cfg)
+    if c == "recommend":
+        return cmd_recommend(ctx, a, cfg)
     if c == "history":
         return cmd_history(ctx, a)
     if c == "exclusions":
@@ -867,7 +1109,7 @@ def cmd_offload(ctx, a, cfg):
     if c != "log" or not a.log_cmd:
         emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
              ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
-             ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
+             ("offload measure", "suggest the repeat settings from your own log"), ("offload recommend", "a better worker for a pinned command"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
@@ -930,12 +1172,13 @@ def build_parser():
     s.add_argument("--timeout", type=int, default=900, metavar="SEC", help="how long --wait waits (default %(default)s)")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
     s.add_argument("--worker", metavar="NAME", help="send it to this worker instead of letting ct-run choose (names: ct-admin workers)")
+    s.add_argument("--priority", choices=["low", "normal", "high"], default=None, help="where a job waits in line when every worker is busy (default normal)")
     s.add_argument("--here", action="store_true", help="send it to the worker this configuration is for, without choosing (what the checks that are about one worker use)")
     wh = sp.add_parser("where", add_help=False)
     wh.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
     us = sp.add_parser("use", add_help=False)
     us.add_argument("worker", nargs="?", metavar="worker", help="the worker this folder's jobs go to (names: ct-admin workers); without it, show what is set")
-    us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the scheduler")
+    us.add_argument("--command", metavar="class", help="set only this job class (for example nmap) to that worker, and leave the rest of the folder to the orchestrator")
     us.add_argument("--clear", action="store_true", help="remove the setting (with --command: just that one)")
     us.add_argument("--global", dest="glob", action="store_true", help="set it for this whole computer (~/.tenta.toml) instead of this folder")
     us.add_argument("--force", action="store_true", help="with --command: add it even when the folder's worker already covers it")
@@ -954,6 +1197,17 @@ def build_parser():
     pt.add_argument("--yes", action="store_true", help="with --apply: do not ask")
     s = sp.add_parser("jobs", add_help=False)
     s.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
+    au = sp.add_parser("audit", add_help=False)
+    au.add_argument("id", nargs="?", help="one job id: its whole story, with the jobs it was sent again as")
+    au.add_argument("-n", type=int, default=15, metavar="N", help="how many jobs to show (default %(default)s)")
+    au.add_argument("--json", action="store_true", help="the raw entries, for a script")
+    q = sp.add_parser("queue", add_help=False)
+    qsp = q.add_subparsers(dest="queue_cmd", metavar="command")
+    qc = qsp.add_parser("cancel", add_help=False, help="take a waiting job off the list")
+    qc.add_argument("id", help="the job id")
+    qp = qsp.add_parser("priority", add_help=False, help="change a waiting job's place in line")
+    qp.add_argument("id", help="the job id")
+    qp.add_argument("level", choices=["low", "normal", "high"])
     cl = sp.add_parser("classes", add_help=False)
     cl.add_argument("--worker", metavar="NAME", help="show only what this worker offers, with its limits (names: ct-admin workers)")
     o = sp.add_parser("offload", add_help=False)
@@ -978,6 +1232,7 @@ def build_parser():
     hs.add_argument("--clear", action="store_true", help="forget the history")
     osp.add_parser("measure", add_help=False, help="suggest how often a command must repeat to count, from your own log (changes nothing)").add_argument(
         "--min-seconds", type=float, default=30.0, help="the usual time a single run must take to count as long (default %(default)s)")
+    osp.add_parser("recommend", add_help=False, help="for commands pinned to a worker: has another worker run it clearly faster? (changes nothing)")
     osp.add_parser("exclusions", add_help=False, help="commands that were test-run on the worker and do not fit")
     pf = osp.add_parser("profile", add_help=False, help="describe one exact command and have the worker measure it (needs your approval)")
     pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")
@@ -1013,6 +1268,8 @@ HELP = {"setup": ("clone the two private repos on this computer", [("Do it once"
         "result": ("read a job's result", [("Read it now", "ct-run result job-abc123"), ("Wait for it", "ct-run result job-abc123 --wait")]),
         "jobs": ("your most recent jobs, and the ones waiting for your approval", [("Show 15", "ct-run jobs"), ("Show more", "ct-run jobs -n 40")]),
         "offload": ("find out what is worth running on the worker", [("Which of my commands are worth offloading?", "ct-run offload log top"), ("Where is the log?", "ct-run offload log show")]),
+        "audit": ("where jobs ran, why, and what happened (kept for audit.keep_days)", [("The latest 15 jobs", "ct-run audit"), ("One job in full", "ct-run audit job-abc123")]),
+        "queue": ("the jobs waiting on this computer for a worker with room", [("List them", "ct-run queue"), ("Take one off", "ct-run queue cancel <job>"), ("Move one up", "ct-run queue priority <job> high")]),
         "classes": ("every class your workers can run, and which workers offer each", [("List them", "ct-run classes"), ("One worker's own list", "ct-run classes --worker tenta3")]),
         "where": ("which of your workers a job of this class would go to, and why each of the others would not (nothing is sent)", [("Explain the choice for a class", "ct-run where sys-status")]),
         "use": ("send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit", [("See what is set", "ct-run use"), ("Send this folder to a worker", "ct-run use tenta2"), ("Only one command", "ct-run use tenta2 --command nmap"), ("Remove it", "ct-run use --clear")]),
@@ -1050,7 +1307,12 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_setup(ctx, cfg or config.load())
         if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
             import atexit
+            atexit.register(show_hint, ctx)
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
+        if cfg is not None and a.cmd in ("submit", "jobs", "result", "classes", "where", "queue"):
+            health_sweep(ctx, cfg, a)
+            retry_sweep(ctx, cfg, a)
+            drain_queue(ctx, cfg, a)
         if a.cmd == "use":
             return cmd_use(ctx, cfg, a)
         if a.cmd == "where":
@@ -1065,6 +1327,10 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_result(place.for_job(ctx, cfg, a.id), a)
         if a.cmd == "jobs":
             return cmd_jobs(ctx, a.n, cfg)
+        if a.cmd == "queue":
+            return cmd_queue(ctx, a)
+        if a.cmd == "audit":
+            return cmd_audit(ctx, a)
         if a.cmd == "offload":
             return cmd_offload(ctx, a, cfg)
         if a.cmd == "classes":

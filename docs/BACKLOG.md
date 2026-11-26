@@ -4,6 +4,7 @@ Ideas for future features, one per line, newest first. Each becomes its own smal
 
 In scope now: [Windows tools installer](design/WINDOWS-TOOLS-INSTALLER.md).
 
+- 2026-11-26 A plain single-worker send (no placement among several workers) is not in the audit trail, so `ct-admin status` and `ct-run audit` never show it as running or finished (same limit as R2, R3 and R5): record it too, if the trail should cover every job.
 - 2026-11-25 The installer's `apt-get install` fails at once when another apt job holds the package lock (a machine that has just booted runs unattended upgrades): add `-o DPkg::Lock::Timeout=300` to its apt calls (src/ct/packages.py), and cover it with a test of the command line. The e2e machines now wait for the lock themselves (`quiet_apt`), so this is only a gap for a real user on a freshly started machine, who today sees the lock message and runs the same command again.
 - 2026-11-25 After `ct-admin locate` saves a new address, this computer has the worker's key only under the OLD address, so an immediate second `locate` says "no recorded host key" until the person connects once. The key was just proved, so locate could record it for the new address itself (found by the `locate` e2e route; today the card names the one command to run).
 - 2026-11-20 The server half shows `ssh ctadmin@None` in its "real reason" hint (the server's own configuration has no host): print the address the person used.
@@ -70,3 +71,11 @@ After 4c (streamed compression) a 1.1 GB set still costs about 1x its size on th
 - After this computer is updated, the rest of the run still uses the old code that was loaded; a re-exec would give workers the new `apply` logic.
 - Updating workers in parallel (the per-worker sudo prompts make it unsuitable for now); rolling back every worker after a failed fleet update (`verify` offers a per-worker rollback).
 - 2026-11-25 (chore/e2e-unique-names): two full `scripts/e2e-routes` runs at once (14 machines) made the `install` route's first job time out at 240 s in both (alone: 37 of 37 in 85 s). The global cap of 12 is checked only when a run starts. Decide: re-check the cap per clone, or raise the job timeout when the Mac is loaded, or document "one full run at a time, or `e2e-routes` with a route list for the second".
+
+## After worker health (feat/orchestrator-health, R2, 2026-11-26): found in the peer review, not built
+- **`--worker NAME` naming a silent worker** sends the job anyway (the person's explicit choice) with no word that the worker has been silent for days. A one-line NOTE needs a look at that worker, which the forced path does not take today.
+- **Clock skew.** A worker's age is its own `updated` stamp against this computer's clock; a worker whose clock is days off looks silent (or never). Compare with the time the results were last fetched instead.
+- **A worker unreachable right now** counts as silent for lost jobs (the result cannot be read), so a job that finished yesterday on a laptop that is asleep today is called lost, and a repeatable one is queued again (it runs twice, harmless by the class flag). The card shows the real error and the mark disappears when the result is readable.
+- **Copies on disk.** A copy of a repeatable job stays until its result is seen final (`ct-run jobs`, or the sweep after the limit), up to 256 MB each; a size budget for all copies together, and dropping the copy at `ct-run result`, are not built.
+- **Look cost for long jobs.** A job running longer than the limit on a healthy worker makes each hourly sweep look at the workers once; a per-job "checked, alive" stamp would stop that.
+- **R1 waiting-list files** use the job id as a file name: `--id` is now checked on the command line, but `queue.add` itself does not refuse a bad id.

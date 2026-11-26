@@ -88,6 +88,8 @@ class Validation(unittest.TestCase):
         self.assertTrue(errs({"run": ["a"], "timeout_s": "60"}))
         self.assertTrue(errs({"run": ["a"], "params": {"p": {"int": [1, 2], "enum": [1]}}}))
         self.assertTrue(errs({"kind": "claude"}))
+        self.assertEqual(errs({"run": ["a"], "repeatable": True}), [])
+        self.assertTrue(errs({"run": ["a"], "repeatable": "yes"}))             # true or false only
         self.assertTrue(errs({"run": ["a"], "batchable": True}))              # needs accepts_files
         self.assertTrue(errs({"run": ["a"], "accepts_files": True, "batchable": "yes"}))
         self.assertTrue(errs({"kind": "profile", "run": ["a"]}))

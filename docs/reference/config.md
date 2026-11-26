@@ -111,6 +111,18 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `turns_per_day` | `300` | float | the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit |
 | `update_days` | `7` | float | days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail) |
 
+## [health]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `silent_hours` | `24` | int | a worker whose latest reading is older than this many hours is called silent (at most 312, a bit under the 14 days placements are remembered): no new job is placed on it, and a job sent to it that has no result by then is called lost (re-queued only if its class is repeatable) |
+
+## [audit]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `keep_days` | `90` | int | days the audit trail (ct-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour) |
+
 ## [offload]
 
 | Setting | Default | Allowed | What it does |
@@ -118,12 +130,18 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt |
 | `repeat_runs` | `3` | int | a command you run this many times within repeat_days counts as repeated work worth offloading |
 | `repeat_days` | `14` | int | the number of days repeat_runs is counted over |
+| `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker |
+| `recommend_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see ct-run offload recommend); off: never |
+| `recommend_hint_hours` | `24` | int | the least hours between two of those hint lines; a hint is also shown only once for the same suggestion |
+| `recommend_gain` | `25` | int | ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
 
 ## [limits]
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `max_in_flight` | `8` | float | the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap |
+| `max_per_worker` | `0` | float | the most jobs this computer will have queued or running on ONE worker; a job over it waits on this computer (ct-run jobs shows it) and is sent when one finishes. 0 means no limit |
+| `max_per_class` | `0` | float | the most jobs of ONE command this computer will have queued or running at once, so a big batch of one command cannot use every place; the rest wait their turn behind other jobs. 0 means no limit |
 
 ## [access]
 
