@@ -143,6 +143,27 @@ def template_candidates(base):
     return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else []), langs
 
 
+def gitignore_candidates(base):
+    """(files, ignored) for a folder that is not a git work tree but has its own `.gitignore`: git's own matcher is run over the folder's `.gitignore` files (nested ones too), so the rules mean exactly what they mean in a
+    repository, the default rules still apply on top. Git is only the matcher: the folder need not be a repository. None when there is no `.gitignore` at the top or the matcher cannot run (the default rules then decide)."""
+    if not (Path(base) / ".gitignore").is_file() or (Path(base) / ".gitignore").is_symlink():
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            exclude, gitdir = Path(tmp) / "exclude", Path(tmp) / "g"
+            exclude.write_text("")
+            safe_git("init", "-q", "--bare", str(gitdir), check=True, timeout=30)
+            run = lambda *more: safe_git("-c", f"core.excludesFile={os.devnull}", "--git-dir", str(gitdir), "--work-tree", str(base), "ls-files", "-z", "--others", "--exclude-from", str(exclude),    # noqa: E731
+                                                "--exclude-standard", *more)
+            listed, ignored = run(), run("--ignored", "--directory")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    names = lambda raw: outermost({n.rstrip("/") for n in raw.decode("utf-8", "replace").split("\0") if n})      # noqa: E731
+    return names(listed.stdout), (names(ignored.stdout) if ignored.returncode == 0 else [])
+
+
 def git_candidates(base):
     """(files, ignored) when `base` is inside a git work tree: the files git treats as the project (tracked, and untracked but not ignored) and the names of what the project's own ignore rules leave out. None when it is not one."""
     try:
@@ -220,7 +241,7 @@ def walked(base, include, left):
                 yield rel
 
 
-def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
+def collect_dir(d, limits, include=None, left=None, hold_secret_text=False, exclude=None):
     """Text files under `d`. In a git folder the project's own rules decide: tracked files and untracked ones that are not ignored (what it ignores is named in `left`, and `.git` is never part of it). Elsewhere hidden files and
     folders, build output and dependency folders are left out unless an include names them. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. A file whose name usually holds a secret is held back
     unless an include names it exactly. With `hold_secret_text` (the GitHub transport: the job leaves the person's network) a file whose text looks like a secret is held the same way; otherwise it is sent with a warning. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
@@ -228,7 +249,9 @@ def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
     left = left if left is not None else LeftOut()
     found = git_candidates(base)
     left.source = "this project's own ignore rules" if found is not None else ""
+    own = None
     if found is None:
+        own = gitignore_candidates(base)                                      # the folder's own .gitignore only ever ADDS to the default rules: it can leave more out, never let in what they keep out
         found = template_candidates(base)
         if found is not None:
             left.source = f"the ignore templates for {', '.join(found[2][:3])}" + (" and others" if len(found[2]) > 3 else "") + " (this folder is not a git repository)"
@@ -236,10 +259,19 @@ def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
         for name in found[1]:
             left.exclude(name)
     candidates = found[0] if found is not None else walked(base, include, left)
+    if own is not None:
+        allowed = set(own[0])
+        candidates = [c for c in candidates if c in allowed or c.startswith(".git/")]          # git never lists .git itself; the defaults already keep it out unless an include names it
+        for name in own[1]:
+            left.exclude(name)
+        left.source = (left.source + " and " if left.source else "the default rules (not a git repository) and ") + "this folder's own .gitignore"
     files = {}
     for rel in candidates:
         if include and not any(glob_match(rel, pat) for pat in include):
             continue                                                          # the person's own filter: not a file that failed
+        if exclude and any(glob_match(rel, pat) for pat in exclude):
+            left.exclude(rel, 1)                                          # the person's own removal: it only ever takes files away, and each is told
+            continue
         path = base / rel
         if path.is_symlink() or os.path.islink(base / Path(rel).parts[0]):
             left.link(rel)                                                    # a link is never followed: it may point at a file outside the project, whose contents would be sent under the link's name
@@ -332,6 +364,16 @@ def size_text(n):
         if n >= step:
             return f"{n / step:.1f} {unit}"
     return f"{n} bytes"
+
+
+def check_not_empty(files, left, folder):
+    """A folder whose rules leave nothing to send is a mistake to say out loud (a `.gitignore` of `*`, an `--include` that matches nothing, an `--exclude` that removes everything), not a job that runs on no files."""
+    if not Path(folder).expanduser().is_dir():
+        raise refuse.error("files.dir.missing", ("Folder", str(folder)))
+    if files or left.unsent or left.held:
+        return
+    decided = left.source or "the default rules (hidden files and folders, build output and dependency folders are not sent)"
+    raise refuse.error("files.dir.empty", ("Folder", folder), decided=decided, left=plural(len(left.excluded), "item"))
 
 
 def check_complete(left, allow=False):

@@ -220,6 +220,14 @@ define("job.packages.plan", "placement", "The packages a job asks for must be in
        steps=["Name each package like apt:jq, npm:eslint or pip:requests on ct-run offload profile."])
 
 # ---- what the client does before sending ----
+define("files.dir.empty", "policy", "A job that runs on no files answers a question about nothing, so a folder whose rules leave nothing to send is refused, with the rule that decided.",
+       "There is nothing to send from this folder", "No file in the folder was left to send. Decided by {decided}; {left} left out.", who="client",
+       steps=["Check the folder's `.gitignore`, `--include` and `--exclude`.", "To see what was left out by rule, read the note above."])
+define("files.dir.missing", "error", "A folder that is not there is said to be missing, not reported as an empty selection, so a recipe used from another folder points at the real cause.",
+       "That folder does not exist here", "The folder is not below the one you are in, or it was moved or deleted.", who="client",
+       steps=["Run the command from the folder the class was profiled in.", "Or name the folder yourself: `ct-run submit <class> --dir <folder>`."])
+define("pack.recipe.file_missing", "error", "A saved recipe may name single files; one that is gone is reported by name instead of stopping with a stack trace.",
+       "A file this class was profiled with is missing", "{reason}", who="client", steps=["Run the command from the folder the class was profiled in.", "Or send the files yourself: `ct-run submit <class> --dir <folder>`."])
 define("files.incomplete", "policy", "A test or any job run on part of the files answers a question about something else, so the person decides whether to go on without the files that could not be sent.",
        "Some files could not be sent", "{count} could not be sent, so the job would run on an incomplete set of files", who="client",
        steps=["Make the files listed above sendable or leave them out with --include, then run the same command again.", "Or run the same command again with --send-incomplete to send the rest."])
@@ -454,6 +462,10 @@ define("win.arg.task", "security", "A task name is plain, so it is safe inside a
 define("win.arg.arguments", "security", "A task's arguments are plain text: nothing a shell or PowerShell would read as more.", "Those are not arguments the task will run", "not arguments this will run: {value!r}", who="client")
 define("packages.list.invalid", "format", "A job's packages are a short list of fully named packages, so what the worker installs is known before it runs.", "The package list is not valid",
        "packages must be a list of at most {limit} entries like 'apt:jq', 'npm:eslint', 'pip:pyflakes'", who="both")
+define("packages.markers.too_many", "policy", "The packages a folder's marker files propose are never cut to fit: a list that is too long is reported, so the job never runs without software the person was told about.",
+       "The folder's marker files propose too many packages", "They propose {count} packages and a job takes at most {limit}.", who="client")
+define("profile.markers.none", "error", "--use-detected-packages needs a folder to read the marker files from, so it never installs something the person was not shown.",
+       "There is nothing detected to use", "No folder was given, or it has no marker file that proposes packages.", who="client")
 define("packages.spec.invalid", "format", "A package is named by where it comes from and what it is called.", "A package is not valid",
        "bad package {name!r}: use apt:<name>, npm:<name>[@version] or pip:<name>[==version]", who="both")
 define("registry.file.unreadable", "error", "The real error text of a registry file that cannot be read.", "The registry file cannot be read", "cannot read {path}: {reason}", who="both")

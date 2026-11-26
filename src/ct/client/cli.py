@@ -29,7 +29,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import candidacy, cap, hostload, refuse
+from . import candidacy, cap, hostload, markers, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -305,16 +305,16 @@ def cmd_submit(ctx, a):
     limits = sub.file_limits(info)
     left = sub.LeftOut()
     recipe = None if a.no_pack else (((info or {}).get("classes") or {}).get(a.cls) or {}).get("submit")
-    a_dir, a_files, a_include, used = off.use_recipe(recipe, a.dir, a.file, a.include, Path.cwd())
+    a_dir, a_files, a_include, a_exclude, used = off.use_recipe(recipe, a.dir, a.file, a.include, Path.cwd(), exclude=a.exclude)
     if used:
         emit("Using how this class was profiled", *[(k.capitalize(), ", ".join(v) if isinstance(v, list) else v) for k, v in recipe.items()],
              "Give --dir or --file to choose other files, or --no-pack to send none.", tag="NOTE", color=CYAN)
-        for f in a_files or []:
-            p = Path(f)
-            files[p.name] = p.read_text()
+        files.update(off.read_recipe_files(a_files))
     if a_dir:
-        files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct"))
+        files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct", exclude=a_exclude))
     show_left_out(left)
+    if a_dir:
+        sub.check_not_empty(files, left, a_dir)
     pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files else sub.Pack()
     if pack.state == "compressed":                                      # after the secret scan above, on exactly what is sent
         with view.Busy("compressing: the files"):
@@ -744,8 +744,16 @@ def cmd_profile(ctx, a):
     limits = sub.file_limits(r.registry_info())
     left = sub.LeftOut()
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, left=left, hold_secret_text=ctx.kind != "direct"))
+        files.update(sub.collect_dir(a.dir, limits, a.include, left=left, hold_secret_text=ctx.kind != "direct", exclude=a.exclude))
     show_left_out(left)
+    if a.dir:
+        sub.check_not_empty(files, left, a.dir)
+    detected = markers.detect(a.dir) if a.dir else None
+    if detected and (detected.found or detected.problems) and not (a.package and not a.use_detected_packages):
+        again = {} if a.use_detected_packages or not detected.packages else {"run": off.own_command_with(a.raw, "--use-detected-packages"), "run_label": "Use these packages"}
+        emit("What this folder seems to need", *markers.proposal_lines(detected), tag="PROPOSAL", color=CYAN, **again)
+    elif a.use_detected_packages:
+        raise refuse.error("profile.markers.none", steps=["Give the folder with `--dir`, or name the packages with `--package`."])
     show_summary(ctx, files, left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     if files and (len(files) > limits["max_count"] or sum(len(v) for v in files.values()) > limits["max_total_kb"] * 1000):
@@ -754,14 +762,14 @@ def cmd_profile(ctx, a):
         bad = off.class_name_problem(name, off.taken_names(r))
         if bad:
             raise refuse.error("class.name.unusable", ("Name", name), example=off.own_command_with(a.raw, "").replace(f"--name {name}", "--name <another-name>"), reason=bad)
-    job = off.build_profile_job(argv, what, expect, est, flags={**spec["flags"], **off.parse_flags(a.flag)}, packages=spec["packages"] + (a.package or []), why=why,
+    job = off.build_profile_job(argv, what, expect, est, flags={**spec["flags"], **off.parse_flags(a.flag)}, packages=spec["packages"] + (a.package or []) + (detected.usable() if a.use_detected_packages and detected else []), why=why,
                                 side_effects=side, watch_for=watch, timeout_s=timeout_s, files=files, retry_example=lambda extra: off.own_command_with(a.raw, extra))
     jid = a.id or sub.new_job_id("profile", r.result_ids())
     cap.check(ctx.fleet(), ctx.max_in_flight, 1)
     sub.push_job(r, jid, job)
     if name:
         ctx.names.remember(jid, name)
-    recipe, recipe_note = off.make_recipe(a.dir, a.include, a.file, Path.cwd()) if files else (None, None)
+    recipe, recipe_note = off.make_recipe(a.dir, a.include, a.file, Path.cwd(), exclude=a.exclude) if files else (None, None)
     ctx.commands.remember(jid, list(a.raw))
     if recipe:
         ctx.packs.remember(jid, recipe)
@@ -926,6 +934,7 @@ def build_parser():
     s.add_argument("--file", action="append", metavar="F", help="attach one text file; repeat for more")
     s.add_argument("--dir", metavar="D", help="attach the text files under a folder")
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")
+    s.add_argument("--exclude", action="append", metavar="GLOB", help="with --dir: leave these files out, for example 'docs/**' (wins over --include)")
     s.add_argument("--no-pack", action="store_true", help="do not use the files this class was profiled with")
     s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
     s.add_argument("--no-compress", action="store_true", help="on Direct, send a set over 1 GB as it is instead of compressed (for a worker that cannot unpack)")
@@ -995,6 +1004,8 @@ def build_parser():
     pf.add_argument("--flag", action="append", metavar="-x=meaning", help="explain a flag; one per flag")
     pf.add_argument("--package", action="append", metavar="apt:name", help="software the worker lacks: apt:, npm: or pip:")
     pf.add_argument("--file", action="append", metavar="F"), pf.add_argument("--dir", metavar="D"), pf.add_argument("--include", action="append", metavar="GLOB")
+    pf.add_argument("--exclude", action="append", metavar="GLOB", help="with --dir: leave these files out (wins over --include)")
+    pf.add_argument("--use-detected-packages", action="store_true", help="put the packages the folder's marker files propose (pinned only) on this run")
     pf.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be")
     pf.add_argument("--timeout-s", dest="timeout_s", type=int, help="the hard time limit for this run")
     pf.add_argument("--id"), pf.add_argument("--retry", action="store_true", help="profile again even if it was excluded before")

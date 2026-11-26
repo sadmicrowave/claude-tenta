@@ -1169,6 +1169,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** not configurable
 - **What to do:** Leave the file out with --include on ct-run submit.
 
+### `files.dir.empty`: There is nothing to send from this folder
+
+- **Text:** No file in the folder was left to send. Decided by {decided}; {left} left out.
+- **Protects:** A job that runs on no files answers a question about nothing, so a folder whose rules leave nothing to send is refused, with the rule that decided.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Check the folder's `.gitignore`, `--include` and `--exclude`. To see what was left out by rule, read the note above.
+
 ### `files.incomplete`: Some files could not be sent
 
 - **Text:** {count} could not be sent, so the job would run on an incomplete set of files
@@ -1298,6 +1307,14 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
+### `packages.markers.too_many`: The folder's marker files propose too many packages
+
+- **Text:** They propose {count} packages and a job takes at most {limit}.
+- **Protects:** The packages a folder's marker files propose are never cut to fit: a list that is too long is reported, so the job never runs without software the person was told about.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+
 ### `setup.job.running`: A job is running
 
 - **Text:** {running} is still running. Wait for it, or stop it (ct-admin kill), then try again; nothing was changed.
@@ -1396,6 +1413,24 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **What to do:** Run ct-setup install to see how the worker is connected.
 
 ## Error
+
+### `files.dir.missing`: That folder does not exist here
+
+- **Text:** The folder is not below the one you are in, or it was moved or deleted.
+- **Protects:** A folder that is not there is said to be missing, not reported as an empty selection, so a recipe used from another folder points at the real cause.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command from the folder the class was profiled in. Or name the folder yourself: `ct-run submit <class> --dir <folder>`.
+
+### `pack.recipe.file_missing`: A file this class was profiled with is missing
+
+- **Text:** {reason}
+- **Protects:** A saved recipe may name single files; one that is gone is reported by name instead of stopping with a stack trace.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Run the command from the folder the class was profiled in. Or send the files yourself: `ct-run submit <class> --dir <folder>`.
 
 ### `result.not_ready`: No result yet
 
@@ -1870,6 +1905,14 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Run the same command again once it is fixed: nothing is set up twice.
+
+### `profile.markers.none`: There is nothing detected to use
+
+- **Text:** No folder was given, or it has no marker file that proposes packages.
+- **Protects:** --use-detected-packages needs a folder to read the marker files from, so it never installs something the person was not shown.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
 
 ### `registry.file.unreadable`: The registry file cannot be read
 
