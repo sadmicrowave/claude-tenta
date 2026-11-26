@@ -134,6 +134,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `max_in_flight` | `8` | float | the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap |
+| `max_per_worker` | `0` | float | the most jobs this computer will have queued or running on ONE worker; a job over it waits on this computer (ct-run jobs shows it) and is sent when one finishes. 0 means no limit |
+| `max_per_class` | `0` | float | the most jobs of ONE command this computer will have queued or running at once, so a big batch of one command cannot use every place; the rest wait their turn behind other jobs. 0 means no limit |
 
 ## [access]
 

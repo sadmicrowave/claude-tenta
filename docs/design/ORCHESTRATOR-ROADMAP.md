@@ -54,7 +54,7 @@ Each is a feature of `theme/orchestrator`, one session, one small branch. Not in
 **Done when.** Class settings `retries` (default 0) and a retry delay; a retry only for classes marked safe to repeat; the result card says "attempt 2 of 3"; the existing `timeout_s` and `max_timeout_s` are the stop rule and are shown in `ct-admin class show`; tests.
 **Not in scope.** Retrying a job that ran to a clean error (the person decides), changing how approvals work.
 
-### R4. Fair share and limits (`feat/orchestrator-fair-share`)
+### R4. Fair share and limits (`feat/orchestrator-fair-share`; built 2026-11-26: `limits.max_per_worker` and `limits.max_per_class`, `cap.share_problem`, checked at submit and in the queue drain; a job over its share waits with the reason)
 **Goal.** One big batch cannot starve everything else, and no worker or person goes over a stated limit.
 **Done when.** `limits.max_in_flight` gains a per-worker and a per-class form; a batch over its share queues behind others (R1) and the card says so; tests with a burst plus a single job.
 **Not in scope.** Billing, accounts for several people (this is one person's fleet).
