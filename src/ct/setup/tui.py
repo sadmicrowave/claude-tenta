@@ -346,11 +346,17 @@ class TuiPrompter:
     # ---- the progress bar and the answered questions ----
     def progress(self, pos, total):
         shown = total if pos >= total else pos + 1                          # the question being asked, the same number as the chip beside its label; "done" only at the end
-        n = round(BAR * shown / total) if total else 0
-        bar = (self.sgr("━" * (n - 1) + "╸", BLUE) if n else "") + self.sgr("─" * (BAR - n), DIM)
         left = " " + self.sgr(BRAND, BLUE, BOLD) + self.sgr("  " + self.title, DIM)
-        right = bar + self.sgr(f"  {shown} of {total}" + (" done" if pos >= total else ""), DIM)
-        return left + " " * max(2, self.width - vlen(left) - vlen(right)) + right
+        count = f"  {shown} of {total}" + (" done" if pos >= total else "")
+        bar_w = min(BAR, self.width - vlen(left) - len(count) - 3)           # a narrow pane shortens the bar, then drops it, so the row never passes the edge
+        if bar_w < 4:
+            bar_w = 0
+        n = round(bar_w * shown / total) if total and bar_w else 0
+        bar = (self.sgr("━" * (n - 1) + "╸", BLUE) if n else "") + self.sgr("─" * (bar_w - n), DIM)
+        right = bar + self.sgr(count if bar_w else count.strip(), DIM)
+        if vlen(left) + 1 + vlen(right) > self.width:                        # a very narrow pane: the counter alone on the row
+            return self.sgr(f"{shown}/{total}", DIM)
+        return left + " " * max(1, self.width - vlen(left) - vlen(right)) + right
 
     def answered_lines(self, items, everything=False, limit=None):
         shown = items if everything else items[-WINDOW:]
@@ -493,9 +499,16 @@ class TuiPrompter:
         self.erase()
         room = max(3, self.rows - 11)                      # the block must fit on the screen, or it could not be redrawn
         pairs = [("Enter", "start"), ("↑", "change an answer")] + ([("A", f"review the {hidden} advanced settings")] if hidden else []) + [("Ctrl-C", "stop")]
-        keys = self.rail(self.sgr(" · ", DIM).join(self.sgr(k, BLUE, BOLD) + self.sgr(" " + v, DIM) for k, v in pairs))
+        sep, rows, cur = " · ", [], []                                      # the key hints wrap between hints, never inside one
+        for k, v in pairs:
+            if cur and sum(len(x) for x in cur) + len(sep) * len(cur) + len(k) + 1 + len(v) > self.width - 4:
+                rows.append(cur)
+                cur = []
+            cur.append(f"{k} {v}")
+        rows.append(cur)
+        keys = [self.rail(self.sgr(sep, DIM).join(self.sgr(h.split(" ", 1)[0], BLUE, BOLD) + self.sgr(" " + h.split(" ", 1)[1], DIM) for h in r)) for r in rows]
         note = [self.rail(self.sgr(f"+ {hidden} advanced settings use their defaults", DIM))] if hidden else []
-        lines = [self.progress(total, total), ""] + self.answered_lines(items, everything=True, limit=room) + note + [self.rail(), self.rail(self.sgr(message, BOLD)), self.rail(), keys]
+        lines = [self.progress(total, total), ""] + self.answered_lines(items, everything=True, limit=room) + note + [self.rail(), *[self.rail(self.sgr(m, BOLD)) for m in cards.wrap_text(message, max(10, self.width - 4))], self.rail(), *keys]
         with self.listening():
             self.emit(lines)
             while True:
