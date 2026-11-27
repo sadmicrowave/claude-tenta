@@ -562,3 +562,21 @@ define("files.unpack.no_room", "limit", "The worker checks free disk before it u
 define("files.unpack.unreadable", "format", "Compressed data that cannot be read exactly as sent is never run.", "The compressed files could not be read",
        "the compressed files could not be unpacked: {detail}", depends="the worker release that can unpack (the one that publishes `compress`)",
        steps=["Send it again: ct-run submit does the compression itself, so a damaged copy is not repeated.", "Or add --no-compress to the same command."])
+
+# ---- delta sync: a folder as a manifest of hashes plus the files the worker lacks (design: docs/design/WORKSPACE-JOBS.md, "Built: delta sync") ----
+define("files.manifest.invalid", "format", "A manifest that is not exactly a set of named files with hashes, sizes and modes, or that does not match its own id or its blobs, is never run: the job could otherwise run on files nobody approved.",
+       "The file list of this job is not valid", "the file list is not valid: {detail}", depends="the worker release that publishes `cache` in registry.json",
+       steps=["Send the job again with ct-run submit, which builds the list itself.", "Or send every file again, ignoring what the worker is thought to hold: add --resend-all to the same command."])
+define("files.cache.hash_mismatch", "security", "A file is stored under the hash the worker computes from its content, so a sender cannot plant content under the name (hash) of another file.",
+       "A file does not match its hash", "a file was sent under hash {claimed}... but its content hashes to {actual}...; nothing was stored and the job was refused", depends="the worker release that publishes `cache` in registry.json",
+       steps=["Send the job again with ct-run submit: it hashes the files itself, so a damaged copy is not repeated.", "If it happens again on the same files, run ct-admin status for the worker and look at its security log."])
+define("files.cache.damaged", "error", "A file kept on the worker that no longer matches its hash (disk damage, or something changed it) is never run: the result would be wrong without saying so.",
+       "A file kept on the worker was damaged", "a file this job needs (hash {hash}...) no longer matches what was stored, so the job did not run; the damaged copy was removed", depends="the worker release that publishes `cache` in registry.json",
+       steps=["Send the job again with every file: add --resend-all to the same ct-run submit command.", "If it keeps happening, check the worker's disk with ct-admin status."])
+define("files.cache.missing", "error", "A worker that was reset or that evicted a file cannot run on files it does not have, so it says which it lacks and the client sends exactly those, with no new approval.",
+       "The worker needs some files again", "the worker does not hold {count} of this job's (it was reset, or it cleared old files to make room); this computer sends them when it next looks at the job, and the job then runs", who="both",
+       depends="the worker release that publishes `cache` in registry.json", config="cache.max_mb on the worker",
+       steps=["Run ct-run result JOB: it sends the missing files and the job then runs.", "Or send every file again: add --resend-all to the same ct-run submit command."])
+define("files.cache.source_changed", "error", "The worker needs files that this computer no longer has in the form that was approved; sending the changed ones would run a different job than the one approved.",
+       "Some files changed since the job was sent", "{count} the worker needs have changed or gone on this computer since the job was sent, so they cannot be sent for this job", who="client",
+       depends="the worker release that publishes `cache` in registry.json", steps=["Send the job again: run the same ct-run submit command with --resend-all added."])

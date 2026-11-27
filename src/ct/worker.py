@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, filecache, guard, jobs, profiling, publishdiag, registry, results, snapshot, workerstate
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
@@ -59,6 +59,7 @@ class Settings:
     prune_threshold: int = 200
     pkg_timeout: int = 900
     require_netns: bool = True
+    cache_max_mb: int = None                # the most file content kept for repeat runs (None: automatic, see Worker.cache_cap_mb)
     max_job_mb: int = None                  # the largest job file accepted (None: automatic, see Worker.job_ceiling_mb)
     transport: str = "github"               # "direct": the published file limits follow the ceiling instead of the GitHub-era defaults (see Worker.effective_limits)
     disk_reserve: bool = True               # wait instead of starting a job when the disk is nearly full (see Worker.busy_reason)
@@ -67,6 +68,14 @@ class Settings:
     idle_fetch_s: int = 90                  # ... and the fetch pass only really runs this often (0: never slows down)
     sleep_after_s: int = 7200               # sleep mode: nothing to do for this long ...
     sleep_fetch_s: int = 300                # ... and the fetch pass only really runs this often (0: no sleep mode)
+
+
+class NeedFiles(Exception):
+    """A job whose manifest names files this worker does not hold (it was reset, or cleared old files): not a refusal, the job waits and the client sends exactly these."""
+
+    def __init__(self, hashes):
+        super().__init__(f"{len(hashes)} files missing")
+        self.hashes = sorted(hashes)
 
 
 class Worker:
@@ -96,6 +105,7 @@ class Worker:
         self.state = Path(settings.state)
         for d in ("done", "approved", "notified", "work", "queued", "running", "fetching", "finished", "inbox", "quarantine", "output"):
             (self.state / d).mkdir(parents=True, exist_ok=True)
+        self.cache = filecache.FileCache(self.state / "filecache", self.cache_cap_mb(), clock=time.time)
         (self.state / "quarantine").chmod(0o700)
         (self.state / "output").chmod(0o700)
 
@@ -121,6 +131,13 @@ class Worker:
         if snap.get("mem_available_mb") is not None:
             terms.append(snap["mem_available_mb"] / 4)
         return int(max(1, min(terms)))
+
+    def cache_cap_mb(self):
+        """The most file content kept for repeat runs, in MB: the owner's cache.max_mb, or automatically the smaller of 2048 and a quarter of the free disk."""
+        if self.s.cache_max_mb:
+            return int(self.s.cache_max_mb)
+        free = plat.disk_free_gb(self.state)
+        return 2048 if free is None else int(max(16, min(2048, free * 1000 / 4)))
 
     def unpacked_cap_mb(self):
         """The most a compressed job may unpack to, in MB: a quarter of the free disk, half of the free memory (the files are held in memory) and 10 times the job-file ceiling (text shrinks 5 to 10 times). Zip-bomb guard, finding F5."""
@@ -362,7 +379,51 @@ class Worker:
         self.io.publish_file("security.json", json.dumps(st, indent=2) + "\n", "security: " + ("LOCKED" if st["locked"] else "clear"))
 
     # ---- validation (runs at intake and again at exec, on the snapshot) ----
-    def _validate(self, jid, raw, reg, res):
+    def _manifest_files(self, jid, job, cls, limits, run):
+        """{name: text} for a job that carries a manifest instead of files: the blobs it brought (and any top-up) are stored under the hash the worker computes, then every file is read back from the cache and checked
+        again. A file the worker lacks is NeedFiles (at intake) or a refusal (at exec, where nothing can be asked). Nothing runs on a file that does not match its hash."""
+        if "files" in job or "files_z" in job:
+            raise refusals.refuse("files.manifest.invalid", detail="the job carries its files twice, as a manifest and as files")
+        if not cls.get("accepts_files"):
+            raise refusals.refuse("files.not_accepted")
+        manifest = snapshot.check_manifest(job["manifest"], cls.get("kind", "command"))
+        if job.get("snapshot") != snapshot.snapshot_id(manifest):
+            raise refusals.refuse("files.manifest.invalid", detail="the file list does not match its own id")
+        fl = limits["files"]
+        total = sum(e["size"] for e in manifest.values())
+        if len(manifest) > fl["snapshot_count"] or total > fl["snapshot_total_kb"] * 1000:
+            raise refusals.refuse("files.set.too_big", count=plural(len(manifest), "file"), kb=total // 1000, limit=fl["snapshot_total_kb"])
+        wanted = set(snapshot.hashes(manifest))
+        if not run:
+            blobs = job.get("blobs") or {}
+            if not isinstance(blobs, dict) or not all(isinstance(t, str) for t in blobs.values()):
+                raise refusals.refuse("files.manifest.invalid", detail="the blobs are not a set of texts")
+            for h, text in blobs.items():
+                if h in wanted:
+                    self.cache.put(text, claimed=h)                         # stored under the hash the worker computes; a file the list does not name is never stored
+                elif snapshot.blob_hash(text) != h:
+                    raise refusals.refuse("files.cache.hash_mismatch", claimed=str(h)[:16], actual=snapshot.blob_hash(text)[:16])
+            if self.cache.missing(sorted(wanted)):
+                try:
+                    extra = json.loads((self.io.blobs_bytes(jid) or b"{}").decode("utf-8", "replace"))
+                except ValueError:
+                    extra = {}
+                for h, text in (extra.items() if isinstance(extra, dict) else ()):
+                    if h in wanted and isinstance(text, str):
+                        self.cache.put(text, claimed=h)
+        files = {}
+        for name, e in sorted(manifest.items()):
+            text = self.cache.get(e["sha256"])
+            if text is None:
+                if run:
+                    raise refusals.refuse("files.cache.damaged", hash=e["sha256"][:16])
+                raise NeedFiles(self.cache.missing(sorted(wanted)) or [e["sha256"]])
+            if len(text.encode("utf-8")) != e["size"]:
+                raise refusals.refuse("files.manifest.invalid", detail=f"{name!r} is not the size the list says")
+            files[name] = text
+        return files
+
+    def _validate(self, jid, raw, reg, res, run=False):
         jobs.check_id(jid)
         try:
             job = json.loads(raw)
@@ -380,6 +441,11 @@ class Worker:
         cls = (reg.get("classes") or {}).get(cname)
         if cls is None:
             raise refusals.refuse("job.class.unknown", name=cname)
+        if "manifest" in job:                                               # a folder as a manifest of hashes: the files come from the cache, and only the folder as a whole is limited by the snapshot caps
+            files_in = self._manifest_files(jid, job, cls, limits, run)
+            fl = limits["files"]
+            limits = {**limits, "files": {**fl, "max_count": fl["snapshot_count"], "max_total_kb": fl["snapshot_total_kb"]}}
+            job = {**{k: v for k, v in job.items() if k not in ("manifest", "blobs", "snapshot")}, "files": files_in, "manifest": job["manifest"]}
         jobs.check_age(job, self.s.max_age_s, self.clock)
         params = job.get("params") or {}
         if not isinstance(params, dict):
@@ -430,7 +496,7 @@ class Worker:
         digest = hashlib.sha256(raw).hexdigest()
         res = {"id": jid, "class": None, "status": "rejected", "started": None, "finished": None, "exit_code": None, "output": "", "note": ""}
         try:
-            job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res)
+            job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res, run=run)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
             if (kind in ("profile", "privileged") or cls.get("tier", "approve") != "auto") and not (kind == "profile" and self.profile_runs_unapproved()) \
                     and not self._approved(jid, digest, signed_only=(kind == "privileged")):
@@ -458,6 +524,9 @@ class Worker:
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
                 return
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
+        except NeedFiles as e:
+            self._needs_files(jid, res, e.hashes)
+            return
         except Reject as e:
             res.update(status="rejected", note=str(e))
             if getattr(e, "code", None):
@@ -465,6 +534,15 @@ class Worker:
         except Exception as e:                                              # one bad job must never kill the loop
             res.update(status="error", note=f"worker error: {e}")
         self._finish(res, run)
+
+    def _needs_files(self, jid, res, hashes):
+        """Say once (again only when the list changes) which files this worker needs, and leave the job waiting: no `done` mark, so the next pass looks again, and a top-up from the client lets it go on."""
+        marker = self._p("notified", f"{jid}.needs")
+        if marker.exists() and marker.read_text() == ",".join(hashes):
+            return
+        note = str(refusals.refuse("files.cache.missing", count=plural(len(hashes), "file")))
+        if self.io.publish({**res, "status": "needs-files", "needs": hashes, "note": note}):
+            marker.write_text(",".join(hashes))
 
     def _finish(self, res, run):
         jid = res["id"]
@@ -549,7 +627,9 @@ class Worker:
             if not target.resolve().is_relative_to(base):                       # the second defence, on the path actually written: the name check (jobs.file_name_problem) is the first
                 raise refusals.refuse("files.name.path", name=name, reason="it would be written outside the job's folder")
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
+            target.write_bytes(content.encode("utf-8"))                         # exactly the bytes that were hashed: no newline translation
+            if ((job.get("manifest") or {}).get(name) or {}).get("mode") == "755":
+                target.chmod(0o755)
         returns_patch = kind == "claude" and cls.get("returns") == "patch"
         before, before_notes = patch_mod.snapshot(wd) if returns_patch else ({}, [])      # what the folder held when the job began: the patch is the difference from this
         self.io.publish({**res, "status": "running", "note": f"approved; running on {self.s.product} now"})   # so the client can tell it was picked up
@@ -774,6 +854,38 @@ class Worker:
         jobs.check_id(jid)
         self.process(self._p("queued", f"{jid}.json"), self.load_registry(), run=True)
 
+    def pinned_hashes(self):
+        """The file hashes that a job still to run needs: its file may not be evicted."""
+        keep = set()
+        for f in self._p("inbox").glob("*.json"):
+            if self._p("done", f.stem).exists():
+                continue
+            try:
+                keep.update(snapshot.hashes((json.loads(f.read_text()) or {}).get("manifest") or {}))
+            except (OSError, ValueError, AttributeError):
+                pass
+        return keep
+
+    def prune_cache(self, due_s=0):
+        """Keep the file cache within its cap, least recently used first, never a file a waiting job needs. Under disk pressure (free space below the reserve) everything not pinned goes. At most once every `due_s`."""
+        stamp = self._p("cache-prune.stamp")
+        try:
+            if due_s and time.time() - stamp.stat().st_mtime < due_s:
+                return []
+        except OSError:
+            pass
+        stamp.touch()
+        self.cache.max_mb = self.cache_cap_mb()
+        free = plat.disk_free_gb(self.state)
+        if free is not None and self.s.disk_reserve and free < self.disk_reserve_gb():
+            self.cache.max_mb = 0
+        if self.cache.total_bytes() <= self.cache.max_bytes:
+            return []
+        gone = self.cache.evict(self.pinned_hashes())
+        if gone:
+            self.log(f"file cache: removed {len(gone)} least recently used files to stay within {self.cache.max_mb:g} MB")
+        return gone
+
     def clean_work(self, days=3):
         cutoff = time.time() - days * 86400
         for old in self._p("inbox").glob("*.json"):          # finished jobs' snapshots; unfinished ones are kept
@@ -783,6 +895,7 @@ class Worker:
             except OSError:
                 pass
         self.pkgs.prune_old_envs()
+        self.prune_cache(due_s=600)
         self.keeper.prune()
         for d in self._p("work").iterdir():
             try:
@@ -810,7 +923,7 @@ class Worker:
             approvers = approvals.fingerprints(Path(self.approvers_file).read_text()) if self.approvers_file else []
         except OSError:
             approvers = []
-        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.unpacked_cap_mb() // 256}:compress1:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
+        stamp, mark = f"{digest}:{total}:{isolated}:{self.jail.name}:{','.join(approvers)}:{self.job_ceiling_mb() // 64}:{self.unpacked_cap_mb() // 256}:compress1:cache1-{self.cache.epoch}:{self.s.transport}:{self.s.isolation_purpose}:{self.speed()}", self._p("registry.sha")      # (the ceiling moves with free disk: a coarse step, so it is republished when it really changes)
         if mark.exists() and mark.read_text() == stamp:
             return False
         classes = {}
@@ -834,7 +947,9 @@ class Worker:
         for name in classes:                                      # when each class first appeared on this worker (a class that was already here when this was added gets that day)
             classes[name]["installed"] = known.get(name) or when
         info = {"updated": when, "registry_sha256": digest, "mem_total_mb": total, "capacity": self.s.capacity, "classes": classes,
-                "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "compress": {"codec": jobs.CODEC, "max_unpacked_mb": self.unpacked_cap_mb()}, "job_network_isolation": isolated, "job_jail": self.jail.name,
+                "profiling": registry.profiling_rules(reg), "limits": self.effective_limits(reg), "compress": {"codec": jobs.CODEC, "max_unpacked_mb": self.unpacked_cap_mb()},
+                "cache": {"version": 1, "epoch": self.cache.epoch, "max_mb": self.cache.max_mb},          # the worker keeps files by hash: a client may send a manifest and only what it lacks; a new epoch means it was reset
+                "job_network_isolation": isolated, "job_jail": self.jail.name,
                 "profile_time": self.profile_time_info(reg),       # what a profile run's time limit is built from (the client checks a request against it)
                 "approvers": approvers}              # fingerprints of the keys whose signed approvals this worker accepts
         if self.io.publish_file("registry.json", json.dumps(info, indent=2) + "\n", "registry info"):

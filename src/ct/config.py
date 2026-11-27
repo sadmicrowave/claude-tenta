@@ -234,6 +234,9 @@ SCHEMA = {
         "max_temp_c": (None, _int(40, 110), "do not start a job when the hottest core is above this"),
         "max_job_mb": (None, _int(1, 1000000), "the largest job file this worker accepts, in MB; unset means automatic: the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB"),
     },
+    "cache": {
+        "max_mb": (None, _int(16, 1000000), "the most file content this worker keeps so a repeat run of a folder needs only what changed, in MB (least recently used goes first, never a file a waiting job needs); unset means automatic: the smaller of 2048 and a quarter of its free disk"),
+    },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
         "purpose": ("tenta-only", _enum("tenta-only", "shared", "special-use"), "what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed)"),

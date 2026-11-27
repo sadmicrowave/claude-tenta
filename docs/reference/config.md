@@ -61,6 +61,12 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `max_temp_c` | *(not set)* | int | do not start a job when the hottest core is above this |
 | `max_job_mb` | *(not set)* | int | the largest job file this worker accepts, in MB; unset means automatic: the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB |
 
+## [cache]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `max_mb` | *(not set)* | int | the most file content this worker keeps so a repeat run of a folder needs only what changed, in MB (least recently used goes first, never a file a waiting job needs); unset means automatic: the smaller of 2048 and a quarter of its free disk |
+
 ## [isolation]
 
 | Setting | Default | Allowed | What it does |

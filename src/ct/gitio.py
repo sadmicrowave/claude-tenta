@@ -126,6 +126,12 @@ class GitIO:
         src = self.job_listing().get(jid)
         return self.git_bytes(self.queue, "show", f"{src[0]}:{src[1]}") if src else None
 
+    def blobs_bytes(self, jid):
+        """The extra files the client sent for a job that said it lacked some (`blobs/<id>.json` on the jobs branch), or None. Only read here: every blob is checked against its hash by the cache."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", jid or ""):
+            return None
+        return self.git_bytes(self.queue, "show", f"{self.job_sources[0][0]}:blobs/{jid}.json")
+
     def approval_bytes(self, jid):
         """The signed approval file for a job from the approvals branch of the queue repo, or None. Only read here; trusting it is approvals.check's job."""
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", jid or ""):

@@ -18,7 +18,7 @@ from ..words import plural
 
 REFSPEC = "+refs/heads/*:refs/remotes/origin/*"
 CLIENT_IDENTITY = {"GIT_AUTHOR_NAME": "ct-client", "GIT_AUTHOR_EMAIL": "ct-client@localhost", "GIT_COMMITTER_NAME": "ct-client", "GIT_COMMITTER_EMAIL": "ct-client@localhost"}
-PENDING = ("awaiting_approval", "running", "queued")        # a job in one of these states has no final result yet
+PENDING = ("awaiting_approval", "running", "queued", "needs-files")        # a job in one of these states has no final result yet
 
 
 class ClientError(Exception):
@@ -258,6 +258,8 @@ class ClientRepos:
                 keep[path] = txt
             else:
                 dropped += 1
+        for path in [p for p in keep if p.startswith("blobs/") and f"jobs/{Path(p).stem}.json" not in keep]:
+            del keep[path]                                   # the files sent for a job that missed some (delta sync) go with the job
         head = self.git(self.queue, "rev-parse", f"origin/{b}").stdout.strip()
         idx = self.queue / ".git" / f"ct-prune.{os.getpid()}.{uuid.uuid4().hex[:8]}.index"
         idx.unlink(missing_ok=True)

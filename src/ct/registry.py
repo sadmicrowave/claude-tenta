@@ -28,7 +28,7 @@ BASELINE_DENY = ("sudo", "su", "doas", "pkexec")      # always refused, whatever
 
 # Size limits the client must know too. The installed registry's `limits:` section overrides any of these.
 LIMITS_DEFAULTS = {
-    "files": {"max_count": 200, "max_file_kb": 500, "max_total_kb": 2000, "max_batches": 10},
+    "files": {"max_count": 200, "max_file_kb": 500, "max_total_kb": 2000, "max_batches": 10, "snapshot_count": 5000, "snapshot_total_kb": 50000},      # snapshot_*: a whole folder sent as a manifest (the first run); the others limit what one job carries
     "output_max_chars": MAX_OUT,
     "packages": {"max_download_mb": 1000, "max_env_mb": 2000, "require_pins": True},
 }

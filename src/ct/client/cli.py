@@ -29,7 +29,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import candidacy, cap, hostload, markers, refuse
+from . import candidacy, cap, delta, hostload, markers, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -265,13 +265,21 @@ def show_left_out(left):
         emit("Files that could not be sent", *rows, *([f"And {plural(len(left.unsent) - 10, 'more file')}."] if len(left.unsent) > 10 else []), tag="WARNING", color=YELLOW)
 
 
-def show_summary(ctx, files, left, pack=None):
+def show_summary(ctx, files, left, pack=None, dplan=None):
     """The pre-job summary: what is about to leave this computer, how much of it, and where it goes. A set over 1 GB on Direct is sent compressed: the card says so, with the sizes before and after."""
     if not files:
         return
     count, size = sub.totals(files)
     where = "your own network (Direct)" if ctx.kind == "direct" else "a private GitHub repository"
     rows = [("Files", plural(count, "file")), ("Size", sub.size_text(size)), ("Goes to", where)]
+    if dplan:
+        if dplan.sent_files == 0:
+            rows.append(("Sent", f"nothing changed since the last run: only the file list ({plural(dplan.reused_files, 'file')}, {sub.size_text(dplan.reused_bytes)}, already on the worker)"))
+        elif dplan.reused_files == 0:
+            rows.append(("Sent", f"all {plural(dplan.sent_files, 'file')} ({sub.size_text(dplan.sent_bytes)}): the worker holds none of them yet"))
+        else:
+            rows += [("Sent", f"{plural(dplan.sent_files, 'file')} ({sub.size_text(dplan.sent_bytes)}) that changed or are new"),
+                     ("Already on the worker", f"{plural(dplan.reused_files, 'file')} ({sub.size_text(dplan.reused_bytes)}), not sent again")]
     if pack and pack.state == "compressed":
         rows.append(("Compressed", f"{sub.size_text(pack.before)} to {sub.size_text(pack.after)} (the worker unpacks it)"))
     elif pack and pack.state == "declined":
@@ -315,22 +323,28 @@ def cmd_submit(ctx, a):
     show_left_out(left)
     if a_dir:
         sub.check_not_empty(files, left, a_dir)
-    pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files else sub.Pack()
+    dplan, roots = None, [Path(a_dir).expanduser().resolve(), Path.cwd()] if a_dir else [Path.cwd()]
+    if files and delta.supported(info) and delta.fits(files, info):             # a worker that keeps files by hash: send the list of the folder and only the files it lacks (a set over its snapshot caps goes the old way)
+        dplan = delta.plan(files, info, r, getattr(a, "resend_all", False), delta.modes_of(roots, files))
+    pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files and not dplan else sub.Pack()
     if pack.state == "compressed":                                      # after the secret scan above, on exactly what is sent
         with view.Busy("compressing: the files"):
             pack.z = sub.compress_files(files)
         pack.after = len(pack.z["data"])
         if pack.after > limits["max_total_kb"] * 1000:
             raise refuse.error("files.set.too_big", count=plural(len(files), "file"), kb=pack.after // 1000, limit=limits["max_total_kb"])
-    show_summary(ctx, files, left, pack)
+    show_summary(ctx, files, left, pack, dplan)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
     batches = [files]
-    if files and pack.state != "compressed":
+    if files and pack.state != "compressed" and not dplan:
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
     job = sub.build_job(a.cls, params, prompt)
     if pack.state == "compressed":
         batches = [None]
         job["files_z"] = pack.z
+    if dplan:
+        batches = [None]
+        job.update(dplan.job_fields())
     with view.Busy("checking: how many jobs are already running on the workers"):               # a network round trip per worker, with nothing printed of its own
         cap.check(ctx.fleet(), ctx.max_in_flight, len(batches))
     base = a.id or sub.new_job_id(re.sub("[^a-z0-9-]", "-", a.cls.lower()), r.result_ids())
@@ -341,6 +355,8 @@ def cmd_submit(ctx, a):
         with view.Busy(f"sending: the job to {alias.show(ctx.product)}"):
             sub.push_job(r, jid, {**job, **({"files": chunk} if chunk else {})})
         ctx.commands.remember(jid, list(a.raw))
+        if dplan:
+            delta.remember_sent(r, dplan, jid, roots)
         emit("Queued", ("Job", jid), ("Worker", alias.show(ctx.product)), f"{alias.show(ctx.product)} notices it as soon as it next looks: {view.pace_text()}.", tag="QUEUED", color=CYAN)
     if getattr(ctx, "home_main", None):                                   # sent to a worker other than the main one: remember where, so the result and the approval find it
         place.record(ctx.home_main, ids, ctx.product, a.cls)
@@ -418,6 +434,8 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
                 emit("Stopped waiting: the worker is locked", f"{jid} will not run until you unlock it.", "It stays queued and runs after you unlock.", tag="LOCKED",
                      color=RED, run=f"{ctx.admin} unlock", stream=sys.stderr)
                 return 3
+            if res and res["status"] == "needs-files" and send_missing(ctx, jid, res):
+                prog.clear()
             if res and res["status"] == "awaiting_approval" and not told:
                 emit("Waiting for your approval", *waiting_rows(ctx, jid, res), tag="WAITING", color=YELLOW, run_label="Approve it by running this", run=f"{ctx.admin} approve {jid}", stream=sys.stderr)
                 told = True
@@ -445,6 +463,15 @@ def wait(ctx, jid, timeout, as_json, told=False, approved=False):
         prog.clear()
 
 
+def send_missing(ctx, jid, res):
+    """A worker that holds a job for lack of some files (it was reset, or cleared old ones): send exactly those, once per list, and say so. True when something was sent."""
+    n = delta.top_up(ctx, jid, res)
+    if n:
+        emit("Sending the files the worker needs", ("Job", jid), ("Files", plural(n, "file")), "The worker was reset or cleared old files. These are the files the job already lists by hash, so sending them is not a change to the job: nothing to approve again.", tag="SENDING", color=CYAN, stream=sys.stderr,
+             run_label="To wait for it", run=f"ct-run result {jid} --wait")
+    return bool(n)
+
+
 def suggestion_for(ctx, res):
     """The class name to suggest for a profile result that fits: the one chosen when it was profiled, else one derived from the command."""
     pr = res.get("profile")
@@ -468,6 +495,10 @@ def cmd_result(ctx, a):
         return 0
     if res["status"] == "awaiting_approval":
         return awaiting_approval_screen(ctx, a.id)
+    if res["status"] == "needs-files":
+        if not send_missing(ctx, a.id, res):
+            emit("Waiting for the worker to take the files", ("Job", a.id), ("Files", plural(len(res.get("needs") or []), "file")), "They were already sent. The worker takes them the next time it looks; the job then runs.", tag="WAITING", color=YELLOW)
+        return 0
     rc = view.print_result(res, a.json, admin=ctx.admin, suggest_name=suggestion_for(ctx, res), rerun=rerun_for(ctx, res))
     auto_adopt(ctx, res)
     return rc
@@ -937,6 +968,7 @@ def build_parser():
     s.add_argument("--exclude", action="append", metavar="GLOB", help="with --dir: leave these files out, for example 'docs/**' (wins over --include)")
     s.add_argument("--no-pack", action="store_true", help="do not use the files this class was profiled with")
     s.add_argument("--send-incomplete", action="store_true", help="send the files that can be sent even when some could not be (the job would run on an incomplete set)")
+    s.add_argument("--resend-all", action="store_true", help="send every file again, even those this worker is thought to hold already (after a reset, or if a result says files are missing)")
     s.add_argument("--no-compress", action="store_true", help="on Direct, send a set over 1 GB as it is instead of compressed (for a worker that cannot unpack)")
     s.add_argument("--id", help="choose the job id (4 to 64 lowercase letters, digits and dashes)")
     s.add_argument("--wait", action="store_true", help="block until it finishes (the default in a terminal)")
