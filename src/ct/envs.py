@@ -5,7 +5,6 @@ Layout under `<env_root>/shared/`: `<key>/` (the environment; `.complete` is wri
 `<key>.lock` (flock: shared while a job uses it, exclusive while it is built or removed) and `<key>.pruned.json` (what a removal leaves, so the next build can say it is a rebuild).
 The clock is passed in so tests pin it."""
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +12,7 @@ import shutil
 import time
 from pathlib import Path
 
+from . import plat
 from .runner import tree_mb
 from .words import plural
 
@@ -34,14 +34,10 @@ class Lease:
         self.fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
 
     def exclusive(self, wait=True):
-        try:
-            fcntl.flock(self.fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
-            return True
-        except OSError:
-            return False
+        return plat.flock_fd(self.fd, shared=False, wait=wait)
 
     def share(self):
-        fcntl.flock(self.fd, fcntl.LOCK_SH)
+        plat.flock_fd(self.fd, shared=True)
 
     def close(self):
         if self.fd is not None:

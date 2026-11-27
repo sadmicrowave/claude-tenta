@@ -184,6 +184,18 @@ def cpuinfo_text():
 
 
 # ---- files ---------------------------------------------------------------------------------------------------------------------------
+def flock_fd(fd, shared=False, wait=True):
+    """Lock an open descriptor, shared or exclusive, waiting or not. True when taken. Closing the descriptor releases it. A Windows worker has no shared package environments (Special Use only), so there it always succeeds."""
+    if IS_WINDOWS:
+        return True
+    import fcntl
+    try:
+        fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | (0 if wait else fcntl.LOCK_NB))
+        return True
+    except OSError:
+        return False
+
+
 def try_lock(f):
     """Take an exclusive lock on the open file `f` without waiting. True when taken, False when another process holds it. It is released when the file is closed."""
     if IS_WINDOWS:
