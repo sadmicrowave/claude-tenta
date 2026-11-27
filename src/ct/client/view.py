@@ -16,11 +16,12 @@ from .repo import PENDING
 from ..words import plural
 
 STATUS_COLOR = {"queued": CYAN, "running": CYAN, "ok": GREEN, "error": RED, "rejected": RED, "killed": RED, "quarantined": RED, "limit": YELLOW,
-                "cancelled": DIM, "awaiting_approval": YELLOW, "expired": DIM, "needs-files": YELLOW}
+                "cancelled": DIM, "awaiting_approval": YELLOW, "expired": DIM, "needs-files": YELLOW, "needs-environment": YELLOW}
 STATUS_MEANING = (("queued", "submitted, the worker has not picked it up yet"), ("running", "approved, being run on the worker right now"),
                   ("ok", "finished fine"), ("error", "the command ran and failed, or could not start"), ("rejected", "the worker refused it (see the note)"),
                   ("limit", "stopped at its time, memory or heat limit"), ("killed", "stopped by a safety check"),
-                  ("cancelled", "you cancelled it"), ("expired", "waited more than a day for approval; send it again"), ("awaiting_approval", "waiting for you:  approve <job>"), ("needs-files", "the worker needs some files again; they are sent when you look at the job"))
+                  ("cancelled", "you cancelled it"), ("expired", "waited more than a day for approval; send it again"), ("awaiting_approval", "waiting for you:  approve <job>"), ("needs-files", "the worker needs some files again; they are sent when you look at the job"),
+                  ("needs-environment", "the job did not run: the worker could not fetch its packages; send it again"))
 NOTE_STYLE = {"queued": (YELLOW,), "error": (RED,), "rejected": (RED,), "killed": (RED,), "quarantined": (RED,), "limit": (YELLOW,)}
 VERDICT_COLOR = {"fits": GREEN, "does-not-fit": RED, "inconclusive": YELLOW, "needs-longer": YELLOW}
 MARGIN = "\t"            # one tab: where a row's note starts, under the columns
@@ -256,7 +257,7 @@ def queued_rows(known, listing, within_h=24, at=None, admin="ct-admin"):
     return rows
 
 
-STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted", "expired": "muted", "needs-files": "warn"}
+STATUS_ROLE = {"ok": "ok", "error": "bad", "rejected": "bad", "killed": "bad", "quarantined": "bad", "limit": "warn", "awaiting_approval": "warn", "queued": "primary", "running": "primary", "cancelled": "muted", "expired": "muted", "needs-files": "warn", "needs-environment": "warn"}
 
 
 job_blocks = cards.job_blocks                                                       # one definition for every list of jobs

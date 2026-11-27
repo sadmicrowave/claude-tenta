@@ -580,3 +580,17 @@ define("files.cache.missing", "error", "A worker that was reset or that evicted 
 define("files.cache.source_changed", "error", "The worker needs files that this computer no longer has in the form that was approved; sending the changed ones would run a different job than the one approved.",
        "Some files changed since the job was sent", "{count} the worker needs have changed or gone on this computer since the job was sent, so they cannot be sent for this job", who="client",
        depends="the worker release that publishes `cache` in registry.json", steps=["Send the job again: run the same ct-run submit command with --resend-all added."])
+
+# ---- shared environments: packages kept on a worker, removed after packages.keep_days unused, rebuilt on the next use (design: docs/design/WORKSPACE-JOBS.md, "Environment lifecycle") ----
+define("env.rebuild.failed", "error", "A job is never run with missing software: when the packages cannot be fetched (they were removed after a long idle time, or never built) the job does not start and is not marked as unable to run here.",
+       "The packages for a class could not be fetched", "The packages for `{label}` {state}: {detail}. Check that the worker can reach the package servers, then send the job again.",
+       depends="the worker release that keeps shared environments (the one with packages.keep_days)", config="packages.keep_days on the worker",
+       steps=["Send the job again once the worker can reach the package servers (the tool's own error is in the message).", "Run ct-admin status for the worker to see whether it is online and has free disk."])
+define("env.rebuild.timeout", "limit", "Fetching packages has its own time limit and is not charged to the job's, so a slow first fetch cannot make a good job look like it timed out; when it runs out the job does not start.",
+       "Fetching the packages took too long", "Rebuilding the packages for `{label}` took longer than {minutes} min, so the job did not start. Send it again to try again.",
+       depends="the worker release that keeps shared environments (the one with packages.keep_days)",
+       steps=["Send the job again with the same command: the fetch starts over.", "If it keeps happening, check the worker's connection to the package servers with ct-admin status."])
+define("env.rebuild.no_space", "error", "A rebuild that cannot fit on the disk would fail half way and leave the machine full, so it is refused before it starts after freeing what could be freed.",
+       "Not enough free disk to fetch the packages", "Not enough free space to rebuild the packages for `{label}` (need {need} MB, have {have} MB); freed {freed} MB of the oldest unused environments and it is still too little.",
+       depends="the worker release that keeps shared environments (the one with packages.keep_days)", config="packages.keep_days on the worker (a smaller number frees space sooner)",
+       steps=["Free some disk on the worker, or send the job to a worker with more room.", "Or lower packages.keep_days on the worker so unused environments go sooner."])

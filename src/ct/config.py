@@ -237,6 +237,9 @@ SCHEMA = {
     "cache": {
         "max_mb": (None, _int(16, 1000000), "the most file content this worker keeps so a repeat run of a folder needs only what changed, in MB (least recently used goes first, never a file a waiting job needs); unset means automatic: the smaller of 2048 and a quarter of its free disk"),
     },
+    "packages": {
+        "keep_days": (30, _int(1, 3650), "software built on this worker for a class (its npm and pip packages) is removed when it has not been used for this many days, and rebuilt on the next run (the result says so); one that a job is using is never removed. Under disk pressure the least recently used go first"),
+    },
     "isolation": {
         "require_netns": (True, _bool, "refuse to run a no-network job if the machine cannot isolate it (leave on)"),
         "purpose": ("tenta-only", _enum("tenta-only", "shared", "special-use"), "what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed)"),

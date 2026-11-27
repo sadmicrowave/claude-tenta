@@ -106,7 +106,7 @@ class Context:
         direct = transport.for_config(cfg).kind == "direct"
         settings = Settings(state=state, registry_path=Path(cfg.path("registry")), tools_root=Path(cfg.path("tools")), tool_roots=tuple(cfg.isolation.tool_roots), isolation_mode=cfg.isolation.mode, isolation_purpose=cfg.isolation.purpose, pause_when_logged_in=cfg.availability.pause_when_logged_in, ignore_users=tuple(cfg.availability.ignore_users), window=cfg.availability.window, capacity=cfg.hardware.capacity,
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
-                            exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns, profile_approval=cfg.transport.profile_approval if direct else "required", max_job_mb=cfg.hardware.max_job_mb, cache_max_mb=cfg.cache.max_mb, transport="direct" if direct else "github",
+                            exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns, profile_approval=cfg.transport.profile_approval if direct else "required", max_job_mb=cfg.hardware.max_job_mb, cache_max_mb=cfg.cache.max_mb, pkg_keep_days=int(cfg.packages.keep_days), transport="direct" if direct else "github",
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
                             sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=0 if direct else int(cfg.schedule.sleep_fetch_s),      # Direct reads a local folder, so there is no reason to slow down: a job is picked up within seconds, idle or not
                             claude_jobs_per_day=int(cfg.claude.jobs_per_day), claude_turns_per_day=int(cfg.claude.turns_per_day))
@@ -119,7 +119,8 @@ class Context:
         lock = alerts.Lockdown(state, notifier, seclog, product=name, remind_at=cfg.alerts.remind_hours, repeat_h=cfg.alerts.remind_repeat_h)
         keeper = results.OutputKeeper(state)
         sensors = runner.default_sensors()
-        pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
+        pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name, manifest_path=state / "apt-manifest.json",
+                               free_mb=lambda: (plat.disk_free_gb(state) or 0) * 1000)
         approvers = cfg.path("approvers")
         claude_memo = {}
 

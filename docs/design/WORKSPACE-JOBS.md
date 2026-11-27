@@ -144,6 +144,20 @@ Owner approved the design and the four decisions below on 2026-11-26. Same code 
 | **Apt leftover reported, not removable** | No manifest yet, or a package another class needs | "N apt packages from classes that no longer run remain (size); tenta did not install them or still needs them, so it leaves them" | prune with no manifest lists, never removes |
 | **A cached file is missing or changed** | Cache evicted or corrupted between the manifest and the run | The worker asks again for the hashes it lacks; if it still cannot verify a hash, the job is refused with the file name | store with a missing and a corrupted entry |
 
+## Built: environment lifecycle (slice `feat/workspace-env-cleanup`, 2026-11-26)
+
+Owner approved on 2026-11-26: **A** (a class's npm and pip packages run from a shared environment), **apt report-only** (manifest written; the root removal command is a follow-up), **the refusal catalog and the failure table** as the known-problems list (`publishdiag.KNOWN` holds git push errors only). Code: `src/ct/envs.py`, `Packages.acquire` / `prune_old_envs` in `src/ct/packages.py`, `Worker.prune_envs`.
+
+- Layout `<state>/profile-env/shared/<key>/` with `.complete`, `.last_used`; `<key>.lock` (use lock: shared by running jobs and by a build, exclusive for the prune pass, never waited for) and `<key>.build` (serialises two builds). `<key>.pruned.json` is left by a removal so the next build can say it is a rebuild.
+- `packages.keep_days` (default 30, 1 to 3650) replaces the 7-day constant. Removal is for strictly more than that many days unused. Per-job folders of profile runs from before this release are removed by age under the same setting.
+- A class's npm/pip packages are no longer root-installed; only apt is. The registry install writes `<state>/apt-manifest.json` (tenta-installed packages only, with the classes that asked and the size). Dependencies apt pulled in are not listed (backlog).
+- A profile run builds the same shared environment; a profile that fits promotes only apt paths, and npm and pip programs are found by name on the environment's path at run time.
+- A failed or timed-out build is discarded (a half-built environment is never reused); the design table said it would be kept for the retry. Downloads are cheap to repeat and a half-built tree could be reused with a package missing.
+- A job whose environment cannot be built ends `needs-environment` (not run; never recorded against the class).
+- The worker publishes `observed.environments` (count, MB, keep_days, apt leftovers) and `ct-admin workers` shows an `Environments` row.
+
+**Workers must update** (`ct-admin apply`). An older worker keeps its old behaviour: 7-day per-job folders and root-installed npm and pip.
+
 ## The offload review flow (slices 6-8)
 
 Goal: show value the first minute after setup, from the person's own history.

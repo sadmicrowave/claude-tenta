@@ -13,17 +13,50 @@ import shutil
 import time
 from pathlib import Path
 
+from . import envs, refusals
 from .pkgspec import npm_split, pip_norm, split_pkgs
 from .runner import run_group, tree_mb
 from .util import SAFE_PATH
+from .words import plural
 from .setup.report import sink as _sink
 
-PKG_KEEP_DAYS = 7
 APT_ENV = {"PATH": SAFE_PATH, "LANG": "C", "HOME": "/tmp"}
+DEFAULT_ENV_NEED_MB = 200                      # free space wanted before a build starts when the caller does not know better
+
+
+def card_safe(text):
+    """The tool's own words, with only its punctuation changed so the cards do not mistake them for a command: a backtick quote becomes an apostrophe and 'x: npm ...' becomes 'x - npm ...'
+    (a command word after a colon is drawn as a code chip below the card, which would cut the real error out of the sentence)."""
+    return text.replace("`", "'").replace(": ", " - ").strip().rstrip(".")
 
 
 class PrepError(Exception):
-    pass
+    """Packages could not be fetched. `kind` is "failed" or "timeout"; `code` is the refusal-catalog entry when the message came from it."""
+
+    def __init__(self, message, kind="failed", code=None):
+        super().__init__(message)
+        self.kind, self.code = kind, code
+
+
+def os_release_id():
+    """The worker's OS release as one word (part of an environment's hash: the same packages on another release are another environment)."""
+    try:
+        f = dict(l.split("=", 1) for l in Path("/etc/os-release").read_text().splitlines() if "=" in l)
+        return f"{f.get('ID', '').strip(chr(34))}-{f.get('VERSION_ID', '').strip(chr(34))}"
+    except OSError:
+        return ""
+
+
+class Acquired:
+    """A hold on a shared environment for the life of one job: `rt` is runtime_env(...), `note` is the one line for the result when it had to be rebuilt, `seconds` what the build cost."""
+
+    def __init__(self, key, path, rt, lease, note=None, seconds=0):
+        self.key, self.path, self.rt, self.note, self.seconds, self._lease = key, path, rt, note, seconds, lease
+
+    def release(self):
+        if self._lease is not None:
+            self._lease.close()
+            self._lease = None
 
 
 def version_in(mgr, root, base):
@@ -81,8 +114,11 @@ def missing_hint(path_dirs, limit=12):
 
 class Packages:
     def __init__(self, tools_root, env_root, limits=None, run=run_group, which=None, product="the worker", apply_command="ct-admin apply",
-                 step_timeout=300, total_timeout=900):
+                 step_timeout=300, total_timeout=900, clock=time.time, free_mb=None, os_release=None, manifest_path=None):
         self.tools_root, self.env_root = Path(tools_root), Path(env_root)
+        self.clock, self.free_mb = clock, free_mb                       # free_mb(): free disk in MB where the environments live (None: not checked)
+        self.os_release = os_release_id() if os_release is None else os_release
+        self.envs, self.manifest = envs.EnvStore(self.env_root, clock), envs.AptManifest(manifest_path)
         self.limits = {"max_download_mb": 1000, "max_env_mb": 2000, **(limits or {})}
         self._run = run
         self._which = which or (lambda name: shutil.which(name, path=SAFE_PATH))
@@ -219,25 +255,25 @@ class Packages:
         return "\n".join(L).strip("\n")
 
     # ---- fetching into a throwaway folder (unprivileged) ----
-    def prepare(self, jid, pkgs, on_step=None):
-        """Fetch the packages into <env_root>/<jid> as the unprivileged user. Returns runtime_env(...). Raises PrepError.
+    def prepare(self, jid, pkgs, on_step=None, dest=None):
+        """Fetch the packages into <env_root>/<jid> (or `dest`) as the unprivileged user. Returns runtime_env(...). Raises PrepError.
         `on_step(text)` is told what is happening, so the worker can show progress."""
-        env = self.env_root / jid
+        env = Path(dest) if dest else self.env_root / jid
         shutil.rmtree(env, ignore_errors=True)
         env.mkdir(parents=True, mode=0o700)
         (env / "home").mkdir()
         by = split_pkgs(pkgs)
         base = {"PATH": SAFE_PATH, "HOME": str(env / "home"), "LANG": "C.UTF-8"}
-        deadline = time.time() + self.total_timeout
+        deadline = self.clock() + self.total_timeout
 
         def step(argv, cwd, e=None):
             if on_step:
                 on_step(" ".join(argv)[:80])
-            limit = max(10, min(self.step_timeout, int(deadline - time.time())))
+            limit = max(10, min(self.step_timeout, int(deadline - self.clock())))
             r = self._run(argv, limit, cwd=str(cwd), env=e or base)
             if r.returncode == 124:
                 raise PrepError(f"`{' '.join(argv)[:100]}` took longer than {limit}s, so {self.product} gave up. "
-                                "Check that it can reach the package servers.")
+                                "Check that it can reach the package servers.", kind="timeout")
             if r.returncode != 0:
                 raise PrepError(f"`{' '.join(argv)[:100]}` failed: {(r.stderr or r.stdout).strip()[-300:]}")
             if tree_mb(env) > self.limits["max_env_mb"]:
@@ -268,56 +304,135 @@ class Packages:
                 step(cmd + names, env, pe)
             return runtime_env(env)
         except (OSError, PrepError) as e:
-            shutil.rmtree(env, ignore_errors=True)
-            raise PrepError(str(e))
+            shutil.rmtree(env, ignore_errors=True)               # a half-built environment is never kept: it could be reused with missing packages
+            raise PrepError(str(e), kind=getattr(e, "kind", "failed"))
+
+    # ---- shared environments: one per package-set hash, built on first use, reused, removed after keep_days unused ----
+    def needs_env(self, pkgs):
+        """Does running with these packages need a shared environment? Only when an npm or pip entry is not already in the tools folder (an older install put them there)."""
+        by = split_pkgs(pkgs)
+        return any(not self.have(m, n) for m in ("npm", "pip") for n in by.get(m, []))
+
+    def _room_for(self, need_mb, label):
+        """Before a build: enough free disk, freeing the oldest unused environments first. Raises PrepError (env.rebuild.no_space) when it is still too little."""
+        if self.free_mb is None:
+            return
+        have = self.free_mb()
+        if have >= need_mb:
+            return
+        freed = sum(mb for _, mb in self.envs.evict_lru(need_mb - have))
+        have = self.free_mb()
+        if have < need_mb:
+            r = refusals.refuse("env.rebuild.no_space", label=label, need=int(need_mb), have=int(have), freed=int(freed))
+            raise PrepError(str(r), code=r.code)
+
+    def acquire(self, pkgs, on_step=None, label="this class", need_mb=None):
+        """The shared environment for these packages, built now if it is missing. Returns an Acquired holding a shared lock until `release()`, so the prune pass skips it while a job
+        uses it. A build has its own limit (total_timeout) and is not charged to any job; if it fails nothing is kept and the job is not run (PrepError with a catalog code)."""
+        key = envs.env_key(pkgs, self.os_release)
+        lease, note, seconds = self.envs.lease(key), None, 0
+        try:
+            lease.share()                       # held from now until release(): the prune pass skips the environment, even while it is being built
+            if not self.envs.complete(key):
+                build = self.envs.build_lease(key)
+                try:
+                    build.exclusive()           # another job may be building the same environment: wait for it, then find it complete
+                    if not self.envs.complete(key):
+                        tomb = self.envs.tombstone(key)
+                        self._room_for(DEFAULT_ENV_NEED_MB if need_mb is None else need_mb, label)
+                        began = self.clock()
+                        try:
+                            self.prepare(None, pkgs, on_step=on_step, dest=self.envs.path(key))
+                        except PrepError as e:
+                            raise self._build_failed(e, label, tomb)
+                        self.envs.mark_complete(key)
+                        self.envs.clear_tombstone(key)
+                        seconds = max(0, int(self.clock() - began))
+                        if tomb:
+                            idle = int((self.clock() - (tomb.get("last_used") or self.clock())) // envs.DAY)
+                            note = f"the packages for this class were rebuilt (unused for {plural(idle, 'day')}); this run took {seconds} s longer"
+                finally:
+                    build.close()
+            self.envs.touch(key)
+            return Acquired(key, self.envs.path(key), runtime_env(self.envs.path(key)), lease, note, seconds)
+        except BaseException:
+            lease.close()
+            raise
+
+    def _build_failed(self, e, label, tomb):
+        if e.kind == "timeout":
+            r = refusals.refuse("env.rebuild.timeout", label=label, minutes=max(1, self.total_timeout // 60))
+        else:
+            days = int(((tomb.get("pruned") or 0) - (tomb.get("last_used") or 0)) // envs.DAY) if tomb else 0
+            state = f"were removed after {plural(days, 'unused day')} and cannot be rebuilt now" if tomb else "could not be fetched"
+            r = refusals.refuse("env.rebuild.failed", label=label, state=state, detail=card_safe(str(e)))
+        return PrepError(str(r), kind=e.kind, code=r.code)
 
     def promote_path(self, path, env):
         """Where a program found in a throwaway folder will live once the packages are installed for real."""
         p, e = str(path), str(env)
-        for sub, dest in (("apt", Path("/")), ("npm", self.tools_root / "npm"), ("pip", self.tools_root / "pip")):
-            if p.startswith(f"{e}/{sub}/"):
-                return str(dest / p[len(f"{e}/{sub}/"):])
+        if p.startswith(f"{e}/apt/"):
+            return str(Path("/") / p[len(f"{e}/apt/"):])
+        if p.startswith((f"{e}/npm/", f"{e}/pip/")):
+            return Path(p).name                       # npm and pip programs live in a shared environment now: found by name on the path it provides at run time
         return p
 
     def drop_env(self, jid):
         shutil.rmtree(self.env_root / jid, ignore_errors=True)
 
-    def prune_old_envs(self, now=None):
-        """Delete throwaway folders older than PKG_KEEP_DAYS. Returns how many."""
-        now, n = now or time.time(), 0
+    def prune_old_envs(self, keep_days=envs.DEFAULT_KEEP_DAYS, now=None):
+        """Remove shared environments unused for more than `keep_days` (never one in use) and old per-job throwaway folders. Returns an envs.PruneReport."""
+        rep = self.envs.prune(keep_days)
+        limit = (now or self.clock()) - keep_days * envs.DAY
         for d in self.env_root.iterdir() if self.env_root.exists() else []:
             try:
-                if d.stat().st_mtime < now - PKG_KEEP_DAYS * 86400:
+                if d.name != "shared" and d.is_dir() and d.stat().st_mtime < limit:
                     shutil.rmtree(d, ignore_errors=True)
-                    n += 1
+                    rep.folders += 1
             except OSError:
                 pass
-        return n
+        return rep
 
     # ---- installing for real (root; run by the update tool before it installs a registry) ----
     def install_registry_packages(self, registry, out=None, run_root=None):
-        """Make every `packages:` entry of the registry exist. Returns 0 on success, 1 on failure (and says which command failed)."""
+        """Make every apt `packages:` entry of the registry exist. Returns 0 on success, 1 on failure (and says which command failed).
+        npm and pip entries are NOT installed here: they live in shared environments, built unprivileged on first use and removed after packages.keep_days unused.
+        What tenta installs with apt is written to the manifest (a package that was already there is never listed, so it is never a removal candidate)."""
         out = out or _sink()
         import subprocess
         run_root = run_root or (lambda cmd: subprocess.run(cmd, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"}, timeout=self.total_timeout))
-        want = sorted({p for c in (registry.get("classes") or {}).values() for p in c.get("packages") or []})
-        by, todo = split_pkgs(want), []
-        if by.get("apt"):
-            miss = [n for n in by["apt"] if self._run(["dpkg", "-s", n], 10).returncode != 0]
-            if miss:
-                todo.append(["apt-get", "install", "--no-install-recommends", "-y", *miss])
-        for mgr in ("npm", "pip"):
-            miss = [n for n in by.get(mgr, []) if not self.have(mgr, n)]
-            if miss:
-                todo += self.permanent_commands([f"{mgr}:{n}" for n in miss])
-        for cmd in todo:
+        classes = registry.get("classes") or {}
+        wanted_by = {}
+        for cname, c in classes.items():
+            for pk in c.get("packages") or []:
+                if pk.startswith("apt:"):
+                    wanted_by.setdefault(pk[4:], []).append(cname)
+        miss = [n for n in sorted(wanted_by) if self._run(["dpkg", "-s", n], 10).returncode != 0]
+        if miss:
+            cmd = ["apt-get", "install", "--no-install-recommends", "-y", *miss]
             out("installing: " + shlex.join(cmd))
-            if cmd[0] in ("npm", "pip") or cmd[:3] == ["python3", "-m", "pip"]:
-                self.tools_root.mkdir(parents=True, exist_ok=True)
             if run_root(cmd).returncode != 0:
                 out(f"package install failed: {shlex.join(cmd)}")
                 return 1
-        if todo:
-            for old in self.env_root.glob("*") if self.env_root.exists() else []:
-                shutil.rmtree(old, ignore_errors=True)       # the throwaway folders are no longer needed
+        if miss or self.manifest.load():
+            self.manifest.record(miss, wanted_by, {n: self._installed_mb(n) for n in miss}, self.clock())
         return 0
+
+    def _installed_mb(self, name):
+        try:
+            r = self._run(["dpkg-query", "-W", "-f=${Installed-Size}", name], 10, env=APT_ENV)
+            return round(int(r.stdout.strip() or 0) / 1024, 1) if r.returncode == 0 else 0.0
+        except (OSError, ValueError):
+            return 0.0
+
+    def apt_leftovers(self, registry):
+        """[(name, MB)] of apt packages tenta installed for classes that are no longer in the registry. Reported, never removed here."""
+        wanted = {pk[4:] for c in (registry.get("classes") or {}).values() for pk in c.get("packages") or [] if pk.startswith("apt:")}
+        return self.manifest.leftovers(wanted)
+
+    def apt_leftover_text(self, left):
+        if not left:
+            return ""
+        names = " ".join(n for n, _ in left)
+        return (f"{plural(len(left), 'apt package')} from classes that no longer run {'remains' if len(left) == 1 else 'remain'} on this worker "
+                f"({'; '.join(f'{n}, {mb:g} MB' for n, mb in left)}). This release only reports them; if nothing else needs them, remove with: sudo apt-get remove {names}")

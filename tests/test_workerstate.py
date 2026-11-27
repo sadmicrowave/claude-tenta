@@ -127,14 +127,32 @@ class ProfileTimeRow(unittest.TestCase):
         self.assertNotIn("Profile limit", [k for k, _ in workers.fact_rows(workers.row_for("x", self.doc(None)))])
 
 
+class EnvironmentsRow(unittest.TestCase):
+    def doc(self, e):
+        _, doc = workerstate.build(snapshot={}, registry={"classes": {}}, extra={"environments": e}, jail=type("J", (), {"ready": lambda s: True, "name": "bwrap"})(), locked=False, now_iso="2999-01-01T00:00:00Z")
+        return doc
+
+    def test_the_list_says_what_is_kept_when_it_goes_and_what_apt_left_behind(self):
+        from ct.admin import workers
+        rows = dict(workers.fact_rows(workers.row_for("x", self.doc({"count": 2, "mb": 310, "keep_days": 30, "apt_left": 1}))))
+        self.assertEqual(rows["Environments"], "2 environments kept (310 MB); unused ones removed after 30 days (packages.keep_days); 1 apt package left by retired classes")
+        none = dict(workers.fact_rows(workers.row_for("x", self.doc({"count": 0, "mb": 0, "keep_days": 7, "apt_left": 0}))))
+        self.assertEqual(none["Environments"], "none kept; unused ones removed after 7 days (packages.keep_days)")
+
+    def test_an_older_worker_says_nothing_so_there_is_no_row(self):
+        from ct.admin import workers
+        self.assertNotIn("Environments", [k for k, _ in workers.fact_rows(workers.row_for("x", self.doc(None)))])
+
+
 class ListLabelsFit(unittest.TestCase):
     def test_every_label_of_the_workers_list_leaves_a_gap_before_its_value(self):
         """A label as wide as the label column ran into its value (LARGEST JOB1024 MB). Every row a worker can have is built here, so a new longer label fails this."""
         from ct.admin import workers
         row = {"name": "x", "os": "o", "cpu": "c", "memory": "m", "claude": "c", "spend": "s", "state": "st", "release": "r", "load": "l", "age": "a", "ceiling": "1 MB",
-               "purpose": "p", "profile_time": "estimate x 1 x 3", "platform": "windows", "held": "busy", "stale": False, "locked": False, "packages": 0}
+               "purpose": "p", "profile_time": "estimate x 1 x 3", "environments": "1 environment kept (10 MB); unused ones removed after 30 days (packages.keep_days)", "platform": "windows", "held": "busy", "stale": False, "locked": False, "packages": 0}
         labels = [label for label, _ in workers.fact_rows(row, upper=True)]
-        self.assertGreaterEqual(len(labels), 13, labels)
+        self.assertGreaterEqual(len(labels), 14, labels)
+        self.assertIn("ENVIRONMENTS", labels)
         for label in labels:
             self.assertLess(len(label), workers.HANG, label)
 
