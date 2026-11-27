@@ -30,6 +30,7 @@ Nothing in `ct-run` can change what the worker is allowed to do. It only sends r
 | `offload history` | every fit check you or Claude made |
 | `offload profile [options] -- <cmd>` | queue a profiling run of one exact command |
 | `offload propose <profile-job>` | turn a profile result into a registry proposal (a branch) or an exclusion |
+| `offload review` | what your own command log says a worker could take, ranked (below); changes nothing |
 | `offload exclusions` | commands that were tested and do not fit |
 
 Status and errors go to standard error; standard output carries only what a script wants (a job id, a result, JSON).
@@ -47,6 +48,24 @@ could suit the worker: not network or version control, not a package manager, no
 seconds of job overhead, or repeated (`offload.repeat_runs` runs, 3 by default, within `offload.repeat_days` days, 14 by default) with a total time of at least that long. Each row says which reason on the ladder makes it worth offloading ("why it pays"); `--all` also lists every reason's verdict for every shape. While this computer is busy (5-minute load average per core at least `offload.busy_load_ratio`, 1 by default) a command that usually takes `offload.busy_min_seconds` (10) or more also counts, with the headline "Your computer is busy"; that is a live reading shown as a note, never stored in the log. `offload measure` reads the same log and suggests `offload.repeat_days` (the typical time your repeated commands took to reach `offload.repeat_runs` runs), with a table of how many commands would be candidates at other settings; it changes nothing and prints the one `ct-setup install --set` command that applies the suggestion. With too little data it says so and suggests nothing.
 
 A compound line such as `cd x && scripts/t a b 2>&1 | tail -5` is judged by its real command. The line is split at `&&`, `||`, `;`, `|` and newlines outside quotes (a heredoc body is data and is dropped), plumbing segments (`cd`, `tail`, `head`, `grep`, `sed`, `wc`, `sort`, `tee`, `echo`, `sleep`, loop keywords and the like) are dropped, and the seconds of the whole row belong to the one segment left. A segment that is network, version control, a package manager, privileged or one of this install's own commands excludes the whole line, so `cd x && git push` is never a candidate. With two or more real commands left the time cannot be split honestly between them, so the line is skipped ("compound command", with the reason shown by `--all`) instead of credited to one. Code typed on the command line or fed on standard input (`python3 -c`, `python3 - <<EOF`) has no name to offload and is skipped. A project script keeps its name and its folder only when the folder is a generic one (`scripts/t`, `bin/run`), so different scripts are different shapes; any other folder is never kept. The example printed under each shape is the real segment only, never the whole line.
+
+### The review summary
+
+`offload review` (and a card at the end of `ct-setup install`, on a terminal only) reads the command log and says, for example, "In the last 13 days you ran 253 commands, 3.0 h in all, that tenta could take", then lists the top commands best first.
+It reads only the local log and sends nothing; it shows shapes, never paths or values.
+
+- **What the hours are.** The recorded seconds of the commands that pass the candidate rules above, in the window (`offload.review_days`, 14 by default; a younger log is read whole). It is the time they took on this computer, never a promise that a worker is quicker (a small worker can be slower): the gain is a free computer. Runs with no recorded timing are counted aside and said.
+- **Order.** The highest-weighted reason met first (docs/design/OFFLOAD-REASONS.md), then the most time. `offload.review_top` (5) are listed; the totals cover every candidate.
+- **Too little to say.** Fewer than `offload.review_min_commands` (20) commands in the window, or a log younger than `offload.review_min_days` (3), shows no hours. An empty log says so. A log with nothing a worker could take says why (the two most common reasons).
+- **For slice 7.** `CommandLog.review` returns the ranked list (`recs`) that the per-command y/n review will walk.
+
+### Known problems
+
+| Problem | What you see | What to run |
+| ------- | ------------ | ----------- |
+| The command log cannot be read (wrong owner or mode) | `review.log.unreadable` with the system's own message; at the end of an install, a note instead (the install still succeeds) | make the file readable, or `ct-run offload log clear` |
+| No hooks installed yet | "Nothing recorded yet" | install the Claude Code hooks that call `ct-run offload log hook pre` and `post` |
+| No worker yet | the summary still shows: it reads only this computer's log | none |
 
 ### Profiling and proposals
 

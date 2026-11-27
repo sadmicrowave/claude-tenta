@@ -11,6 +11,7 @@
   offload history                every fit check you or Claude made
   offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
   offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
+  offload review                 what your own history says a worker could take, ranked
   offload measure                suggest the repeat settings from your own command log
   offload exclusions             commands that were tested and do not fit
 
@@ -38,6 +39,9 @@ from .repo import PENDING, ClientError, ClientRepos
 from ..words import plural
 
 
+OWN_TOOLS = ("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker")       # this install's own commands: they are the offloading, never offloaded
+
+
 def emit(*a, **k):
     """Status and error messages go to stderr; stdout carries only what a script may want (a job id, a result, JSON)."""
     k.setdefault("stream", sys.stderr)
@@ -46,7 +50,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, busy_load_ratio=1.0, busy_min_seconds=10.0, host_load=None):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, busy_load_ratio=1.0, busy_min_seconds=10.0, host_load=None, review_days=14, review_top=5, review_min_commands=20, review_min_days=3):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -56,6 +60,7 @@ class Context:
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.busy_load_ratio, self.busy_min_seconds = float(busy_load_ratio), float(busy_min_seconds)
+        self.review_days, self.review_top, self.review_min_commands, self.review_min_days = int(review_days), int(review_top), int(review_min_commands), int(review_min_days)
         self.host_load = host_load or hostload.read       # a live reading of this computer, or None when it cannot be read
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
@@ -69,8 +74,9 @@ class Context:
         repos = ClientRepos.from_config(cfg)
         name = cfg.identity.name
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
-                   own_tools=("ct-run", "ct-admin", "ct-setup", "ct-help", "ct-worker"), home=Path(cfg.paths.client_home).expanduser(),
-                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, busy_load_ratio=cfg.offload.busy_load_ratio, busy_min_seconds=cfg.offload.busy_min_seconds, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   own_tools=OWN_TOOLS, home=Path(cfg.paths.client_home).expanduser(),
+                   max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, busy_load_ratio=cfg.offload.busy_load_ratio, busy_min_seconds=cfg.offload.busy_min_seconds, review_days=cfg.offload.review_days, review_top=cfg.offload.review_top,
+                   review_min_commands=cfg.offload.review_min_commands, review_min_days=cfg.offload.review_min_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -877,6 +883,81 @@ def cmd_measure(ctx, a, cfg=None):
     return 0
 
 
+# ---- offload review: what the command log says a worker could take ----
+def span(seconds):
+    """A duration as a person says it: seconds under a minute, minutes under 90, else hours with one decimal."""
+    seconds = float(seconds)
+    return f"{seconds:.0f} s" if seconds < 60 else f"{seconds / 60:.0f} min" if seconds < 5400 else f"{seconds / 3600:.1f} h"
+
+
+def review_of(log, o, host, now):
+    """The summary data for a command log, with the settings in `o` (a Context, or the config's [offload] section: same names). Raises OSError when the log cannot be read."""
+    return log.review(now=now, days=o.review_days, top=o.review_top, min_commands=o.review_min_commands, min_days=o.review_min_days, repeat_runs=o.repeat_runs, repeat_days=o.repeat_days,
+                      load_ratio=host["ratio"] if host else None, busy_ratio=o.busy_load_ratio, busy_min_seconds=o.busy_min_seconds)
+
+
+def unreadable_log(log, err):
+    """Why the log cannot be read, in the system's own words (kept clear of the cards' command-chip rule)."""
+    from ..packages import card_safe
+    return refuse.error("review.log.unreadable", ("Log file", str(log.path)), example="ct-run offload log show\nct-run offload log clear", reason=card_safe(str(err)))
+
+
+def show_review(r, log, product, err, out):
+    """Print the summary card and the ranked table. Cards go to `err`, the table to `out` (both the same stream after an install)."""
+    name = alias.show(product)
+    if r["state"] == "empty":
+        _ui.say("Nothing recorded yet", ("Log file", log.path), "Nothing is in your command history, so there is nothing to add up. Claude Code's hooks record each command here once they are installed.",
+                tag="NOTE", color=YELLOW, stream=err, run_label="The command the hooks call", run="ct-run offload log hook pre")
+        return
+    if r["state"] == "short":
+        _ui.say("Not enough history yet", f"Only {plural(r['commands_recorded'], 'command')} over {plural(r['window_days'], 'day')} so far, too little to say what {name} could take.",
+                tag="NOTE", color=YELLOW, stream=err, steps=["Keep working with the hooks installed, then run ct-run offload review again."])
+        return
+    if r["state"] == "none":
+        _ui.say(f"Nothing {name} could take yet", f"{plural(r['commands_recorded'], 'command')} recorded in the last {plural(r['window_days'], 'day')}; none that a worker could take.",
+                *[f"{why} ({n})" for why, n in r["reasons"]], tag="REVIEW", color=CYAN, stream=err)
+        return
+    note = ([f"{r['untimed']} had no timing recorded and {'is' if r['untimed'] == 1 else 'are'} not counted in that time."] if r["untimed"] else [])
+    _ui.say(f"Commands {name} could take",
+            f"In the last {plural(r['window_days'], 'day')} you ran {plural(r['commands'], 'command')}, {span(r['seconds'])} in all, that {name} could take.",
+            cards.Why("That is the time they took on this computer. It is not a promise that a worker is quicker: it may be slower. What you gain is this computer left free for your own work."),
+            *note, tag="REVIEW", color=CYAN, stream=err)
+    _ui.table("Worth offloading, best first", ["#", "runs", "time", "command shape", "why it pays"],
+              [[str(i), str(x["count"]), span(x["total"]), x["shape"], x["headline"]] for i, x in enumerate(r["recs"], 1)], tag="RECOMMENDED", stream=out,
+              notes=(*((f"{plural(r['more'], 'more command')} could also be taken.",) if r["more"] else ()), "TIME is all the time those runs took here. The order follows the reasons it pays, then the time."))
+    _ui.say("Pick the one you like", tag="NEXT", color=CYAN, stream=err, run_label=f"Check whether {name} can take it" + (", or see the rest" if r["more"] else ""),
+            run=["ct-run offload fit -- <the example command>", *(["ct-run offload log top --all"] if r["more"] else [])])
+
+
+def cmd_review(ctx, a, cfg=None):
+    """`ct-run offload review`: the summary and the ranked recommendations from this computer's own command log. Reads only local data; changes nothing."""
+    log = command_log(ctx, cfg)
+    try:
+        r = review_of(log, ctx, ctx.host_load(), ctx.clock())
+    except OSError as e:
+        return fail_from(unreadable_log(log, e))
+    show_review(r, log, ctx.product, sys.stderr, sys.stdout)
+    return 0
+
+
+def after_install_review(cfg, stream=None, host_load=None, now=None):
+    """The same summary at the end of `ct-setup install`, on a terminal only. Never raises for a log it cannot read: that becomes a note. True when something was printed."""
+    from .cmdlog import CommandLog
+    stream = stream or sys.stderr
+    if not stream.isatty():
+        return False
+    log = CommandLog(Path(cfg.paths.client_home).expanduser(), own_tools=OWN_TOOLS)
+    try:
+        r = review_of(log, cfg.offload, (host_load or hostload.read)(), time.time() if now is None else now)
+    except OSError as e:
+        from ..packages import card_safe
+        _ui.say("The summary of your command history could not be made", ("Log file", str(log.path)), cards.Why(card_safe(str(e))), tag="NOTE", color=YELLOW, stream=stream,
+                steps=["Run ct-run offload review to see it again."])
+        return True
+    show_review(r, log, cfg.identity.name if hasattr(cfg, "identity") else "the worker", stream, stream)
+    return True
+
+
 # ---- offload: what is worth running on the worker ----
 LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yourself)", [("Installed once in Claude Code's settings", "ct-run offload log hook pre")]),
             "top": ("rank the commands you run most that the worker could take",
@@ -897,6 +978,8 @@ def cmd_offload(ctx, a, cfg):
         return cmd_fit(ctx, a.argv)
     if c == "measure":
         return cmd_measure(ctx, a, cfg)
+    if c == "review":
+        return cmd_review(ctx, a, cfg)
     if c == "history":
         return cmd_history(ctx, a)
     if c == "exclusions":
@@ -908,7 +991,7 @@ def cmd_offload(ctx, a, cfg):
     if c != "log" or not a.log_cmd:
         emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
              ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
-             ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
+             ("offload review", "what your own history says a worker could take, best first"), ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
@@ -1024,6 +1107,7 @@ def build_parser():
     hs.add_argument("--clear", action="store_true", help="forget the history")
     osp.add_parser("measure", add_help=False, help="suggest how often a command must repeat to count, from your own log (changes nothing)").add_argument(
         "--min-seconds", type=float, default=30.0, help="the usual time a single run must take to count as long (default %(default)s)")
+    osp.add_parser("review", add_help=False, help="what your own command history says a worker could take, ranked (changes nothing)")
     osp.add_parser("exclusions", add_help=False, help="commands that were test-run on the worker and do not fit")
     pf = osp.add_parser("profile", add_help=False, help="describe one exact command and have the worker measure it (needs your approval)")
     pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")

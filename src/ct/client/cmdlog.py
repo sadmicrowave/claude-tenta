@@ -16,6 +16,7 @@ honestly between them, so the line is skipped ("compound command") rather than c
 """
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -255,10 +256,44 @@ class CommandLog:
                 reason = next(r["reason"] for r in res["rungs"] if r["rung"] == 4)
             if reason and not show_all:
                 continue
-            rows.append({"shape": sh, "count": g["count"], "median": med, "total": sum(g["secs"]), "example": g["example"], "reason": reason,
+            rows.append({"shape": sh, "count": g["count"], "median": med, "total": sum(g["secs"]), "untimed": g["count"] - len(g["secs"]), "example": g["example"], "reason": reason,
                          "rungs": res["rungs"], "headline": candidacy.NAMES[res["headline"]] if res["headline"] else None})
         rows.sort(key=lambda r: (-r["count"], -r["total"]))
         return rows
+
+    def review(self, records=None, now=None, days=14, top=5, min_commands=20, min_days=3, min_seconds=30.0, repeat_runs=3, repeat_days=14, load_ratio=None, busy_ratio=1.0, busy_min_seconds=10.0):
+        """What the person's own log says a worker could take, for `ct-run offload review` and the end of `ct-setup install`; slice 7's y/n list is `recs`.
+        Pure: time, load and every setting are passed in. The numbers are recorded seconds of candidate commands in the window (never a promise of speed: a worker may be slower than this
+        computer, the gain is a free computer). `state`: empty (nothing recorded), short (too little to say anything: no hours are given), none (nothing a worker could take) or ok.
+        `recs`: the top `top` candidates, highest-weighted rung first, then most seconds; each is {shape, example, count, median, total, untimed, rung, headline, why}. `commands`, `seconds`
+        and `untimed` cover every candidate in the window, not only the ones listed (`more` says how many are not)."""
+        now = time.time() if now is None else now
+        recs = [r for r in (self.read() if records is None else records) if r.get("cmd")]
+        stamps = [r["ts"] for r in recs if r.get("ts")]
+        log_days = (now - min(stamps)) / 86400 if stamps else 0.0
+        window = max(1, min(days, math.ceil(log_days)))
+        win = [r for r in recs if (r.get("ts") or 0) >= now - window * 86400]
+        out = {"state": "empty", "recs": [], "more": 0, "commands": 0, "seconds": 0, "untimed": 0, "reasons": [], "commands_recorded": len(win), "log_days": log_days, "window_days": window}
+        if not recs:
+            return out
+        if len(win) < min_commands or log_days < min_days:
+            return {**out, "state": "short"}
+        kw = dict(records=win, repeat_runs=repeat_runs, repeat_days=repeat_days, now=now, load_ratio=load_ratio, busy_ratio=busy_ratio, busy_min_seconds=busy_min_seconds)
+        rows = self.rank(min_seconds, False, **kw)
+        if not rows:
+            why = defaultdict(int)
+            for r in self.rank(min_seconds, True, **kw):
+                if r["reason"]:
+                    why[r["reason"]] += r["count"]
+            return {**out, "state": "none", "reasons": sorted(why.items(), key=lambda kv: -kv[1])[:2]}
+        ranked = []
+        for r in rows:
+            met = max((x for x in r["rungs"] if x["verdict"] == candidacy.MET), key=lambda x: x["weight"])
+            ranked.append({"shape": r["shape"], "example": r["example"], "count": r["count"], "median": r["median"], "total": r["total"], "untimed": r["untimed"],
+                           "rung": met["rung"], "headline": r["headline"], "why": met["reason"]})
+        ranked.sort(key=lambda r: (-candidacy.WEIGHTS[r["rung"]], -r["total"]))
+        return {**out, "state": "ok", "recs": ranked[:top], "more": max(0, len(ranked) - top), "commands": sum(r["count"] for r in ranked),
+                "seconds": sum(r["total"] for r in ranked), "untimed": sum(r["untimed"] for r in ranked)}
 
     GRID_RUNS, GRID_DAYS = (2, 3, 4), (7, 14, 30)
 

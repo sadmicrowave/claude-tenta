@@ -2260,3 +2260,12 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the worker release that keeps shared environments (the one with packages.keep_days)
 - **Configured:** packages.keep_days on the worker (a smaller number frees space sooner)
 - **What to do:** Free some disk on the worker, or send the job to a worker with more room. Or lower packages.keep_days on the worker so unused environments go sooner.
+
+### `review.log.unreadable`: The command log could not be read
+
+- **Text:** {reason}
+- **Protects:** The summary reads only this computer's own command log; when that cannot be read it says so with the system's own words instead of showing numbers made from nothing.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Open the log file named above and make it readable by you (it is your own file). Or delete it with the second command below: the hooks start a new log from the next command.

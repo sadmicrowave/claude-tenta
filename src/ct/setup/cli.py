@@ -299,7 +299,18 @@ def finish(a, report, dry):
     else:
         emit("The worker is set up", *([("First job", "went through the whole loop: sent, picked up, run and its result came back")] if any(r[0] == "a job went through the whole loop" and r[1] == "ok" for r in report) else []),
              tag="DONE", color=GREEN, run_label="Try it", run=["ct-run classes", "ct-run submit sys-status --wait", "ct-admin status"])
+        show_review()
     return 0
+
+
+def show_review():
+    """The summary of what the person's own command history says a worker could take, after a good install. A bonus: whatever goes wrong here is a note, never a failed install."""
+    try:
+        from ..client import cli as client_cli
+        client_cli.after_install_review(config.load())
+    except Exception as e:
+        from ..packages import card_safe
+        emit("The summary of your command history could not be made", cards.Why(card_safe(str(e))), tag="NOTE", color=YELLOW, steps=["Run ct-run offload review to see it again."])
 
 
 def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, verify=None, screen=None, **overrides):
