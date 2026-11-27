@@ -36,7 +36,7 @@ echo "== 2. ct-setup add-worker over GitHub"
 tail -14 /tmp/ct-aw-2.out | sed 's/\x1b\[[0-9;]*m//g'; check "add-worker finished" test $rc -eq 0
 for r in $Q $R; do
   check "$r exists, is private, and is named for the fleet" bash -c "[ \"\$(gh repo view $OWNER/$r --json isPrivate --jq .isPrivate)\" = true ]"
-  check "$r carries the fleet topic" bash -c "gh api repos/$OWNER/$r --jq '.topics[]' | grep -qx claude-tenta"
+  check "$r carries the fleet topic" bash -c "gh api repos/$OWNER/$r --jq '.topics[]' | grep -qx armada"
   check "$r has the worker's deploy key" bash -c "[ \$(gh repo deploy-key list -R $OWNER/$r --json id --jq length) -eq 1 ]"
 done
 "$REAL_HOME/.local/bin/ct-run" setup >/dev/null 2>&1
@@ -44,8 +44,8 @@ done
 tail -5 /tmp/ct-aw-job.out | sed 's/\x1b\[[0-9;]*m//g'; check "a job sent to the new worker came back over GitHub" test $rc -eq 0
 check "the worker is listed" bash -c "$REAL_HOME/.local/bin/ct-admin workers --no-refresh --json | grep -q '\"$WN\"'"
 echo "== 3. the isolation rule, for real"
-printf '[identity]\nname = "dupw"\n[server]\nhost = "%s"\nadmin_user = "%s"\n[github]\nowner = "%s"\nqueue_repo = "%s"\nresults_repo = "%s-other"\n[transport]\nkind = "github"\n' $IP2 $ADMIN $OWNER $Q $NAME > $H/.config/claude-tenta/dupw.toml
-"$REAL_HOME/.local/bin/ct-admin" workers add dupw --config $H/.config/claude-tenta/dupw.toml --github > /tmp/ct-aw-dup.out 2>&1; rc=$?
+printf '[identity]\nname = "dupw"\n[server]\nhost = "%s"\nadmin_user = "%s"\n[github]\nowner = "%s"\nqueue_repo = "%s"\nresults_repo = "%s-other"\n[transport]\nkind = "github"\n' $IP2 $ADMIN $OWNER $Q $NAME > $H/.config/armada/dupw.toml
+"$REAL_HOME/.local/bin/ct-admin" workers add dupw --config $H/.config/armada/dupw.toml --github > /tmp/ct-aw-dup.out 2>&1; rc=$?
 sed 's/\x1b\[[0-9;]*m//g' /tmp/ct-aw-dup.out | head -12
 check "a second worker on the same queue repository is refused" bash -c "[ $rc -ne 0 ] && grep -q worker.repo.shared /tmp/ct-aw-dup.out"
 check "nothing was created or listed for it" bash -c "! gh repo view $OWNER/$NAME-other >/dev/null 2>&1 && ! $REAL_HOME/.local/bin/ct-admin workers --no-refresh --json | grep -q dupw"

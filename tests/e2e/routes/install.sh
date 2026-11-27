@@ -12,12 +12,12 @@ chmod -R a+rX $SRC
 install_github >/tmp/e2e-install.out 2>&1; rc=$?
 tail -45 /tmp/e2e-install.out
 check "the install command finished successfully" test $rc -eq 0
-check "it created the two private repositories itself" bash -c "test -d $H/git/$OWNER/claude-tenta-queue.git && test -d $H/git/$OWNER/claude-tenta-results.git"
-check "it added the server's two keys to GitHub, results with write access" bash -c "grep -q 'claude-tenta-queue (write=0)' /tmp/e2e-gh.log && grep -q 'claude-tenta-results (write=1)' /tmp/e2e-gh.log"
-check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'claude-tenta-' $H/git/.ssh/authorized_keys | grep -qx 2"
+check "it created the two private repositories itself" bash -c "test -d $H/git/$OWNER/armada-queue.git && test -d $H/git/$OWNER/armada-results.git"
+check "it added the server's two keys to GitHub, results with write access" bash -c "grep -q 'armada-queue (write=0)' /tmp/e2e-gh.log && grep -q 'armada-results (write=1)' /tmp/e2e-gh.log"
+check "nothing was copied by hand: the worker's keys are in the git user's authorized keys" bash -c "grep -c 'armada-' $H/git/.ssh/authorized_keys | grep -qx 2"
 check "the working folder it used on the server was removed" bash -c "! ls -d /tmp/ct-install.* 2>/dev/null"
-check "the client configuration was written" test -f $H/$ADMIN/.config/claude-tenta/ct.toml
-check "the registry was seeded on main of the queue repository" rgit -C $H/git/$OWNER/claude-tenta-queue.git cat-file -e main:registry.yaml
+check "the client configuration was written" test -f $H/$ADMIN/.config/armada/ct.toml
+check "the registry was seeded on main of the queue repository" rgit -C $H/git/$OWNER/armada-queue.git cat-file -e main:registry.yaml
 
 step "Running the install again changes nothing and still works"
 install_github >/tmp/e2e-install2.out 2>&1; rc=$?
@@ -53,7 +53,7 @@ check "status shows the fetch and step passes healthy" bash -c "as_admin ct-admi
 check "no fetch or step pass has failed in the journal" bash -c "! journalctl -u $NAME-fetch.service -u $NAME-step.service --no-pager -o cat 2>&1 | grep -E 'Traceback|Failed to start'"
 check "the worker trusts the administrator's approval key (approvals are signed on the administrator's computer)" bash -c "grep -q 'ct-approval,ct-registry,ct-control' /etc/$NAME/approvers && as_admin test -f /home/$ADMIN/.ct/approval/key"
 check "the registry sync runs, and says why it did nothing when no registry has been signed" bash -c "env PYTHONPATH=/opt/$NAME/lib CT_CONFIG=/etc/$NAME/ct.toml python3 -m ct.update --registry-sync 2>&1 | grep -qi 'registry sync'"
-check "ct-admin workers compares workers from what each published, with no login" bash -c "as_admin ct-admin workers --json | grep -q has_claude"
+check "ct-admin workers compares workers from what each published, with no login" bash -c "as_admin ct-admin workers --json | grep -q classes"
 check "the worker reports its isolation as ON" bash -c "as_admin ct-admin status 2>&1 | grep -E 'Isolation +ON'"
 check "the job-isolation hardening module is satisfied" bash -c "grep -q 'job-isolation' /etc/$NAME/hardening.json && python3 -c \"import json; d=json.load(open('/etc/$NAME/hardening.json')); raise SystemExit(0 if d['job-isolation']['status'] in ('applied','satisfied') else 1)\""
 

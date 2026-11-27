@@ -381,10 +381,8 @@ def parse_params(pairs):
     return params
 
 
-def build_job(cls, params=None, prompt=None, files=None):
+def build_job(cls, params=None, files=None):
     job = {"class": cls, "params": params or {}}
-    if prompt:
-        job["prompt"] = prompt
     if files:
         job["files"] = files
     return job

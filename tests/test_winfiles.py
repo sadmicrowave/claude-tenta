@@ -14,27 +14,27 @@ from ct.setup import winfiles, wintools  # noqa: E402
 
 class Config(unittest.TestCase):
     def test_a_windows_configuration_validates_and_uses_forward_slash_folders_under_the_root(self):
-        text = winfiles.windows_config("claude-tenta", "192.0.2.10", "me")
-        for needle in ('code = "C:/ProgramData/claude-tenta/release"', 'state_root = "C:/ProgramData/claude-tenta/state"', 'config = "C:/ProgramData/claude-tenta/config"', 'kind = "direct"', 'worker_user' if False else 'host = "192.0.2.10"'):
+        text = winfiles.windows_config("armada", "192.0.2.10", "me")
+        for needle in ('code = "C:/ProgramData/armada/release"', 'state_root = "C:/ProgramData/armada/state"', 'config = "C:/ProgramData/armada/config"', 'kind = "direct"', 'worker_user' if False else 'host = "192.0.2.10"'):
             self.assertIn(needle, text)
         self.assertNotIn("\\", text.replace("\\n", ""))
 
     def test_it_round_trips_through_the_loader(self):
         import tempfile
         d = Path(tempfile.mkdtemp())
-        (d / "ct.toml").write_text(winfiles.windows_config("claude-tenta", "192.0.2.10", "me", ssh_port=2222))
+        (d / "ct.toml").write_text(winfiles.windows_config("armada", "192.0.2.10", "me", ssh_port=2222))
         c = config.load(d / "ct.toml")
-        self.assertEqual((c.server.ssh_port, c.path("queue_clone")), (2222, "C:/ProgramData/claude-tenta/state/queue"))
+        self.assertEqual((c.server.ssh_port, c.path("queue_clone")), (2222, "C:/ProgramData/armada/state/queue"))
 
     def test_a_bad_value_is_refused_before_anything_is_sent(self):
         with self.assertRaises(ValueError):
-            winfiles.windows_config("claude-tenta", "192.0.2.10", "me", root="C:/Program Files/x")
+            winfiles.windows_config("armada", "192.0.2.10", "me", root="C:/Program Files/x")
 
 
 class Pack(unittest.TestCase):
     def test_the_windows_pack_is_a_valid_registry_for_a_windows_worker(self):
         reg = registry.parse(winfiles.pack_text())
-        self.assertEqual(registry.validate(reg, "C:/ProgramData/claude-tenta/release/tools", platform="windows"), [])
+        self.assertEqual(registry.validate(reg, "C:/ProgramData/armada/release/tools", platform="windows"), [])
         self.assertEqual(sorted(reg["classes"]), ["win-echo", "win-status"])
 
     def test_every_class_names_its_program_by_full_path_allows_the_network_flag_a_windows_worker_needs_and_needs_no_approval(self):
@@ -54,7 +54,7 @@ class Pack(unittest.TestCase):
 class Script(unittest.TestCase):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        cfg, reg = winfiles.windows_config("claude-tenta", "192.0.2.10", "me"), winfiles.pack_text()
+        cfg, reg = winfiles.windows_config("armada", "192.0.2.10", "me"), winfiles.pack_text()
         s = winfiles.ensure_script(cfg, reg)
 
     def test_the_file_texts_travel_as_base64_and_come_out_exactly(self):

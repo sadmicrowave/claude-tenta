@@ -21,8 +21,8 @@ def apply(text, into):
 
 
 class Snapshot(unittest.TestCase):
-    def test_text_files_are_recorded_and_the_git_and_claude_folders_are_not(self):
-        d = tree({"a.txt": "x\n", "sub/b.py": "y\n", ".git/config": "[core]\n", ".claude/s.json": "{}"})
+    def test_text_files_are_recorded_and_the_git_folder_is_not(self):
+        d = tree({"a.txt": "x\n", "sub/b.py": "y\n", ".git/config": "[core]\n"})
         files, notes = patch.snapshot(d)
         self.assertEqual(sorted(files), ["a.txt", "sub/b.py"])
 

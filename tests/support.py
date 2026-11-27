@@ -206,7 +206,6 @@ class Base(unittest.TestCase):
                   find_program=lambda n: "/usr/bin/" + n if n in ("ls", "jq") else None)
         kw.update(over)
         self.w = worker.Worker(self.settings, self.io, self.lockdown, self.keeper, self.pk, **kw)
-        self.w.claude_flags = lambda command: {"--tools", "--disallowedTools", "--allowedTools"}        # never ask a real Claude what it supports
         return self.w
 
     def job(self, jid, cls="echo", branch="jobs", **extra):

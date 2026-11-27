@@ -13,8 +13,8 @@ Nothing needs to be reachable from the internet. With the GitHub connection the 
 ## 1. Install on your computer
 
 ```bash
-git clone https://github.com/<project>/claude-tenta.git
-cd claude-tenta
+git clone https://github.com/<project>/armada.git
+cd armada
 python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e .
 ~/.ct-venv/bin/ct-setup install
 ```
@@ -32,7 +32,7 @@ ct-setup install
 It will:
 
 1. connect to the server over SSH and look at it (it refuses an unsupported machine before changing anything);
-2. ask its questions, once, with a default for each (the worker's address, your account name on it, your GitHub name, how strong the machine is, whether to turn IPv6 off, where alerts go, how Claude jobs sign in...). The keys are listed under each question: Enter goes on, the up arrow goes back to change an earlier answer, Tab completes a choice. Only the questions without a safe default are asked; press `A` on the last screen (or use `--advanced`) to change the rest. That screen lists every answer before anything happens;
+2. ask its questions, once, with a default for each (the worker's address, your account name on it, your GitHub name, how strong the machine is, whether to turn IPv6 off, where alerts go). The keys are listed under each question: Enter goes on, the up arrow goes back to change an earlier answer, Tab completes a choice. Only the questions without a safe default are asked; press `A` on the last screen (or use `--advanced`) to change the rest. That screen lists every answer before anything happens;
 3. set up your side: your configuration, the two private repositories, the clones;
 4. send the release to the server and run the server's setup there. **It asks for your sudo password on the server** (only the server sees it) and for a yes to each protection it offers, one at a time, with the plain
    reason and how it could lock you out;
@@ -68,7 +68,7 @@ ct-admin status
 | find out whether a slow command is worth sending | `ct-run offload fit -- <command>` |
 | install a new release | `ct-admin diff`, then `ct-admin apply` |
 | the worker locked itself | `ct-admin quarantine`, then `ct-admin unlock` |
-| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/claude-tenta/lib python3 -m ct.setup audit` |
+| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/armada/lib python3 -m ct.setup audit` |
 
 ## Removing it
 
@@ -77,7 +77,7 @@ ct-setup uninstall             # a preview: lists exactly what would be removed,
 ct-setup uninstall --apply     # asks once, then removes it (your sudo password, on the server)
 ```
 
-The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `ct-setup install` sets it all up again.
+The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `ct-setup install` sets it all up again. No migration is supported before the first release: uninstall a previous install with its own version, then install.
 See [the setup wizard](components/setup.md#ct-setup-uninstall) for the options (`--keep-data`, `--remove-account`).
 
 To remove a Windows worker, name it: `ct-setup uninstall --worker NAME` (preview first, `--apply` to remove; `--keep-data` keeps its state folders). To take the ct commands off your own computer: `ct-setup uninstall --client` (it never touches your GitHub repositories or a worker computer, so remove the workers first).

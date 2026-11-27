@@ -1,10 +1,10 @@
-"""The folder's own settings: `.tenta.toml`, the file `ct-run use` writes in a working folder (the way a CLAUDE.md holds what Claude should know about a folder).
+"""The folder's own settings: `.tenta.toml`, the file `ct-run use` writes in a working folder (the way an assistant's instructions file holds what it should know about a folder).
 
 It says which worker this folder's jobs go to, and may name single commands (job classes) that go to a different worker. It is plain TOML you can open and edit by hand; `ct-run use` is the
-one command that reads and writes it, so a person, a script or Claude can set it again later in one line. The nearest file at or above the folder you are in wins (as with `.git`), so a
+one command that reads and writes it, so a person, a script or an assistant can set it again later in one line. The nearest file at or above the folder you are in wins (as with `.git`), so a
 project's file covers its sub-folders. An explicit `--worker` on the command line always wins over the file.
 
-`~/.tenta.toml` is the same file for the whole computer (like `~/.claude/CLAUDE.md` for folders): `ct-admin workers use WORKER --command CLASS` writes it. Where a job goes, most specific first:
+`~/.tenta.toml` is the same file for the whole computer (like a global instructions file for folders): `ct-admin workers use WORKER --command CLASS` writes it. Where a job goes, most specific first:
 this folder's [commands], then the computer's [commands] (a command dedicated to one worker everywhere), then this folder's `worker`, then the computer's `worker`. A command dedicated to a worker goes only there; the worker stays free for everything else (it is the command that is dedicated, never the machine).
 """
 import os
@@ -18,7 +18,7 @@ from .repo import ClientError
 
 FILE = ".tenta.toml"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-HEADER = ("# claude-tenta: which worker jobs go to. Written by `ct-run use` (a folder) or `ct-admin workers use` (this computer, ~/.tenta.toml); edit it freely.\n"
+HEADER = ("# armada: which worker jobs go to. Written by `ct-run use` (a folder) or `ct-admin workers use` (this computer, ~/.tenta.toml); edit it freely.\n"
           "# worker = the worker every job from here goes to. [commands] = single job classes that go to a particular worker.\n"
           "# A command listed under [commands] goes only to that worker; the worker still takes other work.\n")
 

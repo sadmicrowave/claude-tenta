@@ -51,7 +51,7 @@ def stop(title, *details, code=1, tag="STOPPED", color=YELLOW, **kw):
 
 
 class Context:
-    def __init__(self, repos, ssh, source, *, name="claude-tenta", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
+    def __init__(self, repos, ssh, source, *, name="armada", config_dir=None, code_dir=None, home=None, ask=input, is_tty=None,
                  run_result=None, main_branch="main", sleep=time.sleep, workers_file=None, cfg=None):
         self.repos, self.ssh, self.source, self.name = repos, ssh, source, name
         self.store = transport.store_for(cfg) if cfg is not None else "GitHub"              # what jobs and results pass through: the words of a message ("GitHub", "the mailbox")
@@ -741,7 +741,7 @@ def cmd_workers(ctx, a):
     wfile = ctx.workers_file
     if action == "add":
         if not a.name or not a.config:
-            raise refuse.error("worker.add.args", example="ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml")
+            raise refuse.error("worker.add.args", example="ct-admin workers add studio --config ~/.config/armada/studio.toml")
         try:
             workers.add(wfile, a.name, a.config)
         except ValueError as e:
@@ -797,16 +797,14 @@ def cmd_workers(ctx, a):
     for c in cells:
         c["dedicated"] = workers.dedicated_text(mine, c["name"])
         c["class_desc"] = {n: workers.brief(i) for n, i in ((regs.get(c["name"]) or {}).get("classes") or {}).items()}
-    if a.claude:
-        cells = [c for c in cells if c["has_claude"] and not c["locked"]]
     if a.json:
         print(json.dumps(cells, indent=2))                                          # output: data (--json)
         return 0
     out = sys.stdout
     if not cells:
-        emit("No worker matches", "None of the listed workers has Claude access that works and is not locked." if a.claude else "No workers are listed.", tag="NOTE", color=YELLOW,
+        emit("No worker matches", "No workers are listed.", tag="NOTE", color=YELLOW,
              run_label="See all of them", run="ct-admin workers")
-        return 1 if a.claude else 0
+        return 0
     import shutil
     from .. import ui as ui_mod
     _ui.show([""] + workers.cards(cells, width=shutil.get_terminal_size((80, 24)).columns, color=ui_mod._color_on(out)), stream=out)
@@ -816,7 +814,7 @@ def cmd_workers(ctx, a):
     if problems:
         emit("Some workers could not be refreshed", *[("Problem", p) for p in problems], tag="NOTE", color=YELLOW)
     release_card(ctx, out)
-    _ui.related(("Only workers whose Claude access works", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add <name> --config <file>"),
+    _ui.related(("Add another worker", "ct-admin workers add <name> --config <file>"),
                 ("Stop listing a worker", "ct-admin workers remove <name>"), ("Dedicate a command to a worker", "ct-admin workers use <name> --command <class>"), ("Give a worker a name here", "ct-admin workers rename <name> <new name>"), ("Look at one worker's health", "ct-admin status"))
     return 0
 
@@ -995,7 +993,7 @@ def cmd_watch(ctx, a):
     from ..alerts import Notifier
     cfg = ctx.cfg
     url = (os.environ.get("CT_ALERT_URL") or (cfg.alerts.url if cfg and cfg.alerts.kind != "none" else "")) or ""
-    notifier = Notifier(url=url, product=(cfg.identity.name if cfg else "claude-tenta"), syslog=False, log=lambda m: None)
+    notifier = Notifier(url=url, product=(cfg.identity.name if cfg else "armada"), syslog=False, log=lambda m: None)
     memory = watch_mod.Memory(ctx.home / "watch.json")
     said = []
 
@@ -1228,7 +1226,7 @@ def class_facts(c):
 def retry_rows(c, from_pack=False):
     """The rows of `class show` for the stop rule (timeout_s, max_timeout_s) and the retry rule (R3)."""
     kind = c.get("kind", "command")
-    rows = [("Stops after", f"{int(c.get('timeout_s') or (600 if kind == 'claude' else 60))} s: a job that runs longer is stopped and reported as timeout, and is never run again")] if kind != "profile" else []
+    rows = [("Stops after", f"{int(c.get('timeout_s') or 60)} s: a job that runs longer is stopped and reported as timeout, and is never run again")] if kind != "profile" else []
     if c.get("max_timeout_s"):
         rows += [("Longest allowed", f"{int(c['max_timeout_s'])} s: the most any job of this class may be given")]
     n = c.get("retries") or 0
@@ -1472,7 +1470,7 @@ GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "work
 
 HELP = {
     "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48"), ("Watch the overview", "ct-admin status --every 5")]),
-    "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml"), ("Give a worker a name here", "ct-admin workers rename tenta3 lab-vm"), ("Name every worker in turn", "ct-admin workers rename")]),
+    "workers": ("compare the workers you administer: hardware and state, side by side", [("Compare them all", "ct-admin workers"), ("Add another worker", "ct-admin workers add studio --config ~/.config/armada/studio.toml"), ("Give a worker a name here", "ct-admin workers rename tenta3 lab-vm"), ("Name every worker in turn", "ct-admin workers rename")]),
     "locate": ("find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address", [("Look for the main worker", "ct-admin locate"), ("Look for another one", "ct-admin locate --worker studio")]),
     "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
     "wake": ("end idle or sleep now: every worker, or one, looks for jobs right away", [("Wake every worker", "ct-admin wake"), ("Wake one", "ct-admin wake --worker studio")]),
@@ -1560,7 +1558,6 @@ def build_parser():
     s.add_argument("--command", metavar="class", help="with use: the job class that always goes to that worker, from every folder")
     s.add_argument("--clear", action="store_true", help="with use: undo it (a worker: release it; with --command: just that command; neither: everything in ~/.tenta.toml); with rename: remove the worker's name")
     s.add_argument("--force", action="store_true", help="with use: add the command even if the computer's worker already covers it")
-    s.add_argument("--claude", action="store_true", help="only workers whose Claude access works and that are not locked")
     s.add_argument("--json", action="store_true", help="print the comparison as JSON")
     s.add_argument("--no-refresh", action="store_true", help="use what was last downloaded; do not pull first")
     s = sp.add_parser("cancel", add_help=False)

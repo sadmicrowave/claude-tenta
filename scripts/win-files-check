@@ -18,7 +18,7 @@ def main(argv):
     import preflight   # noqa: E402  (the machine must answer before anything is set up on it)
     preflight.require("real", argv[0])
     user, _, host = argv[0].rpartition("@")
-    name = argv[argv.index("--name") + 1] if "--name" in argv else "claude-tenta"
+    name = argv[argv.index("--name") + 1] if "--name" in argv else "armada"
     where = argv[argv.index("--worker-host") + 1] if "--worker-host" in argv else host
     run = wintools.ssh_runner(user, host)
     cfg, reg = winfiles.windows_config(name, where, user), winfiles.pack_text()

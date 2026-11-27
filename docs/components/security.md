@@ -87,6 +87,5 @@ Folders: code and config are root-owned; state is `0750` worker-owned; `secrets.
 
 ### Spend, caps and patches (0.2)
 
-- **Daily Claude limits.** A worker counts the Claude jobs it starts and the turns they use each UTC day (`ledger.jsonl`, mode 0600) and stops starting new Claude jobs at `claude.jobs_per_day` or `claude.turns_per_day`. It is a pause, not a lockdown: other jobs run, the queued ones start tomorrow or when you raise the limit, and one quiet notice goes out that day. Dollars are only notional with an account token, so they are recorded and shown, never enforced.
 - **Cap across workers.** `limits.max_in_flight` is checked on your computer before any job is sent.
 - **Patches, not pushes.** A class that writes returns its changes as a patch in the result. The worker never pushes anything; you apply the patch after reading it, and your computer refuses paths outside the folder, `.git`, links and binary changes whatever the worker said.

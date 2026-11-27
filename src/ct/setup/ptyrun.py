@@ -1,41 +1,16 @@
-"""Run a command that wants a real terminal (a browser sign-in with prompts) on the person's own terminal, and keep a copy of what it printed.
+"""Run a command that wants a real terminal (prompts, a passphrase) on the person's own terminal, and keep a copy of what it printed.
 
-`claude setup-token` prints a long token for the person to copy. Running it here lets the installer read the token itself instead of asking for it to be pasted
-back. Everything the program prints still appears on the person's terminal, and their keys still reach it.
+Everything the program prints still appears on the person's terminal, and their keys still reach it.
 """
 import fcntl
 import os
 import pty
-import re
 import select
 import shutil
 import struct
 import sys
 import termios
 import tty
-
-ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]")
-TOKEN_LINE = re.compile(r"\s*(sk-ant-[A-Za-z0-9_-]+)\s*")
-WORD_LINE = re.compile(r"\s*([A-Za-z0-9_-]+)\s*")
-
-
-def extract_token(text):
-    """The sign-in token in what a program printed, or None. The token is one long word that the terminal may have wrapped over several lines, so the lines
-    that follow it are joined while each is a single word; the blank line after it ends it. When it was printed more than once (a redrawn screen) the last one wins."""
-    lines = ANSI.sub("", text).replace("\r", "").split("\n")
-    found = []
-    for i, line in enumerate(lines):
-        m = TOKEN_LINE.fullmatch(line)
-        if not m:
-            continue
-        token = m.group(1)
-        for following in lines[i + 1:]:
-            w = WORD_LINE.fullmatch(following)
-            if not w:
-                break
-            token += w.group(1)
-        found.append(token)
-    return found[-1] if found else None
 
 
 def keep_newline_translation(fd):

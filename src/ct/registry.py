@@ -14,14 +14,7 @@ from .pkgspec import check_packages, is_pinned
 COST_W = {"light": 1, "medium": 2, "heavy": 4}      # capacity points; a heavy job runs alone on a capacity-4 machine
 CLASS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 PLACEHOLDER = re.compile(r"^\{(\w+)\}$")
-POS_INT_KEYS = ("patch_max_kb", "timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "max_turns", "output_max_chars", "max_running")
-HELPER_TOOLS = ("Task", "Agent")                    # tools that start helper agents with turns of their own: never on a device, whatever the class says (see docs/design/SINGLE-JOB-DEVICES.md)
-RISKY_TOOLS = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch")        # write, run or fetch: only for a class marked `reviewed: true`
-
-
-def tool_name(entry):
-    """'Bash(git log:*)' -> 'Bash': the tool a permission entry is about."""
-    return str(entry).split("(", 1)[0].strip()
+POS_INT_KEYS = ("timeout_s", "max_timeout_s", "max_rss_mb", "max_temp_c", "max_disk_mb", "output_max_chars", "max_running")
 ENV_KEYS = ("PYTHONPATH", "NODE_PATH")              # the only variables a class may set, and only to folders under the tools folder
 MAX_OUT = 100_000
 BASELINE_DENY = ("sudo", "su", "doas", "pkexec")      # always refused, whatever any pack says: privilege tools have no place in a job
@@ -165,17 +158,14 @@ def tools_problems(w, tools, kind, tool_roots):
 
 
 def platform_problems(classes, platform):
-    """What a worker on another platform (Windows) cannot honour: a class that must run without the network (it has no way to enforce that: the refusal names the class), and any Claude class
-    (not in version 1). Nothing on Linux."""
+    """What a worker on another platform (Windows) cannot honour: a class that must run without the network (it has no way to enforce that: the refusal names the class). Nothing on Linux."""
     if platform != "windows":                                   # only Windows has the decision; a Mac worker is its own design
         return []
     errs = []
     for name, c in sorted((classes or {}).items()):
         if not isinstance(c, dict):
             continue
-        if c.get("kind", "command") == "claude":
-            errs.append(f"{name}: a {platform} worker runs no Claude jobs in this version")
-        elif not c.get("network", False):
+        if not c.get("network", False):
             errs.append(f"{name}: needs no network, and a {platform} worker cannot enforce that; the class must say network: true to be offered there")
     return errs
 
@@ -228,7 +218,7 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
             errs.append(f"{w}: must be a mapping")
             continue
         kind = c.get("kind", "command")
-        if kind not in ("command", "claude", "profile", "privileged"):
+        if kind not in ("command", "profile", "privileged"):
             errs.append(f"{w}: unknown kind {kind!r}")
         if c.get("cost", "medium") not in COST_W:
             errs.append(f"{w}: cost must be light, medium or heavy")
@@ -273,10 +263,6 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
             errs.append(f"{w}: retry_delay_s must be a whole number of seconds from 1 to 3600")
         if "batchable" in c and not isinstance(c["batchable"], bool):
             errs.append(f"{w}: batchable must be true or false")
-        if "returns" in c and kind != "claude":
-            errs.append(f"{w}: only a claude class can return a patch")
-        if c.get("returns") == "patch" and not c.get("accepts_files"):
-            errs.append(f"{w}: a class that returns a patch needs accepts_files: true (the patch is the difference from the files it was sent)")
         if c.get("batchable") and not c.get("accepts_files"):
             errs.append(f"{w}: batchable needs accepts_files: true")
         if "output_keys" in c and not (isinstance(c["output_keys"], list) and c["output_keys"]
@@ -301,19 +287,6 @@ def validate(reg, tools_root, allow_empty=False, tool_roots=None, platform=None)
                     m = PLACEHOLDER.match(t)
                     if m and m.group(1) not in params:
                         errs.append(f"{w}: run uses {{{m.group(1)}}} but no such param is declared")
-        elif kind == "claude":
-            if "returns" in c and c["returns"] != "patch":
-                errs.append(f"{w}: returns may only be patch (the work comes back as a patch inside the result)")
-            tools = c.get("allowed_tools")
-            if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools):
-                errs.append(f"{w}: allowed_tools must be a non-empty list of strings")
-            else:
-                names = [tool_name(t) for t in tools]
-                for bad in [n for n in names if n in HELPER_TOOLS]:
-                    errs.append(f"{w}: allowed_tools names {bad}, which starts helper agents. A device runs one job and does not start helpers; remove it")
-                risky = [n for n in names if n in RISKY_TOOLS or n.startswith("mcp__")]
-                if risky and c.get("reviewed") is not True:
-                    errs.append(f"{w}: allowed_tools names {', '.join(sorted(set(risky)))}, which can write, run commands or fetch. Say you have read what the class can do by adding `reviewed: true`, or remove them")
         elif kind == "profile" and c.get("run"):
             errs.append(f"{w}: a profile class takes its command from each job, so it must not set run")
         elif kind == "privileged":

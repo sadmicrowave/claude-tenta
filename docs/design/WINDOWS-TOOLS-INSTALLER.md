@@ -20,7 +20,7 @@ Windows NT 10.0.26300, AMD64, Windows PowerShell 5.1, execution policy Restricte
 - **Delivery:** the script is sent as `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <base64 of UTF-16LE>` so cmd quoting and the policy never matter.
 - **Git:** MinGit (the official minimal Git for Windows zip), pinned version and SHA-256 in the repository, unpacked with `tar` into `<tools>\git`. No installer, no administrator rights, nothing on the system PATH.
 - **Python:** an existing Python 3.11 or newer is used; else `winget` installs it for this user (winget checks the package's own hash). The embeddable zip was dropped: python.org publishes only MD5 for its Windows files (the SHA-256 field is empty), which cannot be a pin, and verifying a download by GPG or Sigstore on Windows is a project of its own. With no Python and no winget the error says to install Python from python.org and run again. If there is no winget (Windows 10, some Windows 11) or it fails, the official python.org installer (pinned version, SHA-256 computed from the file, plus an Authenticode check for the signer Python Software Foundation, both BEFORE it runs) is run silently for this user into <tools>\python. Run on the real Windows 11 VM with winget hidden: installed; a wrong hash refused. A same-version Python that is registered but broken (folder renamed) makes the installer exit 1601; the error says so, repair or uninstall it. Not run: Windows 10.
-- **Where:** `<tools>` is a parameter (default `%ProgramData%\claude-tenta\tools`).
+- **Where:** `<tools>` is a parameter (default `%ProgramData%\armada\tools`).
 - **Idempotent:** a marker file in `<tools>` records the versions and hashes installed; a match means "nothing to do".
 - **Result:** the script's last line is one JSON object (`{"git": "...", "python": "...", "changed": true}`) that the Python side parses; any other output is shown only on failure.
 - **Code:** `src/ct/setup/wintools.py` builds and runs it through the existing `Ssh`; the pinned table is data, not code.
@@ -29,4 +29,4 @@ Windows NT 10.0.26300, AMD64, Windows PowerShell 5.1, execution policy Restricte
 Unit: the encoded command round-trips; the pin table is complete and every hash is 64 hex; a hash mismatch is refused; the result line is parsed; a failure keeps the real text; the "already there" and "reuse an existing tool" decisions (script text checked, plus the Python-side parser). Real: the VM run in Done-when 6, kept as a documented by-hand route (no automated Windows runner for this yet).
 
 ## Not in this branch
-The worker loop, the job runner and Job Objects, release selection, the Windows cards, WSL, Windows Home, Claude jobs, and refusing `network: false` classes (already decided; built with the runtime).
+The worker loop, the job runner and Job Objects, release selection, the Windows cards, WSL, Windows Home, and refusing `network: false` classes (already decided; built with the runtime).

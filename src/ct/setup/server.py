@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import approvals, calibration, claudeupdate, config, render, transport, update
+from .. import approvals, calibration, config, render, transport, update
 from . import assess as assess_mod
 from . import detect as detect_mod
 from . import hardening, questions, report, toml_out
@@ -34,30 +34,8 @@ def missing_steps(missing):
 
 
 EXIT_WAITING = 10          # the server half stopped because the repositories cannot be reached yet (the deploy keys are not added); run it again to continue
-CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"          # Anthropic's documented installer for Linux; it needs no root
-CLAUDE_LEGACY = "2.1.112"          # the last release that is plain JavaScript (runs on Node, on processors the native program cannot run on); later ones are native only
-CLAUDE_QUESTIONS = {
-    "account": {"key": "claude.token", "title": "Paste your Claude token",
-                "why": "On your own computer, open a terminal and run `claude setup-token`. Sign in in the browser it opens, then copy the long token it prints and paste it here. It lasts about a year.",
-                "risk": "Anyone with this token can use your Claude account. It is stored only on this worker, readable by root and the worker account, and given only to Claude jobs.",
-                "examples": ["a long single line starting with sk-ant-"]},
-    "api-key": {"key": "claude.token", "title": "Paste your Anthropic API key",
-                "why": "Create one in the Anthropic Console (API keys) and paste it here. Jobs that use Claude are billed to that account per use.",
-                "risk": "Anyone with this key can spend on your API account. It is stored only on this worker, readable by root and the worker account, and given only to Claude jobs.",
-                "examples": ["a long single line starting with sk-ant-"]},
-}
 PREREQUISITES = (("python3-yaml", ["python3", "-c", "import yaml"]), ("git", ["git", "--version"]))
 
-
-def read_secret(ui, q):
-    """One hidden answer: on the terminal screen when there is one, else hidden at a plain terminal, else '' (nobody to ask)."""
-    if ui is not None:
-        return ui.ask_secret(q)
-    import sys
-    if sys.stdin.isatty():
-        import getpass
-        return getpass.getpass(f"  {q['title']} (hidden; Enter to skip): ").strip()
-    return ""
 
 
 def alias_for(cfg, which):
@@ -85,7 +63,7 @@ def deploy_key_commands(cfg, pubkeys):
 class ServerSetup:
     def __init__(self, host, source, *, ask=None, say=None, confirm=None, dry_run=True, given=None, use_defaults=False, rev=None,
                  systemctl=None, sysctl=None, sandbox=None, is_root=None, install=update.install_release, registry_installer=update.install_registry,
-                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, claude_secrets=None, approver_pubkey=None, mailbox_pubkey=None, verbose=False, calibrator=calibration.measure):
+                 install_packages=None, wait_for_keys=0, sleep=time.sleep, clock=time.monotonic, ui=None, advanced=False, approver_pubkey=None, mailbox_pubkey=None, verbose=False, calibrator=calibration.measure):
         say = say or _sink()
         self.calibrator = calibrator
         self.host, self.source, self.ask, self.say, self.confirm = host, Path(source), ask, say, confirm
@@ -97,7 +75,6 @@ class ServerSetup:
         self.r = report.Styler(styled=ui is not None, verbose=verbose)          # prints notes, headings and commands in the setup's style (plain text without a terminal)
         self.mailbox_pubkey = mailbox_pubkey            # Direct: the PUBLIC key your computer uses for the mailbox
         self.approver_pubkey = approver_pubkey          # the administrator's approval PUBLIC key: lets this worker check approvals signed on their own computer
-        self.claude_secrets = claude_secrets or {}          # {KEY: value} handed over by the installer on the administrator's computer, so nothing is asked here
         self.is_root = is_root if is_root is not None else (lambda: __import__("os").geteuid() == 0)
         self.report = []                               # [(step, status, detail)]
         self.cfg = None
@@ -155,10 +132,6 @@ class ServerSetup:
             self.ui.finish()
         if missing:
             raise refuse.error("setup.answers.missing", steps=missing_steps(missing), missing=", ".join(missing))
-        uses_claude = (nested.get("claude") or {}).get("auth", "none") != "none"
-        if uses_claude or "registry" in nested:                   # the read-only Claude class comes with the install exactly when Claude is used
-            reg = nested.setdefault("registry", {})
-            reg["packs"] = [p for p in (reg.get("packs") or ["core"]) if p != "claude"] + (["claude"] if uses_claude else [])
         clean, problems = questions.validate_answers(nested)
         if problems:
             raise refuse.error("setup.config.invalid", problems="\n".join(problems))
@@ -454,121 +427,17 @@ class ServerSetup:
             self.host.write(f"{cfg.paths.config}/hardening.json", json.dumps(results, indent=2, sort_keys=True) + "\n", 0o644)
         return results
 
-    # ---- Claude: the tool, and how its jobs sign in ----
-    def claude_step(self):
-        """Only when the install says jobs may use Claude (claude.auth is not none): install the `claude` tool for the worker account, then store the sign-in the person
-        gives. Everything else about the worker works without any of this."""
-        cfg = self.cfg
-        auth = cfg.claude.auth
-        if auth == "none":
-            self.forget_claude_secrets()
-            self.note("Claude sign-in", "skipped", "not used on this worker; every other job runs without it")
-            return
-        w, home = cfg.server.worker_user, cfg.paths.worker_home
-        if self.host.exists(f"{home}/.local/bin/claude"):
-            self.note("Claude tool", "ok", "already installed for the worker")
-        elif self.approve_claude_install(w):
-            if not self.host.run(["curl", "--version"]).ok and not self.dry_run:
-                self.run(["apt-get", "install", "-y", "curl"], step="install curl")
-            try:
-                if self.facts.claude_native:
-                    self.run(["env", f"HOME={home}", "bash", "-c", CLAUDE_INSTALL], step="install Claude Code", as_user=w)
-                else:
-                    self.install_claude_legacy(w, home)
-                if not self.dry_run and not self.host.run(["runuser", "-u", w, "--", f"{home}/.local/bin/claude", "--version"]).ok:
-                    raise refuse.error("server.ai_tool.not_running")
-            except SetupError as e:                      # a Claude tool that cannot be installed must never stop the rest of the worker from starting
-                self.note("Claude tool", "failed", f"{e.title}: {e.why}"[:240])
-                self.note("Claude sign-in", "skipped", "Claude jobs will not run on this worker; set claude.auth to none, or try a newer machine")
-                return
-            self.note("Claude tool", "planned" if self.dry_run else "installed", f"{home}/.local/bin/claude")
-        else:
-            self.note("Claude tool", "skipped", "you chose not to install it; Claude jobs will not run until it is installed")
-        self.claude_secret(auth)
-
-    def legacy_command(self, home):
-        return ["env", f"HOME={home}", "sh", "-c",
-                f"npm install --no-audit --no-fund --prefix {home}/.local @anthropic-ai/claude-code@{CLAUDE_LEGACY} && mkdir -p {home}/.local/bin "
-                f"&& ln -sf ../node_modules/.bin/claude {home}/.local/bin/claude"]
-
-    def install_claude_legacy(self, w, home):
-        """The older release, from npm, into the worker's own home. Needs Node 18 or newer, which is installed if it is missing."""
-        node = self.host.run(["node", "--version"])
-        found = re.match(r"v(\d+)", node.out.strip()) if node.ok else None
-        major = int(found.group(1)) if found else 0
-        if not self.dry_run and major < 18:
-            self.run(["apt-get", "install", "-y", "nodejs", "npm"], step="install Node for the Claude tool")
-        self.run(self.legacy_command(home), step="install Claude Code", as_user=w)
-
-    def forget_claude_secrets(self):
-        """Choosing none after having chosen a sign-in removes what was stored, so no old credential is left on the worker."""
-        path = self.cfg.path("secrets")
-        text = self.host.read(path)
-        if self.dry_run or not text or not any(k in config.read_env_file_text(text) for k in config.CLAUDE_SECRET_KEYS.values()):
-            return
-        for k in config.CLAUDE_SECRET_KEYS.values():
-            text = config.set_env_var(text, k, None)
-        self.host.write(path, text, 0o640)
-        self.host.run(["chown", f"root:{self.cfg.server.worker_user}", path])
-        self.note("Claude sign-in", "removed", "the stored token or key was deleted from the worker")
-
-    def approve_claude_install(self, worker):
-        if self.facts.claude_native:
-            info = {"id": "claude-install", "label": "Install", "tag": "downloads from claude.ai", "title": "Install Claude Code for the worker",
-                    "why": "Jobs that use Claude run the `claude` command-line tool as the worker account. Anthropic's own installer puts it in the worker's home folder; it needs no root.",
-                    "risk": "This downloads and runs Anthropic's installer script from claude.ai, as the worker account (not root). The tool updates itself afterwards. Skip it to install the tool yourself.",
-                    "now": "not installed", "steps": [f"runuser -u {worker} -- {CLAUDE_INSTALL}"], "lockout": False}
-        else:
-            info = {"id": "claude-install", "label": "Install", "tag": "older release", "title": f"Install Claude Code {CLAUDE_LEGACY} for the worker",
-                    "why": "This processor is too old for the current Claude Code, which is a native program that dies here with \"Illegal instruction\". The last plain-JavaScript release runs on Node instead and was tried on this kind of machine.",
-                    "risk": f"This installs the pinned release {CLAUDE_LEGACY} from npm, as the worker account (not root), and installs Node if it is missing. It does not update itself, so it misses later fixes, and Anthropic may one day stop accepting an old release. Skip it to leave Claude jobs off.",
-                    "now": "not installed", "steps": [f"runuser -u {worker} -- {shlex.join(self.legacy_command(self.cfg.paths.worker_home))}"], "lockout": False}
-        if self.dry_run:
-            return True
-        if self.ui is not None:
-            return self.ui.protection(info)
-        self.say("    $ " + info["steps"][0])
-        return self.confirm("Install Claude Code for the worker?") if self.confirm else True
-
-    def claude_secret(self, auth):
-        cfg = self.cfg
-        key, path, w = config.CLAUDE_SECRET_KEYS[auth], cfg.path("secrets"), cfg.server.worker_user
-        if self.dry_run:
-            self.note("Claude sign-in", "planned", f"would ask for the {'token' if auth == 'account' else 'key'} and keep it in {path} as {key}")
-            return
-        text = self.host.read(path) or "# Secrets only (API keys, alert tokens). Never put these in ct.toml.\n"
-        value = self.claude_secrets.get(key, "")                 # one just given always replaces what is stored
-        if not value and config.read_env_file_text(text).get(key):
-            self.note("Claude sign-in", "ok", f"{key} is already set")
-            return
-        value = value or self.read_secret(CLAUDE_QUESTIONS[auth])
-        if not value:
-            self.note("Claude sign-in", "skipped", "nothing was entered; Claude jobs fail until you add it (run ct-setup install again)")
-            return
-        if len(value) < 20 or any(c.isspace() for c in value):
-            raise refuse.error("server.token.invalid")
-        other = next(k for a, k in config.CLAUDE_SECRET_KEYS.items() if a != auth)
-        text = config.set_env_var(config.set_env_var(text, other, None), key, value)
-        self.host.write(path, text, 0o640)
-        self.host.run(["chown", f"root:{w}", path])
-        if auth == "account":                              # a subscription token lasts about a year: remember when this one was made so the worker can say when it is running out
-            self.host.write(f"{cfg.paths.config}/{claudeupdate.TOKEN_FILE}", json.dumps({"set_at": int(time.time()), "route": "account"}) + "\n", 0o644)
-        self.note("Claude sign-in", "stored", f"{key} in {path}, readable only by root and the worker account")
-
-    def read_secret(self, q):
-        return read_secret(self.ui, q)
-
     def hold_timers(self):
         """Make sure the job loop is NOT running (an earlier run of this setup may have started it): a worker whose setup failed does not fetch or start jobs."""
         cfg = self.cfg
-        for part in ("fetch.timer", "step.timer", "registry-sync.timer", "update.timer", "claude-update.timer"):
+        for part in ("fetch.timer", "step.timer", "registry-sync.timer", "update.timer"):
             self.host.run(["systemctl", "disable", "--now", cfg.unit(part)])
         self.note("timers", "stopped", "the setup did not finish, so the job loop is off")
 
     def start_timers(self):
         cfg = self.cfg
         timers = ([cfg.unit("fetch.timer"), cfg.unit("step.timer")] + ([cfg.unit("update.timer")] if cfg.updates.mode == "signed-tags" else [])
-                  + ([cfg.unit("claude-update.timer")] if cfg.claude.auth != "none" else []) + [cfg.unit("registry-sync.timer")])
+                  + [cfg.unit("registry-sync.timer")])
         for t in timers:
             self.run(["systemctl", "enable", "--now", t], step="start the timers")
         self.note("timers", "planned" if self.dry_run else "running", ", ".join(timers))
@@ -603,8 +472,6 @@ class ServerSetup:
             self.hold_timers()
             raise refuse.error("server.protection.failed", steps=["Nothing is running: the job timers are off, and no job can be sent to it.", "Read the reason above and fix it, then run the same command again: it continues from here.",
                               "A protection that says 'applied, but the check still fails' is one the setup could not make work on this machine; the reason is the machine's own message."], failed="; ".join(f"{m}: {d}" for m, d in failed.items()))
-        self.say(self.r.head("Claude"))
-        self.claude_step()
         self.say(self.r.head("Starting"))
         self.start_timers()
         return self.report

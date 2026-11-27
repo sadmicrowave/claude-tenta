@@ -11,7 +11,7 @@ A test fails on a refusal written as a literal string in a module listed in `tes
 ## Slices
 
 1. This branch: the catalog and the 41 job-validation refusals in `jobs.py` and `worker.py`. No rule changes: the same jobs are refused with the same text. The three in `registry.py` read a registry file, which is an operational error and goes with the follow-on.
-2. Attachment rules (merged as slice 2): a name rule that checks only the path, the leading-dot rule for classes whose tool reads settings from its working folder (`kind: claude` for now, by kind, never a setting), never dropping a file silently, a default skip list from the project's own ignore rules.
+2. Attachment rules (merged as slice 2): a name rule that checks only the path, never dropping a file silently, a default skip list from the project's own ignore rules.
 3. Placement refusals: every reason a worker was passed over, not the first.
 4. The remaining client refusals.
 5. Follow-on: the operational errors, by the same method.

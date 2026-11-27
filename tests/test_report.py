@@ -35,9 +35,9 @@ class Styled(unittest.TestCase):
 
     def test_statuses_are_capitals_in_one_column_and_the_actions_line_up(self):
         r = report.Styler(styled=True)
-        rows = [r.note("ok", "tools"), r.note("installed", "worker account"), r.note("skipped", "Claude sign-in", "not used here"), r.note("failed", "installer")]
+        rows = [r.note("ok", "tools"), r.note("installed", "worker account"), r.note("skipped", "tool sign-in", "not used here"), r.note("failed", "installer")]
         plain = [ANSI.sub("", x) for x in rows]
-        cols = {line.index(step) for line, step in zip(plain, ["tools", "worker account", "Claude sign-in", "installer"])}
+        cols = {line.index(step) for line, step in zip(plain, ["tools", "worker account", "tool sign-in", "installer"])}
         self.assertEqual(len(cols), 1, plain)                               # every action starts in the same column
         self.assertTrue(all(re.match(r"┃ [A-Z]+ +\S", line) for line in plain))          # on the rail, status in capitals
         self.assertTrue(all("\x1b[" in x for x in rows))                    # and the status is coloured

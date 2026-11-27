@@ -23,7 +23,7 @@ class Lifecycle(Base):
         self.assertEqual(res["metrics"]["peak_rss_mb"], 40)
         call = self.runner.calls[0]
         self.assertEqual(call["argv"], ["/bin/echo", "hi"])                                # the argv was built from the template, not a shell string
-        self.assertEqual((call["timeout"], call["kw"]["network"], call["kw"]["claude"]), (30, False, False))
+        self.assertEqual((call["timeout"], call["kw"]["network"]), (30, False))
         self.assertTrue((self.state / "done" / "job-0001").exists())
         self.assertFalse((self.state / "queued" / "job-0001.json").exists())
         self.assertFalse((self.state / "finished" / "job-0001.json").exists())
@@ -86,8 +86,8 @@ class Lifecycle(Base):
 
 class WorkerState(Base):
     """worker-state.json: published when the environment changes, refreshed at most every half hour."""
-    FACTS = {"name": "testct", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "native_claude": True, "capacity": 4,
-             "claude": {"auth": "none"}, "approvers": []}
+    FACTS = {"name": "testct", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "capacity": 4,
+             "approvers": []}
 
     def setUp(self):
         super().setUp()
@@ -105,7 +105,7 @@ class WorkerState(Base):
     def test_it_is_published_and_says_what_the_worker_is(self):
         self.w.fetch()
         doc = self.published()
-        self.assertEqual((doc["name"], doc["os"]["version"], doc["claude"]["auth"], doc["locked"]), ("testct", "26.04", "none", False))
+        self.assertEqual((doc["name"], doc["os"]["version"], doc["locked"]), ("testct", "26.04", False))
         self.assertIn("careful", doc["classes"])
         self.assertIn("load_1m", doc["observed"])
 
@@ -117,10 +117,10 @@ class WorkerState(Base):
 
     def test_a_changed_environment_is_published_at_once(self):
         self.w.fetch()
-        self.facts["claude"] = {"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}}
+        self.facts["release"] = "def"
         self.w.fetch()
         self.assertEqual(self.state_commits(), 2)
-        self.assertEqual(self.published()["claude"]["tool"]["version"], "2.1.325")
+        self.assertEqual(self.published()["release"], "def")
 
     def test_a_lockdown_is_published_even_though_a_locked_worker_does_no_other_work(self):
         self.w.fetch()

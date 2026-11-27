@@ -116,7 +116,7 @@ class Strategies(unittest.TestCase):
             scripts.append(text)
             return 0, 'CT-RESULT {"user": "box-mail", "changed": true}'
         pub = "ssh-" + "ed25519 " + "AAAAC3" + "NzaC1lZDI1NTE5AAAAIOnewkeyonlyfortestsnewkeyonlyfortest ct-mailbox"        # (built in pieces: the privacy check refuses a literal key)
-        rotate.windows_install(runner, "C:\\ProgramData\\claude-tenta", "box", "ctworker", pub)
+        rotate.windows_install(runner, "C:\\ProgramData\\armada", "box", "ctworker", pub)
         self.assertEqual(len(scripts), 1)
         self.assertIn(pub, scripts[0])
         self.assertIn("restrict,command=", scripts[0])
@@ -190,7 +190,7 @@ class Command(unittest.TestCase):
     def test_on_a_windows_worker_the_new_key_goes_through_the_mailbox_script(self):
         from unittest import mock
         cfg, key = make()
-        text = self.conf(cfg).read_text().replace('[paths]\n', '[paths]\ncode = "C:/ProgramData/claude-tenta/release"\nstate_root = "C:/ProgramData/claude-tenta/state"\nconfig = "C:/ProgramData/claude-tenta/config"\nworker_home = "C:/ProgramData/claude-tenta/state"\n')
+        text = self.conf(cfg).read_text().replace('[paths]\n', '[paths]\ncode = "C:/ProgramData/armada/release"\nstate_root = "C:/ProgramData/armada/state"\nconfig = "C:/ProgramData/armada/config"\nworker_home = "C:/ProgramData/armada/state"\n')
         self.conf(cfg).write_text(text)
         scripts = []
         runner = lambda argv, script: scripts.append(script) or (0, 'CT-RESULT {"user": "box-mail", "changed": true}')      # noqa: E731

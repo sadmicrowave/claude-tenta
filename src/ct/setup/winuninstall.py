@@ -14,7 +14,7 @@ from .winsetup import WindowsInstaller
 
 
 def windows_root(cfg):
-    """The worker's folder on the Windows computer as a Windows path, from its own configuration (C:/ProgramData/claude-tenta/release -> C:\\ProgramData\\claude-tenta)."""
+    """The worker's folder on the Windows computer as a Windows path, from its own configuration (C:/ProgramData/armada/release -> C:\\ProgramData\\armada)."""
     return str(cfg.paths.code).rsplit("/", 1)[0].replace("/", "\\")
 
 
@@ -34,7 +34,7 @@ class WindowsUninstall:
 
     def rows(self):
         """[(label, value)] for the preview: fixed labels, each name or path on its own line. Static: a preview must never depend on the computer being reachable."""
-        out = [("Remove task", "claude-tenta-worker"), ("Remove account", self.mail_account()), ("Remove account", self.worker_user), ("Uninstall Python", self.root + "\\tools\\python")]
+        out = [("Remove task", "armada-worker"), ("Remove account", self.mail_account()), ("Remove account", self.worker_user), ("Uninstall Python", self.root + "\\tools\\python")]
         out += [("Keep folder", self.root + "\\" + k) for k in winremove.KEEP] if self.keep_data else []
         out += [("Remove folder", self.root)] if not self.keep_data else [("Remove folders", "every other folder under " + self.root)]
         return out + [("Remove entry", str(self.wfile)), ("Remove here", str(self.cfg.source)), ("Keep here" if self.keep_data else "Remove here", str(self.cfg.paths.client_home))]

@@ -12,7 +12,7 @@ from .winlayout import ROOT, USER, USER_RE, _PRE as _LAYOUT_PRE, _check_args
 from .wintools import POWERSHELL, parse_result
 
 KEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]{20,800}( [A-Za-z0-9@._-]{1,60})?$")      # one public key line, nothing the authorized_keys options could be hidden in
-BEGIN, END = "# BEGIN claude-tenta mailbox", "# END claude-tenta mailbox"
+BEGIN, END = "# BEGIN armada mailbox", "# END armada mailbox"
 
 
 def mail_user(name):
@@ -44,7 +44,7 @@ _PATHS = r"""  $mail = Join-Path $root 'mail'
   $py = Join-Path $root 'tools\python\python.exe'"""
 
 
-def ensure_script(root=ROOT, name="claude-tenta", worker=USER, key=""):
+def ensure_script(root=ROOT, name="armada", worker=USER, key=""):
     return _script(root, name, worker, _PATHS + r"""
   if (-not (Test-Path $git)) { Fail 'git' "there is no git at ${git}: run the tools installer first (ct-setup add-worker)" }
   if (-not (Test-Path $py)) { Fail 'python' "there is no Python at ${py}: run the tools installer first (ct-setup add-worker)" }
@@ -54,7 +54,7 @@ def ensure_script(root=ROOT, name="claude-tenta", worker=USER, key=""):
   # the account: a standard user, never an administrator, no interactive or remote-desktop logon (an ssh logon stays possible)
   $created = $false
   if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) {
-    New-LocalUser -Name $u -Password (ConvertTo-SecureString (RandomPassword) -AsPlainText -Force) -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'claude-tenta mailbox account' | Out-Null
+    New-LocalUser -Name $u -Password (ConvertTo-SecureString (RandomPassword) -AsPlainText -Force) -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'armada mailbox account' | Out-Null
     $created = $true; $changed = $true
   }
   if (Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*\$u" }) { Remove-LocalGroupMember -SID 'S-1-5-32-544' -Member $u; $changed = $true }
@@ -121,7 +121,7 @@ def ensure_script(root=ROOT, name="claude-tenta", worker=USER, key=""):
   Write-Output ('CT-RESULT ' + (@{user = $u; mailbox = ($box -replace '\\', '/'); launcher = $launcher; created_user = $created; key = [bool]$key; changed = $changed} | ConvertTo-Json -Compress))""", key)
 
 
-def remove_script(root=ROOT, name="claude-tenta", worker=USER):
+def remove_script(root=ROOT, name="armada", worker=USER):
     return _script(root, name, worker, _PATHS + r"""
   $was = $false
   $cur = [IO.File]::ReadAllText($sshd)
@@ -146,10 +146,10 @@ def _run(runner, script):
     return parse_result(out)
 
 
-def ensure(runner, root=ROOT, name="claude-tenta", worker=USER, key=""):
+def ensure(runner, root=ROOT, name="armada", worker=USER, key=""):
     return _run(runner, ensure_script(root, name, worker, key))
 
 
-def remove(runner, root=ROOT, name="claude-tenta", worker=USER):
+def remove(runner, root=ROOT, name="armada", worker=USER):
     """Undo the account, the sshd_config block and the git trust. The mailbox folder (the jobs and results in it) is kept: deleting someone's history is not a side effect of un-setting an account."""
     return _run(runner, remove_script(root, name, worker))

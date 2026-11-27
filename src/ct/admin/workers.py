@@ -51,10 +51,8 @@ def others(own_path, wfile):
     own = Path(own_path).expanduser().resolve() if own_path else None
     wfile = Path(wfile).expanduser()
     files = {}
-    for name in ("ct.toml", config.LEGACY_CONFIG):
-        if (wfile.parent / name).is_file():
-            files.setdefault("the main worker", wfile.parent / name)
-            break
+    if (wfile.parent / "ct.toml").is_file():
+        files.setdefault("the main worker", wfile.parent / "ct.toml")
     for n, p in load_list(wfile).items():
         files[f"worker {n}"] = Path(p).expanduser()
     out = []
@@ -125,24 +123,6 @@ def age_s(doc, now=None):
     return (time.time() if now is None else now) - t
 
 
-def claude_summary(doc):
-    """(has Claude access: bool, short text) from a state document."""
-    c = (doc or {}).get("claude") or {}
-    auth = c.get("auth", "none")
-    if auth == "none":
-        return False, "none"
-    tool = c.get("tool") or {}
-    kind, version = tool.get("kind", "?"), tool.get("version", "")
-    if kind == "missing" or not version:
-        return False, f"{auth}: tool NOT INSTALLED"
-    older = " (older release, pinned)" if kind == "legacy" else ""
-    days = c.get("token_days")
-    if days is not None and days >= 365:
-        return False, f"{auth}: {version}{older}, TOKEN EXPIRED ({plural(days, 'day')} old)"
-    token = "" if days is None else f", token {plural(days, 'day')} old" + (" (renew soon)" if days >= 335 else "")
-    return True, f"{auth}: {version}{older}{token}"
-
-
 def human_age(seconds):
     if seconds is None:
         return "?"
@@ -161,31 +141,28 @@ def profile_time_text(pt):
 def row_for(name, doc, now=None, silent_s=SILENT_S):
     """The cells of one worker's row (plain text; the caller adds colour)."""
     if doc is None:
-        return {"name": name, "os": "-", "cpu": "-", "memory": "-", "claude": "-", "state": "no state published (an older release, or not set up yet)",
-                "release": "-", "load": "-", "age": "-", "load_value": None, "cores_value": None, "paused": False, "has_claude": False, "locked": False, "stale": True, "silent": False}
+        return {"name": name, "os": "-", "cpu": "-", "memory": "-", "state": "no state published (an older release, or not set up yet)",
+                "release": "-", "load": "-", "age": "-", "load_value": None, "cores_value": None, "locked": False, "stale": True, "silent": False}
     hw, obs = doc.get("hardware") or {}, doc.get("observed") or {}
     age = age_s(doc, now)
     o = doc.get("os") or {}
-    has, text = claude_summary(doc)
     mem_total, mem_free = hw.get("mem_total_mb"), obs.get("mem_available_mb")
     load, temp = obs.get("load_1m"), obs.get("temp_c")
-    today = obs.get("claude_today") or {}
-    spend = ("PAUSED: " if today.get("paused") else "") + f"{today.get('jobs', 0)}" + (f"/{today['limit_jobs']}" if today.get("limit_jobs") else "") + f" jobs, {today.get('turns', 0)}" + (f"/{today['limit_turns']}" if today.get("limit_turns") else "") + " turns" if today else ""
-    return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(), "spend": spend, "paused": bool(today.get("paused")),
-            "cpu": f"{plural(hw.get('cores', '?'), 'core')}" + ("" if hw.get("native_claude", True) else ", old CPU"),
+    return {"name": name, "os": f"{o.get('id', '?')} {o.get('version', '')}".strip(),
+            "cpu": f"{plural(hw.get('cores', '?'), 'core')}",
             "memory": f"{mem_free / 1024:.1f} of {mem_total / 1024:.1f} GB free" if mem_total and mem_free is not None else "?",
-            "claude": text, "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
+            "state": "LOCKED" if doc.get("locked") else (("jail ON, relaxed" if (doc.get("isolation") or {}).get("mode") == "relaxed" else "jail ON") if (doc.get("isolation") or {}).get("ready") else "jail OFF"),
             "ceiling": (f"{obs['job_ceiling_mb']} MB" if obs.get("job_ceiling_mb") else ""), "purpose": config.PURPOSE_WORDS.get((doc.get("isolation") or {}).get("purpose"), ""), "held": obs.get("held") or "", "profile_time": profile_time_text(doc.get("profile_time")), "platform": doc.get("platform") or "",
             "release": (doc.get("release") or "?")[:9], "load": (f"{load:.2f}" if load is not None else "?") + (f" / {temp:.0f} C" if temp is not None else ""),
             "age": human_age(age) + (" SILENT" if age is not None and age > silent_s else " STALE" if age is None or age > STALE_S else ""),
-            "load_value": load, "cores_value": hw.get("cores"), "has_claude": has, "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S, "silent": age is not None and age > silent_s,
+            "load_value": load, "cores_value": hw.get("cores"), "locked": bool(doc.get("locked")), "stale": age is None or age > STALE_S, "silent": age is not None and age > silent_s,
             "packages": len(doc.get("packages") or []), "classes": len(doc.get("classes") or []), "class_names": sorted(doc.get("classes") or [])}
 
 
 # ---- the cards: the wizard's question-card look (a coloured rail down the left, a chip, labelled rows) ----------------------------------------------
 BLUE, BLUE_CHIP, AMBER_CHIP, RED_CHIP = "primary", "primary_chip", "warn_chip", "bad_chip"          # roles: ct.theme decides the colours
 RED, AMBER, DIM, BOLD = "bad", "warn", "muted", "strong"
-ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("CLAUDE", "claude"), ("TODAY", "spend"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
+ROWS = (("OS", "os"), ("CPU", "cpu"), ("MEMORY", "memory"), ("STATE", "state"), ("RELEASE", "release"), ("LOAD", "load"), ("READING", "age"))
 HANG = 15           # the widest label (AVAILABILITY, PROFILE LIMIT) plus a gap: a longer label ran into its value (guard: tests/test_workerstate.py)
 
 
@@ -272,5 +249,5 @@ def dedicated_text(pins, name):
 
 def brief(c, room=44):
     """A class in a few words, for beside its name: what it runs (or what kind of job it is), cut with a mark when long."""
-    text = " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c.get("kind") == "claude" else "profile one exact command" if c.get("kind") == "profile" else c.get("kind", ""))
+    text = " ".join(c["run"]) if c.get("run") else ("profile one exact command" if c.get("kind") == "profile" else c.get("kind", ""))
     return text if len(text) <= room else text[:room - 1] + "…"

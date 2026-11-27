@@ -13,12 +13,12 @@ refused() { ! "$@" >/tmp/probe-refused.out 2>&1 && grep -q "dubious ownership" /
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git python3 util-linux >/dev/null 2>&1
 echo "git $(git --version | cut -d' ' -f3) on $(. /etc/os-release; echo "$PRETTY_NAME")"
-useradd -m worker; useradd -r -M -d /var/lib/claude-tenta-mail -s /bin/sh claude-tenta-mail
-M=/var/lib/claude-tenta-mail; mkdir -p $M && chown claude-tenta-mail:claude-tenta-mail $M && chmod 750 $M
-usermod -aG claude-tenta-mail worker
+useradd -m worker; useradd -r -M -d /var/lib/armada-mail -s /bin/sh armada-mail
+M=/var/lib/armada-mail; mkdir -p $M && chown armada-mail:armada-mail $M && chmod 750 $M
+usermod -aG armada-mail worker
 RES=$M/results.git
 git init -q --bare -b main $RES                                                          # made by root and handed to the worker, exactly as the installer does
-chown -R worker:claude-tenta-mail $RES && chmod -R u+rwX,g+rX,o-rwx $RES
+chown -R worker:armada-mail $RES && chmod -R u+rwX,g+rX,o-rwx $RES
 EMPTY=$(runuser -u worker -- git -C $RES hash-object -w -t tree /dev/null)
 COMMIT=$(runuser -u worker -- git -c user.name=w -c user.email=w@w -C $RES commit-tree -m results $EMPTY)
 runuser -u worker -- git -C $RES update-ref refs/heads/main $COMMIT                    # the worker's own data in it
@@ -33,20 +33,20 @@ kind = "direct"
 TOML
 
 echo "1. the premise"
-check "an account that does not own a repository is refused by git (dubious ownership)" refused runuser -u claude-tenta-mail -- git upload-pack --advertise-refs $RES
+check "an account that does not own a repository is refused by git (dubious ownership)" refused runuser -u armada-mail -- git upload-pack --advertise-refs $RES
 
 echo "2. the mailbox shell"
-serve() { runuser -u claude-tenta-mail -- env -i PATH=/usr/bin:/bin SSH_ORIGINAL_COMMAND="$1" PYTHONPATH=/src/src CT_CONFIG=/tmp/ct.toml python3 -m ct.mailshell; }
+serve() { runuser -u armada-mail -- env -i PATH=/usr/bin:/bin SSH_ORIGINAL_COMMAND="$1" PYTHONPATH=/src/src CT_CONFIG=/tmp/ct.toml python3 -m ct.mailshell; }
 check "it serves the results repository to the mailbox account" bash -c "$(declare -f serve); serve \"git-upload-pack '$RES'\" | head -c 4 | grep -qE '^[0-9a-f]{4}$'"
 check "and refuses anything that is not git on those repositories" bash -c "$(declare -f serve); ! serve 'id' 2>&1 | grep -q uid="
 check "the trust is for that one repository: another repository of the worker is still refused" bash -c "
-  runuser -u worker -- git init -q --bare $M/other.git && chown -R worker:claude-tenta-mail $M/other.git
+  runuser -u worker -- git init -q --bare $M/other.git && chown -R worker:armada-mail $M/other.git
   $(declare -f serve); ! serve \"git-upload-pack '$M/other.git'\" 2>&1 | head -c 4 | grep -qE '^[0-9a-f]{4}$'"
 
 echo "3. root copying history between repositories that belong to other accounts"
 runuser -u worker -- bash -c "mkdir -p ~/w && cd ~/w && git init -q -b main . && git -c user.name=w -c user.email=w@w commit -q --allow-empty -m one && git -c user.name=w -c user.email=w@w checkout -q -b jobs && git -c user.name=w -c user.email=w@w commit -q --allow-empty -m job && git checkout -q main"
 runuser -u worker -- git clone -q /home/worker/w /home/worker/clone
-BARE=$M/queue.git; git init -q --bare -b main $BARE && chown -R claude-tenta-mail:claude-tenta-mail $BARE
+BARE=$M/queue.git; git init -q --bare -b main $BARE && chown -R armada-mail:armada-mail $BARE
 helper() { PYTHONPATH=/src/src python3 - "$@" <<'PY'
 import subprocess, sys
 from ct import transport

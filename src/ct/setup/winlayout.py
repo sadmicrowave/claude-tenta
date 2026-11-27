@@ -7,7 +7,7 @@ import re
 
 from .wintools import POWERSHELL, TOOLS_RE, WinToolsError, parse_result
 
-ROOT = r"%ProgramData%\claude-tenta"
+ROOT = r"%ProgramData%\armada"
 USER = "ctworker"
 USER_RE = re.compile(r"^[a-z][a-z0-9-]{2,19}$")                    # a Windows local account name is at most 20 characters
 READ_ONLY = ("tools", "release", "config")                         # the worker account may read and run these
@@ -66,7 +66,7 @@ try {{
   }}
   $created = $false
   if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) {{
-    New-LocalUser -Name $u -Password (ConvertTo-SecureString (RandomPassword) -AsPlainText -Force) -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'claude-tenta worker (standard account)' | Out-Null
+    New-LocalUser -Name $u -Password (ConvertTo-SecureString (RandomPassword) -AsPlainText -Force) -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'armada worker (standard account)' | Out-Null
     $created = $true; $changed = $true
   }}
   $admin = Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -like "*\\$u" }}
@@ -91,7 +91,7 @@ try {{
 def _probe_block(probe):
     if not probe:
         return "  $probe = $null"
-    return r"""  if (Get-ScheduledTask -TaskName 'claude-tenta-worker' -ErrorAction SilentlyContinue) { Fail 'probe' 'the worker task is registered with the account password and a probe would invalidate it: remove the task first' }
+    return r"""  if (Get-ScheduledTask -TaskName 'armada-worker' -ErrorAction SilentlyContinue) { Fail 'probe' 'the worker task is registered with the account password and a probe would invalidate it: remove the task first' }
   $pw = RandomPassword
   Set-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force)
   $cred = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$u", (ConvertTo-SecureString $pw -AsPlainText -Force))
@@ -109,7 +109,7 @@ T 'writes_tools' { Set-Content -Path '$root\tools\w.txt' -Value x -ErrorAction S
 `$r | ConvertTo-Json -Compress | Set-Content -Path '$out'
 "@
   $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probeScript))
-  $tn = 'claude-tenta-probe'                                                                  # a one-time scheduled task as the account: the same way the worker will be started, and it needs no desktop
+  $tn = 'armada-probe'                                                                  # a one-time scheduled task as the account: the same way the worker will be started, and it needs no desktop
   try {
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand ' + $enc)
     Register-ScheduledTask -TaskName $tn -Action $action -User "$env:COMPUTERNAME\$u" -Password $pw -RunLevel Limited -Force | Out-Null

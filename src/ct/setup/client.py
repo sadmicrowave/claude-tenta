@@ -13,7 +13,6 @@ from pathlib import Path
 from .. import config
 from . import ptyrun, questions, report, toml_out
 from .. import transport
-from . import legacy
 from .server import SetupError, missing_steps
 from .report import sink as _sink
 
@@ -72,8 +71,6 @@ class ClientSetup:
             raise refuse.error("client.tools.missing", steps=["On a Mac: xcode-select --install, then open a new terminal window.", "On Linux: sudo apt install git openssh-client (or your distribution's equivalent), then run this again."], missing=", ".join(missing))
         self.gh = bool(self.host.which("gh"))
         self.note("tools", "ok", "git, ssh" + (", gh" if self.gh else "; gh not found (it is offered at the repository step)"))
-        for what, fix in legacy.find(self.host):                           # nothing is removed here: these are the person's shell and Claude Code settings
-            self.note("old install leftover", "found", f"{what}. Clear it: {fix}")
 
     def configure(self):
         if self.ui is not None:
@@ -115,7 +112,7 @@ class ClientSetup:
     def config_path(self):
         if self.config_override:
             return str(self.config_override)
-        return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "claude-tenta" / "ct.toml")
+        return str(Path(self.host.env.get("HOME", "~")).expanduser() / ".config" / "armada" / "ct.toml")
 
     def ssh_login(self):
         cfg, target = self.cfg, f"{self.cfg.server.admin_user}@{self.cfg.server.host}"
@@ -210,9 +207,9 @@ class ClientSetup:
             if self.gh and self.host.run(["gh", "repo", "view", slug]).ok:
                 self.note(f"{which} repository", "exists", slug)
             elif self.gh:
-                self.run(["gh", "repo", "create", slug, "--private", "--description", f"claude-tenta {which} (private)"], f"create {slug}")
+                self.run(["gh", "repo", "create", slug, "--private", "--description", f"armada {which} (private)"], f"create {slug}")
                 self.note(f"{which} repository", "planned" if self.dry_run else "created", f"{slug} (private)")
-                self.run(["gh", "repo", "edit", slug, "--add-topic", "claude-tenta"], f"group {slug} with the fleet", check=False)          # a topic only groups the repositories on GitHub; nothing depends on it
+                self.run(["gh", "repo", "edit", slug, "--add-topic", "armada"], f"group {slug} with the fleet", check=False)          # a topic only groups the repositories on GitHub; nothing depends on it
             else:
                 self.note(f"{which} repository", "manual", slug)
                 self.say(self.r.info(f"Create a PRIVATE repository named {slug} at https://github.com/new  (empty: no README, no licence)"))

@@ -1,10 +1,10 @@
-# ct.example.toml: every setting, with its default. Copy to ~/.config/claude-tenta/ct.toml (your computer) or
-# /etc/claude-tenta/ct.toml (the server). The setup wizard writes this file for you; you rarely edit it by hand.
+# ct.example.toml: every setting, with its default. Copy to ~/.config/armada/ct.toml (your computer) or
+# /etc/armada/ct.toml (the server). The setup wizard writes this file for you; you rarely edit it by hand.
 # Only documentation values appear here (example.com, 192.0.2.0/24). Secrets (API keys, alert tokens) go in secrets.env, never here.
 # Any setting can also be set with an environment variable CT_<SECTION>_<KEY>, e.g. CT_SERVER_HOST=worker.example.lan
 
 [identity]
-name = "claude-tenta"          # prefix for services, folders and commands on this install
+name = "armada"          # prefix for services, folders and commands on this install
 
 [server]
 host = "worker.example.lan"     # name or address the client connects to over SSH
@@ -14,8 +14,8 @@ ssh_port = 22
 
 [github]
 owner = "your-github-handle"    # account that owns the two private repos
-queue_repo = "claude-tenta-queue"         # private repo holding jobs
-results_repo = "claude-tenta-results"     # private repo holding results
+queue_repo = "armada-queue"         # private repo holding jobs
+results_repo = "armada-results"     # private repo holding results
 jobs_branch = "jobs"
 data_branch = "data"
 main_branch = "main"
@@ -61,12 +61,6 @@ dns_servers = []                # DNS servers it may use inside the LAN, e.g. ["
 ssh_from = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]   # networks allowed to SSH in
 ipv6 = "enabled"                # enabled | disabled. disabled turns IPv6 off on the server (a hardening choice: most home networks do not need it)
 
-[claude]
-auth = "none"                   # none | account | api-key. none: Claude is not used on this worker (every other job still runs) | account: a claude.ai subscription token | api-key: an Anthropic API key. The token or key itself goes in secrets.env
-jobs_per_day = 20               # the most Claude jobs this worker starts in a UTC day; at the limit new ones wait and other jobs carry on. 0 = no limit
-turns_per_day = 300             # the most Claude turns the jobs of a UTC day may use in total; reaching it pauses new Claude jobs too. 0 = no limit
-update_days = 7                 # days between automatic updates of the claude tool (it cannot update itself inside a job's jail)
-
 [health]
 silent_hours = 24              # a worker whose latest reading is older than this many hours is silent: no new job is placed on it, and a job sent to it with no result by then is lost (queued again only if its class is repeatable)
 
@@ -103,7 +97,7 @@ registry_sync_min = 5           # minutes between checks for a job registry you 
 
 [updates]
 mode = "manual"                 # manual: you run the apply | signed-tags: install only release tags signed by your key
-# source = "https://github.com/your-github-handle/claude-tenta.git"   # where releases are fetched from; required to install or update
+# source = "https://github.com/your-github-handle/armada.git"   # where releases are fetched from; required to install or update
 branch = "main"                 # an explicit revision must be on this branch before it may be installed
 check = true                    # show a one-line note after a command when a newer release exists (checked once a day in the background; nothing is installed)
 

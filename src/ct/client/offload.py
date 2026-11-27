@@ -67,7 +67,7 @@ def fit_lookup(argv, info, excluded):
 
 
 def fit_message(res, argv, product="the worker", submit="ct-run submit", profile="ct-run offload profile"):
-    """The one-line answer, worded so a person or Claude can act on it."""
+    """The one-line answer, worded so a person or an assistant can act on it."""
     v = res["verdict"]
     if v == "retry":
         return f"EXCLUDED earlier ({res['reasons']}) when {product} had {res['then_mb']} MB; it has {res['now_mb']} MB now. Worth profiling again: ask the user."

@@ -13,7 +13,7 @@ Passwords, API keys and alert tokens never go in this file. They go in a separat
 ### Where it is read from, in order of precedence
 
 1. Built-in defaults.
-2. `ct.toml`: `CT_CONFIG` if set, otherwise `~/.config/claude-tenta/ct.toml`, otherwise `/etc/claude-tenta/ct.toml`.
+2. `ct.toml`: `CT_CONFIG` if set, otherwise `~/.config/armada/ct.toml`, otherwise `/etc/armada/ct.toml`.
 3. Environment variables `CT_<SECTION>_<KEY>`, for example `CT_SERVER_HOST=worker.example.lan`. Lists are comma-separated.
 
 ### Rules

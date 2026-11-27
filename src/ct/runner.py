@@ -195,8 +195,8 @@ def read_text(path, limit=2_000_000):
 
 
 def class_network(cls):
-    """True if jobs of this class may use the network. Default: no (only `claude` jobs need it unless declared)."""
-    return bool(cls.get("network", cls.get("kind", "command") == "claude"))
+    """True if jobs of this class may use the network. Default: no (unless the class declares it)."""
+    return bool(cls.get("network", False))
 
 
 # ---- the environment a job sees ---------------------------------------------------------------------------------------------------
@@ -211,40 +211,34 @@ def windows_env(home, extra_env=None):
     return env
 
 
-def build_env(home, claude=False, extra_env=None, api_key=None, oauth_token=None):
+def build_env(home, extra_env=None):
     if plat.IS_WINDOWS:
         return windows_env(home, extra_env)
     """System directories only on PATH, so nothing a job or a package step writes into the worker's home can shadow a system program.
-    A `claude` job also gets the worker's ~/.local/bin (where claude is installed), LAST so it can never shadow anything, and the API key.
     A class's own variables (extra_env) are added; its PATH, if any, goes in front (a throwaway tools folder, set deliberately)."""
-    env = {"PATH": SAFE_PATH + (f":{home}/.local/bin" if claude else ""), "HOME": str(home), "LANG": "C.UTF-8"}
+    env = {"PATH": SAFE_PATH, "HOME": str(home), "LANG": "C.UTF-8"}
     if extra_env:
         env.update({k: v for k, v in extra_env.items() if k != "PATH"})
         if extra_env.get("PATH"):
             env["PATH"] = extra_env["PATH"] + ":" + env["PATH"]
-    if claude and api_key:
-        env["ANTHROPIC_API_KEY"] = api_key             # claude jobs only; commands never see it
-    if claude and oauth_token:
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token   # a claude.ai subscription token (from `claude setup-token`); claude jobs only
     return env
 
 
 # ---- running and watching one command ---------------------------------------------------------------------------------------------
-def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=None, network=True, extra_env=None, api_key=None, oauth_token=None,
+def run_command(argv, timeout, wd, *, home, marker=None, limits=None, network=True, extra_env=None,
                 sensors=None, require_netns=True, jail=None):
     """Run one job command in its own process group and watch it.
 
     Returns (status, exit_code, output, metrics, note). status: ok | error | timeout | killed | limit.
     `limits` may hold max_rss_mb / max_temp_c / max_disk_mb; going over stops the job (status "limit").
-    Metrics are measured for every job, so results show what each one really cost. `claude` marks a job whose stdout is a JSON document
-    with a `result` field."""
+    Metrics are measured for every job, so results show what each one really cost."""
     limits, sensors = limits or {}, sensors or default_sensors()
-    env = build_env(home, claude, extra_env, api_key, oauth_token)
+    env = build_env(home, extra_env)
     if plat.IS_WINDOWS:
         Path(env["TEMP"]).mkdir(parents=True, exist_ok=True)               # the job's own TEMP must exist before it starts
     timeout = min(int(timeout), MAX_TIMEOUT)
     try:
-        launch = list(argv) if plat.IS_WINDOWS and jail is None else (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, claude=claude, env=env, require=require_netns)
+        launch = list(argv) if plat.IS_WINDOWS and jail is None else (jail or Unshare()).wrap(argv, network=network, wd=wd, home=home, env=env, require=require_netns)
     except Refused as e:
         return "error", None, "", {}, f"not started: {e}"
     outp, errp = Path(f"{wd}.out"), Path(f"{wd}.err")   # beside the work dir, so the job never sees them
@@ -323,16 +317,4 @@ def run_command(argv, timeout, wd, *, home, claude=False, marker=None, limits=No
     outp.unlink(missing_ok=True)
     errp.unlink(missing_ok=True)
     out = stdout + stderr
-    if claude:
-        from . import ledger
-        used = ledger.usage_of(stdout)
-        if used:
-            m["claude"] = used                           # turns and notional cost the job reported, for the spend ledger and the result
-    if claude and status == "ok":
-        try:
-            out = json.loads(stdout).get("result", stdout)
-        except Exception:
-            out = stdout
-    elif claude:
-        out = stdout
     return status, (rc if status in ("ok", "error") else None), out, m, note

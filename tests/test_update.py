@@ -214,7 +214,7 @@ class Install(InstallBase):
         self.install()
         for p in self.prefix.rglob("*"):
             if p.is_file() and p.suffix in ("", ".service", ".timer"):
-                self.assertNotIn("claude-tenta", p.read_text(errors="ignore"), str(p))
+                self.assertNotIn("armada", p.read_text(errors="ignore"), str(p))
 
 
 def run(*cmd, cwd=None, env=None):

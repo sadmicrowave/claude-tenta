@@ -36,8 +36,8 @@ class WakeAndAudit(AdminBase):
 
 def state_doc(**over):
     base = {"v": 1, "updated": "2026-11-16T12:00:00Z", "name": "w", "release": "9032dfbd1aaaa", "os": {"id": "ubuntu", "version": "26.04"},
-            "hardware": {"cores": 2, "mem_total_mb": 15219, "cpu": "X", "native_claude": True, "capacity": 4},
-            "claude": {"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}}, "isolation": {"ready": True, "method": "bwrap"},
+            "hardware": {"cores": 2, "mem_total_mb": 15219, "cpu": "X", "capacity": 4},
+            "isolation": {"ready": True, "method": "bwrap"},
             "classes": ["a", "b"], "packages": ["apt:jq==1.7"], "approvers": [], "locked": False,
             "observed": {"load_1m": 0.3, "temp_c": 52, "mem_available_mb": 14000, "running": 0, "waiting": 0}}
     base.update(over)
@@ -68,7 +68,7 @@ class WorkersCommand(AdminBase):
         self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, False))]
         self.ctx.workers_file = self.tmp / "workers.toml"
         self.put_state(self.repos.results, state_doc(updated=self.fresh()))
-        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "none"}, hardware={"cores": 8, "mem_total_mb": 32000, "native_claude": True}))
+        self.put_state(self.other, state_doc(updated=self.fresh(), hardware={"cores": 8, "mem_total_mb": 32000}))
 
     def fresh(self):
         import time as _t
@@ -77,45 +77,17 @@ class WorkersCommand(AdminBase):
     def put_state(self, folder, doc):
         (Path(folder) / "worker-state.json").write_text(json.dumps(doc))
 
-    def test_every_worker_is_a_row_with_hardware_and_claude_state_side_by_side(self):
+    def test_every_worker_is_a_row_with_hardware_and_state_side_by_side(self):
         code, out, err = self.admin("workers")
         self.assertEqual(code, 0, err)
-        for needle in ("TESTCT", "STUDIO", "account: 2.1.325", "none", "ubuntu 26.04", "2 cores", "8 cores", "jail ON"):
+        for needle in ("TESTCT", "STUDIO", "ubuntu 26.04", "2 cores", "8 cores", "jail ON"):
             self.assertIn(needle, out)
-
-    def test_claude_filter_keeps_only_workers_with_working_claude_access(self):
-        code, out, _ = self.admin("workers", "--claude")
-        self.assertEqual(code, 0)
-        self.assertIn("TESTCT", out)
-        self.assertNotIn("STUDIO", out)
-
-    def test_a_locked_worker_or_one_whose_claude_tool_is_missing_is_not_a_claude_candidate(self):
-        self.put_state(self.repos.results, state_doc(updated=self.fresh(), locked=True))
-        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "missing", "version": ""}}))
-        code, out, err = self.admin("workers", "--claude")
-        self.assertEqual(code, 1)
-        self.assertIn("No worker matches", out + err)
-
-    def test_the_older_pinned_release_is_labelled_so_it_can_be_compared(self):
-        self.put_state(self.other, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "legacy", "version": "2.1.112"}},
-                                             hardware={"cores": 2, "mem_total_mb": 15000, "native_claude": False}))
-        _, out, _ = self.admin("workers")
-        self.assertIn("2.1.112 (older release, pinned)", out)
-        self.assertIn("old CPU", out)
-
-    def test_a_token_near_its_end_is_visible_and_an_expired_one_is_not_a_claude_candidate(self):
-        self.put_state(self.repos.results, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}, "token_days": 340}))
-        _, out, _ = self.admin("workers")
-        self.assertIn("token 340 days old (renew soon)", out)
-        self.put_state(self.repos.results, state_doc(updated=self.fresh(), claude={"auth": "account", "tool": {"kind": "native", "version": "2.1.325"}, "token_days": 400}))
-        code, out, _ = self.admin("workers", "--claude")
-        self.assertNotIn("TESTCT", out)
 
     def test_json_is_machine_readable_for_a_future_orchestrator(self):
         code, out, _ = self.admin("workers", "--json")
         rows = json.loads(out)
         self.assertEqual([r["name"] for r in rows], ["testct", "studio"])
-        self.assertEqual((rows[0]["has_claude"], rows[1]["has_claude"]), (True, False))
+        self.assertEqual(sorted(r["name"] for r in rows), ["studio", "testct"])
 
     def test_a_worker_that_published_nothing_is_a_row_not_a_crash(self):
         (self.other / "worker-state.json").unlink()

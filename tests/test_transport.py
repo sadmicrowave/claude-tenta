@@ -68,16 +68,16 @@ class DirectAddresses(unittest.TestCase):
     def test_the_mailbox_is_on_the_worker_and_your_computer_reaches_it_as_the_mail_account(self):
         cfg = self.direct()
         t = transport.for_config(cfg)
-        self.assertEqual((t.kind, t.uses_deploy_keys, t.mail_user(cfg)), ("direct", False, "claude-tenta-mail"))
-        self.assertEqual(cfg.queue_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/queue.git")
-        self.assertEqual(cfg.results_url, "ssh://claude-tenta-mail" + "@" + "worker.example/var/lib/claude-tenta-mail/results.git")
+        self.assertEqual((t.kind, t.uses_deploy_keys, t.mail_user(cfg)), ("direct", False, "armada-mail"))
+        self.assertEqual(cfg.queue_url, "ssh://armada-mail" + "@" + "worker.example/var/lib/armada-mail/queue.git")
+        self.assertEqual(cfg.results_url, "ssh://armada-mail" + "@" + "worker.example/var/lib/armada-mail/results.git")
 
     def test_a_windows_worker_has_a_slash_before_the_drive_letter_in_its_address(self):
         cfg = cfg_with(transport={"kind": "direct"}, server={"admin_user": "me", "host": "worker.example"},
-                       paths={"code": "C:/ProgramData/claude-tenta/release", "state_root": "C:/ProgramData/claude-tenta/state", "config": "C:/ProgramData/claude-tenta/config", "worker_home": "C:/ProgramData/claude-tenta/state"})
-        self.assertEqual(cfg.queue_url, "ssh://claude-tenta-mail" + "@" + "worker.example/C:/ProgramData/claude-tenta/state-mail/queue.git")
+                       paths={"code": "C:/ProgramData/armada/release", "state_root": "C:/ProgramData/armada/state", "config": "C:/ProgramData/armada/config", "worker_home": "C:/ProgramData/armada/state"})
+        self.assertEqual(cfg.queue_url, "ssh://armada-mail" + "@" + "worker.example/C:/ProgramData/armada/state-mail/queue.git")
         t = transport.for_config(cfg)
-        self.assertEqual(t.worker_url(cfg, "queue"), "C:/ProgramData/claude-tenta/state-mail/queue.git")      # the worker itself uses its own plain path
+        self.assertEqual(t.worker_url(cfg, "queue"), "C:/ProgramData/armada/state-mail/queue.git")      # the worker itself uses its own plain path
 
     def test_a_non_standard_ssh_port_is_in_the_address(self):
         self.assertIn("worker.example:2222/", self.direct(ssh_port=2222).queue_url)
@@ -85,7 +85,7 @@ class DirectAddresses(unittest.TestCase):
     def test_the_worker_uses_plain_paths_and_needs_no_ssh_configuration_at_all(self):
         cfg = self.direct()
         t = transport.for_config(cfg)
-        self.assertEqual(t.worker_url(cfg, "queue"), "/var/lib/claude-tenta-mail/queue.git")
+        self.assertEqual(t.worker_url(cfg, "queue"), "/var/lib/armada-mail/queue.git")
         self.assertEqual(t.worker_ssh_config(cfg), "")
 
 
@@ -94,17 +94,17 @@ class GitHub(unittest.TestCase):
         cfg = cfg_with()
         t = transport.for_config(cfg)
         self.assertEqual((t.kind, cfg.transport.kind), ("github", "github"))
-        self.assertEqual(cfg.queue_url, "git@github.com:someone/claude-tenta-queue.git")
-        self.assertEqual(cfg.results_url, "git@github.com:someone/claude-tenta-results.git")
+        self.assertEqual(cfg.queue_url, "git@github.com:someone/armada-queue.git")
+        self.assertEqual(cfg.results_url, "git@github.com:someone/armada-results.git")
         self.assertEqual(t.client_url(cfg, "results"), cfg.results_url)
 
     def test_the_workers_clone_uses_one_alias_and_so_one_deploy_key_per_repository(self):
         cfg = cfg_with()
         t = transport.for_config(cfg)
-        self.assertEqual(t.worker_url(cfg, "queue"), "git@github-claude-tenta-queue:someone/claude-tenta-queue.git")
+        self.assertEqual(t.worker_url(cfg, "queue"), "git@github-armada-queue:someone/armada-queue.git")
         text = t.worker_ssh_config(cfg)
         for which in ("queue", "results"):
-            self.assertIn(f"Host github-claude-tenta-{which}", text)
+            self.assertIn(f"Host github-armada-{which}", text)
             self.assertIn(f"id_{which}", text)
         self.assertNotIn("ControlMaster", text)                                  # a background ssh master holds a pass's output pipes open
         self.assertTrue(t.uses_deploy_keys)

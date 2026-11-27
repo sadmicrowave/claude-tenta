@@ -1,6 +1,6 @@
-"""Learning which of your commands are worth offloading: record the shell commands Claude Code runs, then rank them.
+"""Learning which of your commands are worth offloading: record the shell commands your coding assistant runs, then rank them.
 
-  hook pre|post    called by Claude Code before and after each Bash command; reads the hook JSON on stdin, never blocks, never prints
+  hook pre|post    called by the assistant's hooks before and after each Bash command; reads the hook JSON on stdin, never blocks, never prints
   top              the commands you run most that could suit the worker
   show / clear     where the log is and how big; forget it
 
@@ -32,7 +32,7 @@ NEVER = {
     **dict.fromkeys(("npm", "npx", "pnpm", "yarn", "pip", "pip3", "pipx", "brew", "apt", "apt-get", "gem", "cargo", "go", "docker", "podman", "kubectl",
                      "terraform", "aws", "gcloud", "az"), "package manager / infrastructure"),
     **dict.fromkeys(("sudo", "su", "doas", "systemctl", "launchctl", "chmod", "chown", "kill", "pkill", "killall"), "privileged / process control"),
-    **dict.fromkeys(("vim", "vi", "nano", "emacs", "less", "more", "man", "top", "htop", "open", "code", "claude", "ssh-add", "ssh-keygen", "security"),
+    **dict.fromkeys(("vim", "vi", "nano", "emacs", "less", "more", "man", "top", "htop", "open", "code", "ssh-add", "ssh-keygen", "security"),
                     "interactive / local application"),
     **dict.fromkeys(("cd", "ls", "pwd", "echo", "printf", "cat", "head", "tail", "wc", "mkdir", "rmdir", "rm", "cp", "mv", "ln", "touch", "export", "source",
                      "set", "unset", "alias", "which", "type", "env", "true", "false", "test", "sleep", "date", "grep", "sed", "awk", "sort", "uniq", "find"),
@@ -115,7 +115,7 @@ class CommandLog:
         return d.get("tool_use_id") or hashlib.sha1(f"{d.get('session_id')}{d.get('tool_input', {}).get('command')}".encode()).hexdigest()
 
     def hook(self, phase, raw, now=None):
-        """Record one Claude Code hook event. Never raises on bad input, and never records a secret or a non-Bash tool."""
+        """Record one assistant hook event. Never raises on bad input, and never records a secret or a non-Bash tool."""
         now = time.time() if now is None else now
         try:
             d = json.loads(raw)

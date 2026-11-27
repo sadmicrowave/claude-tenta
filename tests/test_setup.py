@@ -140,7 +140,7 @@ class QuestionTests(unittest.TestCase):
 
 class TomlTests(unittest.TestCase):
     def test_only_chosen_values_are_written_and_they_load_back_identically(self):
-        nested = {"identity": {"name": "claude-tenta"}, "server": {"admin_user": "me", "ssh_port": 2222}, "github": {"owner": "someone"},
+        nested = {"identity": {"name": "armada"}, "server": {"admin_user": "me", "ssh_port": 2222}, "github": {"owner": "someone"},
                   "network": {"lan_allow_out": ["192.0.2.0/24"], "ipv6": "disabled", "lan_deny_out": True}}
         text = toml_out.dump(nested)
         self.assertNotIn("identity", text)
@@ -166,19 +166,6 @@ class DetectTests(unittest.TestCase):
         self.assertEqual((f.os_id, f.os_version, f.ram_mb, f.cores, f.sudo), ("ubuntu", "24.04", 7812, 2, "sudo-rs"))
         self.assertIsNone(f.os_problem())
         self.assertEqual(f.suggestions()["hardware.profile"], "small-server")
-
-    def test_a_processor_too_old_for_the_native_claude_code_is_reported(self):
-        """The real server was a 2010 Core 2 Duo: Claude Code's installer died there with "Illegal instruction"."""
-        h = FakeHost()
-        h.put("/proc/cpuinfo", "processor : 0\nmodel name : Intel(R) Core(TM)2 Duo\nflags : fpu sse sse2 ssse3 sse4_1\n")
-        f = detect.detect(h)
-        self.assertFalse(f.claude_native)
-        self.assertNotIn("claude.auth", f.suggestions())                  # still a normal choice: an older release runs there
-        self.assertIn(("Claude Code", "needs an older release here: this processor is too old for the current one"), f.summary())
-        h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 sse4_1 sse4_2 avx avx2\n")
-        self.assertTrue(detect.detect(h).claude_native)
-        h.put("/proc/cpuinfo", "processor : 0\nFeatures : fp asimd\n")                      # not x86: nothing to check
-        self.assertTrue(detect.detect(h).claude_native)
 
     def test_old_or_unsupported_systems_are_refused_in_plain_words(self):
         self.assertIn("too old", detect.Facts(os_id="ubuntu", os_version="20.04", systemd=True).os_problem())
@@ -212,7 +199,7 @@ class HardeningTests(unittest.TestCase):
         h.replies["systemctl reload ssh"] = lambda a: state.update(on=True) or Result(0)
         status, _ = hardening.run_module(mod, h, self.cfg, dry_run=False, out=lambda s: None, confirm=lambda p: True)
         self.assertEqual(status, "applied")
-        self.assertIn("PasswordAuthentication no", h.read("/etc/ssh/sshd_config.d/10-claude-tenta.conf"))
+        self.assertIn("PasswordAuthentication no", h.read("/etc/ssh/sshd_config.d/10-armada.conf"))
         order = [" ".join(c) for c in h.calls if c[0] in ("sshd", "systemctl") and c[1] in ("-t", "reload")]
         self.assertEqual(order, ["sshd -t", "systemctl reload ssh"])
 
@@ -222,7 +209,7 @@ class HardeningTests(unittest.TestCase):
         h.replies["sshd -T"] = Result(0, "passwordauthentication yes\n")
         status, _ = hardening.run_module(mod, h, self.cfg, dry_run=True, out=shown.append)
         self.assertEqual(status, "planned")
-        self.assertFalse(h.exists("/etc/ssh/sshd_config.d/10-claude-tenta.conf"))
+        self.assertFalse(h.exists("/etc/ssh/sshd_config.d/10-armada.conf"))
         self.assertTrue(any("PasswordAuthentication no" in s for s in shown))
 
     def test_declining_applies_nothing(self):
@@ -432,23 +419,23 @@ class ServerTests(ServerTestsFixture):
         topic = "https://ntfy.example/very-private-topic-name"
         s = self.setup_obj(dry_run=False, given={"alerts.kind": "ntfy", "alerts.url": topic})
         s.run_all()
-        toml = self.h.read("/etc/claude-tenta/ct.toml")
+        toml = self.h.read("/etc/armada/ct.toml")
         self.assertNotIn("very-private-topic-name", toml)
         self.assertIn('kind = "ntfy"', toml)
-        secrets = config.read_env_file(self.h.path("/etc/claude-tenta/secrets.env"))
+        secrets = config.read_env_file(self.h.path("/etc/armada/secrets.env"))
         self.assertEqual(secrets["CT_ALERT_URL"], topic)
-        self.assertEqual(self.h.path("/etc/claude-tenta/secrets.env").stat().st_mode & 0o777, 0o640)
-        self.assertEqual(self.h.path("/etc/claude-tenta/ct.toml").stat().st_mode & 0o777, 0o644)        # nothing private in it, so the admin can read it
+        self.assertEqual(self.h.path("/etc/armada/secrets.env").stat().st_mode & 0o777, 0o640)
+        self.assertEqual(self.h.path("/etc/armada/ct.toml").stat().st_mode & 0o777, 0o644)        # nothing private in it, so the admin can read it
         self.assertNotIn("very-private-topic-name", "\n".join(self.said))
-        config.load(self.h.path("/etc/claude-tenta/ct.toml"), env={"CT_CONFIG": ""})                    # and the worker can still load it without the address
+        config.load(self.h.path("/etc/armada/ct.toml"), env={"CT_CONFIG": ""})                    # and the worker can still load it without the address
 
     def test_commands_named_after_an_earlier_install_are_removed(self):
-        for p in ("/usr/local/bin/claude-tenta", "/usr/local/sbin/claude-tenta-update"):
+        for p in ("/usr/local/bin/armada", "/usr/local/sbin/armada-update"):
             self.h.put(p, "old wrapper\n")
         s = self.setup_obj(dry_run=False)
         s.run_all()
-        self.assertFalse(self.h.exists("/usr/local/bin/claude-tenta"))
-        self.assertFalse(self.h.exists("/usr/local/sbin/claude-tenta-update"))
+        self.assertFalse(self.h.exists("/usr/local/bin/armada"))
+        self.assertFalse(self.h.exists("/usr/local/sbin/armada-update"))
         self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
         self.assertTrue(self.h.exists("/usr/local/sbin/ct-update"))
 
@@ -465,53 +452,53 @@ class ServerTests(ServerTestsFixture):
         self.setup_obj(dry_run=False).run_all()
 
     def test_a_direct_install_makes_the_mailbox_and_asks_nothing_of_github(self):
-        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
-        self.h.replies["id claude-tenta-mail"] = Result(1, "id: no such user")                # not there yet
+        self.h.put("/etc/armada/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.replies["id armada-mail"] = Result(1, "id: no such user")                # not there yet
         s = self.setup_obj(dry_run=False, given={"transport.kind": "direct"})
         s.run_all()
         ran = lambda prefix: self.h.ran(prefix)      # noqa: E731
-        self.assertTrue(ran("useradd --system --user-group --home-dir /var/lib/claude-tenta-mail --no-create-home --shell /bin/sh claude-tenta-mail"))
-        self.assertTrue(ran("usermod -aG claude-tenta-mail ctworker"))
-        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/claude-tenta-mail/queue.git"))
-        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/claude-tenta-mail/results.git"))
-        self.assertTrue(ran("chown -R claude-tenta-mail:claude-tenta-mail /var/lib/claude-tenta-mail/queue.git"))
-        self.assertTrue(ran("chown -R ctworker:claude-tenta-mail /var/lib/claude-tenta-mail/results.git"))      # the worker writes results; the mailbox account only reads them
-        self.assertTrue(ran("git -C /var/lib/claude-tenta-mail/queue.git config core.sharedRepository group"))
-        self.assertFalse(ran("git -C /var/lib/claude-tenta-mail/results.git config core.sharedRepository"))     # found on a real machine: group-shared (setgid) object files are refused by the worker's services (RestrictSUIDSGID)
-        self.assertTrue(ran("find /var/lib/claude-tenta-mail/results.git -type d -exec chmod g+s"))     # real machine: the worker's umask is 027 and its group is its own, so without inheritance the mailbox account could not read a new result
-        keys = self.h.read("/var/lib/claude-tenta-mail/.ssh/authorized_keys")
+        self.assertTrue(ran("useradd --system --user-group --home-dir /var/lib/armada-mail --no-create-home --shell /bin/sh armada-mail"))
+        self.assertTrue(ran("usermod -aG armada-mail ctworker"))
+        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/armada-mail/queue.git"))
+        self.assertTrue(ran("git init --bare --quiet -b main /var/lib/armada-mail/results.git"))
+        self.assertTrue(ran("chown -R armada-mail:armada-mail /var/lib/armada-mail/queue.git"))
+        self.assertTrue(ran("chown -R ctworker:armada-mail /var/lib/armada-mail/results.git"))      # the worker writes results; the mailbox account only reads them
+        self.assertTrue(ran("git -C /var/lib/armada-mail/queue.git config core.sharedRepository group"))
+        self.assertFalse(ran("git -C /var/lib/armada-mail/results.git config core.sharedRepository"))     # found on a real machine: group-shared (setgid) object files are refused by the worker's services (RestrictSUIDSGID)
+        self.assertTrue(ran("find /var/lib/armada-mail/results.git -type d -exec chmod g+s"))     # real machine: the worker's umask is 027 and its group is its own, so without inheritance the mailbox account could not read a new result
+        keys = self.h.read("/var/lib/armada-mail/.ssh/authorized_keys")
         self.assertEqual(keys, 'restrict,command="/usr/local/sbin/ct-mail-shell" ssh-ed25519 AAAATESTKEY client@example\n')
         self.assertFalse(ran("ssh-keygen"))                                           # no deploy keys: nothing is registered anywhere
         self.assertFalse(self.h.exists("/var/lib/ctworker/.ssh/config") and False)
         self.assertTrue(self.h.exists("/usr/local/sbin/ct-mail-shell"))
-        self.assertTrue(ran("runuser -u ctworker -- git clone --quiet /var/lib/claude-tenta-mail/queue.git"))                  # the worker clones from the local path
+        self.assertTrue(ran("runuser -u ctworker -- git clone --quiet /var/lib/armada-mail/queue.git"))                  # the worker clones from the local path
 
     def test_setting_up_again_for_direct_points_an_existing_github_clone_at_the_mailbox_after_filling_it(self):
         """Seen on a real machine: the worker's clones said EXISTS and kept fetching from GitHub, so a job sent through the mailbox never arrived."""
-        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
-        self.h.put("/var/lib/claude-tenta/queue/.git/HEAD", "ref: refs/heads/main\n")
-        self.h.put("/var/lib/claude-tenta/results/.git/HEAD", "ref: refs/heads/main\n")
-        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "git@github-claude-tenta-queue:someone/claude-tenta-queue.git\n")
-        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "git@github-claude-tenta-results:someone/claude-tenta-results.git\n")
-        self.h.replies["git -C /var/lib/claude-tenta-mail/queue.git rev-parse"] = Result(1, "")                      # the mailbox is empty
-        self.h.replies["git -C /var/lib/claude-tenta-mail/results.git rev-parse"] = Result(1, "")
+        self.h.put("/etc/armada/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.put("/var/lib/armada/queue/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.put("/var/lib/armada/results/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.replies["git -C /var/lib/armada/queue remote get-url origin"] = Result(0, "git@github-armada-queue:someone/armada-queue.git\n")
+        self.h.replies["git -C /var/lib/armada/results remote get-url origin"] = Result(0, "git@github-armada-results:someone/armada-results.git\n")
+        self.h.replies["git -C /var/lib/armada-mail/queue.git rev-parse"] = Result(1, "")                      # the mailbox is empty
+        self.h.replies["git -C /var/lib/armada-mail/results.git rev-parse"] = Result(1, "")
         s = self.setup_obj(dry_run=False, given={"transport.kind": "direct"})
         s.run_all()
         ran = self.h.ran
-        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/remotes/origin/*:refs/heads/*")])
-        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/claude-tenta/queue push --quiet --force /var/lib/claude-tenta-mail/queue.git refs/heads/*:refs/heads/*")])
-        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url origin /var/lib/claude-tenta-mail/queue.git"))
-        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/results remote set-url origin /var/lib/claude-tenta-mail/results.git"))
+        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/armada/queue push --quiet --force /var/lib/armada-mail/queue.git refs/remotes/origin/*:refs/heads/*")])
+        self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/armada/queue push --quiet --force /var/lib/armada-mail/queue.git refs/heads/*:refs/heads/*")])
+        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/armada/queue remote set-url origin /var/lib/armada-mail/queue.git"))
+        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/armada/results remote set-url origin /var/lib/armada-mail/results.git"))
         self.assertFalse(ran("git clone"))                                                                            # nothing is cloned again
 
     def test_an_existing_clone_that_already_points_the_right_way_is_left_alone(self):
-        self.h.put("/etc/claude-tenta/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
-        self.h.put("/var/lib/claude-tenta/queue/.git/HEAD", "ref: refs/heads/main\n")
-        self.h.put("/var/lib/claude-tenta/results/.git/HEAD", "ref: refs/heads/main\n")
-        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/queue.git\n")
-        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/results.git\n")
+        self.h.put("/etc/armada/mailbox-client.pub", "ssh-ed25519 AAAATESTKEY client@example\n")
+        self.h.put("/var/lib/armada/queue/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.put("/var/lib/armada/results/.git/HEAD", "ref: refs/heads/main\n")
+        self.h.replies["git -C /var/lib/armada/queue remote get-url origin"] = Result(0, "/var/lib/armada-mail/queue.git\n")
+        self.h.replies["git -C /var/lib/armada/results remote get-url origin"] = Result(0, "/var/lib/armada-mail/results.git\n")
         self.setup_obj(dry_run=False, given={"transport.kind": "direct"}).run_all()
-        self.assertFalse(self.h.ran("runuser -u ctworker -- git -C /var/lib/claude-tenta/queue remote set-url"))
+        self.assertFalse(self.h.ran("runuser -u ctworker -- git -C /var/lib/armada/queue remote set-url"))
         self.assertFalse([c for c in self.h.calls if c[:2] == ["sh", "-c"] and "GIT_CONFIG_GLOBAL" in " ".join(c)])
 
     def test_a_github_install_has_no_mailbox_and_no_mail_shell(self):
@@ -523,21 +510,21 @@ class ServerTests(ServerTestsFixture):
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()
-        self.assertFalse(self.h.exists("/etc/claude-tenta/ct.toml"))
+        self.assertFalse(self.h.exists("/etc/armada/ct.toml"))
         self.assertEqual([c for c in self.h.calls if c[0] in ("useradd", "install", "ssh-keygen", "apt-get") or c[:2] == ["systemctl", "enable"]], [])
         text = "\n".join(self.said)
-        for needle in ("useradd --system", "ssh-keygen", "systemctl enable --now claude-tenta-fetch.timer", "[github]"):
+        for needle in ("useradd --system", "ssh-keygen", "systemctl enable --now armada-fetch.timer", "[github]"):
             self.assertIn(needle, text)
 
     def test_apply_creates_accounts_installs_the_code_and_writes_the_config(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()
         self.assertTrue(self.h.ran("useradd --system --create-home --home-dir " + H + "/ctworker --shell /usr/sbin/nologin ctworker"))
-        self.assertEqual(config.load(self.h.path("/etc/claude-tenta/ct.toml")).github.owner, "someone")
-        self.assertTrue(self.h.exists("/opt/claude-tenta/lib/ct/cli.py"))
+        self.assertEqual(config.load(self.h.path("/etc/armada/ct.toml")).github.owner, "someone")
+        self.assertTrue(self.h.exists("/opt/armada/lib/ct/cli.py"))
         self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
-        self.assertEqual(self.h.read("/etc/claude-tenta/installed-rev").strip(), "a" * 40)
-        self.assertIn("Host github-claude-tenta-queue", self.h.read(H + "/ctworker/.ssh/config"))
+        self.assertEqual(self.h.read("/etc/armada/installed-rev").strip(), "a" * 40)
+        self.assertIn("Host github-armada-queue", self.h.read(H + "/ctworker/.ssh/config"))
         self.assertNotIn("ControlMaster", self.h.read(H + "/ctworker/.ssh/config"))                # a background ssh master would hold a pass's output pipes open
 
     def test_it_waits_for_deploy_keys_before_cloning_and_hardening(self):
@@ -547,16 +534,16 @@ class ServerTests(ServerTestsFixture):
         self.assertTrue(any(r[1] == "waiting" for r in report))
         self.assertEqual(self.h.ran("systemctl enable"), [])
         self.assertTrue(any("gh repo deploy-key add" in line and "--allow-write" in line for line in self.said))
-        self.assertTrue(any("claude-tenta-queue.pub" in line and "--allow-write" not in line for line in self.said))
+        self.assertTrue(any("armada-queue.pub" in line and "--allow-write" not in line for line in self.said))
 
     def test_with_keys_in_place_it_clones_hardens_and_starts_the_timers(self):
         s = self.setup_obj(dry_run=False, confirm=lambda p: True)
         s.run_all()
         self.assertEqual(len(self.h.ran("runuser -u ctworker -- git clone")), 2)
-        self.assertIn("git@github-claude-tenta-queue:someone/claude-tenta-queue.git", " ".join(self.h.ran("runuser -u ctworker -- git clone")[0]))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-step.timer"))
-        self.assertTrue(self.h.exists("/etc/claude-tenta/hardening.json"))
+        self.assertIn("git@github-armada-queue:someone/armada-queue.git", " ".join(self.h.ran("runuser -u ctworker -- git clone")[0]))
+        self.assertTrue(self.h.ran("systemctl enable --now armada-fetch.timer"))
+        self.assertTrue(self.h.ran("systemctl enable --now armada-step.timer"))
+        self.assertTrue(self.h.exists("/etc/armada/hardening.json"))
         self.assertEqual([c for c in self.h.calls if c[:2] == ["systemctl", "enable"] and "update.timer" in " ".join(c)], [])
 
     def test_a_failed_protection_stops_the_setup_before_the_job_loop_is_started(self):
@@ -569,16 +556,16 @@ class ServerTests(ServerTestsFixture):
         self.assertIn("not started", e.exception.title)
         self.assertIn("Failed RTM_NEWADDR", e.exception.why)                                     # the machine's own message is kept
         for part in ("fetch", "step", "registry-sync"):
-            self.assertEqual(self.h.ran(f"systemctl enable --now claude-tenta-{part}.timer"), [], part)      # the job loop was not started (the canary watch belongs to the tripwire protection, not to it)
-        self.assertTrue(self.h.ran("systemctl disable --now claude-tenta-fetch.timer"))          # and one a first run left behind is stopped
-        self.assertTrue(self.h.ran("systemctl disable --now claude-tenta-step.timer"))
+            self.assertEqual(self.h.ran(f"systemctl enable --now armada-{part}.timer"), [], part)      # the job loop was not started (the canary watch belongs to the tripwire protection, not to it)
+        self.assertTrue(self.h.ran("systemctl disable --now armada-fetch.timer"))          # and one a first run left behind is stopped
+        self.assertTrue(self.h.ran("systemctl disable --now armada-step.timer"))
 
     def test_a_blocked_protection_does_not_stop_the_setup_but_a_failed_one_does(self):
         s = self.setup_obj(dry_run=False, confirm=lambda p: True)
         real = hardening.run_module
         with mock.patch.object(hardening, "run_module", lambda mod, *a, **k: ("blocked", "this machine has no kernel audit") if mod.id == "auditd-canaries" else real(mod, *a, **k)):
             s.run_all()
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))
+        self.assertTrue(self.h.ran("systemctl enable --now armada-fetch.timer"))
 
     def test_the_registry_is_installed_after_the_clones_and_before_hardening(self):
         order = []
@@ -598,18 +585,18 @@ class ServerTests(ServerTestsFixture):
         with self.assertRaises(server.SetupError) as e:
             s.run_all()
         self.assertIn("not valid", e.exception.why)
-        self.assertFalse(self.h.exists("/etc/claude-tenta/hardening.json"))
+        self.assertFalse(self.h.exists("/etc/armada/hardening.json"))
 
     def test_a_queue_repository_that_cannot_be_read_is_not_blamed_on_the_registry_file(self):
         def unreadable(cfg, src, **k):
-            raise server.update.FetchError("could not fetch the queue repository: fatal: cannot change to '/var/lib/claude-tenta/queue': Permission denied")
+            raise server.update.FetchError("could not fetch the queue repository: fatal: cannot change to '/var/lib/armada/queue': Permission denied")
         s = self.setup_obj(dry_run=False, confirm=lambda p: True)
         s.registry_installer = unreadable
         with self.assertRaises(server.SetupError) as e:
             s.run_all()
         self.assertIn("could not read the queue repository", e.exception.title)
         steps = " ".join(e.exception.steps)
-        self.assertIn("sudo -u ctworker git -C /var/lib/claude-tenta/queue fetch origin", steps)      # the command that shows git's real reason
+        self.assertIn("sudo -u ctworker git -C /var/lib/armada/queue fetch origin", steps)      # the command that shows git's real reason
         self.assertIn("--set server.worker_user=", steps)
         self.assertNotIn("registry.yaml", steps)
 
@@ -633,12 +620,12 @@ class ServerTests(ServerTestsFixture):
         self.assertTrue(any(r[0] == "prerequisites" and r[1] == "planned" for r in s.report))
 
     def test_the_public_deploy_keys_are_published_for_the_administrator(self):
-        self.h.put(H + "/ctworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ claude-tenta-queue\n")
-        self.h.put((H + "/ctworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR claude-tenta-results\n")
+        self.h.put(H + "/ctworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ armada-queue\n")
+        self.h.put((H + "/ctworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR armada-results\n")
         self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
-        self.assertEqual(self.h.read("/etc/claude-tenta/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ claude-tenta-queue")
-        self.assertEqual(self.h.read("/etc/claude-tenta/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR claude-tenta-results")
-        self.assertEqual(oct(self.h.path("/etc/claude-tenta/deploy-keys/queue.pub").stat().st_mode & 0o777), "0o644")
+        self.assertEqual(self.h.read("/etc/armada/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ armada-queue")
+        self.assertEqual(self.h.read("/etc/armada/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR armada-results")
+        self.assertEqual(oct(self.h.path("/etc/armada/deploy-keys/queue.pub").stat().st_mode & 0o777), "0o644")
 
     def test_it_waits_for_the_keys_and_carries_on_when_they_arrive(self):
         calls = {"n": 0}
@@ -653,15 +640,15 @@ class ServerTests(ServerTestsFixture):
         self.assertFalse(s.waiting)
         self.assertEqual(len(self.h.ran("runuser -u ctworker -- git clone")), 2)
         self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said))
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))
+        self.assertTrue(self.h.ran("systemctl enable --now armada-fetch.timer"))
 
     def test_an_existing_clone_moved_to_github_also_waits_for_the_keys_before_the_registry_fetch(self):
         """Found by a real run (scripts/real-github-check): an install moved from Direct to GitHub already had its clones, so the server pointed them at GitHub and fetched the registry at once,
         before ct-setup on the person's computer had added the deploy keys ('Permission denied (publickey)'). Only a fresh install waited."""
         for which in ("queue", "results"):
-            self.h.path(f"/var/lib/claude-tenta/{which}/.git").mkdir(parents=True)
-        self.h.replies["git -C /var/lib/claude-tenta/queue remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/queue.git\n")
-        self.h.replies["git -C /var/lib/claude-tenta/results remote get-url origin"] = Result(0, "/var/lib/claude-tenta-mail/results.git\n")
+            self.h.path(f"/var/lib/armada/{which}/.git").mkdir(parents=True)
+        self.h.replies["git -C /var/lib/armada/queue remote get-url origin"] = Result(0, "/var/lib/armada-mail/queue.git\n")
+        self.h.replies["git -C /var/lib/armada/results remote get-url origin"] = Result(0, "/var/lib/armada-mail/results.git\n")
         calls = {"n": 0}
 
         def ls_remote(argv):
@@ -713,7 +700,7 @@ class ServerTests(ServerTestsFixture):
         self.assertEqual(flat["hardening"]["offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
         s = self.setup_obj(dry_run=False, given={"isolation.purpose": "shared"})
         results = s.run_all()
-        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        done = json.loads(self.h.read("/etc/armada/hardening.json"))
         for mid in ("ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"):
             self.assertEqual(done[mid]["status"], "declined", mid)
             self.assertIn("every user of this machine", done[mid]["detail"])
@@ -724,7 +711,7 @@ class ServerTests(ServerTestsFixture):
         s.use_defaults = False                                              # a person is answering
         s.confirm = lambda q: q.startswith("Apply unattended-upgrades")      # yes to one, no to the rest
         s.run_all()
-        done = json.loads(self.h.read("/etc/claude-tenta/hardening.json"))
+        done = json.loads(self.h.read("/etc/armada/hardening.json"))
         self.assertIn(done["unattended-upgrades"]["status"], ("applied", "satisfied"))
         self.assertNotIn(done["ssh-keys-only"]["status"], ("applied", "satisfied"))      # said no (or the fake machine blocks it): not applied
         from ct.setup import audit
@@ -784,7 +771,7 @@ class ClientTests(RepoFixture):
         h, c = self.make(dry_run=True)
         c.run_all()
         self.assertEqual(h.ran("gh repo create"), [])
-        self.assertTrue(any("gh repo create someone/claude-tenta-queue --private" in s for s in self.said))
+        self.assertTrue(any("gh repo create someone/armada-queue --private" in s for s in self.said))
         self.assertFalse(h.exists(h.env["HOME"] + "/.config"))
 
     def test_apply_writes_config_creates_private_repos_and_seeds_the_registry(self):
@@ -795,7 +782,7 @@ class ClientTests(RepoFixture):
         c.run_all()
         self.assertEqual(len(h.ran("gh repo create")), 2)
         self.assertTrue(all("--private" in " ".join(x) for x in h.ran("gh repo create")))
-        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/claude-tenta/ct.toml")).github.owner, "someone")
+        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/armada/ct.toml")).github.owner, "someone")
         self.repos.fetch_queue()
         reg = self.repos.show_file("origin/main", "registry.yaml")
         self.assertIn("classes:", reg)
@@ -928,7 +915,7 @@ class CliTests(unittest.TestCase):
         code, err = self.run_cli("server", "--yes", "--set", "server.admin_user=me", "--set", "github.owner=someone", "--rev", "a" * 40, host=h)
         self.assertEqual(code, 0)
         self.assertIn("Nothing was changed", err)
-        self.assertFalse(h.exists("/etc/claude-tenta/ct.toml"))
+        self.assertFalse(h.exists("/etc/armada/ct.toml"))
 
     def test_an_answers_file_and_set_are_combined_and_checked(self):
         f = Path(tempfile.mkdtemp()) / "a.toml"
@@ -998,192 +985,6 @@ class WhatTheComputerIsUsedFor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class ClaudeSignIn(ServerTestsFixture):
-    """The Claude step: nothing for `none`; the tool and the stored sign-in otherwise."""
-
-    class Screen:
-        def __init__(self, token="", install=True):
-            self.token, self.install, self.cards, self.asked, self.infos = token, install, [], [], []
-
-        total_hint = 0
-
-        def begin(self, *a, **k):
-            pass
-
-        def finish(self, *a, **k):
-            pass
-
-        def heading(self, *a, **k):
-            pass
-
-        def sub(self, *a, **k):
-            pass
-
-        def protection(self, info):
-            self.cards.append(info["id"])
-            self.infos.append(info)
-            return self.install if info["id"] == "claude-install" else True
-
-        def ask_secret(self, q):
-            self.asked.append(q)
-            return self.token
-
-    def run_with(self, auth, token="", install=True, **kw):
-        screen = self.Screen(token, install)
-        s = self.setup_obj(dry_run=False, ui=screen, given={"claude.auth": auth}, **kw)
-        s.run_all()
-        return s, screen
-
-    def secrets(self):
-        return config.read_env_file(self.h.path("/etc/claude-tenta/secrets.env"))
-
-    def test_none_installs_nothing_and_says_other_jobs_are_unaffected(self):
-        s, screen = self.run_with("none")
-        self.assertNotIn("claude-install", screen.cards)
-        self.assertEqual(screen.asked, [])
-        self.assertTrue(any(step == "Claude sign-in" and status == "skipped" and "every other job runs" in detail for step, status, detail in s.report))
-        self.assertFalse(self.h.ran("runuser -u ctworker -- env"))
-
-    def test_account_installs_the_tool_as_the_worker_and_stores_only_the_token_it_is_given(self):
-        token = "sk-ant-oat01-" + "x" * 40
-        s, screen = self.run_with("account", token=token)
-        self.assertIn("claude-install", screen.cards)
-        install = [c for c in self.h.calls if c[:4] == ["runuser", "-u", "ctworker", "--"] and "bash" in c]
-        self.assertEqual(len(install), 1)
-        self.assertIn("https://claude.ai/install.sh", install[0][-1])
-        self.assertEqual(self.secrets().get("CLAUDE_CODE_OAUTH_TOKEN"), token)
-        self.assertNotIn("ANTHROPIC_API_KEY", self.secrets())
-        self.assertNotIn(token, self.h.read("/etc/claude-tenta/ct.toml"))               # the configuration never holds it
-        self.assertNotIn(token, "\n".join(self.said))
-        self.assertEqual(oct(self.h.path("/etc/claude-tenta/secrets.env").stat().st_mode & 0o777), "0o640")
-
-    def test_a_token_from_the_installer_is_stored_without_asking_and_replaces_an_older_one(self):
-        old = "sk-ant-oat01-" + "o" * 40
-        new = "sk-ant-oat01-" + "n" * 40
-        self.run_with("account", token=old)
-        s, screen = self.run_with("account", token="", claude_secrets={"CLAUDE_CODE_OAUTH_TOKEN": new})
-        self.assertEqual(screen.asked, [])
-        self.assertEqual(self.secrets()["CLAUDE_CODE_OAUTH_TOKEN"], new)
-        self.assertNotIn(new, "\n".join(self.said))
-
-    def test_the_read_only_claude_class_comes_with_the_install_exactly_when_claude_is_used(self):
-        self.run_with("account", token="sk-ant-oat01-" + "p" * 40)
-        self.assertEqual(config.load(self.h.path("/etc/claude-tenta/ct.toml")).registry.packs, ["core", "claude"])
-        self.run_with("none")                                              # switching to none takes it away again
-        self.assertEqual(config.load(self.h.path("/etc/claude-tenta/ct.toml")).registry.packs, ["core"])
-
-    def test_the_approver_key_is_installed_root_owned_and_replaces_an_older_one(self):
-        import subprocess as sp
-        import tempfile as tf
-        from ct import approvals
-        d = Path(tf.mkdtemp())
-        pubs = []
-        for n in ("a", "b"):
-            sp.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(d / n)], check=True)
-            pubs.append((d / f"{n}.pub").read_text())
-        for pub in pubs:
-            s = self.setup_obj(dry_run=False, approver_pubkey=pub)
-            s.run_all()
-        text = self.h.read("/etc/claude-tenta/approvers")
-        self.assertEqual(approvals.fingerprints(text), [approvals.fingerprint(pubs[1])])
-        self.assertEqual(self.h.path("/etc/claude-tenta/approvers").stat().st_mode & 0o777, 0o644)
-        self.assertIn('namespaces="ct-approval,ct-registry,ct-control"', text)
-        self.assertFalse(self.h.exists("/etc/claude-tenta/allowed_signers"))         # the release-signing file is a different one
-
-    def test_no_approver_key_given_means_no_approvers_file(self):
-        self.setup_obj(dry_run=False).run_all()
-        self.assertFalse(self.h.exists("/etc/claude-tenta/approvers"))
-
-    def test_something_that_is_not_a_key_is_refused_without_stopping_the_setup(self):
-        s = self.setup_obj(dry_run=False, approver_pubkey="not a key at all")
-        s.run_all()
-        self.assertEqual({st: v for st, v, _ in s.report}["approver key"], "failed")
-        self.assertFalse(self.h.exists("/etc/claude-tenta/approvers"))
-
-    def test_the_weekly_claude_update_timer_runs_only_where_claude_is_used(self):
-        self.run_with("account", token="sk-ant-oat01-" + "t" * 40)
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-claude-update.timer"))
-
-    def test_no_claude_update_timer_without_claude(self):
-        self.run_with("none")
-        self.assertFalse(self.h.ran("systemctl enable --now claude-tenta-claude-update.timer"))
-
-    def test_the_day_an_account_token_was_stored_is_recorded_for_the_one_year_warning(self):
-        self.run_with("account", token="sk-ant-oat01-" + "e" * 40)
-        rec = __import__("json").loads(self.h.read("/etc/claude-tenta/claude-token.json"))
-        self.assertEqual(rec["route"], "account")
-        self.assertLess(abs(rec["set_at"] - __import__("time").time()), 120)
-
-    def test_an_api_key_has_no_expiry_record(self):
-        self.run_with("api-key", token="sk-ant-api03-" + "e" * 40)
-        self.assertFalse(self.h.exists("/etc/claude-tenta/claude-token.json"))
-
-    def test_api_key_goes_under_its_own_name_and_replaces_the_other_route(self):
-        s, screen = self.run_with("api-key", token="sk-ant-api03-" + "y" * 40)
-        self.assertIn("ANTHROPIC_API_KEY", self.secrets())
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
-
-    def test_skipping_the_install_or_leaving_the_token_empty_is_allowed_and_said(self):
-        s, screen = self.run_with("account", token="", install=False)
-        statuses = {step: status for step, status, _ in s.report}
-        self.assertEqual((statuses["Claude tool"], statuses["Claude sign-in"]), ("skipped", "skipped"))
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
-
-    def test_something_that_is_not_a_token_is_refused(self):
-        with self.assertRaises(server.SetupError):
-            self.run_with("account", token="two words here and more than twenty chars")
-
-    def test_a_token_that_is_already_stored_is_kept_and_not_asked_again(self):
-        self.run_with("account", token="sk-ant-oat01-" + "z" * 40)
-        s2, screen2 = self.run_with("account", token="")
-        self.assertEqual(screen2.asked, [])
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())
-
-    def test_switching_to_none_deletes_what_was_stored(self):
-        self.run_with("api-key", token="sk-ant-api03-" + "k" * 40)
-        self.assertIn("ANTHROPIC_API_KEY", self.secrets())
-        s, _ = self.run_with("none")
-        self.assertEqual({k for k in self.secrets() if "ANTHROPIC" in k or "CLAUDE" in k}, set())
-        self.assertTrue(any(step == "Claude sign-in" and status == "removed" for step, status, _ in s.report))
-
-    def test_an_installer_that_dies_does_not_stop_the_rest_of_the_setup(self):
-        """On the real server the installer was killed ("Illegal instruction"); that stopped the whole setup before the timers were started."""
-        real = self.h.run
-        self.h.run = lambda argv, **kw: Result(132, "Illegal instruction") if "claude.ai/install.sh" in " ".join(argv) else real(argv, **kw)
-        s, screen = self.run_with("account", token="sk-ant-oat01-" + "w" * 40)
-        statuses = {step: status for step, status, _ in s.report}
-        self.assertEqual((statuses["Claude tool"], statuses["Claude sign-in"]), ("failed", "skipped"))
-        self.assertEqual(screen.asked, [])                                  # no point asking for a token for a tool that cannot run
-        self.assertTrue(self.h.ran("systemctl enable --now claude-tenta-fetch.timer"))        # the worker still started
-
-    def test_a_processor_too_old_for_the_native_program_gets_the_last_javascript_release(self):
-        self.h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2 ssse3 sse4_1\n")
-        self.h.replies["node --version"] = Result(0, "v22.22.1\n")
-        s, screen = self.run_with("account", token="sk-ant-oat01-" + "v" * 40)
-        calls = [" ".join(c) for c in self.h.calls]
-        self.assertFalse(any("claude.ai/install.sh" in c for c in calls))                   # the native installer is never run there
-        npm = [c for c in calls if "npm install" in c]
-        self.assertEqual(len(npm), 1)
-        self.assertIn("@anthropic-ai/claude-code@" + server.CLAUDE_LEGACY, npm[0])
-        self.assertTrue(npm[0].startswith("runuser -u ctworker --"))                         # as the worker account, never root
-        self.assertEqual({step: status for step, status, _ in s.report}["Claude tool"], "installed")
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.secrets())                            # and the sign-in is stored as usual
-
-    def test_the_older_release_is_described_honestly_on_its_card(self):
-        self.h.put("/proc/cpuinfo", "processor : 0\nflags : fpu sse sse2\n")
-        s, screen = self.run_with("account", token="")
-        card = next(i for i in screen.infos if i["id"] == "claude-install")
-        self.assertIn(server.CLAUDE_LEGACY, card["title"])
-        self.assertIn("does not update itself", card["risk"])
-
-    def test_a_preview_asks_for_nothing_and_changes_nothing(self):
-        screen = self.Screen("sk-ant-oat01-" + "q" * 40)
-        s = self.setup_obj(dry_run=True, ui=screen, given={"claude.auth": "account"})
-        s.run_all()
-        self.assertEqual(screen.asked, [])
-        self.assertTrue(any("curl -fsSL https://claude.ai/install.sh" in line for line in self.said))
 
 
 class GitHubToolOffer(RepoFixture):

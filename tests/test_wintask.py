@@ -43,7 +43,7 @@ class Script(unittest.TestCase):
         self.assertEqual(self.s.count("Set-LocalUser"), 1)                      # only before registering: a later change would break the stored logon
 
     def test_the_layouts_probe_refuses_while_this_task_exists(self):
-        self.assertIn("claude-tenta-worker", winlayout.ensure_script(probe=True))
+        self.assertIn("armada-worker", winlayout.ensure_script(probe=True))
         self.assertIn("would invalidate it", winlayout.ensure_script(probe=True))
 
     def test_every_script_ends_with_a_blank_line_and_prints_one_result_line_per_path(self):
@@ -102,7 +102,7 @@ class Calls(unittest.TestCase):
 
         def runner(argv, text):
             seen.append((argv, text))
-            return 0, 'CT-RESULT {"task": "claude-tenta-worker", "started": true}'
+            return 0, 'CT-RESULT {"task": "armada-worker", "started": true}'
         self.assertTrue(wintask.start(runner)["started"])
         self.assertEqual(seen[0][0], wintools.POWERSHELL)
 

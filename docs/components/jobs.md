@@ -23,7 +23,6 @@ JSON at `jobs/<id>.json` on the queue repository's `jobs` branch.
 | `params` | the class's declared parameters, each checked against its type (`enum`, `int [lo, hi]` or `regex`, fully anchored); unknown or missing ones are refused |
 | `created` | ISO timestamp with a time zone; a job older than 24 hours, or more than 5 minutes in the future, is refused (replay protection) |
 | `files` | optional small text files for classes with `accepts_files`; plain relative names (no dot-names, so a job cannot plant a settings file), bounded count and size |
-| `prompt` | for `claude` classes only, 1 to 8000 characters |
 | `argv`, `what`, `expect`, `est_*`, `packages`, `flags` | for a profile run: exactly one command as an argument list, what it does and what is expected, and honest estimates |
 
 Commands are **argument lists built from the class's template**; there is no shell and no string interpolation.

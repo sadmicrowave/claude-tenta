@@ -131,8 +131,8 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(classes["b"]["tier"], "auto")           # the input is not changed
 
     def test_a_class_without_a_tier_already_asks(self):
-        p = packs.parse_policy('[[require.approval]]\nwhen = { kind = "claude" }\nreason = "model"\n')
-        _, notes, _ = packs.apply_policy(p, {"xx": {"kind": "claude", "allowed_tools": ["Read"]}})
+        p = packs.parse_policy('[[require.approval]]\nwhen = { kind = "profile" }\nreason = "any"\n')
+        _, notes, _ = packs.apply_policy(p, {"xx": {"kind": "profile"}})
         self.assertEqual(notes, [])
 
 

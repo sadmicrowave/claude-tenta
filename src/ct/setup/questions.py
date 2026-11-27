@@ -54,14 +54,10 @@ QUESTIONS = [
        "Paste it. It is hidden as you type (shown as dots) because anyone who learns a private topic name can read your alerts.",
        risk="Use a long, random topic name. Access tokens never go here; they belong in secrets.env.",
        examples=["https://ntfy.sh/your-long-random-topic"], half="server", when=lambda a: a.get("alerts.kind", "none") != "none"),
-    _Q("claude.auth", "How should jobs that use Claude sign in?",
-       "Some jobs ask Claude, the AI assistant, to read files you attach and report back. Those jobs need a sign-in on this worker; nothing else on the worker uses one.",
-       risk="The sign-in is stored only on this worker, readable by the worker account, and handed only to Claude jobs, never to ordinary commands. Anyone who got it could use your Claude account, "
-            "so it is one more reason to keep the worker locked down.", half="server"),
     # ---- advanced: the defaults are right for almost everyone ----
     _Q("identity.name", "What should this install be called?",
-       "Everything is named after it: the services and folders on the server (claude-tenta-step, /opt/claude-tenta, ...); the commands are always ct-worker and ct-update. Two installs on one machine need different names.",
-       risk="It is baked into many file names, so changing it later means reinstalling.", examples=["claude-tenta", "tenta-lab"], half="both", advanced=True),
+       "Everything is named after it: the services and folders on the server (armada-step, /opt/armada, ...); the commands are always ct-worker and ct-update. Two installs on one machine need different names.",
+       risk="It is baked into many file names, so changing it later means reinstalling.", examples=["armada", "tenta-lab"], half="both", advanced=True),
     _Q("server.ssh_port", "Which port does SSH listen on?", "The port your computer uses to reach the server, and the one the firewall keeps open.",
        risk="A wrong port fails the connection check; nothing is changed.", examples=["22", "2222"], half="both", advanced=True),
     _Q("server.worker_user", "What should the account that runs jobs be called?",
@@ -69,14 +65,14 @@ QUESTIONS = [
        risk="Never your own account: the wizard refuses a name that is the admin account.", examples=["ctworker", "tenta"], half="server", advanced=True),
     _Q("github.queue_repo", "What should the private repository that holds your jobs be called?",
        "Created private. The server gets a read-only key to it, so it can fetch jobs but never change or delete them.",
-       risk="A name that already exists is reused as it is, so pick an empty one.", examples=["claude-tenta-queue"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
+       risk="A name that already exists is reused as it is, so pick an empty one.", examples=["armada-queue"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("github.results_repo", "What should the private repository that holds the results be called?",
        "Created private. The server gets a write key to it so it can publish results.",
-       risk="A key that can write can also rewrite history, so results are always treated as data, never as instructions.", examples=["claude-tenta-results"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
+       risk="A key that can write can also rewrite history, so results are always treated as data, never as instructions.", examples=["armada-results"], half="both", advanced=True, when=lambda a: a.get("transport.kind", "github") == "github"),
     _Q("updates.source", "Where do software updates come from?",
        "The address of the project repository (or your fork) the server installs releases from. Only commits on its main branch can be installed, and only when you run `ct-admin apply`.",
        risk="Point it at a fork you do not control and you will be offered whatever it contains. Every update is shown to you before it is installed.",
-       examples=["https://github.com/your-username/claude-tenta.git"], half="both", advanced=True),
+       examples=["https://github.com/your-username/armada.git"], half="both", advanced=True),
     _Q("updates.mode", "How should updates be installed?", "Either way, nothing is installed that is not on the project's main branch.",
        risk="signed-tags installs without asking, but only a release tag signed by a key you listed on the server.", half="server", advanced=True),
     _Q("network.lan_deny_out", "Stop the server from starting connections to your other devices?",
@@ -117,9 +113,6 @@ CHOICES = {
     "alerts.kind": [("none", "No push alerts. Security events are only in the log and in `ct-admin status`."),
                     ("ntfy", "A push notification to your phone through ntfy (ntfy.sh or your own server)."),
                     ("webhook", "A short message posted to any https address you choose.")],
-    "claude.auth": [("account", "Your claude.ai subscription. You make a long-lived token once on your own computer with `claude setup-token` and paste it when the server asks; no API account is needed."),
-                    ("api-key", "An Anthropic API key (billed per use). Pasted once when the server asks and kept only on the worker."),
-                    ("none", "Claude is not required: every other kind of job runs without it. Adding it lets the worker run Claude on files you attach, so long reading and summarising happens there instead of on your laptop.")],
     "updates.mode": [("manual", "You install updates yourself with `ct-admin apply`, after reading what changes."),
                      ("signed-tags", "The server installs a new release by itself, but only a release tag signed by a key you trust.")],
     "network.lan_deny_out": [("yes", "Block it. The server can reach the internet but not your other devices."),
@@ -129,7 +122,7 @@ LABELS = {"transport.kind": "Connection", "identity.name": "Install name", "serv
           "github.owner": "GitHub account", "github.queue_repo": "Queue repository", "github.results_repo": "Results repository", "updates.source": "Release source",
           "updates.mode": "Updates", "hardware.profile": "Machine", "isolation.purpose": "Used for", "isolation.tool_roots": "Tool folders", "network.ipv6": "IPv6", "network.lan_deny_out": "Keep it off your LAN",
           "network.lan_allow_out": "LAN exceptions", "network.dns_servers": "DNS servers", "network.ssh_from": "SSH allowed from", "access.sudo": "Passwordless commands",
-          "alerts.kind": "Alerts", "alerts.url": "Alert address", "claude.auth": "Claude sign-in"}
+          "alerts.kind": "Alerts", "alerts.url": "Alert address"}
 for _q in QUESTIONS:
     _q["label"] = LABELS.get(_q["key"], _q["key"].partition(".")[2].replace("_", " ").capitalize())
     _q["secret"] = _q["key"] == "alerts.url"          # a private topic address: typed hidden (as dots) and shown as "set"
@@ -192,7 +185,7 @@ def default_for(key, suggestions=None, answers=None):
     if not isinstance(default, str):
         return default
     answers = answers or {}
-    ident = str(answers.get("identity.name") or "claude-tenta")
+    ident = str(answers.get("identity.name") or "armada")
     worker = str(answers.get("server.worker_user") or "ctworker")
     return default.replace("{name}", ident).replace("{worker_user}", worker)
 

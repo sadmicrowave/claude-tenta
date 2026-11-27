@@ -37,15 +37,13 @@ def render_plan(steps, old, new, *, where):
            tag="PREVIEW", color=ui.PRIMARY, stream=sys.stderr)
 
 
-def with_name(text, new, old=None, legacy=False):
+def with_name(text, new, old=None):
     """The configuration text with identity.name set to `new` (everything else as it was). The installer writes the repositories' names into the file too, as
     `<name>-queue` and `<name>-results`; those that carry the old name follow it (a custom repository name is left alone), or the file would keep pointing at repositories
-    that no longer have that name. `old` is the name the file meant, when it does not say (an old settings file that never wrote its name)."""
+    that no longer have that name. `old` is the name the file meant, when it does not say."""
     raw = tomllib.loads(text or "")
     old = old or (raw.get("identity") or {}).get("name")
     raw.setdefault("identity", {})["name"] = new
-    if legacy:                                              # an old file never wrote the worker account's name; the account on the machine keeps its old one
-        raw.setdefault("server", {}).setdefault("worker_user", config.LEGACY_WORKER)
     gh = raw.get("github")
     if old and isinstance(gh, dict):
         for key, which in (("queue_repo", "queue"), ("results_repo", "results")):
@@ -54,8 +52,8 @@ def with_name(text, new, old=None, legacy=False):
     return toml_out.dump(raw)
 
 
-def load_new_config(text, new, old=None, legacy=False):
-    clean, problems = config.validate(tomllib.loads(with_name(text, new, old, legacy)), require_alert_url=False)
+def load_new_config(text, new, old=None):
+    clean, problems = config.validate(tomllib.loads(with_name(text, new, old)), require_alert_url=False)
     if problems:
         raise refuse.error("rename.config.invalid", problems="\n".join(problems[:5]))
     return config.Config(clean)
@@ -68,10 +66,9 @@ class Rename:
         self.say, self.dry_run, self.confirm = say, dry_run, confirm
         self.old = cfg.identity.name
         self.report = []
-        # The settings come from the file this was started with, wherever it is now: an old install keeps them in cw.toml, and a rename that stopped partway has already moved
+        # The settings come from the file this was started with, wherever it is now: a rename that stopped partway has already moved
         # the folder, so the same command run again finds the file under the new folder name and carries on from there.
         source = getattr(cfg, "source", None) or cfg.path("config_file")
-        self.legacy = Path(source).name == config.LEGACY_CONFIG
         self.resumed = Path(source).parent != Path(cfg.paths.config)               # the settings are not where the old name puts them: an earlier run already moved the folder
         self.text = host.read(source) or host.read(cfg.path("config_file")) or ""
         self.cfg2 = None
@@ -85,7 +82,7 @@ class Rename:
             raise refuse.error("rename.name.same", old=self.old)
         if not self.host.run(["id", self.cfg.server.worker_user]).ok:                  # before anything is touched: a plan written for an account that does not exist stops halfway
             raise refuse.error("setup.worker_account.missing", ("Account", str(self.cfg.server.worker_user)), steps=["Find the account the worker runs as: ls -ld /var/lib/*/queue shows its owner.", f"Then add it to {self.cfg.source or 'your configuration'} under [server]: worker_user = \"<that account>\", and run this again."])
-        self.cfg2 = load_new_config(self.text, self.new, self.old, self.legacy)
+        self.cfg2 = load_new_config(self.text, self.new, self.old)
         for label, before, after in self.moves():
             if self.host.exists(after):
                 raise refuse.error("rename.folder.exists", ("Name", str(after)))
@@ -114,13 +111,13 @@ class Rename:
         enabled = [p for p in timers if h.run(["systemctl", "is-enabled", c.unit(p)]).out.strip() == "enabled"]
         if self.resumed and not enabled:
             # The earlier run had already switched the timers off, so what was running is no longer knowable. Start what a normal install runs, or the worker would be left stopped.
-            enabled = ["fetch.timer", "step.timer", "canary.timer", "claude-update.timer", "registry-sync.timer"] + (["update.timer"] if c.updates.mode == "signed-tags" else []) \
+            enabled = ["fetch.timer", "step.timer", "canary.timer", "registry-sync.timer"] + (["update.timer"] if c.updates.mode == "signed-tags" else []) \
                 + (["helper.socket"] if "actions:" in (h.read(c2.path("registry")) or "") else [])
         out = [("Stop the services", [A("run", argv=["systemctl", "disable", "--now", c.unit(p)]) for p in timers]
                 + [A("run", argv=["systemctl", "stop", c.unit(p)]) for p in render.UNITS if p.endswith(".service") and "@" not in p and h.exists(f"/etc/systemd/system/{c.unit(p)}")])]
         out.append(("Move the folders", [A("run", argv=["mv", a, b]) for _, a, b in self.moves()]))
         new_conf = f"{c2.paths.config}/ct.toml"
-        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new, old, self.legacy), mode=0o644)]))
+        out.append(("Write the new name into the configuration", [A("write", path=new_conf, text=with_name(self.text, new, old), mode=0o644)]))
         w, home = c.server.worker_user, c.paths.worker_home
         ssh = [A("write", path=f"{home}/.ssh/config", text=ssh_config_text(c2), mode=0o600), A("run", argv=["chown", f"{w}:{w}", f"{home}/.ssh/config"])]
         for which in ("queue", "results"):
@@ -144,16 +141,6 @@ class Rename:
         for stale in (f"/etc/sudoers.d/{old}", f"{c2.paths.code}/bin/{old}"):
             if h.exists(stale):
                 gone.append(A("remove", path=stale))
-        if self.legacy:                                         # what the old version wrote under names the new one does not use
-            gone.append(A("remove", path=f"{c2.paths.config}/{config.LEGACY_CONFIG}"))
-            for old_cmd in ("/usr/local/bin/cw-worker", "/usr/local/sbin/cw-update"):
-                if h.exists(old_cmd):
-                    gone.append(A("remove", path=old_cmd))
-            if h.exists(f"{c.paths.code}/lib/cw"):
-                gone.append(A("run", argv=["rm", "-rf", f"{c2.paths.code}/lib/cw"], why="the old package folder; the new release installed its own as lib/ct"))
-            secrets = c2.path("secrets")
-            if h.exists(c.path("secrets")):
-                gone.append(A("run", argv=["sed", "-i", "s/^CW_/CT_/", secrets], why="the secrets file's keys use the new prefix (the values are not shown or changed)"))
         out.append(("Remove what is named after the old name", gone + [A("run", argv=["systemctl", "daemon-reload"]),
                                                                  A("run", argv=["sh", "-c", f"systemctl reset-failed '{c.identity.name}*' 2>/dev/null; true"], why="services under the old name no longer exist; clear their failed marks so no health check trips on them")]))
         out.append(("Start the services again", [A("run", argv=["systemctl", "enable", "--now", c2.unit(p)]) for p in enabled]))
@@ -261,22 +248,17 @@ def rewrite_local(host, cfg, cfg2, new):
     old name, taking it from there), and the two clones' remote URLs. Returns the files changed."""
     from pathlib import Path
     changed = []
-    text = with_name(host.read(cfg.source) or "", new, cfg.identity.name, Path(cfg.source).name == config.LEGACY_CONFIG)
+    text = with_name(host.read(cfg.source) or "", new, cfg.identity.name)
     old_home, new_home = Path(cfg.paths.client_home).expanduser(), Path(cfg2.paths.client_home).expanduser()
     if old_home != new_home and host.exists(str(old_home)) and not host.exists(str(new_home)):
-        host.run(["mv", str(old_home), str(new_home)])                       # a computer set up before the project was renamed keeps its clones, keys and notes in the old folder
+        host.run(["mv", str(old_home), str(new_home)])                       # the clones, keys and notes move with the folder
         changed.append(str(new_home))
     target = cfg.source
-    if Path(cfg.source) == config.legacy_config_paths()[0]:                   # the old default place and name: move to the new ones
-        target = str(Path.home() / ".config" / "claude-tenta" / "ct.toml")
     host.write(target, text, 0o600)
     changed.append(target)
-    if target != cfg.source:
-        host.run(["rm", "-f", cfg.source])
-    host.run(["sh", "-c", "for c in cw-run cw-admin cw-setup cw-help; do l=\"$HOME/.local/bin/$c\"; [ -L \"$l\" ] && rm -f \"$l\"; done; true"])      # the old command links; `ct-setup client` makes the new ones
     answers = str(Path(cfg2.paths.client_home).expanduser() / "install-answers.toml")
     if host.exists(answers):
-        host.write(answers, with_name(host.read(answers) or "", new, cfg.identity.name, Path(cfg.source).name == config.LEGACY_CONFIG), 0o600)
+        host.write(answers, with_name(host.read(answers) or "", new, cfg.identity.name), 0o600)
         changed.append(answers)
     for clone, url in ((cfg2.path("client_queue"), cfg2.queue_url), (cfg2.path("client_results"), cfg2.results_url)):
         if host.exists(clone + "/.git") or host.exists(clone + "/HEAD"):
@@ -302,16 +284,16 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
     if new == old:
         emit("The install already has that name", ("Name", old), ("Configuration", cfg.source or "built-in defaults"), ("Server", cfg.server.host),
              ("GitHub repositories", f"{cfg.github.queue_repo}, {cfg.github.results_repo}"),
-             "There is nothing to rename. If you meant to rename an install made under the old name (claude-ballast), its configuration file should be the old cw.toml; check that it is the one shown above.",
+             "There is nothing to rename. Check that the configuration file shown above is the one you meant.",
              tag="NOTE", color=YELLOW)
         return 0
-    cfg2 = load_new_config(host.read(cfg.source) or "", new, old, Path(cfg.source).name == config.LEGACY_CONFIG)
+    cfg2 = load_new_config(host.read(cfg.source) or "", new, old)
     ssh = (ssh_factory or (lambda h, u, p: Ssh(h, u, p, family=family_for(cfg))))(cfg.server.host, cfg.server.admin_user, cfg.server.ssh_port)
     d, rev, _ = deliver_source(ssh, a.source, say=say)
     try:
-        # Which settings file the server starts from: an old install's cw.toml, or a current ct.toml, in the old folder or (when an earlier run stopped partway and has
+        # Which settings file the server starts from: ct.toml, in the old folder or (when an earlier run stopped partway and has
         # already moved it) the new one. The server picks the first that exists, so the same command can simply be run again.
-        files = " ".join(f"{d_}/{n_}" for d_ in (cfg.paths.config, cfg2.paths.config) for n_ in (config.LEGACY_CONFIG, "ct.toml"))
+        files = " ".join(f"{d_}/{n_}" for d_ in (cfg.paths.config, cfg2.paths.config) for n_ in ("ct.toml",))
         pick = f'$(for f in {files}; do [ -f "$f" ] && echo "$f" && break; done)'
         base = (f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={d}/src CT_CONFIG={pick} python3 -m ct.setup rename --here --to {new} --rev {rev} --source {d}" + (" --no-sandbox-test" if getattr(a, "no_sandbox_test", False) else ""))
         r = ssh.capture(base + " --json")
@@ -326,7 +308,7 @@ def rename_command(a, host, ask, ssh_factory, say, verify=None):
         gh = github_renames(cfg, new)
         emit("On GitHub", *[("Repository", f"{slug} becomes {new_repo}") for slug, new_repo in gh], *([("Deploy keys", f"retitled {old}-server to {new}-server")] if gh else []),
              *([] if gh else ["The repositories do not carry the install's name, so they keep theirs."]), tag="PREVIEW", color=_ui.PRIMARY)
-        emit("On this computer", ("Configuration", f"{cfg.source}: the name {old} becomes {new}" + ("; it moves to the new default place" if Path(cfg.source) == config.legacy_config_paths()[0] else "")),
+        emit("On this computer", ("Configuration", f"{cfg.source}: the name {old} becomes {new}"),
              ("The two clones", "point at the new repository names"), *([("Your folder", f"{cfg.paths.client_home} moves to {cfg2.paths.client_home}")] if cfg.paths.client_home != cfg2.paths.client_home else []),
              tag="PREVIEW", color=_ui.PRIMARY)
         if not a.apply:

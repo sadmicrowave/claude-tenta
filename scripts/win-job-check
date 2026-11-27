@@ -15,7 +15,7 @@ from ct import config   # noqa: E402
 from ct.client import repo as client_repo, submit   # noqa: E402
 from ct.setup import winfiles, winlayout, winmailbox, winrelease, wintask, wintools   # noqa: E402
 
-NAME = "claude-tenta"
+NAME = "armada"
 
 
 def step(label, fn):
@@ -48,12 +48,12 @@ def main(argv):
         tar = home / "src.tar"
         subprocess.run(["tar", "-C", str(root), "-cf", str(tar), "src"], check=True, env={"COPYFILE_DISABLE": "1", "PATH": "/usr/bin:/bin"})
         subprocess.run(["scp", "-q", str(tar), f"{user}@{host}:ct-dev.tar"], check=True)
-        step("overlay this tree (--dev)", lambda: run(["powershell", "-NoProfile", "-Command", "-"], "tar.exe -xf \"$env:USERPROFILE\\ct-dev.tar\" -C \"$env:ProgramData\\claude-tenta\\release\"\n\n")[0])
+        step("overlay this tree (--dev)", lambda: run(["powershell", "-NoProfile", "-Command", "-"], "tar.exe -xf \"$env:USERPROFILE\\ct-dev.tar\" -C \"$env:ProgramData\\armada\\release\"\n\n")[0])
     step("mailbox", lambda: winmailbox.ensure(run, key=pub)["changed"])
     step("worker files", lambda: winfiles.ensure(run, winfiles.windows_config(NAME, host, user), winfiles.pack_text())["changed"])
     clean, problems = config.validate({"identity": {"name": NAME}, "server": {"host": host, "admin_user": user}, "transport": {"kind": "direct"},
-                                       "paths": {"code": "C:/ProgramData/claude-tenta/release", "state_root": "C:/ProgramData/claude-tenta/state", "config": "C:/ProgramData/claude-tenta/config",
-                                                 "worker_home": "C:/ProgramData/claude-tenta/state", "client_home": str(home)}})
+                                       "paths": {"code": "C:/ProgramData/armada/release", "state_root": "C:/ProgramData/armada/state", "config": "C:/ProgramData/armada/config",
+                                                 "worker_home": "C:/ProgramData/armada/state", "client_home": str(home)}})
     assert not problems, problems
     cfg = config.Config(clean)
     repos = client_repo.ClientRepos.from_config(cfg)
@@ -71,7 +71,7 @@ def main(argv):
         if res is None:
             bad.append("no result came back within 120 s")
             print("no result; worker log:")
-            r = run(["powershell", "-NoProfile", "-Command", "-"], "Get-Content \"$env:ProgramData\\claude-tenta\\state\\worker.log\" -Tail 15 -ErrorAction SilentlyContinue\n\n")
+            r = run(["powershell", "-NoProfile", "-Command", "-"], "Get-Content \"$env:ProgramData\\armada\\state\\worker.log\" -Tail 15 -ErrorAction SilentlyContinue\n\n")
             print(r[1])
         else:
             print(f"result after {time.time() - t0:.0f} s: {json.dumps(res)[:400]}")

@@ -123,7 +123,7 @@ def _on_windows():
 
 def file_name_problem(name, kind="command", windows=None):
     """None when an attached file's name is fine, else (catalog code, reason). A name is a path inside the job's work folder, so only what could leave it is refused: absolute, '..', empty parts,
-    control characters, a backslash, a silly length. A leading dot is refused only for a class whose tool reads its settings from its working folder (an AI tool, by kind)."""
+    control characters, a backslash, a silly length. """
     if not isinstance(name, str) or not name:
         return "files.name.path", "it is empty"
     parts = name.split("/")
@@ -145,14 +145,12 @@ def file_name_problem(name, kind="command", windows=None):
                 return "files.name.path", "on Windows a name cannot end in a dot or a space"
             if part.split(".")[0].rstrip(" ").upper() in WINDOWS_RESERVED:
                 return "files.name.path", "on Windows that is the name of a device (CON, NUL, COM1 ...), not a file"
-    if kind == "claude" and any(p.startswith(".") for p in parts):
-        return "files.name.hidden", ""
     return None
 
 
 def check_files(files, cls, limits):
     """Optional input files: small text files written into the job's empty work folder. A name is a path inside the work folder
-    (see file_name_problem): it is refused only for what could leave the folder, and for a leading dot where the class's tool reads settings from the folder. `limits` is the registry's limits (limits_of)."""
+    (see file_name_problem): it is refused only for what could leave the folder. `limits` is the registry's limits (limits_of)."""
     if files is None:
         return {}
     if not cls.get("accepts_files"):
@@ -223,7 +221,7 @@ def job_timeout(cls, job, rules=None, shared=False, factor=1.0):
         cap = int(cls.get("max_timeout_s", 1800))
         t = job.get("timeout_s", cap)
         return t if isinstance(t, int) and not isinstance(t, bool) and 10 <= t <= cap else cap
-    return int(cls.get("timeout_s", 600 if kind == "claude" else 60))
+    return int(cls.get("timeout_s", 60))
 
 
 def build_profile(job, cls, limits, find_program=None, is_executable=None, policy=None, shared=True):

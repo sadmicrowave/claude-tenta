@@ -1,7 +1,7 @@
 # Windows worker start task (slice 4c of WINDOWS-SPECIAL-USE.md)
 
 **Goal.** The worker is started on a Windows computer the way systemd starts it on Linux: by the operating system, at boot, as the unprivileged `ctworker` account, restarted if it dies, stoppable and removable, with no one logged in.
-**Done when.** On the real Windows 11 VM, `wintask.ensure` registers a Scheduled Task `claude-tenta-worker` that runs a command as `ctworker` at startup; `start` shows the process running AS `ctworker` (its owner read back from the system, not assumed); `stop` ends it and everything it started; a second `ensure` changes nothing and does not touch the account's password; `remove` leaves nothing behind; and the trigger, restart and no-time-limit settings are read back. The Linux suite is unchanged.
+**Done when.** On the real Windows 11 VM, `wintask.ensure` registers a Scheduled Task `armada-worker` that runs a command as `ctworker` at startup; `start` shows the process running AS `ctworker` (its owner read back from the system, not assumed); `stop` ends it and everything it started; a second `ensure` changes nothing and does not touch the account's password; `remove` leaves nothing behind; and the trigger, restart and no-time-limit settings are read back. The Linux suite is unchanged.
 **Not in scope.** Making `ct.cli run` itself work on Windows (config, paths, the transport: the next slice; this slice proves the START mechanics with a harmless long-running command and keeps the real command as the default), a reboot test on the VM, logs rotation, `ct-admin`/status cards, the firewall.
 
 ## Decisions

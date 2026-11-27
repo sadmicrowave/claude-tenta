@@ -41,7 +41,7 @@ def save(aliases, show_real=True):
         p.unlink(missing_ok=True)
         return
     p.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# claude-tenta: names for your workers, on this computer only (`ct-admin workers rename`). Edit freely; nothing here reaches a worker.\n", "[aliases]\n"]
+    lines = ["# armada: names for your workers, on this computer only (`ct-admin workers rename`). Edit freely; nothing here reaches a worker.\n", "[aliases]\n"]
     lines += [f'{k} = "{v}"\n' for k, v in sorted(aliases.items())]
     lines += ["\n[settings]\n", f"show_real = {'true' if show_real else 'false'}\n"]
     p.write_text("".join(lines), encoding="utf-8")

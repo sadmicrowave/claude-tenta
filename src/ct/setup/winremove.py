@@ -22,7 +22,7 @@ $keepData = ${'true' if keep_data else 'false'}
 {PY_REGISTRATION}
 $done = [ordered]@{{python = 'absent'; rights = 0; profile = $false; profile_left = ''; account = $false; folders = @(); kept = @()}}
 try {{
-  $task = Get-ScheduledTask -TaskName 'claude-tenta-worker' -ErrorAction SilentlyContinue
+  $task = Get-ScheduledTask -TaskName 'armada-worker' -ErrorAction SilentlyContinue
   if ($task) {{ Fail 'task' 'the worker task still exists; remove it first' }}
   # 1. The Python the setup installed under the worker's tools folder: its own uninstaller, then the folder goes with the rest.
   $py = Join-Path $root 'tools\\python'

@@ -1,6 +1,6 @@
 """worker-state.json: what one worker is, published so the administrator's computer can compare workers without logging in to any of them.
 
-Two kinds of fact. The ENVIRONMENT changes rarely (release, operating system, processor, which Claude sign-in and tool, packages the installed classes need,
+Two kinds of fact. The ENVIRONMENT changes rarely (release, operating system, processor, packages the installed classes need,
 the trusted approver keys, whether the worker is locked): it is published when it changes, and the orchestrator's candidate choice is only valid for the
 environment it was made against. What is OBSERVED changes constantly (load, heat, free memory, queue length): it is only refreshed at most every half hour,
 so it is a recent reading, not a live one. `status` on the worker is the live view.
@@ -78,12 +78,11 @@ def transport_facts(configured, origin_url):
 
 
 def build(*, snapshot, registry, extra, jail, locked, now_iso):
-    """snapshot: Worker.snapshot(); extra: {name, release, os, cpu, claude, approvers, native_claude}; returns (environment dict, full document)."""
+    """snapshot: Worker.snapshot(); extra: {name, release, os, cpu, approvers}; returns (environment dict, full document)."""
     environment = {
         "name": extra.get("name"), "release": extra.get("release"), "os": extra.get("os") or {},
         "hardware": {"cores": snapshot.get("cores"), "mem_total_mb": snapshot.get("mem_total_mb"), "cpu": extra.get("cpu") or "",
-                     "native_claude": extra.get("native_claude"), "capacity": extra.get("capacity")},
-        "claude": extra.get("claude") or {"auth": "none"},
+                     "capacity": extra.get("capacity")},
         "isolation": {"ready": bool(jail.ready()), "method": jail.name, "mode": extra.get("isolation_mode") or "full", "purpose": extra.get("isolation_purpose") or "tenta-only", "tool_roots": list(extra.get("tool_roots") or [])},
         "platform": extra.get("platform") or "linux",
         "classes": sorted(((registry or {}).get("classes") or {})),
@@ -93,15 +92,12 @@ def build(*, snapshot, registry, extra, jail, locked, now_iso):
         **({"profile_time": extra["profile_time"]} if extra.get("profile_time") else {}),      # what a profile run's time limit is built from: the speed factor and where it came from, the margin, the owner's ceiling
         "profile_approval": extra.get("profile_approval") or "required",              # what this worker will really do with a profile run: "none" only when the owner allowed it AND its jail isolates
         "locked": bool(locked),
-        "claude_paused": bool((extra.get("claude_budget") or {}).get("paused")),
         "transport": extra.get("transport"), "pickup_max_s": extra.get("pickup_max_s"),
         **({"transport_configured": extra["transport_configured"]} if extra.get("transport_configured") else {}),
     }
     observed = {k: snapshot.get(k) for k in ("load_1m", "temp_c", "mem_available_mb", "disk_free_gb", "running", "waiting")}
     observed["at"] = snapshot.get("at")
     observed["job_ceiling_mb"] = extra.get("job_ceiling_mb")            # the largest job file this worker accepts right now (it moves with free disk and memory, so it is a reading, not a fact)
-    if extra.get("claude_budget") is not None:
-        observed["claude_today"] = extra["claude_budget"]              # today's use and the limits (counts only: no job names)
     return environment, {"v": VERSION, "updated": now_iso, **environment, "observed": observed}
 
 

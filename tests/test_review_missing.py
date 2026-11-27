@@ -17,7 +17,7 @@ from ct.client.repo import ClientError  # noqa: E402
 
 class MissingJobs(unittest.TestCase):
     def test_the_worker_says_failed_when_a_job_is_not_in_its_copy(self):
-        ctx = SimpleNamespace(product="claude-tenta", w=SimpleNamespace(io=mock.Mock(job_bytes=mock.Mock(return_value=None))))
+        ctx = SimpleNamespace(product="armada", w=SimpleNamespace(io=mock.Mock(job_bytes=mock.Mock(return_value=None))))
         with redirect_stdout(io.StringIO()) as out:
             rc = worker_cli.cmd_review(ctx, ["no-such-job"])
         self.assertEqual(rc, 1)
@@ -25,7 +25,7 @@ class MissingJobs(unittest.TestCase):
 
     def test_the_client_does_not_mark_a_missing_job_as_viewed_and_says_so(self):
         viewed = mock.Mock()
-        ctx = SimpleNamespace(repos=mock.Mock(read_result=mock.Mock(return_value={})), viewed=viewed, name="claude-tenta", store="the mailbox",
+        ctx = SimpleNamespace(repos=mock.Mock(read_result=mock.Mock(return_value={})), viewed=viewed, name="armada", store="the mailbox",
                               remote=mock.Mock(return_value=1))
         with mock.patch.object(admin_cli.jobs, "job_bytes", return_value=None), redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()):
             with self.assertRaises(ClientError):

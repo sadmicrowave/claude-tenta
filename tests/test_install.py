@@ -19,8 +19,8 @@ from ct.setup import install, keys, toml_out
 from ct.setup.host import Result
 from ct.setup.server import EXIT_WAITING, SetupError
 
-QUEUE_PUB = "ssh-ed25519 QQQQQQQQ claude-tenta-queue"
-RESULTS_PUB = "ssh-ed25519 RRRRRRRR claude-tenta-results"
+QUEUE_PUB = "ssh-ed25519 QQQQQQQQ armada-queue"
+RESULTS_PUB = "ssh-ed25519 RRRRRRRR armada-results"
 REMOTE = "/tmp/ct-install.AbC123"
 GIVEN = {"server.host": "worker.example", "server.admin_user": "admin", "github.owner": "someone"}
 
@@ -36,8 +36,8 @@ class FakeProc:
         if self.n == 1:
             self.ssh.exists.add(REMOTE + "/.authenticated")                 # the password was entered: the remote shell leaves this marker
         if self.n == self.publish_after:
-            self.ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
-            self.ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
+            self.ssh.files["/etc/armada/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
+            self.ssh.files["/etc/armada/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
         if self.n >= self.polls:
             self.returncode = self.rc
             return self.rc
@@ -86,7 +86,6 @@ class FakeSsh:
 class InstallBase(RepoFixture):
     def setUp(self):
         super().setUp()
-        self.sign_in_output = ""                                          # what a fake `claude setup-token` prints
         self.said, self.machine = [], FakeHost(env={"HOME": str(self.tmp / "me"), "TOOLS": "git ssh gh"})
         self.machine.replies["gh repo view"] = Result(0)
         self.machine.replies["gh repo deploy-key list"] = Result(0, "[]")
@@ -98,7 +97,7 @@ class InstallBase(RepoFixture):
         ssh = ssh or self.ssh
         kw.setdefault("archive", lambda src: (b"TARDATA", "a" * 40, False))
         self.interactive_calls = []
-        kw.setdefault("interactive", lambda argv: (self.interactive_calls.append(argv), (0, self.sign_in_output))[1])       # never runs a real command on the machine the tests run on
+        kw.setdefault("interactive", lambda argv: (self.interactive_calls.append(argv), (0, ""))[1])       # never runs a real command on the machine the tests run on
         return install.Installer(self.tmp, ssh_factory=lambda h, u, p: ssh, local=self.machine, say=self.said.append, given={**GIVEN, **kw.pop("given", {})},
                                  use_defaults=True, repos_factory=lambda cfg: self.repos, poll_s=1, sleep=lambda s: None,
                                  verify=kw.pop("verify", lambda cfg: self.verified.append(cfg.github.owner) or True), home=self.tmp / "client-home", **kw)
@@ -112,7 +111,7 @@ class HappyPath(InstallBase):
         inst = self.installer()
         inst.run_all()
         # this side
-        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
+        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
         # the release and the answers went to a private folder on the server, and only there
         sent = dict(self.ssh.sent)
         self.assertEqual(sent[f"tar -xf - -C {REMOTE}"], b"TARDATA")
@@ -129,19 +128,19 @@ class HappyPath(InstallBase):
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 2)
         by_repo = {a[a.index("-R") + 1]: a for a in adds}
-        self.assertNotIn("--allow-write", by_repo["someone/claude-tenta-queue"])
-        self.assertIn("--allow-write", by_repo["someone/claude-tenta-results"])
-        self.assertEqual(by_repo["someone/claude-tenta-queue"][by_repo["someone/claude-tenta-queue"].index("-t") + 1], "claude-tenta-server")
+        self.assertNotIn("--allow-write", by_repo["someone/armada-queue"])
+        self.assertIn("--allow-write", by_repo["someone/armada-results"])
+        self.assertEqual(by_repo["someone/armada-queue"][by_repo["someone/armada-queue"].index("-t") + 1], "armada-server")
         # the working folder was removed and the first job was sent
         self.assertIn(f"rm -rf {REMOTE}", self.ssh.calls)
         self.assertEqual(self.verified, ["someone"])
-        self.assertTrue(any("deploy key for someone/claude-tenta-queue" in line and "read-only" in line for line in self.said))
-        self.assertTrue(any("deploy key for someone/claude-tenta-results" in line and "read and write" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/armada-queue" in line and "read-only" in line for line in self.said))
+        self.assertTrue(any("deploy key for someone/armada-results" in line and "read and write" in line for line in self.said))
 
     def test_setting_up_again_for_direct_ignores_the_deploy_keys_an_earlier_github_install_left_on_the_server(self):
         """Seen on a real machine: an install that used GitHub, set up again for Direct, printed 'could not add the queue deploy key ... on None/...' because the old key files were still there."""
-        self.ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
-        self.ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
+        self.ssh.files["/etc/armada/deploy-keys/queue.pub"] = QUEUE_PUB + "\n"
+        self.ssh.files["/etc/armada/deploy-keys/results.pub"] = RESULTS_PUB + "\n"
         self.installer(given={"transport.kind": "direct"}).run_all()
         self.assertEqual(self.ran_local("gh repo deploy-key"), [])
         self.assertFalse([line for line in self.said if "deploy key" in line and "ERROR" in line], self.said)
@@ -231,27 +230,27 @@ class HappyPath(InstallBase):
         self.assertIn("may still be running", " ".join(e.steps))
 
     def test_an_install_already_on_the_server_keeps_its_worker_account_even_when_the_saved_answers_do_not_say(self):
-        self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
+        self.ssh.files["/etc/armada/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
         inst = self.installer()
         inst.run_all()
         self.assertEqual(inst.cfg.server.worker_user, "cwworker")
         self.assertIn(b"cwworker", b"".join(d for _, d in self.ssh.sent))                          # and the answers sent to the server say so
 
     def test_an_explicit_worker_account_answer_beats_the_one_on_the_server(self):
-        self.ssh.files["/etc/claude-tenta/ct.toml"] = '[server]\nworker_user = "cwworker"\n'
+        self.ssh.files["/etc/armada/ct.toml"] = '[server]\nworker_user = "cwworker"\n'
         inst = self.installer(given={"server.worker_user": "other"})
         inst.run_all()
         self.assertEqual(inst.cfg.server.worker_user, "other")
 
     def test_a_key_that_is_already_on_github_is_not_added_twice(self):
-        self.machine.replies["gh repo deploy-key list -R someone/claude-tenta-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
+        self.machine.replies["gh repo deploy-key list -R someone/armada-queue"] = Result(0, json.dumps([{"key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "old", "readOnly": True}]))
         self.installer().run_all()
         adds = self.ran_local("gh repo deploy-key add")
         self.assertEqual(len(adds), 1)
-        self.assertIn("someone/claude-tenta-results", adds[0])
+        self.assertIn("someone/armada-results", adds[0])
         present = [line for line in self.said if "PRESENT" in line]
         self.assertEqual(len(present), 1, present)                                     # said once, at the end: while the server prints, a line from here would land in the middle of its own
-        self.assertIn("someone/claude-tenta-queue", present[0])
+        self.assertIn("someone/armada-queue", present[0])
         self.assertIn("read-only", present[0])
 
     def test_the_answers_sent_to_the_server_are_complete_and_valid(self):
@@ -324,145 +323,6 @@ class FirstJobRetries(unittest.TestCase):
         ok, tries, said = self.run_verify([(1, {}), (1, {}), (0, {"status": "ok"})])
         self.assertEqual((ok, tries), (True, 3))
         self.assertEqual(sum("still starting" in s for s in said), 2)
-
-
-class OldProcessor(InstallBase):
-    def test_the_claude_question_is_still_asked_and_the_summary_says_an_older_release_is_used(self):
-        self.ssh.files["/proc/cpuinfo"] = "processor : 0\nflags : fpu sse sse2 sse4_1\n"
-        inst = self.installer(given={"claude.auth": "account"})
-        inst.run_all()
-        answers = dict(self.ssh.sent)[f"cat > {REMOTE}/answers.toml"].decode()
-        self.assertIn('auth = "account"', answers)
-        self.assertTrue(any("needs an older release here" in line for line in self.said))
-
-
-class ClaudeSignInHere(InstallBase):
-    """The sign-in happens on this computer, right after the questions: setup-token, then a hidden paste, and the token goes only to the server."""
-
-    TOKEN = "sk-ant-oat01-" + "a" * 40
-    TOKEN2 = "sk-ant-oat01-" + "b" * 40
-
-    class Screen:
-        def __init__(self, tokens, install=True):
-            self.tokens, self.install, self.cards, self.asked, self.headings = list(tokens), install, [], [], []
-
-        def heading(self, text, step=None):
-            self.headings.append(text)
-
-        def sub(self, text):
-            pass
-
-        def protection(self, info):
-            self.cards.append(info["id"])
-            return self.install
-
-        def ask_secret(self, q):
-            self.asked.append(q)
-            return self.tokens.pop(0) if self.tokens else ""
-
-    def signed_in(self, auth="account", tokens=None, install=True, dry=False):
-        screen = self.Screen([self.TOKEN] if tokens is None else tokens, install)
-        inst = self.installer(ui=None, dry_run=dry)
-        inst.ui = screen                                            # only the sign-in uses it here, so the whole question flow need not be driven
-        inst.cfg = config.Config(config.validate({"claude": {"auth": auth}})[0])
-        inst.ssh = self.ssh
-        inst.claude_signin()
-        return inst, screen
-
-    PRINTED = ("\n Your OAuth token (valid for 1 year):\n\n " + TOKEN[:60] + "\n " + TOKEN[60:] + "\n\n Store this token securely.\n")
-
-    def test_account_runs_setup_token_here_and_reads_the_token_it_prints_without_asking(self):
-        self.sign_in_output = self.PRINTED
-        inst, screen = self.signed_in()
-        self.assertEqual(self.interactive_calls, [["claude", "setup-token"]])
-        self.assertEqual(screen.asked, [])                                  # nothing to paste
-        self.assertEqual(inst.claude_secret, ("CLAUDE_CODE_OAUTH_TOKEN", self.TOKEN))
-        self.assertTrue(self.ran_local("claude -p"))                        # and it was tried once before being trusted
-        self.assertNotIn(self.TOKEN, "\n".join(self.said))
-
-    def test_a_token_that_is_refused_when_tried_is_not_used_and_the_person_is_asked(self):
-        self.sign_in_output = self.PRINTED
-        self.machine.replies["claude -p"] = Result(0, '{"type":"result","is_error":true,"api_error_status":401,"result":"authentication_error"}')
-        inst, screen = self.signed_in(tokens=[self.TOKEN2])
-        self.assertEqual(len(screen.asked), 1)
-        self.assertEqual(inst.claude_secret[1], self.TOKEN2)
-        self.assertTrue(any("refused when tried" in line for line in self.said))
-
-    def test_a_network_failure_while_trying_the_token_does_not_throw_it_away(self):
-        self.sign_in_output = self.PRINTED
-        self.machine.replies["claude -p"] = Result(1, "Could not reach the network")
-        inst, screen = self.signed_in()
-        self.assertEqual((screen.asked, inst.claude_secret[1]), ([], self.TOKEN))
-
-    def test_a_sign_in_that_prints_no_token_falls_back_to_a_paste(self):
-        self.sign_in_output = "Signed in.\n"
-        inst, screen = self.signed_in()
-        self.assertEqual(len(screen.asked), 1)
-        self.assertIn("Paste the long token", screen.asked[0]["why"])
-        self.assertTrue(any("no token could be read" in line for line in self.said))
-
-    def test_the_token_goes_to_the_server_in_its_own_private_file_and_nowhere_else(self):
-        inst, _ = self.signed_in()
-        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
-        sent = dict(self.ssh.sent)
-        secret_cmd = f"umask 077; cat > {d}/claude.secrets"
-        self.assertEqual(sent[secret_cmd], f"CLAUDE_CODE_OAUTH_TOKEN={self.TOKEN}\n".encode())
-        self.assertNotIn(self.TOKEN.encode(), sent[f"cat > {d}/answers.toml"])                  # never in the answers
-        self.assertFalse(any(self.TOKEN in line for line in self.said))
-
-    def test_a_broken_claude_here_offers_the_installer_then_uses_the_copy_it_installs(self):
-        broken = {"claude --version": Result(1, "Error: claude native binary not installed.")}
-        self.machine.replies.update(broken)
-        home_claude = str(Path(self.machine.env["HOME"]) / ".local" / "bin" / "claude")
-        self.machine.replies[f"{home_claude} --version"] = Result(1, "not yet")
-        installed = []
-
-        def after_install(argv, **kw):
-            return None
-        inst, screen = self.signed_in()
-        self.assertIn("claude-install-here", screen.cards)
-        self.assertTrue(self.ran_local("bash -c curl -fsSL https://claude.ai/install.sh | bash"))
-        self.assertEqual(self.interactive_calls, [])                  # the copy it installed still does not run in this fake, so no sign-in was launched
-
-    def test_declining_the_install_still_allows_pasting_a_token_made_elsewhere(self):
-        self.machine.replies["claude --version"] = Result(1, "broken")
-        self.machine.replies[f"{Path(self.machine.env['HOME']) / '.local' / 'bin' / 'claude'} --version"] = Result(1, "not installed")
-        inst, screen = self.signed_in(install=False)
-        self.assertFalse(self.ran_local("bash -c curl"))
-        self.assertEqual(self.interactive_calls, [])
-        self.assertEqual(inst.claude_secret[1], self.TOKEN)
-
-    def test_api_key_is_only_pasted_nothing_is_run_here(self):
-        inst, screen = self.signed_in(auth="api-key")
-        self.assertEqual(self.interactive_calls, [])
-        self.assertEqual(inst.claude_secret[0], "ANTHROPIC_API_KEY")
-
-    def test_none_and_a_preview_do_nothing(self):
-        for auth, dry in (("none", False), ("account", True)):
-            inst, screen = self.signed_in(auth=auth, dry=dry)
-            self.assertEqual((self.interactive_calls, screen.asked, inst.claude_secret), ([], [], None))
-
-    def test_an_empty_paste_sends_no_secret_and_says_what_that_means(self):
-        inst, _ = self.signed_in(tokens=[""])
-        self.assertIsNone(inst.claude_secret)
-        d, rev = inst.deliver({"server": {"admin_user": "admin"}})
-        self.assertFalse(any("claude.secrets" in remote for remote, _ in self.ssh.sent))
-        self.assertTrue(any("keeps any sign-in it already has" in line for line in self.said))
-
-    def test_something_that_is_not_a_token_is_asked_for_again(self):
-        inst, screen = self.signed_in(tokens=["two words", self.TOKEN])
-        self.assertEqual(len(screen.asked), 2)
-        self.assertEqual(inst.claude_secret[1], self.TOKEN)
-
-    def test_the_server_command_carries_the_secrets_file_only_when_there_is_one(self):
-        inst, _ = self.signed_in()
-        inst.ui = None
-        inst.cfg = config.Config(config.validate({"server": {"host": "worker.example", "admin_user": "admin"}, "claude": {"auth": "account"}})[0])
-        inst.server_half(REMOTE, "a" * 40)
-        self.assertIn(f"--secrets-file {REMOTE}/claude.secrets", self.ssh.popen_calls[-1][0])
-        inst.claude_secret = None
-        inst.server_half(REMOTE, "a" * 40)
-        self.assertNotIn("--secrets-file", self.ssh.popen_calls[-1][0])
 
 
 class ApproverKeyDelivery(InstallBase):
@@ -545,12 +405,12 @@ class WithTheScreen(InstallBase):
         from test_tui import typed
         from ct.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
-        self.assertEqual(total, 8)                                   # the server, your account on it, the connection method, GitHub, the machine, what the computer is used for, alerts, Claude sign-in: everything else has a safe default (IPv6 is asked with --advanced)
+        self.assertEqual(total, 7)                                   # the server, your account on it, the connection method, GitHub, the machine, what the computer is used for, alerts: everything else has a safe default (IPv6 is asked with --advanced)
         events = typed("worker.example", "admin") + typed("", "someone", "", "", "", "") + ["enter"]       # the connection questions, the rest (Enter on the connection method first), then Enter on the review
         inst, term = self.installer_with_screen(events)
         inst.run_all()
         screen = term.screen.text()
-        self.assertIn("@claude-tenta", screen)
+        self.assertIn("@armada", screen)
         self.assertIn(f"{total} of {total} done", screen)
         for label, value in (("Server address", "worker.example"), ("Admin account", "admin"), ("GitHub account", "someone")):
             self.assertRegex(screen, rf"✓ {label}\s+{value}")
@@ -570,7 +430,7 @@ class WithTheScreen(InstallBase):
         clean, problems = config.validate(data)
         self.assertEqual(problems, [])
         self.assertEqual(clean["server"]["ssh_port"], 22)                              # not asked, so the default
-        self.assertEqual(clean["github"]["queue_repo"], "claude-tenta-queue")          # derived from the install name
+        self.assertEqual(clean["github"]["queue_repo"], "armada-queue")          # derived from the install name
 
     def test_stepping_back_from_the_first_other_question_returns_to_the_connection_questions(self):
         from test_tui import typed
@@ -602,7 +462,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=ssh).run_all()
         self.assertIn("not supported", e.exception.why)
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
         self.assertEqual(ssh.sent, [])
         self.assertEqual(self.ran_local("gh"), [])
 
@@ -610,7 +470,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=FakeSsh(connect=False)).run_all()
         self.assertIn("ssh-copy-id admin" + "@" + "worker.example", " ".join(e.exception.steps))
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
 
     def test_missing_connection_answers_are_named(self):
         inst = install.Installer(self.tmp, ssh_factory=lambda *a: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=True)
@@ -650,9 +510,9 @@ class WithoutGh(InstallBase):
         self.installer().run_all()
         self.assertEqual(self.ran_local("gh "), [])
         text = "\n".join(self.said)
-        self.assertIn("https://github.com/someone/claude-tenta-queue/settings/keys", text)
+        self.assertIn("https://github.com/someone/armada-queue/settings/keys", text)
         self.assertIn("leave write access OFF", text)
-        self.assertIn("https://github.com/someone/claude-tenta-results/settings/keys", text)
+        self.assertIn("https://github.com/someone/armada-results/settings/keys", text)
         self.assertIn("'Allow write access' ticked", text)
         self.assertIn(QUEUE_PUB, text)
         self.assertEqual(text.count("gh` is not available"), 1)
@@ -665,7 +525,7 @@ class Preview(InstallBase):
         self.assertEqual(self.ssh.popen_calls, [])
         self.assertEqual(self.ran_local("gh repo create"), [])
         self.assertEqual(self.ran_local("gh repo deploy-key add"), [])
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/claude-tenta/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
         previews = [c for c in self.ssh.calls if c.startswith("env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=")]
         self.assertEqual(len(previews), 1)
         self.assertNotIn("sudo", previews[0])
@@ -766,8 +626,8 @@ class DeployKeyUnits(unittest.TestCase):
 
     def test_a_key_left_by_a_replaced_account_is_reported_with_its_removal_command_and_never_removed(self):
         notes, calls = [], []
-        listing = json.dumps([{"id": 1, "key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "claude-tenta-server", "read_only": True},
-                              {"id": 2, "key": "ssh-ed25519 AAAAOLDACCOUNT", "title": "claude-tenta-server", "read_only": True},
+        listing = json.dumps([{"id": 1, "key": QUEUE_PUB.rsplit(" ", 1)[0], "title": "armada-server", "read_only": True},
+                              {"id": 2, "key": "ssh-ed25519 AAAAOLDACCOUNT", "title": "armada-server", "read_only": True},
                               {"id": 3, "key": "ssh-ed25519 AAAAELSE", "title": "someone-elses-key", "read_only": True}])
 
         def run(argv):
@@ -777,14 +637,14 @@ class DeployKeyUnits(unittest.TestCase):
         dk.sync({"queue": QUEUE_PUB})
         stale = [n for n in notes if "stale" in n[0]]
         self.assertEqual(len(stale), 1)
-        self.assertIn("gh repo deploy-key delete 2 -R someone/claude-tenta-queue", stale[0][2])
+        self.assertIn("gh repo deploy-key delete 2 -R someone/armada-queue", stale[0][2])
         self.assertFalse([c for c in calls if c[3] == "delete"])
 
     def test_published_reads_only_real_public_keys(self):
         ssh = FakeSsh()
-        ssh.files["/etc/claude-tenta/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
-        ssh.files["/etc/claude-tenta/deploy-keys/results.pub"] = "not a key\n"
-        self.assertEqual(keys.published(ssh, "/etc/claude-tenta"), {"queue": "ssh-ed25519 AAA c"})
+        ssh.files["/etc/armada/deploy-keys/queue.pub"] = "ssh-ed25519 AAA c\n"
+        ssh.files["/etc/armada/deploy-keys/results.pub"] = "not a key\n"
+        self.assertEqual(keys.published(ssh, "/etc/armada"), {"queue": "ssh-ed25519 AAA c"})
 
     def test_complete_needs_both_keys(self):
         dk = keys.DeployKeys(self.cfg(), lambda a: Result(0, "[]"), lambda n: "gh")

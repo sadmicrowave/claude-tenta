@@ -86,8 +86,8 @@ ANSI_ = __import__("re").compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 class WorkerCards(unittest.TestCase):
-    ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "claude": "account: 2.1.112 (older release, pinned)", "state": "jail ON",
-           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "has_claude": True, "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
+    ROW = {"name": "testct", "os": "ubuntu 26.04", "cpu": "2 cores", "memory": "14.0 of 14.9 GB free", "state": "jail ON",
+           "release": "b3861ea", "load": "0.31 / 52 C", "age": "3 min ago", "locked": False, "stale": False, "packages": 1, "classes": 2, "class_names": ["alpha", "beta"]}
 
     def test_the_card_names_the_platform_only_when_it_is_not_linux(self):
         win = workers_mod.cards([{**self.ROW, "platform": "windows"}], width=90, color=False)
@@ -102,7 +102,7 @@ class WorkerCards(unittest.TestCase):
 
     def test_what_the_computer_is_used_for_is_a_row_and_a_relaxed_jail_is_said_in_the_state(self):
         doc = dict(self.DOC) if hasattr(self, "DOC") else None
-        row = workers_mod.row_for("lab", {**(doc or {"name": "lab", "hardware": {}, "observed": {}, "os": {}, "claude": {"auth": "none"}}), "isolation": {"ready": True, "mode": "relaxed", "purpose": "special-use"}})
+        row = workers_mod.row_for("lab", {**(doc or {"name": "lab", "hardware": {}, "observed": {}, "os": {}}), "isolation": {"ready": True, "mode": "relaxed", "purpose": "special-use"}})
         self.assertEqual((row["state"], row["purpose"]), ("jail ON, relaxed", "special use"))
         plain = workers_mod.cards([{**self.ROW, "purpose": "special use"}], width=80, color=False)
         self.assertTrue(any(l.startswith("  PURPOSE") and l.endswith("special use") for l in plain))
@@ -111,20 +111,20 @@ class WorkerCards(unittest.TestCase):
     def test_each_worker_is_a_card_with_a_rail_a_chip_and_labelled_rows_in_the_wizards_style(self):
         lines = workers_mod.cards([self.ROW], width=80, color=False)                       # plain (a pipe): the name, then labelled rows
         self.assertEqual(lines[0], "TESTCT")
-        for label in ("OS", "CPU", "MEMORY", "CLAUDE", "STATE", "RELEASE", "LOAD", "READING", "CLASSES", "PACKAGES"):
+        for label in ("OS", "CPU", "MEMORY", "STATE", "RELEASE", "LOAD", "READING", "CLASSES", "PACKAGES"):
             self.assertTrue(any(l.startswith("  " + label) for l in lines), label)
         self.assertTrue(any(l.startswith("  CLASSES") and l.endswith("alpha") for l in lines))                   # the classes by name, one per line
         self.assertTrue(any(l.strip() == "beta" for l in lines))
         self.assertTrue(any(l.startswith("  PACKAGES") and l.endswith("1 package") for l in lines))
         width = workers_mod.HANG                                                                                  # the label column, whatever its width
         values = {l[2:2 + width].strip(): l[2 + width:] for l in lines if l.startswith("  ") and len(l) > 2 + width}
-        self.assertEqual(values["CLAUDE"], "account: 2.1.112 (older release, pinned)")
+        self.assertEqual(values["MEMORY"], "14.0 of 14.9 GB free")
         framed = [ANSI_.sub("", x) for x in workers_mod.cards([self.ROW], width=80, color=True)]            # on a terminal: one framed card per worker
         self.assertTrue(any(x.startswith("╭─ testct") for x in framed))
         self.assertTrue(any(x.startswith("│ CLASSES") for x in framed))
 
     def test_no_line_is_longer_than_the_card_width_so_nothing_wraps(self):
-        long = dict(self.ROW, claude="account: " + "x" * 200)
+        long = dict(self.ROW, memory="x" * 200)
         lines = workers_mod.cards([long], width=60, color=False)
         self.assertTrue(all(len(l) <= 60 for l in lines), [len(l) for l in lines])
         self.assertTrue(any("…" in l for l in lines))

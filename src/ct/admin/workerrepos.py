@@ -7,7 +7,7 @@ from pathlib import Path
 from .. import config
 from . import workers as workers_mod
 
-TOPIC = "claude-tenta"                                   # every repository the tool creates carries it, so one GitHub search groups the whole fleet
+TOPIC = "armada"                                   # every repository the tool creates carries it, so one GitHub search groups the whole fleet
 
 
 def gh_run(argv):
@@ -32,7 +32,7 @@ def prepare(cfg, own_path, wfile, run=gh_run, clone=None):
         if run(["repo", "view", slug])[0] == 0:
             rows.append((role, slug, "exists"))
         else:
-            code, said = run(["repo", "create", slug, "--private", "--description", f"claude-tenta {role} (private)"])
+            code, said = run(["repo", "create", slug, "--private", "--description", f"armada {role} (private)"])
             if code:
                 raise RuntimeError(f"gh could not create {slug}: {said[:300]}")
             rows.append((role, slug, "created, private"))

@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from ct.setup import winmailbox, wintools   # noqa: E402
 
-NAME = "claude-tenta"
+NAME = "armada"
 
 
 def sh(argv, env=None, cwd=None):
@@ -44,7 +44,7 @@ def main(argv):
     if r2["changed"]:
         bad.append("a second ensure changed something")
     mail = winmailbox.mail_user(NAME)
-    base = f"ssh://{mail}@{host}/C:/ProgramData/claude-tenta/state-mail"
+    base = f"ssh://{mail}@{host}/C:/ProgramData/armada/state-mail"
     gs = {"GIT_SSH_COMMAND": f"ssh -i {key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "GIT_TERMINAL_PROMPT": "0"}
     work = tmp / "work"
     work.mkdir()

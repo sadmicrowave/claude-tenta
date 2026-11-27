@@ -37,7 +37,7 @@ if [ -f /etc/apparmor.d/ct-bwrap ]; then note "the project's AppArmor profile fo
 note "auditd: $(systemctl is-active auditd 2>/dev/null || echo 'not running')"
 
 echo "3. an installed worker's timers"
-timers=$(systemctl list-units --all --no-legend --plain 'claude-tenta-*.timer' '*-fetch.timer' 2>/dev/null | awk '{print $1}' | grep -E -- '-(fetch|step)\.timer$' | sort -u)
+timers=$(systemctl list-units --all --no-legend --plain 'armada-*.timer' '*-fetch.timer' 2>/dev/null | awk '{print $1}' | grep -E -- '-(fetch|step)\.timer$' | sort -u)
 if [ -z "$timers" ]; then
   note "no worker is installed here: the timer check is skipped"
 else

@@ -67,7 +67,7 @@ def yes_no(ui, ask, say, title, why, default="yes"):
 def worker_name(label, taken):
     """A valid, unused install name from a machine's name: worker2.example -> tenta2 (3 to 24 lowercase letters, digits or -, starting with a letter)."""
     base = re.sub(r"[^a-z0-9-]+", "-", (label or "worker").lower().removesuffix(".local").split(".")[0]).strip("-")
-    base = re.sub(r"^claude-", "", base) or "worker"
+    base = base or "worker"
     if not base[0].isalpha():
         base = "w" + base
     base = (base + "-worker")[:NAME_MAX] if len(base) < 3 else base[:NAME_MAX]
@@ -80,7 +80,7 @@ def worker_name(label, taken):
 
 def paths_for(main_cfg, name):
     """(configuration file, client folder) for a new worker: beside the main configuration, and under the main client folder's workers/."""
-    conf = Path(main_cfg.source).parent / f"{name}.toml" if main_cfg.source else Path("~/.config/claude-tenta").expanduser() / f"{name}.toml"
+    conf = Path(main_cfg.source).parent / f"{name}.toml" if main_cfg.source else Path("~/.config/armada").expanduser() / f"{name}.toml"
     return conf, Path(main_cfg.paths.client_home).expanduser() / "workers" / name
 
 
@@ -213,8 +213,8 @@ def windows_worker(a, cfg, wfile, names, target, user, ui, ask, say, notice, int
     """A computer that greets as Windows: it can be a Special Use worker. Says what the setup will and will not touch, asks, then runs the Windows installer through the same registration every worker gets."""
     notice("This is a Windows computer", ("Computer", target),
            "A Windows computer can be a Special Use worker. Setting it up will: install git and Python for it (existing ones are used), create two unprivileged accounts (one runs the worker, one only receives jobs over SSH), "
-           "add one marked block for that second account to the OpenSSH server's settings, write the worker's files under C:\\ProgramData\\claude-tenta, register a task that starts the worker at boot, and send one test job.",
-           "It changes nothing else, and everything it adds can be removed again. A Windows worker has no file or network isolation for jobs (it is Special Use by design) and runs no Claude jobs yet.",
+           "add one marked block for that second account to the OpenSSH server's settings, write the worker's files under C:\\ProgramData\\armada, register a task that starts the worker at boot, and send one test job.",
+           "It changes nothing else, and everything it adds can be removed again. A Windows worker has no file or network isolation for jobs (it is Special Use by design).",
            tag="NOTICE", color=PRIMARY, stream=sys.stderr)
     if getattr(a, "dry_run", False):
         notice("Check only", f"Nothing was installed on {target} (this was a preview).", tag="PREVIEW", color=PRIMARY, run=f"ct-setup add-worker {target}", run_label="To set it up", stream=sys.stderr)
@@ -374,7 +374,7 @@ def run(a, host, ask, ssh_factory, say, *, ui=None, installer_factory=None, scan
     broken = broken_worker_configs(wfile)
     named = getattr(a, "worker", None)
     mine = [x for x in broken if x[0] == named] if named else broken          # naming a worker: only ITS file matters; another worker's broken file is no reason to refuse (seen: tenta3's file was gone and
-    others = [x for x in broken if x not in mine]                              # `ct-setup install --worker claude-tenta` refused, about tenta3)
+    others = [x for x in broken if x not in mine]                              # `ct-setup install --worker armada` refused, about tenta3)
     if mine:                                                  # a worker whose file cannot be read cannot be compared with, or left alone: say which and why, do not guess (seen: a duplicated section made one invisible and the machine was treated as new)
         gone = all(x[3] == "missing" for x in mine)
         names_ = ", ".join(x[0] for x in mine)

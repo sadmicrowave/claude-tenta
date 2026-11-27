@@ -83,7 +83,6 @@ def build_parser():
         s.add_argument("--queue-key")
         s.add_argument("--results-key")
         s.add_argument("--wait-for-keys", type=int, default=0, metavar="SECONDS")
-        s.add_argument("--secrets-file", help="a KEY=value file of sign-in secrets from the installer (server only)")
         s.add_argument("--approver-file", help="the public key that may approve jobs from the administrator's computer (server only)")
         s.add_argument("--mailbox-key-file", help="the public key your computer uses for the Direct mailbox (server only)")
         s.add_argument("name", nargs="?", help="with rename: the new name")
@@ -342,7 +341,7 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
                 if a.json:
                     run.check()
                     import json as _json
-                    print(_json.dumps({"old": run.old, "new": run.new, "legacy": run.legacy, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))      # output: data (the client half draws it)
+                    print(_json.dumps({"old": run.old, "new": run.new, "steps": [{"title": t, "lines": ls} for t, ls in run.plan_lines()]}))      # output: data (the client half draws it)
                     return 0
                 status = run.run_all()[-1][1]
                 if status == "declined":
@@ -449,7 +448,6 @@ def main(argv=None, host=None, ask=input, repos_factory=None, ssh_factory=None, 
             screen_.banner(a.cmd)
         if a.cmd == "server":
             setup = ServerSetup(host, a.source, ask=ask if interactive else None, say=say, dry_run=dry, given=given, use_defaults=not interactive, rev=a.rev, wait_for_keys=a.wait_for_keys,
-                                claude_secrets=config.read_env_file(a.secrets_file) if a.secrets_file else None,
                                 approver_pubkey=(Path(a.approver_file).read_text() if a.approver_file else None),
                                 mailbox_pubkey=(Path(a.mailbox_key_file).read_text() if a.mailbox_key_file else None), verbose=a.verbose, ui=screen_, advanced=a.advanced,
                                 confirm=(lambda p: ask(_ui.confirm_prompt(f"{p}")).strip().lower() == "y") if interactive else (lambda p: True), **overrides)

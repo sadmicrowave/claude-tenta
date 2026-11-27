@@ -18,7 +18,7 @@ from ct import render  # noqa: E402
 UNITS = render.UNITS          # the real list: an uninstall that forgets a unit is exactly what this guards against
 
 
-def installed_host(name="claude-tenta"):
+def installed_host(name="armada"):
     h = FakeHost()
     for u in UNITS:
         h.put(f"/etc/systemd/system/{name}-{u}", "[Unit]\n")
@@ -43,18 +43,18 @@ class Removal(unittest.TestCase):
         r = self.un(dry_run=True).run_all()
         self.assertEqual(r[-1][1], "planned")
         self.assertEqual([c for c in self.h.calls if c[0] in ("systemctl", "rm", "pkill", "userdel", "augenrules")], [])
-        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-tenta"))
+        self.assertTrue(self.h.exists("/etc/sudoers.d/armada"))
         text = "\n".join(self.said)
-        for needle in ("systemctl disable --now claude-tenta-fetch.timer", "rm -rf /opt/claude-tenta", "rm -rf /var/lib/claude-tenta", "What stays:"):
+        for needle in ("systemctl disable --now armada-fetch.timer", "rm -rf /opt/armada", "rm -rf /var/lib/armada", "What stays:"):
             self.assertIn(needle, text)
 
     def test_applying_removes_the_units_files_commands_and_folders(self):
         self.un().run_all()
-        for p in ("/etc/sudoers.d/claude-tenta", "/etc/sysctl.d/60-claude-tenta-ipv6.conf", "/etc/sysctl.d/61-claude-tenta-userns.conf",
-                  "/etc/audit/rules.d/60-claude-tenta.rules", "/usr/local/bin/ct-worker", "/usr/local/sbin/ct-update",
-                  "/etc/systemd/system/claude-tenta-fetch.timer", "/etc/systemd/system/claude-tenta-update.service"):
+        for p in ("/etc/sudoers.d/armada", "/etc/sysctl.d/60-armada-ipv6.conf", "/etc/sysctl.d/61-armada-userns.conf",
+                  "/etc/audit/rules.d/60-armada.rules", "/usr/local/bin/ct-worker", "/usr/local/sbin/ct-update",
+                  "/etc/systemd/system/armada-fetch.timer", "/etc/systemd/system/armada-update.service"):
             self.assertFalse(self.h.exists(p), p)
-        for d in ("/opt/claude-tenta", "/etc/claude-tenta", "/var/lib/claude-tenta"):
+        for d in ("/opt/armada", "/etc/armada", "/var/lib/armada"):
             self.assertTrue(self.h.ran(f"rm -rf {d}"), d)
         for later in ("systemctl daemon-reload", "augenrules --load"):
             self.assertTrue(self.h.ran(later), later)
@@ -62,12 +62,12 @@ class Removal(unittest.TestCase):
     def test_timers_stop_before_their_files_go_and_daemon_reload_follows(self):
         self.un().run_all()
         calls = [" ".join(c) for c in self.h.calls]
-        self.assertLess(calls.index("systemctl disable --now claude-tenta-step.timer"), calls.index("systemctl daemon-reload"))
+        self.assertLess(calls.index("systemctl disable --now armada-step.timer"), calls.index("systemctl daemon-reload"))
 
     def test_keep_data_leaves_the_state_folder(self):
         self.un(keep_data=True).run_all()
-        self.assertFalse(self.h.ran("rm -rf /var/lib/claude-tenta"))
-        self.assertTrue(self.h.ran("rm -rf /opt/claude-tenta"))
+        self.assertFalse(self.h.ran("rm -rf /var/lib/armada"))
+        self.assertTrue(self.h.ran("rm -rf /opt/armada"))
         self.assertTrue(any("(--keep-data)" in line for line in self.said))
 
     def test_the_worker_account_is_removed_only_when_asked(self):
@@ -81,7 +81,7 @@ class Removal(unittest.TestCase):
     def test_the_protections_are_never_touched(self):
         self.un(remove_account=True).run_all()
         flat = " ".join(" ".join(c) for c in self.h.calls)
-        for protected in ("ufw", "sshd", "unattended", "apt-get", "sysctl -w", "ssh.conf", "10-claude-tenta.conf"):
+        for protected in ("ufw", "sshd", "unattended", "apt-get", "sysctl -w", "ssh.conf", "10-armada.conf"):
             self.assertNotIn(protected, flat)
         self.assertTrue(any("key-only SSH" in line for line in self.said))
 
@@ -89,7 +89,7 @@ class Removal(unittest.TestCase):
         r = self.un(confirm=lambda p: False).run_all()
         self.assertEqual(r[-1][1], "declined")
         self.assertEqual(self.h.ran("rm -rf"), [])
-        self.assertTrue(self.h.exists("/etc/sudoers.d/claude-tenta"))
+        self.assertTrue(self.h.exists("/etc/sudoers.d/armada"))
 
     def test_nothing_installed_is_said_plainly(self):
         r = Uninstall(FakeHost(), self.cfg, say=self.said.append, dry_run=False, confirm=lambda p: True).run_all()
@@ -98,13 +98,13 @@ class Removal(unittest.TestCase):
 
     def test_only_what_is_there_is_listed(self):
         h = FakeHost()
-        h.put("/etc/systemd/system/claude-tenta-fetch.timer", "x")
-        h.put("/opt/claude-tenta/x", "x")
+        h.put("/etc/systemd/system/armada-fetch.timer", "x")
+        h.put("/opt/armada/x", "x")
         Uninstall(h, self.cfg, say=self.said.append, dry_run=True).run_all()
         text = "\n".join(self.said)
-        self.assertIn("claude-tenta-fetch.timer", text)
-        self.assertNotIn("claude-tenta-step.timer", text)
-        self.assertNotIn("/var/lib/claude-tenta", text)
+        self.assertIn("armada-fetch.timer", text)
+        self.assertNotIn("armada-step.timer", text)
+        self.assertNotIn("/var/lib/armada", text)
 
     def test_a_different_name_and_folders_are_respected(self):
         cfg = cfg_of(identity={"name": "homect"}, paths={"code": "/srv/hc-code", "state_root": "/srv/hc-state", "config": "/srv/hc-conf"})
@@ -115,10 +115,10 @@ class Removal(unittest.TestCase):
         for d in ("/srv/hc-code", "/srv/hc-state", "/srv/hc-conf"):
             self.assertTrue(h.ran(f"rm -rf {d}"), d)
         self.assertFalse(h.exists("/etc/sudoers.d/homect"))
-        self.assertFalse(h.ran("rm -rf /opt/claude-tenta"))
+        self.assertFalse(h.ran("rm -rf /opt/armada"))
 
     def test_a_removal_that_fails_stops_and_says_which(self):
-        self.h.replies["rm -rf /opt/claude-tenta"] = Result(1, "Device or resource busy")
+        self.h.replies["rm -rf /opt/armada"] = Result(1, "Device or resource busy")
         with self.assertRaises(SetupError) as e:
             self.un().run_all()
         self.assertIn("Device or resource busy", e.exception.why)
@@ -154,7 +154,7 @@ class FromYourComputer(unittest.TestCase):
     def setUp(self):
         import os
         from pathlib import Path
-        self.cfgdir = Path(os.environ["HOME"]) / ".config" / "claude-tenta"
+        self.cfgdir = Path(os.environ["HOME"]) / ".config" / "armada"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
         (self.cfgdir / "ct.toml").write_text('[server]\nhost = "worker.example"\nadmin_user = "admin"\n[github]\nowner = "someone"\n')
         self.ssh, self.answers = FakeSsh(), []
@@ -177,7 +177,7 @@ class FromYourComputer(unittest.TestCase):
         self.assertNotIn("sudo", preview)
         self.assertNotIn("--apply", preview)
         self.assertIn("PYTHONPATH=/tmp/ct-install.AbC123/src", preview)              # the removal code comes from this checkout, not from the install being removed
-        self.assertIn("CT_CONFIG=/etc/claude-tenta/ct.toml", preview)
+        self.assertIn("CT_CONFIG=/etc/armada/ct.toml", preview)
         self.assertEqual(self.ssh.sent[0][0], "tar -xf - -C /tmp/ct-install.AbC123")
         self.assertIn("rm -rf /tmp/ct-install.AbC123", self.ssh.captured)
         self.assertIn("ct-setup uninstall --apply", err)
@@ -190,7 +190,7 @@ class FromYourComputer(unittest.TestCase):
             code, err = self.run_cli("--apply", "--keep-data")
         self.assertEqual(code, 0)
         call = self.ssh.interactive_calls[0]
-        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/ct-install.AbC123/src CT_CONFIG=/etc/claude-tenta/ct.toml python3 -m ct.setup uninstall --here"))
+        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/ct-install.AbC123/src CT_CONFIG=/etc/armada/ct.toml python3 -m ct.setup uninstall --here"))
         self.assertIn("rm -rf /tmp/ct-install.AbC123", self.ssh.captured)
         for piece in ("--keep-data", "--apply", "--yes"):
             self.assertIn(piece, call)
@@ -250,9 +250,9 @@ class APreviewByANormalAccount(unittest.TestCase):
         from ct.setup.host import Host
         root = tempfile.mkdtemp()
         os.makedirs(f"{root}/etc/audit/rules.d")
-        open(f"{root}/etc/audit/rules.d/60-claude-tenta.rules", "w").write("x")
+        open(f"{root}/etc/audit/rules.d/60-armada.rules", "w").write("x")
         os.chmod(f"{root}/etc/audit/rules.d", 0o000)
         self.addCleanup(os.chmod, f"{root}/etc/audit/rules.d", 0o755)
         if os.geteuid() == 0:
             self.skipTest("root can search every folder")
-        self.assertTrue(Host(root).exists("/etc/audit/rules.d/60-claude-tenta.rules"))         # cannot tell: it is listed, so the preview shows the step that root would run
+        self.assertTrue(Host(root).exists("/etc/audit/rules.d/60-armada.rules"))         # cannot tell: it is listed, so the preview shows the step that root would run

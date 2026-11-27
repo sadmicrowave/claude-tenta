@@ -27,7 +27,7 @@ Nothing in `ct-run` can change what the worker is allowed to do. It only sends r
 | `prune [--days N]` | squash old job files out of the `jobs` branch |
 | `offload log hook\|top\|show\|clear` | the command log (below) |
 | `offload fit -- <cmd>` | registered / excluded / retry-after-upgrade / unknown; exit 0 / 3 / 5 / 4 |
-| `offload history` | every fit check you or Claude made |
+| `offload history` | every fit check you or an assistant made |
 | `offload profile [options] -- <cmd>` | queue a profiling run of one exact command |
 | `offload propose <profile-job>` | turn a profile result into a registry proposal (a branch) or an exclusion |
 | `offload exclusions` | commands that were tested and do not fit |
@@ -41,7 +41,7 @@ Job files go to the `jobs` branch, exclusions to the `data` branch, proposals to
 
 ### The command log
 
-`offload log hook pre|post` is meant to be called by Claude Code's Bash hooks. It records each command and how long it took in `<client home>/command-log.jsonl` (mode 0600, never pushed).
+`offload log hook pre|post` is meant to be called by your coding assistant's command hooks. It records each command and how long it took in `<client home>/command-log.jsonl` (mode 0600, never pushed).
 A command that looks like it carries a secret is not recorded. `offload log top` ranks normalised "shapes" (tool, subcommand, flag names; paths and values are dropped) of commands that
 could suit the worker: not network or version control, not a package manager, not privileged or interactive, not compound, and slow enough (median 30 s by default) to repay the 15 to 60
 seconds of job overhead, or repeated (`offload.repeat_runs` runs, 3 by default, within `offload.repeat_days` days, 14 by default) with a total time of at least that long. Each row says which reason on the ladder makes it worth offloading ("why it pays"); `--all` also lists every reason's verdict for every shape. `offload measure` reads the same log and suggests `offload.repeat_days` (the typical time your repeated commands took to reach `offload.repeat_runs` runs), with a table of how many commands would be candidates at other settings; it changes nothing and prints the one `ct-setup install --set` command that applies the suggestion. With too little data it says so and suggests nothing. `offload recommend` looks at the commands you pinned to a worker (`ct-run use <worker> --command <class>`) and, from the finished jobs this computer has seen (`runs.jsonl`, recorded when you run `ct-run jobs` or `ct-run result`), says whether another worker ran one clearly faster (median at least `offload.recommend_gain` percent lower, each worker with `offload.recommend_runs` successful runs). It never guesses from hardware and never moves a pin: it prints the `ct-run use` line that would. After `ct-run jobs`, `result` or `submit`, one hint line says so when a pinned command has a clearly faster worker, once per suggestion and at most every `offload.recommend_hint_hours` hours (24); `offload.recommend_hint = false` turns it off.
@@ -53,6 +53,6 @@ needs approval. The worker looks the command up, runs it under hard ceilings (a 
 `does-not-fit`, `inconclusive`) with the reasons and a drafted registry entry with limits set from the measurement plus a margin. `offload propose` turns a fit into a branch for
 the administrator, or a misfit into an exclusion; `ct-admin adopt` does the review and install in one guided step.
 
-### Claude Code integration
+### Coding assistant integration
 
-A Claude Code skill that tells Claude when a command is worth offloading, and how to check with `ct-run offload fit`, is planned. The command log hooks above already work with Claude Code's Bash hooks.
+A skill that tells an assistant when a command is worth offloading, and how to check with `ct-run offload fit`, is in `skills/tenta-offload/SKILL.md`. The command log hooks above work with any assistant that can call a command before and after each shell command.

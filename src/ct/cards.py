@@ -128,7 +128,7 @@ _BARE = re.compile(r"(?<![`\w/.-])((?:" + "|".join(PROGRAMS) + r")(?P<rest>(?: "
 SURE = {"ssh", "ssh-copy-id", "ssh-keygen", "ssh-keyscan", "ssh-add", "scp", "rsync", "sudo", "su", "apt", "apt-get", "dpkg", "usermod", "useradd", "adduser", "systemctl", "journalctl", "loginctl",
         "git", "gh", "brew", "curl", "wget", "chmod", "chown", "mkdir", "pbcopy", "python3", "pip", "pipx", "npm", "npx", "docker", "ufw", "iptables", "nft", "visudo", "openssl", "gpg", "xclip", "wl-copy",
         "reboot", "shutdown", "hostnamectl", "timedatectl", "nmap"}           # words that are only ever a command
-MAYBE = {"cat", "ls", "rm", "cp", "mv", "kill", "find", "tail", "head", "source", "export", "env", "cd", "mount", "free", "id", "ps", "df", "ln", "ping", "tar", "grep", "nano", "vi", "claude", "python", "make"}   # ordinary words too: a command only when a flag or a path follows
+MAYBE = {"cat", "ls", "rm", "cp", "mv", "kill", "find", "tail", "head", "source", "export", "env", "cd", "mount", "free", "id", "ps", "df", "ln", "ping", "tar", "grep", "nano", "vi", "python", "make"}   # ordinary words too: a command only when a flag or a path follows
 CONTEXT = ("use", "run", "with", "using", "try", "then", "type", "by running", "$", "instead", "enter", "paste")     # the words that lead into a command in a sentence
 STOP = {"if", "when", "then", "unless", "because", "so", "again", "once", "which", "that", "it", "the", "a", "an", "but", "instead", "until", "while", "before", "after", "as", "for", "to", "on", "in", "at", "is",
         "are", "be", "was", "from", "will", "can", "should", "must", "and", "or", "you", "your", "this", "these", "them", "its", "see", "see:", "then,"}      # a prose word ends the command

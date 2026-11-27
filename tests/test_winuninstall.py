@@ -13,7 +13,7 @@ from ct.admin import workers as workers_mod
 from ct.setup import cli, winremove, winuninstall, wintools
 from ct.setup.server import SetupError
 
-ANSWERS = [("Unregister-ScheduledTask", {"task": "claude-tenta-worker", "removed": True}), ("sshd -t", {"user": "win-mail", "removed": True, "mailbox_kept": True}),
+ANSWERS = [("Unregister-ScheduledTask", {"task": "armada-worker", "removed": True}), ("sshd -t", {"user": "win-mail", "removed": True, "mailbox_kept": True}),
            ("$keepData", {"python": "uninstalled (exit 0)", "rights": 2, "profile": True, "account": True, "folders": ["tools", "release", "config", "mail"], "kept": []})]
 
 
@@ -108,7 +108,7 @@ class Run(unittest.TestCase):
         return winuninstall.WindowsUninstall(self.cfg, self.wfile, run=kw.pop("run", None) or self.runner(), **kw)
 
     def test_the_folder_comes_from_the_workers_own_configuration(self):
-        self.assertEqual(winuninstall.windows_root(self.cfg), r"C:\ProgramData\claude-tenta")
+        self.assertEqual(winuninstall.windows_root(self.cfg), r"C:\ProgramData\armada")
 
     def test_a_preview_sends_nothing_and_changes_nothing(self):
         r = self.go(dry_run=True)
@@ -116,7 +116,7 @@ class Run(unittest.TestCase):
         self.assertEqual(self.sent, [])
         self.assertTrue(self.home.exists() and Path(self.cfg.source).exists())
         self.assertIn(("Remove account", "ctworker"), r.rows())
-        self.assertIn(("Remove task", "claude-tenta-worker"), r.rows())
+        self.assertIn(("Remove task", "armada-worker"), r.rows())
 
     def test_the_steps_run_in_order_task_then_mailbox_then_the_worker(self):
         self.go(confirm=lambda p: True).run_all()

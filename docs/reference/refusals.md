@@ -115,7 +115,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 ### `job.root.params_only`: A root-level job carries more than parameters
 
 - **Text:** a root-level job takes parameters only
-- **Protects:** A root-level job may carry only typed parameters: no files and no prompt can reach something that runs as root.
+- **Protects:** A root-level job may carry only typed parameters: no files and no free text can reach something that runs as root.
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
@@ -739,14 +739,6 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 
-### `server.token.invalid`: That does not look like a token
-
-- **Text:** It should be one long line with no spaces. Run ct-setup install again to enter it.
-- **Protects:** A token is one long line with no spaces.
-- **Decided by:** client
-- **Depends on:** nothing
-- **Configured:** not configurable
-
 ### `install.config.stale`: The configuration from the earlier run is not valid
 
 - **Text:** {problems}
@@ -886,15 +878,6 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** your configuration: [limits] max_in_flight (0 removes it)
 - **What to do:** Wait for some to finish: ct-run jobs shows them. Or raise the cap in your configuration under [limits]: max_in_flight = <number> (0 removes it).
-
-### `job.prompt.length`: The prompt has the wrong length
-
-- **Text:** prompt must be 1-8000 characters
-- **Protects:** Bounds what one AI job can spend; the cap is a fixed number today and should become a setting per class.
-- **Decided by:** worker
-- **Depends on:** the class kind: claude
-- **Configured:** not configurable
-- **What to do:** Shorten the prompt, or attach the text as a file.
 
 ### `files.set.too_big`: These files do not fit in one job
 
@@ -1068,33 +1051,6 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** ct-admin class
 - **What to do:** See the limits with ct-admin class.
 
-### `placement.ai.no_signin`: A worker has no AI sign-in
-
-- **Text:** has no Claude sign-in
-- **Protects:** An AI class runs only where the AI tool is signed in.
-- **Decided by:** client
-- **Depends on:** the class kind: claude
-- **Configured:** not configurable
-- **What to do:** Sign it in with ct-setup install --worker NAME.
-
-### `placement.ai.no_tool`: A worker has no AI tool
-
-- **Text:** has no Claude tool installed
-- **Protects:** An AI class runs only where its tool is installed.
-- **Decided by:** client
-- **Depends on:** the class kind: claude
-- **Configured:** not configurable
-- **What to do:** Install it with ct-setup install --worker NAME.
-
-### `placement.ai.paused`: A worker paused AI jobs for today
-
-- **Text:** has paused Claude jobs for today (its daily limit)
-- **Protects:** An AI worker stops taking AI jobs for the day when its limit is reached, so the person's usage is bounded.
-- **Decided by:** client
-- **Depends on:** the class kind: claude
-- **Configured:** the worker's daily limits
-- **What to do:** See its usage with ct-admin status.
-
 ### `placement.transport.mismatch`: This computer and the worker use different connections
 
 - **Text:** this computer sends over {connection}, but the worker listens on {listens}, so a job sent now would never be picked up
@@ -1168,15 +1124,6 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** the class: accepts_files
 - **Configured:** not configurable
 - **What to do:** See which classes take files with ct-run classes.
-
-### `files.name.hidden`: This kind of class takes no file whose name starts with a dot
-
-- **Text:** a name may not start with a dot for this kind of class: {name!r}
-- **Protects:** A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.
-- **Decided by:** worker
-- **Depends on:** the class kind: claude (decided by the kind, never by a setting the person makes)
-- **Configured:** not configurable
-- **What to do:** Leave the file out with --include on ct-run submit.
 
 ### `files.incomplete`: Some files could not be sent
 
@@ -1964,14 +1911,6 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 
 - **Text:** {reason}
 - **Protects:** A registry with a problem is not installed.
-- **Decided by:** client
-- **Depends on:** nothing
-- **Configured:** not configurable
-
-### `server.ai_tool.not_running`: The Claude tool does not run on this machine
-
-- **Text:** It installed but `claude --version` failed.
-- **Protects:** An AI tool that was installed but does not run is reported, not left half-working.
 - **Decided by:** client
 - **Depends on:** nothing
 - **Configured:** not configurable

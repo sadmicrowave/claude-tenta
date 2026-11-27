@@ -67,9 +67,9 @@ class Verdict(unittest.TestCase):
         self.assertEqual(status(v(VIRT="none"), "Environment"), "OK")
 
     def test_an_existing_install_is_named_as_a_warning(self):
-        r = v(INSTALLS="claude-tenta other")
+        r = v(INSTALLS="armada other")
         self.assertTrue(r.meets)
-        self.assertIn("claude-tenta, other", [d for s, w, d in r.rows if w == "Existing install"][0].replace("as: ", "") and "claude-tenta, other")
+        self.assertIn("armada, other", [d for s, w, d in r.rows if w == "Existing install"][0].replace("as: ", "") and "armada, other")
 
     def test_nothing_read_is_a_failed_login_not_a_pass(self):
         self.assertFalse(assess.verdict({}).meets)

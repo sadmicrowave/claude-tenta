@@ -35,7 +35,7 @@ class Banner(unittest.TestCase):
             self.assertEqual({len(ln) for ln in lines}, {cols})                         # every row, frame included, is exactly as wide as the terminal
             self.assertTrue(lines[0].startswith("╭─ ") and lines[0].endswith(" ─╮"))
             self.assertTrue(lines[-1].startswith("╰") and lines[-1].endswith("╯"))
-            self.assertIn("CLAUDE-TENTA  I N S T A L L", lines[0])
+            self.assertIn("ARMADA  I N S T A L L", lines[0])
             self.assertTrue(lines[0].rstrip(" ─╮").endswith(f"v{__version__}"))
             self.assertIn("█", "\n".join(lines))
 
@@ -48,7 +48,7 @@ class Banner(unittest.TestCase):
     def test_a_narrow_terminal_gets_a_short_header_instead(self):
         lines = [ln for ln in plain(brand.banner(40, "S E T U P")) if ln.strip()]
         self.assertLessEqual(len(lines), 2)
-        self.assertIn("@claude-tenta", lines[0])
+        self.assertIn("@armada", lines[0])
         self.assertIn(f"v{__version__}", "\n".join(lines))
 
     def test_no_colour_codes_when_colour_is_off(self):

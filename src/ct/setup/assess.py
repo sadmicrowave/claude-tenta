@@ -1,7 +1,7 @@
 """Is this computer good enough to be a worker? A read-only look, after you said yes.
 
 One SSH login with your key (no password is asked or sent) runs a short fixed script that only READS: the release, the processor, memory, free disk, Python, systemd, whether sudo
-exists and whether the account may use it, whether it is a virtual machine or a container, and whether a claude-tenta install is already there. Nothing is installed, written or changed on it.
+exists and whether the account may use it, whether it is a virtual machine or a container, and whether a armada install is already there. Nothing is installed, written or changed on it.
 The answer is a verdict with a reason for every problem and what to do about it. `verdict()` is pure (give it the facts) so the rules are testable without a machine.
 """
 import re
@@ -33,7 +33,7 @@ CONTAINERS = ("docker", "lxc", "lxc-libvirt", "openvz", "podman", "wsl", "system
 # what the scan will do, in the words shown before you are asked to start it
 CHECKS = ("the release and version (Ubuntu 24.04 or newer, or Debian 12 or newer)", "the processor type and the number of cores", "memory and free disk space",
           "that Python 3.11 or newer is there", "that systemd is the init system", "that sudo exists and this account is allowed to use it",
-          "whether it is a virtual machine or a container", "whether a claude-tenta install is already on it")
+          "whether it is a virtual machine or a container", "whether a armada install is already on it")
 
 
 @dataclass
@@ -162,7 +162,7 @@ def verdict(facts, user="the account"):
         add("OK", "Environment", "real hardware")
     inst = [x for x in (facts.get("INSTALLS") or "").split() if x]
     if inst:
-        add("WARN", "Existing install", f"claude-tenta is already on it as: {', '.join(inst)}. Adding it again needs a different name, or this is an update, not a new worker")
+        add("WARN", "Existing install", f"armada is already on it as: {', '.join(inst)}. Adding it again needs a different name, or this is an update, not a new worker")
     if facts.get("GIT") != "yes":
         add("OK", "Git", "not installed yet; the setup installs it")
     return Verdict(not [r for r in rows if r[0] == "FAIL"], facts, rows, fixes)

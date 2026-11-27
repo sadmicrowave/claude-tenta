@@ -6,7 +6,7 @@
 set -uo pipefail
 SRC=${SRC:-/opt/ct-src}
 rgit() { git -c safe.directory="*" "$@"; }; export -f rgit      # root LOOKING at a repository that belongs to someone else, for that one command; the programs under test get no such trust
-H=/home; NAME=claude-tenta; ADMIN=ctadmin; WORKER=ctworker; OWNER=someone
+H=/home; NAME=armada; ADMIN=ctadmin; WORKER=ctworker; OWNER=someone
 export DEBIAN_FRONTEND=noninteractive
 SSH_FROM=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 PASS=0; FAIL=0

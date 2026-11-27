@@ -44,7 +44,7 @@ class InstallGivesTheInstallerTheComputerYouMeantFixture(unittest.TestCase):
     def setUp(self):
         d = Path(tempfile.mkdtemp())
         self.conf = d / "ct.toml"
-        self.conf.write_text('[identity]\nname = "claude-tenta"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[paths]\nclient_home = "%s"\n' % (d / ".ct"))
+        self.conf.write_text('[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[paths]\nclient_home = "%s"\n' % (d / ".ct"))
         env = mock.patch.dict(os.environ, {"CT_CONFIG": str(self.conf), "HOME": str(d)})
         env.start()
         self.addCleanup(env.stop)
@@ -65,7 +65,7 @@ class InstallGivesTheInstallerTheComputerYouMeantFixture(unittest.TestCase):
 
 class InstallGivesTheInstallerTheComputerYouMeant(InstallGivesTheInstallerTheComputerYouMeantFixture):
     def test_the_first_install_named_with_worker_is_installed_at_its_own_address(self):
-        rc, given = self.installer_given(["install", "--worker", "claude-tenta", "--yes"])
+        rc, given = self.installer_given(["install", "--worker", "armada", "--yes"])
         self.assertEqual((rc, given.get("server.host")), (0, "mini.example"))
 
     def test_an_address_that_is_the_first_install_is_the_same(self):

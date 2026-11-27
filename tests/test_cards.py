@@ -141,7 +141,6 @@ class YesNoPrompt(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CT_COLOR": "always"}), mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
             text = ANSI.sub("", ui.confirm_prompt("Remove fan-profile and install the new registry on server.example now?"))
         self.assertTrue(all(len(x) <= 60 for x in text.split("\n")))
-        self.assertNotIn("claude\n-tenta", text)
 
     def test_no_prompt_in_the_package_is_written_by_hand(self):
         for f in (Path(__file__).resolve().parents[1] / "src" / "ct").rglob("*.py"):
@@ -266,7 +265,7 @@ class TheReasonOfAnErrorIsAWhyBlock(unittest.TestCase):
 class ALiftedCommandKeepsTheSentenceReadable(unittest.TestCase):
     def test_a_command_that_was_the_subject_becomes_the_command_below_not_a_bracket(self):
         found = []
-        text = cards.lift("`gh repo create agent/x --private --description 'claude-tenta queue (private)'` said: GraphQL: you do not have the correct permissions to execute CreateRepository", 40, found)
+        text = cards.lift("`gh repo create agent/x --private --description 'armada queue (private)'` said: GraphQL: you do not have the correct permissions to execute CreateRepository", 40, found)
         self.assertTrue(text.startswith("The command below said:"), text)
         self.assertEqual(len(found), 1)
         found = []

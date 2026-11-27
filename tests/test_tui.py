@@ -422,7 +422,7 @@ class Flow(unittest.TestCase):
 
     def test_only_the_last_few_answers_stay_above_the_question_and_the_rest_are_counted(self):
         keys = {"identity.name", "server.host", "server.admin_user", "server.worker_user", "server.ssh_port", "github.owner", "github.queue_repo"}
-        p, out = prompter(typed("h.example", "agent", "someone", "claude-tenta", "", "ctworker") + ["x"])           # the order the questions are asked in
+        p, out = prompter(typed("h.example", "agent", "someone", "armada", "", "ctworker") + ["x"])           # the order the questions are asked in
         try:
             questions.collect(("client", "server"), ui=p, only=keys, advanced=True)
         except StopIteration:
