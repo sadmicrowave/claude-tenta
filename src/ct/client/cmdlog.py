@@ -265,15 +265,15 @@ class CommandLog:
         """What the person's own log says a worker could take, for `ct-run offload review` and the end of `ct-setup install`; slice 7's y/n list is `recs`.
         Pure: time, load and every setting are passed in. The numbers are recorded seconds of candidate commands in the window (never a promise of speed: a worker may be slower than this
         computer, the gain is a free computer). `state`: empty (nothing recorded), short (too little to say anything: no hours are given), none (nothing a worker could take) or ok.
-        `recs`: the top `top` candidates, highest-weighted rung first, then most seconds; each is {shape, example, count, median, total, untimed, rung, headline, why}. `commands`, `seconds`
-        and `untimed` cover every candidate in the window, not only the ones listed (`more` says how many are not)."""
+        `recs`: the top `top` candidates, highest-weighted rung first, then most seconds; each is {shape, example, count, median, total, untimed, rung, headline, why}. `kinds` is how many different
+        commands are candidates, `commands` how many runs of them, `seconds` their time and `untimed` the runs without timing: all of them cover every candidate in the window, not only the ones listed (`more` says how many kinds are not)."""
         now = time.time() if now is None else now
         recs = [r for r in (self.read() if records is None else records) if r.get("cmd")]
         stamps = [r["ts"] for r in recs if r.get("ts")]
         log_days = (now - min(stamps)) / 86400 if stamps else 0.0
         window = max(1, min(days, math.ceil(log_days)))
         win = [r for r in recs if (r.get("ts") or 0) >= now - window * 86400]
-        out = {"state": "empty", "recs": [], "more": 0, "commands": 0, "seconds": 0, "untimed": 0, "reasons": [], "commands_recorded": len(win), "log_days": log_days, "window_days": window}
+        out = {"state": "empty", "recs": [], "more": 0, "kinds": 0, "commands": 0, "seconds": 0, "untimed": 0, "reasons": [], "commands_recorded": len(win), "log_days": log_days, "window_days": window}
         if not recs:
             return out
         if len(win) < min_commands or log_days < min_days:
@@ -292,7 +292,7 @@ class CommandLog:
             ranked.append({"shape": r["shape"], "example": r["example"], "count": r["count"], "median": r["median"], "total": r["total"], "untimed": r["untimed"],
                            "rung": met["rung"], "headline": r["headline"], "why": met["reason"]})
         ranked.sort(key=lambda r: (-candidacy.WEIGHTS[r["rung"]], -r["total"]))
-        return {**out, "state": "ok", "recs": ranked[:top], "more": max(0, len(ranked) - top), "commands": sum(r["count"] for r in ranked),
+        return {**out, "state": "ok", "recs": ranked[:top], "more": max(0, len(ranked) - top), "kinds": len(ranked), "commands": sum(r["count"] for r in ranked),
                 "seconds": sum(r["total"] for r in ranked), "untimed": sum(r["untimed"] for r in ranked)}
 
     GRID_RUNS, GRID_DAYS = (2, 3, 4), (7, 14, 30)

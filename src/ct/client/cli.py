@@ -917,14 +917,17 @@ def show_review(r, log, product, err, out):
         _ui.say(f"Nothing {name} could take yet", f"{plural(r['commands_recorded'], 'command')} recorded in the last {plural(r['window_days'], 'day')}; none that a worker could take.",
                 *[f"{why} ({n})" for why, n in r["reasons"]], tag="REVIEW", color=CYAN, stream=err)
         return
-    note = ([f"{r['untimed']} had no timing recorded and {'is' if r['untimed'] == 1 else 'are'} not counted in that time."] if r["untimed"] else [])
+    note = ([f"{r['untimed']} of those runs had no timing recorded and {'is' if r['untimed'] == 1 else 'are'} not in the time."] if r["untimed"] else [])
     _ui.say(f"Commands {name} could take",
-            f"In the last {plural(r['window_days'], 'day')} you ran {plural(r['commands'], 'command')}, {span(r['seconds'])} in all, that {name} could take.",
-            cards.Why("That is the time they took on this computer. It is not a promise that a worker is quicker: it may be slower. What you gain is this computer left free for your own work."),
+            f"In the last {plural(r['window_days'], 'day')} you ran {plural(r['kinds'], 'different command')} that a worker could take: {plural(r['commands'], 'run')}, {span(r['seconds'])} in all.",
+            cards.Why("That is the time they took on this computer. It is not a promise that a worker is quicker: it may be slower. What you gain is this computer left free for your own work. This only adds up your history; nothing has been set up, changed or sent."),
             *note, tag="REVIEW", color=CYAN, stream=err)
-    _ui.table("Worth offloading, best first", ["#", "runs", "time", "command shape", "why it pays"],
-              [[str(i), str(x["count"]), span(x["total"]), x["shape"], x["headline"]] for i, x in enumerate(r["recs"], 1)], tag="RECOMMENDED", stream=out,
-              notes=(*((f"{plural(r['more'], 'more command')} could also be taken.",) if r["more"] else ()), "TIME is all the time those runs took here. The order follows the reasons it pays, then the time."))
+    shown = r["recs"]
+    runs, secs = sum(x["count"] for x in shown), sum(x["total"] for x in shown)
+    rest = (f"The other {r['kinds'] - len(shown)} ran {plural(r['commands'] - runs, 'time')}, {span(r['seconds'] - secs)} in all; the second command below lists them." if r["more"] else "")
+    _ui.table(f"Start with {'these ' + str(len(shown)) if len(shown) > 1 else 'this one'}, the ones that take the most", ["#", "runs", "time", "command", "offload reason"],
+              [[str(i), str(x["count"]), span(x["total"]), x["shape"], x["headline"]] for i, x in enumerate(shown, 1)], tag="RECOMMENDED", stream=out,
+              notes=(f"Together {plural(runs, 'run')}, {span(secs)}." + (" " + rest if rest else ""), "TIME is all the time those runs took on this computer. A command comes first when the reason it pays weighs more; after that, the most time."))
     _ui.say("Pick the one you like", tag="NEXT", color=CYAN, stream=err, run_label=f"Check whether {name} can take it" + (", or see the rest" if r["more"] else ""),
             run=["ct-run offload fit -- <the example command>", *(["ct-run offload log top --all"] if r["more"] else [])])
 

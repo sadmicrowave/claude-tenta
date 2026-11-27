@@ -99,7 +99,7 @@ class Review(unittest.TestCase):
             recs += suite_runs(3, secs=100.0 + i, cmd=f"cd /w && tool{i} --run | tail -1")
         r = self.review(recs, top=5)
         self.assertEqual((len(r["recs"]), r["more"]), (5, 2))
-        self.assertEqual(r["commands"], 21)            # the totals cover every candidate, not just the five shown
+        self.assertEqual((r["commands"], r["kinds"]), (21, 7))            # the totals cover every candidate, not just the five shown
 
     def test_each_entry_carries_only_what_slice_7_needs_and_no_paths_or_values(self):
         r = self.review(suite_runs(10, cmd="cd /srv/example/private-project && scripts/t test_a --seed-value=1 | tail -5") + filler(20))
@@ -139,7 +139,8 @@ class Screens(unittest.TestCase):
         code, out, err = self.run_cli("offload", "review")
         text = out + err
         self.assertEqual(code, 0)
-        self.assertIn("10 commands", text)
+        self.assertIn("1 different command", text)
+        self.assertIn("10 runs", text)
         self.assertIn("10 min", text)
         self.assertIn("scripts/t", text)
         self.assertIn("Free your own computer", text)
@@ -147,10 +148,24 @@ class Screens(unittest.TestCase):
         self.assertNotIn("faster", text.lower())
         self.assertIn("not a promise", text)
 
+    def test_the_second_card_says_what_the_first_counts_in_the_same_units(self):
+        recs = filler(20)
+        for i in range(7):
+            recs += suite_runs(3, secs=100.0, cmd=f"cd /w && tool{i} --run | tail -1")
+        self.put(recs)
+        code, out, err = self.run_cli("offload", "review")
+        text = out + err
+        self.assertIn("7 different commands", text)
+        self.assertIn("21 runs", text)
+        self.assertIn("Together 15 runs", text)
+        self.assertIn("The other 2 ran 6 times", text)
+        self.assertIn("OFFLOAD REASON", text.upper())
+        self.assertNotIn("WHY IT PAYS", text.upper())
+
     def test_untimed_runs_are_mentioned(self):
         self.put(suite_runs(8) + [rec("cd /w && scripts/t x", None, 2, 99)] + filler(20))
         code, out, err = self.run_cli("offload", "review")
-        self.assertIn("1 had no timing", out + err)
+        self.assertIn("1 of those runs had no timing", out + err)
 
     def test_empty_log_points_at_the_hook(self):
         code, out, err = self.run_cli("offload", "review")
@@ -196,7 +211,7 @@ class Screens(unittest.TestCase):
         self.assertFalse(cli.after_install_review(cfg, stream=pipe, host_load=IDLE, now=NOW))
         self.assertEqual(pipe.getvalue(), "")
         self.assertTrue(cli.after_install_review(cfg, stream=tty, host_load=IDLE, now=NOW))
-        self.assertIn("10 commands", tty.getvalue())
+        self.assertIn("10 runs", tty.getvalue())
         with mock.patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")):
             tty2 = io.StringIO()
             tty2.isatty = lambda: True
