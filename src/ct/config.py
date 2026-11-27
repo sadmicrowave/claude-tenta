@@ -284,6 +284,10 @@ SCHEMA = {
         "repeat_days": (14, _int(1, 365), "the number of days repeat_runs is counted over"),
         "busy_load_ratio": (1.0, _num(0.1, 50), "this computer counts as busy when its 5-minute load average divided by its number of cores is at least this (1 means one waiting task per core); a busy computer makes a command worth offloading"),
         "busy_min_seconds": (10, _num(0, 3600), "while this computer is busy, a command whose usual run takes at least this many seconds is worth offloading; quicker ones are not worth the trip"),
+        "review_days": (14, _int(1, 365), "the summary of what a worker could take (ct-run offload review, and at the end of ct-setup install) looks at this many days of your command log; a younger log is read whole"),
+        "review_top": (5, _int(1, 50), "how many commands the summary recommends; the rest are counted in the totals and listed by ct-run offload log top"),
+        "review_min_commands": (20, _int(1, 100000), "fewer commands than this in the window and the summary shows no hours (too little to say anything honest)"),
+        "review_min_days": (3, _int(1, 365), "a command log younger than this many days is too short for the summary to show hours"),
     },
     "limits": {
         "max_in_flight": (8, _num(0, 1000), "the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap"),

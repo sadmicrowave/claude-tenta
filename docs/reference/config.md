@@ -132,6 +132,10 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `repeat_days` | `14` | int | the number of days repeat_runs is counted over |
 | `busy_load_ratio` | `1.0` | float | this computer counts as busy when its 5-minute load average divided by its number of cores is at least this (1 means one waiting task per core); a busy computer makes a command worth offloading |
 | `busy_min_seconds` | `10` | float | while this computer is busy, a command whose usual run takes at least this many seconds is worth offloading; quicker ones are not worth the trip |
+| `review_days` | `14` | int | the summary of what a worker could take (ct-run offload review, and at the end of ct-setup install) looks at this many days of your command log; a younger log is read whole |
+| `review_top` | `5` | int | how many commands the summary recommends; the rest are counted in the totals and listed by ct-run offload log top |
+| `review_min_commands` | `20` | int | fewer commands than this in the window and the summary shows no hours (too little to say anything honest) |
+| `review_min_days` | `3` | int | a command log younger than this many days is too short for the summary to show hours |
 
 ## [limits]
 

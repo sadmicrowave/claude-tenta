@@ -79,6 +79,10 @@ repeat_runs = 3                 # a command you run this many times within repea
 repeat_days = 14                 # the number of days repeat_runs is counted over
 busy_load_ratio = 1.0           # this computer counts as busy when its 5-minute load average divided by its cores is at least this; a busy computer makes a command worth offloading
 busy_min_seconds = 10           # while busy, a command whose usual run takes at least this many seconds is worth offloading
+review_days = 14                # the summary (ct-run offload review) looks at this many days of your command log
+review_top = 5                  # how many commands the summary recommends
+review_min_commands = 20        # fewer commands than this in the window and the summary shows no hours
+review_min_days = 3             # a command log younger than this many days is too short for the summary to show hours
 
 [limits]
 max_in_flight = 8               # the most jobs this computer has queued or running at once across every worker it administers; ct-run submit refuses past it. Jobs waiting for your approval do not count. 0 = no cap

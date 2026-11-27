@@ -258,7 +258,7 @@ class RungsShown(unittest.TestCase):
             code = cli.main(list(args), ctx=self.ctx, cfg=self.cfg)
         return code, out.getvalue(), err.getvalue()
 
-    def test_top_says_why_each_candidate_pays(self):
+    def test_top_says_the_offload_reason_of_each_candidate(self):
         code, out, err = self.run_cli("offload", "log", "top")
         self.assertIn("Free your own computer", out + err)
 

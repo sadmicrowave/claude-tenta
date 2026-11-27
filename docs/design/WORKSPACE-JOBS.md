@@ -158,6 +158,10 @@ Owner approved on 2026-11-26: **A** (a class's npm and pip packages run from a s
 
 **Workers must update** (`ct-admin apply`). An older worker keeps its old behaviour: 7-day per-job folders and root-installed npm and pip.
 
+## Built: the review summary (slice `feat/offload-setup-summary`, 2026-11-27)
+
+Steps 1 to 3 of the flow below, as `ct-run offload review` and a card at the end of `ct-setup install` (terminal only; a failure there is a note, never a failed install). Owner decisions 2026-11-27: the hours are **"hours of commands a worker could take"** (recorded seconds of candidate commands, no claim of speed or "saved"); ranked by the highest-weighted rung met, then by time; **too short** means fewer than 3 days or 20 commands (settings `offload.review_min_days`, `review_min_commands`; also `review_days` 14 and `review_top` 5). `CommandLog.review` is the pure function slice 7 builds on: `recs` is its ranked list (shape, example, count, median, total, untimed, rung, headline, why). Not built: the y/n loop and profiling (slice 7), the history hint (slice 8), installing the Claude Code hooks (setup does not; with no hooks the summary says "Nothing recorded yet").
+
 ## The offload review flow (slices 6-8)
 
 Goal: show value the first minute after setup, from the person's own history.

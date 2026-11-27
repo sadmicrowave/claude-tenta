@@ -594,3 +594,8 @@ define("env.rebuild.no_space", "error", "A rebuild that cannot fit on the disk w
        "Not enough free disk to fetch the packages", "Not enough free space to rebuild the packages for `{label}` (need {need} MB, have {have} MB); freed {freed} MB of the oldest unused environments and it is still too little.",
        depends="the worker release that keeps shared environments (the one with packages.keep_days)", config="packages.keep_days on the worker (a smaller number frees space sooner)",
        steps=["Free some disk on the worker, or send the job to a worker with more room.", "Or lower packages.keep_days on the worker so unused environments go sooner."])
+
+# ---- the offload review summary (design: docs/design/WORKSPACE-JOBS.md, "The offload review flow") ----
+define("review.log.unreadable", "error", "The summary reads only this computer's own command log; when that cannot be read it says so with the system's own words instead of showing numbers made from nothing.",
+       "The command log could not be read", "{reason}", who="client",
+       steps=["Open the log file named above and make it readable by you (it is your own file).", "Or delete it with the second command below: the hooks start a new log from the next command."])
