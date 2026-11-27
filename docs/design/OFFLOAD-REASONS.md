@@ -5,7 +5,7 @@ A living document: new rungs are added as they are found; it is written so its p
 
 ## Why a ladder
 
-"Slow" and "repeated" are not enough to show that offloading is worth the trouble: they give few examples from real use. Offloading pays for itself in several different ways, and
+"Slow" and "repeated" are not enough to show that offloading is worth the trouble: they give few examples from real use. Offloading helps in several different ways, and
 a job can qualify for more than one. Each way is a **rung**. Each rung has a weight. A job's headline reason is the **highest-weighted rung it meets**, and it keeps being
 evaluated against **every** rung: a job that fails one rung is never dismissed before the others are read.
 
@@ -42,7 +42,7 @@ how to fetch the full one; the worker keeps the full result for a period; the or
 ### 3. Faster
 
 More workers do more at once, up to a point: sharding a job into independent pieces, then putting the results back together reliably. Lane questions: how pieces are chosen,
-what happens when one fails, how far more workers keep paying off (the measurement utility, list item 8, answers this per person).
+what happens when one fails, how far more workers keep helping (the measurement utility, list item 8, answers this per person).
 
 ### 4. Free your own computer
 
@@ -64,7 +64,7 @@ Older computers cannot run several AI sessions and test suites at once, and they
 Keep a list here as ideas arrive; none is promised. Examples to test: privacy (work that should not leave a controlled device), cost (a worker that is cheaper to run than a
 cloud service), energy or heat (work that should not warm your laptop), network position (work that is faster close to the data), time zone or schedule (work that must run overnight).
 
-**Rung 5 "your computer is busy" was a proposal here and is now built (weight 50; see section 5).** The original proposal, kept for the record: Offloading also pays when your own computer is already working hard: its load (run queue or CPU use) is high against its core count, so a job started there would slow both the job and everything else you are doing. The signal is cheap and local (host load divided by core count, read when the job is about to start). It is a **proposal only**: the owner sets the weight and where it sits in the ladder, and it is not built until then. Open questions for that decision: what load-per-core counts as busy, how long it must stay busy, and whether it can lift a job that no other rung picks.
+**Rung 5 "your computer is busy" was a proposal here and is now built (weight 50; see section 5).** The original proposal, kept for the record: Offloading is also worth doing when your own computer is already working hard: its load (run queue or CPU use) is high against its core count, so a job started there would slow both the job and everything else you are doing. The signal is cheap and local (host load divided by core count, read when the job is about to start). It is a **proposal only**: the owner sets the weight and where it sits in the ladder, and it is not built until then. Open questions for that decision: what load-per-core counts as busy, how long it must stay busy, and whether it can lift a job that no other rung picks.
 
 **More to find (ideas, none promised):**
 - Run the test suite for branch X on a worker while you keep editing branch Y here (the snapshot of X is taken once, so later edits do not change the run; see [workspace jobs](WORKSPACE-JOBS.md)).
@@ -102,7 +102,7 @@ Branch `feat/candidacy-measurement` (and the slice branches `feat/candidacy-show
 - `ct-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing itself: it prints the one `ct-setup install --set` command that applies a suggestion (the person's run of it is the confirmation); nothing is invented when the log is too short (it says how much more is needed).
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
-**Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
+**Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (an "offload reason" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
 
 ## Workspace jobs and the offload review (design 2026-11-26)
 

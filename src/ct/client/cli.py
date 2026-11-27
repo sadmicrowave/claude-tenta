@@ -927,7 +927,7 @@ def show_review(r, log, product, err, out):
     rest = (f"The other {r['kinds'] - len(shown)} ran {plural(r['commands'] - runs, 'time')}, {span(r['seconds'] - secs)} in all; the second command below lists them." if r["more"] else "")
     _ui.table(f"Start with {'these ' + str(len(shown)) if len(shown) > 1 else 'this one'}, the ones that take the most", ["#", "runs", "time", "command", "offload reason"],
               [[str(i), str(x["count"]), span(x["total"]), x["shape"], x["headline"]] for i, x in enumerate(shown, 1)], tag="RECOMMENDED", stream=out,
-              notes=(f"Together {plural(runs, 'run')}, {span(secs)}." + (" " + rest if rest else ""), "TIME is all the time those runs took on this computer. A command comes first when the reason it pays weighs more; after that, the most time."))
+              notes=(f"Together {plural(runs, 'run')}, {span(secs)}." + (" " + rest if rest else ""), "TIME is all the time those runs took on this computer. A command comes first when its offload reason weighs more; after that, the most time."))
     _ui.say("Pick the one you like", tag="NEXT", color=CYAN, stream=err, run_label=f"Check whether {name} can take it" + (", or see the rest" if r["more"] else ""),
             run=["ct-run offload fit -- <the example command>", *(["ct-run offload log top --all"] if r["more"] else [])])
 
@@ -1022,7 +1022,7 @@ def cmd_offload(ctx, a, cfg):
     if not rows:
         emit("No candidates yet", "A candidate is repeated, slow, runs locally, and is not a git, network or package-manager command.", tag="NOTE", color=YELLOW)
         return 0
-    _ui.table("All command shapes" if a.all else "Candidates for offloading", ["#", "runs", "median", "total", "command shape"] + ([] if a.all else ["why it pays"]),
+    _ui.table("All command shapes" if a.all else "Candidates for offloading", ["#", "runs", "median", "total", "command shape"] + ([] if a.all else ["offload reason"]),
               [[str(i), str(r["count"]), "?" if r["median"] is None else f"{r['median']:.0f}s", f"{r['total']:.0f}s", (r["shape"] + (f"   [{r['reason']}]" if r["reason"] else ""), "warn" if r["reason"] else None)]
                + ([] if a.all else [r["headline"] or "-"]) for i, r in enumerate(rows, 1)], tag="CANDIDATES", stream=out,
               notes=(*(() if a.all else (f"For {alias.show(ctx.product)}; median time at least {a.min_seconds:.0f} s, or {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')}.",)), f"From {len(recs)} commands recorded on this computer.", *busy_note, "RUNS is how many times you ran it, MEDIAN the usual time one run takes, TOTAL all the time you spent on it."))

@@ -78,6 +78,6 @@ After 4c (streamed compression) a 1.1 GB set still costs about 1x its size on th
 ## Busy-host rung: checks not done yet (feat/offload-busy-host-rung, 2026-11-26)
 - **Real load on a Linux computer.** `hostload.read` is tested with injected readers and ran for real only on macOS. Run `ct-run offload log top` on a Linux machine under real load (for example an OrbStack machine with `stress`) and confirm the 5-minute load per core and the note.
 - **Windows.** The rung returns "cannot be judged" there by design and is tested only with a fake platform; look at the real output on the Windows 11 VM, and decide later whether Windows should get a real reading (CPU use instead of load average).
-- **Narrow screens.** The `log top` table with the "WHY IT PAYS" column and the stacked `--all` rung values at 44 columns were checked for their labels only; view the full output once on a real narrow terminal.
+- **Narrow screens.** The `log top` table with the "OFFLOAD REASON" column and the stacked `--all` rung values at 44 columns were checked for their labels only; view the full output once on a real narrow terminal.
 - **Full suites.** Only the scoped tests ran for this slice; the full unit suite runs before the theme PR to main (slice rule), not yet done.
 - **Automatic offloading when busy.** Out of scope on purpose: the rung only reports and recommends. A later feature could offer to send a command to a worker when the computer is busy (needs the review flow, slices 6-8).
