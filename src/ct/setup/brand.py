@@ -5,8 +5,8 @@ colours belong to it and do not follow the theme; with colour off it is the same
 """
 from .. import __version__, theme
 
-NAME = "claude-tenta"
-HANDLE = "@claude-tenta"
+NAME = "armada"
+HANDLE = "@armada"
 
 PALETTE = [
     (150, 160, 192),

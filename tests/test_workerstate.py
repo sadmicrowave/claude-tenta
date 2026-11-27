@@ -28,14 +28,13 @@ class Jail:
 
 
 class Build(unittest.TestCase):
-    EXTRA = {"name": "w1", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "native_claude": False, "capacity": 4,
-             "claude": {"auth": "account", "tool": {"kind": "legacy", "version": "2.1.112"}}, "approvers": ["SHA256:k"]}
+    EXTRA = {"name": "w1", "release": "abc", "os": {"id": "ubuntu", "version": "26.04"}, "cpu": "X", "capacity": 4,
+             "approvers": ["SHA256:k"]}
     SNAP = {"at": "t", "cores": 2, "mem_total_mb": 15000, "mem_available_mb": 14000, "load_1m": 0.2, "temp_c": 50, "disk_free_gb": 400, "running": 0, "waiting": 1}
 
     def test_the_environment_and_the_observed_readings_are_kept_apart(self):
         env, doc = workerstate.build(snapshot=self.SNAP, registry={"classes": {"x": {}}}, extra=self.EXTRA, jail=Jail(), locked=False, now_iso="now")
-        self.assertEqual(doc["claude"]["tool"]["version"], "2.1.112")
-        self.assertEqual((doc["hardware"]["cores"], doc["hardware"]["native_claude"], doc["isolation"]), (2, False, {"ready": True, "method": "bwrap", "mode": "full", "purpose": "tenta-only", "tool_roots": []}))
+        self.assertEqual((doc["hardware"]["cores"], doc["isolation"]), (2, {"ready": True, "method": "bwrap", "mode": "full", "purpose": "tenta-only", "tool_roots": []}))
         self.assertEqual(doc["classes"], ["x"])
         self.assertEqual(doc["observed"]["load_1m"], 0.2)
         self.assertNotIn("observed", env)
@@ -131,10 +130,10 @@ class ListLabelsFit(unittest.TestCase):
     def test_every_label_of_the_workers_list_leaves_a_gap_before_its_value(self):
         """A label as wide as the label column ran into its value (LARGEST JOB1024 MB). Every row a worker can have is built here, so a new longer label fails this."""
         from ct.admin import workers
-        row = {"name": "x", "os": "o", "cpu": "c", "memory": "m", "claude": "c", "spend": "s", "state": "st", "release": "r", "load": "l", "age": "a", "ceiling": "1 MB",
+        row = {"name": "x", "os": "o", "cpu": "c", "memory": "m", "spend": "s", "state": "st", "release": "r", "load": "l", "age": "a", "ceiling": "1 MB",
                "purpose": "p", "profile_time": "estimate x 1 x 3", "platform": "windows", "held": "busy", "stale": False, "locked": False, "packages": 0}
         labels = [label for label, _ in workers.fact_rows(row, upper=True)]
-        self.assertGreaterEqual(len(labels), 13, labels)
+        self.assertGreaterEqual(len(labels), 12, labels)
         for label in labels:
             self.assertLess(len(label), workers.HANG, label)
 
@@ -161,5 +160,5 @@ class TheConnectionAWorkerReallyUses(unittest.TestCase):
 
             def ready(self):
                 return True
-        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "transport_configured": "direct", "claude": {"auth": "none"}}, jail=Jail(), locked=False, now_iso="x")
+        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "transport_configured": "direct"}, jail=Jail(), locked=False, now_iso="x")
         self.assertEqual((doc["transport"], doc["transport_configured"]), ("github", "direct"))

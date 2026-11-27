@@ -26,7 +26,7 @@ class Anywhere(unittest.TestCase):
     def test_a_windows_configuration_gets_the_windows_jail_and_a_linux_one_does_not(self):
         from unittest import mock
         from ct import config, jail
-        clean, problems = config.validate({"identity": {"name": "claude-tenta"}, "server": {"host": "h.example", "admin_user": "me"}})
+        clean, problems = config.validate({"identity": {"name": "armada"}, "server": {"host": "h.example", "admin_user": "me"}})
         cfg = config.Config(clean)
         with mock.patch("os.name", "nt"):
             self.assertEqual(jail.from_config(cfg).name, "windows-job")
@@ -34,7 +34,7 @@ class Anywhere(unittest.TestCase):
     @unittest.skipIf(WIN, "POSIX only")
     def test_a_linux_configuration_does_not_get_the_windows_jail(self):
         from ct import config, jail
-        clean, problems = config.validate({"identity": {"name": "claude-tenta"}, "server": {"host": "h.example", "admin_user": "me"}})
+        clean, problems = config.validate({"identity": {"name": "armada"}, "server": {"host": "h.example", "admin_user": "me"}})
         self.assertNotEqual(jail.from_config(config.Config(clean)).name, "windows-job")
 
 

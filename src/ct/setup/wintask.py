@@ -9,7 +9,7 @@ import re
 from .winlayout import ROOT, USER, _check_args
 from .wintools import POWERSHELL, parse_result
 
-TASK = "claude-tenta-worker"
+TASK = "armada-worker"
 DEFAULT_ARGS = "-m ct.cli run"
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{2,40}$")
 ARGS_RE = re.compile(r'^[A-Za-z0-9 _.:=,;()"-]{1,200}$')          # no single quote, no & | < > ^ % or backslash: nothing that cmd or PowerShell would read as more than text
@@ -62,7 +62,7 @@ def ensure_script(root=ROOT, user=USER, task=TASK, args=DEFAULT_ARGS):
   $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
   $pw = RandomPassword                                                                           # set now, not kept: Task Scheduler holds it, so the account's password must not be changed afterwards
   Set-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force)
-  Register-ScheduledTask -TaskName $tn -Action $action -Trigger $trigger -Settings $settings -User "$env:COMPUTERNAME\$u" -Password $pw -RunLevel Limited -Description "claude-tenta worker; definition $hash" -Force | Out-Null
+  Register-ScheduledTask -TaskName $tn -Action $action -Trigger $trigger -Settings $settings -User "$env:COMPUTERNAME\$u" -Password $pw -RunLevel Limited -Description "armada worker; definition $hash" -Force | Out-Null
   Write-Output ('CT-RESULT ' + (@{task = $tn; user = $u; changed = $true; definition = $hash} | ConvertTo-Json -Compress))""", args)
 
 

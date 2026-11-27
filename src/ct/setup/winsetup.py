@@ -136,5 +136,5 @@ class WindowsInstaller:
                 break
         if not res or res.get("status") != "ok":
             self.report.append(("first job", "failed", f"{FIRST_JOB}: {(res or {}).get('status', 'no result yet')}"))
-            raise refuse.error("win.first_job.failed", steps=[f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\claude-tenta\\state\\worker.log", "Run the same command again once it is fixed: nothing is set up twice."], job=FIRST_JOB, status=(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds'))
+            raise refuse.error("win.first_job.failed", steps=[f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\armada\\state\\worker.log", "Run the same command again once it is fixed: nothing is set up twice."], job=FIRST_JOB, status=(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds'))
         self.note("first job", "ok", f"{FIRST_JOB} ran on the Windows computer and came back")

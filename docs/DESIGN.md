@@ -19,9 +19,9 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
 
 | Thing | Where | Public? |
 |---|---|---|
-| This repo (`claude-tenta`): source, wizard, packs, docs | GitHub, public | yes |
-| `<user>/claude-tenta-queue` (jobs mailbox + the user's own registry) | created by the wizard, private | no |
-| `<user>/claude-tenta-results` (results mailbox) | created by the wizard, private | no |
+| This repo (`armada`): source, wizard, packs, docs | GitHub, public | yes |
+| `<user>/armada-queue` (jobs mailbox + the user's own registry) | created by the wizard, private | no |
+| `<user>/armada-results` (results mailbox) | created by the wizard, private | no |
 
 The wizard creates the two private repos under the user's account (with `gh` if present, otherwise it prints exact steps), adds a read-only
 deploy key to the queue repo and a write deploy key to the results repo, and writes the names into `ct.toml`. The software is installed
@@ -34,7 +34,7 @@ Three layers, later wins: built-in defaults, `ct.toml` (non-secret, one per inst
 Secrets (API key, ntfy token) live only in `secrets.env` (mode 0600, root:worker), are never rendered into units or commands, and are
 loaded through `EnvironmentFile=`.
 
-`ct.toml` lives at `~/.config/claude-tenta/ct.toml` on the client and `/etc/claude-tenta/ct.toml` on the server. Both are gitignored.
+`ct.toml` lives at `~/.config/armada/ct.toml` on the client and `/etc/armada/ct.toml` on the server. Both are gitignored.
 A JSON Schema (`config/ct.schema.json`) validates it; the same validation runs in the wizard, in `ct check`, and before any template render.
 Every value that reaches a shell, a unit file, a sudoers line or a firewall rule must match a strict pattern from the schema
 (hostnames, usernames, paths, ports, CIDRs); nothing is interpolated unvalidated.
@@ -49,8 +49,8 @@ admin_user  = "ctadmin"               # human admin on the server (needs a passw
 worker_user = "ctworker"              # unprivileged user that runs jobs
 [github]
 owner       = "your-github-handle"
-queue_repo  = "claude-tenta-queue"
-results_repo= "claude-tenta-results"
+queue_repo  = "armada-queue"
+results_repo= "armada-results"
 [paths]
 code   = "/opt/ct"
 state  = "/var/lib/ct"
@@ -90,7 +90,7 @@ packs/<name>/policy/*.toml    off-limits rules
 packs/<name>/hardening/<id>/  module.toml + check + apply + revert
 ```
 
-Search path: built-in `packs/`, then `~/.config/claude-tenta/packs/` (client side drafts) and, on the server, only packs that were
+Search path: built-in `packs/`, then `~/.config/armada/packs/` (client side drafts) and, on the server, only packs that were
 **applied** (installed root-owned under `/etc/<name>/packs/`, hash recorded). The server never loads a pack from a repo directly.
 
 Rules that keep extensibility from becoming a hole:
@@ -100,7 +100,7 @@ Rules that keep extensibility from becoming a hole:
 2. **Policy can only tighten.** Merge order is core, then packs; for any key a `deny` wins over an `allow`, ceilings take the minimum,
    `locked = true` entries in core cannot be overridden. A pack cannot remove a core off-limits rule or a canary rule.
 3. **Classes are declarative.** argv + typed params only; no shell strings, no inline scripts. A class declares `network`, `cost`, limits,
-   `output_keys`, `output_allow`, `packages` (pinned). Classes whose risk is `high` (network, sudo, files in, claude) default to `tier: approve`.
+   `output_keys`, `output_allow`, `packages` (pinned). Classes whose risk is `high` (network, sudo, files in) default to `tier: approve`.
 4. **Every pack has tests**: a `tests/` folder run by `ct pack test <name>` with a fake runner, so contributors can check a class without a server.
 
 ### Off-limits parameters and consideration requirements (`policy/*.toml`)
@@ -120,8 +120,8 @@ when   = { network = true }
 reason = "job can reach the network"
 
 [[require.consideration]]   # prompts the admin must answer in `ct-admin approve` (recorded in the security log)
-when   = { class_kind = "claude" }
-ask    = "Does the attached material come from a source you trust?"
+when   = { class_kind = "profile" }
+ask    = "Is the command you are about to approve the one you meant?"
 
 [limits]
 max_timeout_s = 3600
@@ -149,7 +149,7 @@ supports `--dry-run`, can be resumed (state in `ct-setup.state`), and is idempot
 2. Ask: server address, admin username, GitHub account, names for the two private repos. Default every answer to a safe, generic value.
 3. Create an SSH key if none exists; test login; offer `ssh-copy-id`.
 4. Create the two private repos (`gh repo create --private`, or print the instructions), add deploy keys when the server half has produced them.
-5. Write `ct.toml`, install the `ct-*` commands, offer the Claude Code skill.
+5. Write `ct.toml`, install the `ct-*` commands, offer the offload skill.
 
 **Server half** (`ct-setup server`)
 1. Detect OS and version, RAM, cores, disk, sensors, sudo flavour, systemd, existing groups and listeners. Refuse unsupported OSes with a clear message.
@@ -179,7 +179,7 @@ Whichever is chosen is recorded in `ct.toml` and verified by `ct-setup audit`. N
 
 - `scripts/privacy-check` runs as `pre-commit` and `commit-msg` hooks, in CI, and with `--history` before any push. Generic rules catch private IPs,
   MACs, e-mails, `.local` hostnames, keys, tokens, ntfy topics and home paths. A personal denylist outside the repo
-  (`~/.config/claude-tenta-dev/denylist`) catches your own handle, names and hostnames without publishing them.
+  (`~/.config/armada-dev/denylist`) catches your own handle, names and hostnames without publishing them.
 - It also refuses to commit unless the git author is a `users.noreply.github.com` address.
 - Documentation and tests use reserved example values only (`192.0.2.0/24`, `example.com`).
 - `.gitignore` excludes `ct.toml`, `secrets.env`, state, results, jobs and keys.

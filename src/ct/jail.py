@@ -82,7 +82,7 @@ class Jail:
     def describe(self):
         return "no isolation"
 
-    def wrap(self, argv, *, network, wd, home, claude=False, env=None, require=True):
+    def wrap(self, argv, *, network, wd, home, env=None, require=True):
         if require:
             raise Refused(f"this machine cannot isolate jobs ({self.problem()}), so no job will run")
         return list(argv)
@@ -107,7 +107,7 @@ class WindowsJobObject(Jail):
     def describe(self):
         return "a Job Object per job (the whole process tree is stopped together); no file or network isolation on Windows"
 
-    def wrap(self, argv, *, network, wd, home, claude=False, env=None, require=True):
+    def wrap(self, argv, *, network, wd, home, env=None, require=True):
         return list(argv)
 
 
@@ -130,7 +130,7 @@ class Unshare(Jail):
     def describe(self):
         return "no network for jobs (unshare); jobs can still see the worker's files"
 
-    def wrap(self, argv, *, network, wd, home, claude=False, env=None, require=True):
+    def wrap(self, argv, *, network, wd, home, env=None, require=True):
         return isolate(list(argv), network, flags=self.flags() or False, require=require)
 
 
@@ -166,7 +166,7 @@ class Bwrap(Jail):
     def path(self):
         return self._path or self._which("bwrap", path="/usr/bin:/bin")
 
-    def args(self, argv, *, network, wd, home, claude=False, env=None):
+    def args(self, argv, *, network, wd, home, env=None):
         """The complete command line. Order matters: the root is empty, then each mount is added, later mounts over earlier ones."""
         wd, home = str(wd), str(home)
         a = [self.path or "bwrap", "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--hostname", "localhost",
@@ -181,8 +181,6 @@ class Bwrap(Jail):
         for f in MASKED:
             a += ["--ro-bind-try", "/dev/null", f]
         a += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", home]
-        if claude:                                # the model's command line tool lives here; everything else in the home stays hidden
-            a += ["--ro-bind-try", f"{home}/.local", f"{home}/.local"]
         if network:
             a += ["--ro-bind-try", "/run/systemd/resolve", "/run/systemd/resolve"]       # /etc/resolv.conf points here
         for p in extra_ro_paths(env, home, wd):
@@ -245,13 +243,13 @@ class Bwrap(Jail):
     def describe(self):
         return "jobs run in a bubblewrap jail: no network, no capabilities, and no view of the worker's home or configuration"
 
-    def wrap(self, argv, *, network, wd, home, claude=False, env=None, require=True):
+    def wrap(self, argv, *, network, wd, home, env=None, require=True):
         bad = self.problem()
         if bad:
             if require:
                 raise Refused(f"this machine cannot isolate jobs ({bad}), so no job will run")
             return list(argv)
-        return self.args(argv, network=network, wd=wd, home=home, claude=claude, env=env)
+        return self.args(argv, network=network, wd=wd, home=home, env=env)
 
 
 def from_config(cfg, **kw):

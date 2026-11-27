@@ -24,7 +24,6 @@ class Ids(unittest.TestCase):
 
 class FileNames(unittest.TestCase):
     CMD = {"accepts_files": True}
-    AI = {"accepts_files": True, "kind": "claude"}
     LIM = {"files": {"max_count": 200, "max_file_kb": 500, "max_total_kb": 2000}}
 
     def test_a_name_is_checked_only_for_what_could_leave_the_job_folder(self):
@@ -60,13 +59,10 @@ class FileNames(unittest.TestCase):
         files = {"templates/systemd/helper@.service.in": "x", ".gitignore": "y", "my notes.txt": "z"}
         self.assertEqual(jobs.check_files(files, self.CMD, self.LIM), files)
 
-    def test_a_leading_dot_is_refused_only_for_a_class_whose_tool_reads_settings_from_its_folder(self):
-        jobs.check_files({".claude/settings.json": "{}"}, self.CMD, self.LIM)               # a command class: just a file
+    def test_a_leading_dot_is_just_part_of_a_name_and_the_path_rule_still_applies(self):
+        jobs.check_files({"docs/.settings/x.json": "{}"}, self.CMD, self.LIM)
         with self.assertRaises(jobs.Reject) as cm:
-            jobs.check_files({"docs/.claude/settings.json": "{}"}, self.AI, self.LIM)
-        self.assertEqual(cm.exception.code, "files.name.hidden")
-        with self.assertRaises(jobs.Reject) as cm:
-            jobs.check_files({"../x": "1"}, self.AI, self.LIM)
+            jobs.check_files({"../x": "1"}, self.CMD, self.LIM)
         self.assertEqual(cm.exception.code, "files.name.path")                              # the path rule still applies to every kind
 
 
@@ -153,7 +149,7 @@ class Files(unittest.TestCase):
         for bad in ("../x", "/etc/passwd", "a/../b", "a//b", "", "x" * 1100, "a\n"):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 jobs.check_files({bad: "x"}, self.cls, LIMITS)
-        for ok in ("a.txt", "dir/sub/file-1_2.js", "_x", "a.b.c", ".claude/settings.json", ".hidden", "a b", "a;b", "dir/.dot", "x" * 201):           # (the old character list refused the last six: see FileNames)
+        for ok in ("a.txt", "dir/sub/file-1_2.js", "_x", "a.b.c", ".config/settings.json", ".hidden", "a b", "a;b", "dir/.dot", "x" * 201):           # (the old character list refused the last six: see FileNames)
             jobs.check_files({ok: "x"}, self.cls, LIMITS)
 
     def test_content_must_be_text_and_the_class_must_accept_files(self):
@@ -169,7 +165,6 @@ class Files(unittest.TestCase):
 class Timeouts(unittest.TestCase):
     def test_defaults_and_profile_caps(self):
         self.assertEqual(jobs.job_timeout({}, {}), 60)
-        self.assertEqual(jobs.job_timeout({"kind": "claude"}, {}), 600)
         self.assertEqual(jobs.job_timeout({"timeout_s": 5}, {"timeout_s": 999}), 5)             # a job cannot raise a class's timeout
         prof = {"kind": "profile", "max_timeout_s": 300}
         self.assertEqual(jobs.job_timeout(prof, {}), 300)

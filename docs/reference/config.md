@@ -3,7 +3,7 @@
 
 # Configuration reference
 
-Every setting of `ct.toml`, with its default. The file is read from `~/.config/claude-tenta/ct.toml` on your computer and `/etc/<name>/ct.toml` on the server (or the path in `CT_CONFIG`). Any setting can also be set by an environment variable named `CT_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
+Every setting of `ct.toml`, with its default. The file is read from `~/.config/armada/ct.toml` on your computer and `/etc/<name>/ct.toml` on the server (or the path in `CT_CONFIG`). Any setting can also be set by an environment variable named `CT_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
 
 `{name}` and `{worker_user}` in a default are filled in from the settings of the same name.
 
@@ -12,7 +12,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `name` | `claude-tenta` | text | prefix for services, folders and commands on this install |
+| `name` | `armada` | text | prefix for services, folders and commands on this install |
 
 ## [server]
 
@@ -102,15 +102,6 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `ssh_from` | `["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]` | list | networks allowed to SSH in |
 | `ipv6` | `enabled` | `enabled` , `disabled` | disabled turns IPv6 off on the server (less to attack, and nothing to firewall); enabled keeps it and blocks unique-local addresses |
 
-## [claude]
-
-| Setting | Default | Allowed | What it does |
-|---|---|---|---|
-| `auth` | `none` | `account` , `api-key` , `none` | how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). The token or key itself lives only in secrets.env |
-| `jobs_per_day` | `20` | float | the most Claude jobs this worker STARTS in a UTC day; at the limit new ones wait (they start tomorrow or when you raise this) and other jobs carry on. 0 means no limit |
-| `turns_per_day` | `300` | float | the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit |
-| `update_days` | `7` | float | days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail) |
-
 ## [health]
 
 | Setting | Default | Allowed | What it does |
@@ -168,7 +159,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `mode` | `manual` | `manual` , `signed-tags` | manual = you apply; signed-tags = install only tags signed by your key |
-| `source` | `https://github.com/sadmicrowave/claude-tenta.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
+| `source` | `https://github.com/sadmicrowave/armada.git` | text | https address of the project repository releases are fetched from (your fork, or the project itself) |  <!-- privacy-ok: the project's own public address -->
 | `branch` | `main` | text | branch an explicit revision must be on before it may be installed |
 | `check` | `true` | bool | show a one-line note after a command when a newer release exists (checked at most once a day, in the background; nothing is installed) |
 

@@ -9,7 +9,7 @@ import re
 
 from .wintools import DEFAULT_TOOLS, POWERSHELL, TOOLS_RE, WinToolsError, parse_result
 
-DEFAULT_RELEASE = r"%ProgramData%\claude-tenta\release"
+DEFAULT_RELEASE = r"%ProgramData%\armada\release"
 URL_RE = re.compile(r"^https://[A-Za-z0-9._~:/@%+=-]+$")                 # no quote, space or shell character can get into the script
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 

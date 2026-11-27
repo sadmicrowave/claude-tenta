@@ -14,7 +14,6 @@ Every name, path and limit comes from the configuration (ct.toml) through `Conte
 import hashlib
 import json
 import os
-import re
 import subprocess
 import shutil
 import sys
@@ -23,7 +22,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from . import transport, alerts, approvals, claudeupdate, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
+from . import transport, alerts, approvals, config, privileged, gitio, guard, jobs, packages, perms, profiling, registry, results, review, runner
 from . import jail as jail_mod
 from . import plat, publishdiag, workerstate
 from . import cards
@@ -80,14 +79,13 @@ class Context:
     """Everything a command needs: the worker, and the names that appear in messages."""
 
     def __init__(self, worker, *, product="the worker", admin="ct-admin", installed_rev=None, notifier=None, canary_status=None,
-                 ask=input, hardware=None, uptime=None, token_days=None, store="GitHub"):
+                 ask=input, hardware=None, uptime=None, store="GitHub"):
         self.w, self.product, self.admin = worker, product, admin
         self.store = store                                  # what jobs and results are passed through: the words of a message ("GitHub", "the mailbox")
         self.installed_rev, self.notifier = installed_rev, notifier
         self.canary_status = canary_status or Path(f"/run/{product}/canary-watch.json")
         self.ask = ask
         self.hardware = hardware or {}
-        self.token_days = token_days
         self.uptime = uptime or self._uptime
 
     @staticmethod
@@ -108,8 +106,7 @@ class Context:
                             max_load=cfg.hardware.max_load, max_temp_c=cfg.hardware.max_temp_c, product=name, identity=name,
                             exec_argv=[sys.executable, "-m", "ct.cli", "exec"], require_netns=cfg.isolation.require_netns, profile_approval=cfg.transport.profile_approval if direct else "required", max_job_mb=cfg.hardware.max_job_mb, transport="direct" if direct else "github",
                             idle_after_s=int(cfg.schedule.idle_after_min) * 60, idle_fetch_s=0 if direct else int(cfg.schedule.idle_fetch_s),
-                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=0 if direct else int(cfg.schedule.sleep_fetch_s),      # Direct reads a local folder, so there is no reason to slow down: a job is picked up within seconds, idle or not
-                            claude_jobs_per_day=int(cfg.claude.jobs_per_day), claude_turns_per_day=int(cfg.claude.turns_per_day))
+                            sleep_after_s=int(cfg.schedule.sleep_after_min) * 60, sleep_fetch_s=0 if direct else int(cfg.schedule.sleep_fetch_s))      # Direct reads a local folder, so there is no reason to slow down: a job is picked up within seconds, idle or not
         gitio.harden_git_env(os.environ)
         io = gitio.GitIO(cfg.path("queue_clone"), cfg.path("results_clone"), state, queue_branch=cfg.github.main_branch, jobs_branch=cfg.github.jobs_branch,
                          committer=(name, f"{name}@localhost"), log=_log)
@@ -121,7 +118,6 @@ class Context:
         sensors = runner.default_sensors()
         pk = packages.Packages(cfg.path("tools"), state / "profile-env", product=name)
         approvers = cfg.path("approvers")
-        claude_memo = {}
 
         def origin_of(clone):
             try:
@@ -130,26 +126,16 @@ class Context:
                 return ""
 
         def state_facts():
-            """What only the install knows, for worker-state.json. The Claude tool is asked about at most every half hour (it is a program that has to be run)."""
+            """What only the install knows, for worker-state.json."""
             def read(path):
                 try:
                     return Path(path).read_text()
                 except OSError:
                     return ""
             cpuinfo = plat.cpuinfo_text()
-            flags = re.search(r"^flags\s*:\s*(.*)$", cpuinfo, re.M)
-            claude = {"auth": cfg.claude.auth}
-            if cfg.claude.auth == "account":
-                days = claudeupdate.token_age_days(cfg.paths.config)
-                if days is not None:
-                    claude["token_days"] = days
-            if cfg.claude.auth != "none":
-                if time.time() - claude_memo.get("at", 0) > 1800:
-                    claude_memo.update(at=time.time(), tool=claudeupdate.tool_info(cfg.paths.worker_home))
-                claude["tool"] = claude_memo["tool"]
             return {"name": name, "release": read(cfg.path("installed_rev")).strip(), "os": workerstate.parse_os_release(read("/etc/os-release")),
-                    "cpu": workerstate.cpu_model(cpuinfo), "native_claude": True if flags is None else "sse4_2" in flags.group(1).split(),
-                    "capacity": settings.capacity, "claude": claude, "approvers": approvals.fingerprints(read(approvers)),
+                    "cpu": workerstate.cpu_model(cpuinfo),
+                    "capacity": settings.capacity, "approvers": approvals.fingerprints(read(approvers)),
                     "platform": plat.name(), "isolation_mode": cfg.isolation.mode, "isolation_purpose": cfg.isolation.purpose, "tool_roots": list(cfg.isolation.tool_roots),
                     **workerstate.transport_facts(transport.for_config(cfg).kind, transport.canonical_origin(cfg, origin_of(cfg.path("queue_clone")))),          # what this worker really fetches over: the orchestrator trusts this over any configuration
                     "pickup_max_s": max(int(cfg.schedule.fetch_s or 0), int(cfg.schedule.idle_fetch_s or 0), int(cfg.schedule.sleep_fetch_s or 0))}      # the longest a new job can wait to be noticed (the slowest mode it can be in)
@@ -162,14 +148,13 @@ class Context:
             if not ok:
                 _log(f"an approval for {jid} was found but not accepted: {why}")
             return ok
-        w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home, api_key=secrets.get("ANTHROPIC_API_KEY") if cfg.claude.auth == "api-key" else None,
-                   oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN") if cfg.claude.auth == "account" else None,       # only the chosen sign-in is ever given to a job
+        w = Worker(settings, io, lock, keeper, pk, seclog=seclog, sensors=sensors, log=_log, home=cfg.paths.worker_home,
                    signed_approval=signed_approval, approvers_file=approvers, state_facts=state_facts, hostname=None,
                    privileged_call=lambda raw, approval, timeout: privileged.call(cfg.path("helper_socket"), raw, approval, timeout), jail=jail_mod.from_config(cfg))
         if problem:
             _log(f"WARNING: {problem}")
         return cls(w, product=name, installed_rev=Path(cfg.path("installed_rev")), notifier=notifier, canary_status=Path(cfg.path("run_dir")) / "canary-watch.json",
-                   token_days=claudeupdate.token_age_days(cfg.paths.config) if cfg.claude.auth == "account" else None, store=transport.store_for(cfg), hardware={"profile": cfg.hardware.profile})
+                   store=transport.store_for(cfg), hardware={"profile": cfg.hardware.profile})
 
 
 def _log(msg):
@@ -572,33 +557,12 @@ def cmd_status(ctx, hours=12):
             slow = (f"; asleep, so it asks {ctx.store} every {w.s.sleep_fetch_s} s" if p.get("mode") == "sleep" else f"; idle, so it asks {ctx.store} every {w.s.idle_fetch_s} s") if p.get("idle") else ""
             took = f", took {p['took_s']:g} s" if p.get("took_s") is not None else ""
             line(True, label, "OK", f"last pass {int(time.time() - p['ts'])} s ago{took} ({what}{slow})")
-    if getattr(w, "ledger", None) is not None and w.s.claude_command and (w.ledger.jobs_per_day or w.ledger.turns_per_day or w.ledger.today()["jobs"]):
-        b = w.ledger.summary()
-        of = lambda n, limit, noun: f"{n} of {limit} {noun}s" if limit else plural(n, noun)         # noqa: E731  ("0 of 20 jobs", "1 job")
-        used = f"{of(b['jobs'], b['limit_jobs'], 'job')}, {of(b['turns'], b['limit_turns'], 'turn')} today (UTC)"
-        line(not b["paused"], "Claude today", "PAUSED" if b["paused"] else "OK", (f"{b['reason']}: new Claude jobs wait, everything else runs. " if b["paused"] else "") + used
-             + (f"; notional cost ${b['cost_usd']:.2f}" if b["cost_usd"] else ""))
     pf = publishdiag.load(w.state)
     if pf and any((w.state / "finished").glob("*.json")):
         kind, meaning, fix = publishdiag.classify(pf.get("error"))
         mins = max(1, int((time.time() - pf["since"]) / 60))
         line(False, "Publish", "FAILING", f"results have been stuck for {mins} min, so the person waiting sees the job as not picked up although it ran. {meaning}"
              + (f" Fix: {fix} on your computer, then ct-admin wake." if fix else "") + (f" Git said: {pf['error'][-160:]}" if pf.get("error") else ""))
-    if ctx.token_days is not None and claudeupdate.token_state(ctx.token_days) != "ok":
-        gone = claudeupdate.token_state(ctx.token_days) == "expired"
-        line(False, "Claude token", "EXPIRED" if gone else "EXPIRING", f"the subscription token is {plural(ctx.token_days, 'day')} old (it lasts about a year); "
-             + ("Claude jobs fail until it is renewed" if gone else "renew it soon") + ": run ct-setup install on your computer and choose account again")
-    cu = claudeupdate.load(w.state)
-    if cu:
-        when = f"{plural(int((time.time() - cu['ts']) / 86400), 'day')} ago" if time.time() - cu["ts"] > 86400 else "today"
-        if cu["kind"] == "legacy":
-            line(True, "Claude", f"OLDER {cu['after'] or '?'}", f"pinned older release, cannot be updated on this processor (newer ones need a newer machine)")      # expected on an old processor: information, not a problem
-        elif not cu["ok"]:
-            line(False, "Claude", "UPDATE FAILED", f"{cu['note'] or 'see the journal'}  (last tried {when})")
-        elif time.time() - cu["ts"] > 21 * 86400:
-            line(False, "Claude", f"{cu['after']} STALE", f"not updated for {plural(int((time.time() - cu['ts']) / 86400), 'day')}; the update timer may have stopped")
-        else:
-            line(True, "Claude", cu["after"] or "OK", f"{cu['kind']} install, checked for updates {when}")
     total, avail = w.sensors.meminfo() if w.sensors else (0, None)
     if total and avail is not None:
         good = avail > total * 0.1
@@ -662,19 +626,6 @@ def run_pass(ctx, which):
     return 0
 
 
-def cmd_claude_update(ctx, cfg):
-    """The weekly pass that keeps the claude tool patched (see claudeupdate). Does nothing where Claude is not used."""
-    if cfg.claude.auth == "none":
-        return 0
-    res = claudeupdate.update(cfg.paths.worker_home)
-    claudeupdate.save(ctx.w.state, res)
-    record_pass(ctx.w.state, "claude-update", res["ok"], res["note"])
-    changed = res["before"] != res["after"]
-    emit("Claude tool " + ("updated" if changed else "checked"), f"{res['kind']} install, version {res['after'] or 'unknown'}" + (f" (was {res['before']})" if changed else ""),
-         res["note"] or None, tag="OK" if res["ok"] else "NOTE", color=GREEN if res["ok"] else YELLOW)
-    return 0 if res["ok"] or res["kind"] == "legacy" else 1
-
-
 # ---- root-run helpers ----------------------------------------------------------------------------------------------------------
 def cmd_check_registry(path, tools_root):
     try:
@@ -735,8 +686,6 @@ def main(argv=None, ctx=None, cfg=None):
             perms.tighten_modes([ctx.w.state, ctx.w.io.queue, ctx.w.io.results], ctx.w.state / perms.MODES_MARKER)
         if cmd in ("fetch", "step"):
             return run_pass(ctx, cmd)
-        if cmd == "claude-update":
-            return cmd_claude_update(ctx, cfg or config.load())
         if cmd == "exec" and len(args) == 1:
             return cmd_exec(ctx, args[0])
         if cmd == "run":

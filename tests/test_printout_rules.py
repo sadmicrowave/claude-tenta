@@ -98,8 +98,8 @@ class OneOutline(unittest.TestCase):
 
     def test_the_workers_list_is_one_framed_card_per_worker(self):
         from ct.admin import workers
-        row = {"name": "tenta2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "claude": "none", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
-               "age": "5 min ago", "has_claude": False, "locked": False, "stale": False, "packages": 0, "classes": 3}
+        row = {"name": "tenta2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
+               "age": "5 min ago", "locked": False, "stale": False, "packages": 0, "classes": 3}
         out = [ANSI.sub("", x) for x in workers.cards([row, {**row, "name": "tenta3", "locked": True}], width=80, color=True)]
         self.assertEqual(sum(x.startswith("╭─") for x in out), 2)
         self.assertEqual(sum(x.startswith("╰") for x in out), 2)

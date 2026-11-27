@@ -36,7 +36,7 @@ def main(argv=None):
     for title, where, items in SECTIONS:
         rows += [cards.Heading(f"{title} ({where})")] + [(cards.Cmd(cmd), what) for cmd, what in items]
     rows += [cards.Heading("More")] + [(cards.Cmd(c), "every command with its options and examples") for c in ("ct-run help", "ct-admin help", "ct-setup help")]
-    ui.say("claude-tenta", "Offload slow jobs to a spare machine on your network.", "\n", *rows, tag="HELP", color=ui.PRIMARY, stream=sys.stdout)
+    ui.say("armada", "Offload slow jobs to a spare machine on your network.", "\n", *rows, tag="HELP", color=ui.PRIMARY, stream=sys.stdout)
     return 0
 
 

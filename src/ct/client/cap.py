@@ -1,6 +1,6 @@
 """The host job cap: how many jobs this computer will have running at once across all its workers.
 
-Each worker limits itself (its capacity, one Claude job at a time per class), but a session on THIS computer that sends jobs to several workers, or a script in a loop, can pile
+Each worker limits itself (its capacity, its own limits), but a session on THIS computer that sends jobs to several workers, or a script in a loop, can pile
 them up faster than anyone looks. `limits.max_in_flight` (default 8; 0 means no cap) is checked by `ct-run submit` before anything is sent: the jobs this computer sent that are
 queued or running on any worker you administer, plus the ones about to be sent, must not pass it. A job waiting for YOUR approval is not counted: it is not running, and the wait is
 the brake. A job with no result yet counts only for 24 hours, so one that never came back cannot block sending forever. When a worker cannot be read, the last downloaded results

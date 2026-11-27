@@ -298,7 +298,7 @@ def render_status(rows, results, label_of, hints, admin="ct-admin", n=15, out=No
 
 
 def _what(c):
-    return " ".join(c["run"]) if c.get("run") else ("read-only Claude on files you attach" if c["kind"] == "claude" else "profile one exact command (always needs your approval)")
+    return " ".join(c["run"]) if c.get("run") else "profile one exact command (always needs your approval)"
 
 
 TIER_WORDS = {"auto": "runs as soon as you submit it", "approve": "waits for your approval"}

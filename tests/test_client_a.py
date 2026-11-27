@@ -235,9 +235,8 @@ class IdsAndJobs(unittest.TestCase):
         self.assertEqual(submit.parse_params(["n=3", "dir=src", "neg=-2", "ver=1.5", "eq=a=b"]), {"n": 3, "dir": "src", "neg": -2, "ver": "1.5", "eq": "a=b"})
         with self.assertRaises(ClientError):
             submit.parse_params(["nothing"])
-        job = submit.stamp("job-0001", submit.build_job("echo", {"w": "hi"}, "a prompt", {"a.txt": "x"}), clock=lambda: NOW)
-        self.assertEqual(job, {"id": "job-0001", "class": "echo", "params": {"w": "hi"}, "prompt": "a prompt", "files": {"a.txt": "x"}, "created": "2026-01-02T03:00:00Z"})
-        self.assertNotIn("prompt", submit.build_job("echo"))
+        job = submit.stamp("job-0001", submit.build_job("echo", {"w": "hi"}, {"a.txt": "x"}), clock=lambda: NOW)
+        self.assertEqual(job, {"id": "job-0001", "class": "echo", "params": {"w": "hi"}, "files": {"a.txt": "x"}, "created": "2026-01-02T03:00:00Z"})
 
 
 class Human(unittest.TestCase):

@@ -3,7 +3,7 @@
 Pure: it takes what each worker published (its state document and its registry) and says which worker should get a job of a given class, and WHY, for every worker, in plain words.
 Nothing here connects to anything, so the same function serves the submit command, the explain command and the tests, and a given set of readings always gives the same answer.
 
-A worker is left out for a reason a person can act on (unreachable, locked, no isolation, does not offer the class, reserved for other work, no Claude access). The ones left are ranked:
+A worker is left out for a reason a person can act on (unreachable, locked, no isolation, does not offer the class, reserved for other work). The ones left are ranked:
 the administrator's preference for that class first, then a fresh reading before a stale one, then the most free capacity, then the shortest wait for the worker to notice the job, then the
 lightest load per core, then the name (so a tie is never random). Standard library only.
 """
@@ -164,15 +164,6 @@ def _left_out(w, cls, kind, prefs):
     allowed = prefs.connections.get(cls)
     if allowed and w.listens_on not in allowed:
         out.append(why("placement.connection", listens=w.listens_on, cls=cls, allowed=" or ".join(allowed)))
-    if kind == "claude":
-        c = w.doc("claude", default={}) or {}
-        signed_in = c.get("auth", "none") != "none"
-        if not signed_in:
-            out.append(why("placement.ai.no_signin"))
-        if (c.get("tool") or {}).get("kind") == "missing":
-            out.append(why("placement.ai.no_tool"))
-        if signed_in and w.doc("claude_paused", default=False):
-            out.append(why("placement.ai.paused"))
     return out
 
 

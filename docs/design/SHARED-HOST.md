@@ -13,4 +13,4 @@
 
 **Not built yet**
 - A Mac worker (the Mac mini as a shared worker needs a macOS design of its own: launchd, no systemd, `sandbox-exec` instead of bubblewrap).
-- Limits that cannot be promised: a local administrator can read what the worker account can read, so Claude jobs stay off on a shared computer by default.
+- Limits that cannot be promised: a local administrator can read what the worker account can read, so the worker stays off on a shared computer by default.

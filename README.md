@@ -1,4 +1,4 @@
-# Claude Tenta
+# Armada
 
 Offload slow or heavy jobs from your laptop to a spare Linux machine on your home network, using two private GitHub repositories as the mailbox.
 
@@ -11,7 +11,7 @@ Offload slow or heavy jobs from your laptop to a spare Linux machine on your hom
 - **Nothing is reachable from the internet.** The worker only makes outgoing connections to GitHub.
 
 ```bash
-git clone https://github.com/<project>/claude-tenta.git && cd claude-tenta
+git clone https://github.com/<project>/armada.git && cd armada
 python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e .
 ~/.ct-venv/bin/ct-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job, and puts ct-run, ct-admin... on your PATH (open a new terminal tab)
 ```
@@ -23,11 +23,13 @@ two parts of the design are still open (a `systemd-run` isolation method and a p
 
 Requires Python 3.11+ on both computers, and Ubuntu 24.04+ or Debian 12+ on the worker. Standard library only on the server, plus PyYAML (`python3-yaml`) for the registry.
 
+No migration is supported before the first release: uninstall a previous install with its own version (`ct-setup uninstall --apply`), then install.
+
 Licensed under the Apache License 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
-## The Claude skill
+## The offload skill
 
-`skills/tenta-offload/SKILL.md` teaches Claude Code when to send work to the worker and how (check what is registered, profile an unknown command, attach only the files a job needs, never approve anything itself). Install it by linking the folder into Claude Code's skills:
+`skills/tenta-offload/SKILL.md` teaches a coding assistant when to send work to the worker and how (check what is registered, profile an unknown command, attach only the files a job needs, never approve anything itself). Install it by linking the folder into the assistant's skills folder (the path below is the one the common assistants read):
 
 ```bash
 mkdir -p ~/.claude/skills && ln -s "$PWD/skills/tenta-offload" ~/.claude/skills/tenta-offload

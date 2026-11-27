@@ -26,7 +26,7 @@ PYYAML = {"version": "6.0.4",                         # the registry is YAML: th
                      "cp313": "0a3a351f04dc124f9357512bdb80ac37cd1750cf1371da33e7cbb96d80ac865f", "cp314": "1d2f08c122727c86f8303bb1dd45159ca1de1f2d68798e671ec46974e321008e",
                      "cp315": "67da066ca12eb60114ea87f2ecbcca622fff0c205c743cc900437127564fabf6"}}      # sha256 of each win_amd64 wheel on PyPI; pip refuses any other file
 MIN_PYTHON = (3, 11)
-DEFAULT_TOOLS = r"%ProgramData%\claude-tenta\tools"
+DEFAULT_TOOLS = r"%ProgramData%\armada\tools"
 POWERSHELL = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"]       # the script itself arrives on standard input
 TOOLS_RE = re.compile(r"^(%[A-Za-z]+%|[A-Za-z]:)[\\A-Za-z0-9 ._()-]*$")                                         # a folder: letters, digits, space . _ ( ) - and backslashes; no quote can get into the script
 

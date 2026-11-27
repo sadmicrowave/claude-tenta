@@ -8,7 +8,7 @@ export NO_GITHUB=1
 OLD=198.51.100.9          # the address the worker used to have: nothing answers here
 ME=192.0.2.2              # this computer's own address on its end of the virtual cable (never scanned: it is "this computer")
 NEW=192.0.2.50            # the worker's address now: the other end of the cable, answered by a real sshd with the worker's own host keys
-CT_TOML=$H/$ADMIN/.config/claude-tenta/ct.toml
+CT_TOML=$H/$ADMIN/.config/armada/ct.toml
 
 step "Prepare the machine and install a Direct worker"
 prepare_system

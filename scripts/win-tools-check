@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BY HAND, on a real Windows computer: run the tools installer (src/ct/setup/wintools.py) over SSH and show what came back.
   scripts/win-tools-check USER@HOST [--tools FOLDER]       (key login must work; the PowerShell is sent on standard input)
-Run it twice: the second run must say changed=false. To start clean, delete the tools folder on the computer (default %ProgramData%\\claude-tenta\\tools)."""
+Run it twice: the second run must say changed=false. To start clean, delete the tools folder on the computer (default %ProgramData%\\armada\\tools)."""
 import subprocess
 import sys
 import time

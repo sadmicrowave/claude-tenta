@@ -31,7 +31,7 @@ class Home(unittest.TestCase):
         self.clients = self.home / ".ct"
         (self.clients / "approval").mkdir(parents=True)
         (self.clients / "approval" / "key").write_text("k")
-        self.conf.write_text(f'[identity]\nname = "claude-tenta"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n[paths]\nclient_home = "{self.clients}"\n')
+        self.conf.write_text(f'[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n[paths]\nclient_home = "{self.clients}"\n')
         self.wconf = self.tmp / "cfg" / "win.toml"
         self.wconf.write_text("x")
         workers_mod.save_list(self.tmp / "cfg" / "workers.toml", {"win": str(self.wconf)})

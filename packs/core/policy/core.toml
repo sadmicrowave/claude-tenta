@@ -18,6 +18,3 @@ reason = "paths that climb out of the job's folder are not allowed"
 when   = { network = true }
 reason = "the job can reach the network"
 
-[[require.approval]]
-when   = { kind = "claude" }
-reason = "the job sends material to a model"

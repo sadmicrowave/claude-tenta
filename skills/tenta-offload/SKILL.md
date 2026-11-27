@@ -16,7 +16,7 @@ Judge EVERY step of a plan on its own, not just the request as a whole: in a pla
 - the user would like it done in the background;
 - the user asked for the worker.
 
-Do NOT offload work that is quick, needs back-and-forth with the user, touches secrets or private keys, needs more input than the file limits allow (below), or needs strong reasoning (the worker's Claude, if it has one, may be an older, weaker model; do that yourself). Never offload heavy compute the worker cannot hold (big builds, ML, anything needing a GPU).
+Do NOT offload work that is quick, needs back-and-forth with the user, touches secrets or private keys, needs more input than the file limits allow (below), or needs strong reasoning (the worker only runs registered commands; do that yourself). Never offload heavy compute the worker cannot hold (big builds, ML, anything needing a GPU).
 
 ## Step 1: ask the worker's lists, in this order
     ct-run offload fit -- <the exact command and arguments>
@@ -66,7 +66,7 @@ Never run `ct-admin approve`, `ct-admin adopt`, `ct-admin apply`, `ct-admin acti
 
 ## Running a job
 - ALWAYS tell the user before you submit: one line saying what you are sending to the worker and why (e.g. "Sending the log review to the worker (read-only, ~5 min)."). The user relies on this line to know it happened.
-- Jobs of a class that needs approval (a profiling run, a Claude analysis, any root-level class) wait for the user's signature: give them the job id and `ct-admin approve <id>`, and keep working. A class that runs as ROOT shows a RUNS AS ROOT card when they review it; never try to get around that.
+- Jobs of a class that needs approval (a profiling run, any root-level class) wait for the user's signature: give them the job id and `ct-admin approve <id>`, and keep working. A class that runs as ROOT shows a RUNS AS ROOT card when they review it; never try to get around that.
 - **Don't block the plan.** Submit WITHOUT `--wait`, note the job id, keep working on steps that don't depend on it, and fetch it with `ct-run result <id>` only when a later step needs the output. Use `--wait` only when nothing else can proceed. Never leave the rest of the plan stuck on a job: if a result is late, rejected, `limit`, `quarantined` or the worker is LOCKED, do that step yourself (or tell the user) and finish the rest.
 - **Batch small similar tasks.** Every job has overhead, so don't send dozens of tiny jobs. Group them into one job and run the quick ones yourself.
 - Independent jobs can be submitted together; the worker runs a few in parallel and queues the rest, so a handful at a time is plenty.
@@ -75,7 +75,7 @@ Never run `ct-admin approve`, `ct-admin adopt`, `ct-admin apply`, `ct-admin acti
 
 Commands (run from your tool calls, output is captured, not a terminal, so `ct-run submit` prints the job id and returns at once):
 
-    ct-run submit <class> [-p key=value ...] [--prompt "..."] [--file F ...] [--dir D] [--wait]
+    ct-run submit <class> [-p key=value ...] [--file F ...] [--dir D] [--wait]
     ct-run result <id>        ct-run jobs        ct-run classes
     ct-run offload fit -- CMD        ct-run offload profile ... -- CMD        ct-run offload propose <id>
 

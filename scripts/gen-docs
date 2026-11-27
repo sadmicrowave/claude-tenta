@@ -27,7 +27,7 @@ def show(v):
 
 def config_page():
     out = [HEADER, "# Configuration reference\n",
-           "Every setting of `ct.toml`, with its default. The file is read from `~/.config/claude-tenta/ct.toml` on your computer and "
+           "Every setting of `ct.toml`, with its default. The file is read from `~/.config/armada/ct.toml` on your computer and "
            "`/etc/<name>/ct.toml` on the server (or the path in `CT_CONFIG`). Any setting can also be set by an environment variable named "
            "`CT_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never "
            "silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.\n",

@@ -50,8 +50,6 @@ def _state(r):
         return "SILENT"
     if r["stale"]:
         return "STALE"
-    if r["paused"]:
-        return "PAUSED"
     if r["locked"]:
         return "LOCKED"
     return "ok"

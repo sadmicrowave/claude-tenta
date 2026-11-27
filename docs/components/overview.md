@@ -25,7 +25,7 @@ approval is tied to the exact job file you looked at.
 | `ct-run` | your computer | queue jobs, read results, test commands (`offload`) |
 | `ct-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
 | `ct-setup` | both | the wizard: `client`, `server`, `audit` |
-| `<name>` (default `claude-tenta`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
+| `<name>` (default `armada`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
 | `ct-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
 | `canary-watch` | the worker, as root | raises the alarm when auditd sees a decoy credential file being read |
 

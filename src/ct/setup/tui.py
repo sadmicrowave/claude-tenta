@@ -25,10 +25,10 @@ GREEN, GREEN_BTN, RED, DIM, BOLD = "ok", "ok_chip", "bad", "muted", "strong"
 WINDOW = 4                           # answered questions kept on screen above the active one; the rest are summarised
 BAR = 24
 DOT = "•"
-BRAND = "@claude-tenta"
+BRAND = "@armada"
 
 SECTIONS = {"identity": "INSTALL", "server": "SERVER", "transport": "CONNECTION", "github": "GITHUB", "updates": "UPDATES", "hardware": "MACHINE", "network": "NETWORK",
-            "access": "ACCESS", "alerts": "ALERTS", "claude": "CLAUDE", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS", "worker": "NEW WORKER"}
+            "access": "ACCESS", "alerts": "ALERTS", "hardening": "PROTECTIONS", "registry": "CLASSES", "policy": "RULES", "isolation": "JOBS", "schedule": "TIMERS", "paths": "FOLDERS", "worker": "NEW WORKER"}
 
 
 def strip(text):

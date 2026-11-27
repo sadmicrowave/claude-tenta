@@ -1,123 +1,12 @@
-"""Part 1 of 2 of the test_worker_jobs tests (ClaudeJobs, Guard)."""
+"""Part 1 of 2 of the test_worker_jobs tests (Guard)."""
 import unittest
 import json
 import sys
-import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
 from ct import guard  # noqa: E402
 from support import REGISTRY, IP, Base, sh  # noqa: E402
-
-
-class ClaudeJobs(Base):
-    def setUp(self):
-        super().setUp()
-        self.registry_path.write_text(REGISTRY + "  askme:\n    kind: claude\n    tier: auto\n    cost: light\n    accepts_files: true\n    allowed_tools: [Read]\n")
-        self.make_worker()
-
-    def test_claude_is_told_which_files_are_attached_so_this_file_has_something_to_point_at(self):
-        self.job("job-0001", "askme", prompt="What does this file say?", files={"README.md": "# hello\n", "notes.txt": "n\n"})
-        self.w.fetch()
-        self.w.execute("job-0001")
-        call = self.runner.calls[-1]
-        prompt = call["argv"][call["argv"].index("-p") + 1]
-        self.assertTrue(prompt.startswith("What does this file say?"))
-        self.assertIn("Attached files, in the current directory: README.md, notes.txt", prompt)
-        self.assertEqual(call["files"], ["README.md", "notes.txt"])
-
-    def test_a_claude_job_gets_exactly_its_tools_and_helper_agents_are_forbidden(self):
-        self.job("job-0003", "askme", prompt="hi")
-        self.w.fetch()
-        self.w.execute("job-0003")
-        argv = self.runner.calls[-1]["argv"]
-        self.assertEqual(argv[argv.index("--tools") + 1], "Read")                          # only the named tool exists for this job
-        self.assertEqual(argv[argv.index("--disallowedTools") + 1], "Task,Agent")           # and the tools that start helper agents are named as forbidden
-
-    def test_a_claude_that_cannot_restrict_its_tools_is_not_run(self):
-        self.w.claude_flags = lambda command: {"--allowedTools"}
-        self.job("job-0004", "askme", prompt="hi")
-        self.w.fetch()
-        self.w.execute("job-0004")
-        self.assertEqual(self.runner.calls, [])
-        self.assertIn("cannot restrict its tools", str(self.result("job-0004")))
-
-    def test_only_one_job_of_a_claude_class_runs_at_a_time(self):
-        for jid in ("job-0005", "job-0006"):
-            self.job(jid, "askme", prompt="hi")
-            time.sleep(0.05)
-        self.w.fetch()
-        self.assertEqual(self.spawned, ["job-0005"])                                        # the second waits for the first: usage is spent one job at a time
-        self.assertTrue(any("already running" in m for m in self.logged))
-
-    def test_what_a_claude_job_used_goes_into_the_ledger_and_its_result(self):
-        self.runner.reply = ("ok", 0, "answer", {"wall_s": 1.0, "claude": {"turns": 3, "cost_usd": 0.5}}, "")
-        self.job("job-0007", "askme", prompt="hi")
-        self.w.fetch()
-        self.w.execute("job-0007")
-        today = self.w.ledger.today()
-        self.assertEqual((today["jobs"], today["turns"], today["cost_usd"]), (1, 3, 0.5))
-        self.assertEqual(self.result("job-0007")["metrics"]["claude"]["turns"], 3)
-
-    def test_at_the_daily_limit_new_claude_jobs_wait_other_jobs_run_and_it_is_said_once(self):
-        self.w.ledger.jobs_per_day = 1
-        self.job("job-0008", "askme", prompt="one")
-        self.w.fetch()
-        self.assertEqual(self.spawned, ["job-0008"])
-        self.w._p("running", "job-0008").unlink()                      # the first one finished
-        self.w._p("queued", "job-0008.json").unlink()
-        self.spawned.clear()
-        self.job("job-0009", "askme", prompt="two")
-        self.job("job-0010", "echo")
-        self.w.fetch()
-        self.assertEqual(self.spawned, ["job-0010"])                   # the Claude job waits; the echo job behind it still starts
-        self.assertTrue(any("daily limit" in m for m in self.logged))
-        self.w.step()
-        notices = [p for p in self.pushes if "PAUSED CLAUDE" in str(getattr(p, "headers", p))]
-        self.assertEqual(len(notices), 1)                              # once a day, not every pass
-
-    def test_a_class_that_returns_a_patch_publishes_the_difference_and_nothing_else_leaves(self):
-        self.registry_path.write_text(REGISTRY + "  fixer:\n    kind: claude\n    tier: auto\n    cost: light\n    accepts_files: true\n    reviewed: true\n    returns: patch\n    allowed_tools: [Read, Edit]\n")
-        self.make_worker()
-        orig = self.runner.__call__
-
-        def edit(argv, timeout, wd, **kw):                              # the "Claude" job changes one file, adds one and leaves a secret-free note
-            (Path(wd) / "a.txt").write_text("two\n")
-            (Path(wd) / "b.txt").write_text("new\n")
-            return orig(argv, timeout, wd, **kw)
-        self.w.runner = edit
-        self.job("job-0011", "fixer", prompt="fix", files={"a.txt": "one\n"})
-        self.w.fetch()
-        self.w.execute("job-0011")
-        res = self.result("job-0011")
-        self.assertEqual(res["status"], "ok")
-        self.assertEqual(res["patch"]["files"], ["a.txt", "b.txt"])
-        self.assertIn("+two", res["patch"]["text"])
-        self.assertIn("new file mode", res["patch"]["text"])
-
-    def test_a_secret_in_a_patch_is_quarantined_like_any_output(self):
-        self.registry_path.write_text(REGISTRY + "  fixer:\n    kind: claude\n    tier: auto\n    cost: light\n    accepts_files: true\n    reviewed: true\n    returns: patch\n    allowed_tools: [Read, Edit]\n")
-        self.make_worker()
-        orig = self.runner.__call__
-
-        def leak(argv, timeout, wd, **kw):
-            (Path(wd) / "a.txt").write_text("-----BEGIN RSA " + "PRIVATE KEY-----\nabc\n-----END RSA " + "PRIVATE KEY-----\n")
-            return orig(argv, timeout, wd, **kw)
-        self.w.runner = leak
-        self.job("job-0012", "fixer", prompt="fix", files={"a.txt": "one\n"})
-        self.w.fetch()
-        self.w.execute("job-0012")
-        res = self.result("job-0012")
-        self.assertEqual(res["status"], "quarantined")
-        self.assertNotIn("patch", res)
-        self.assertNotIn("PRIVATE KEY", json.dumps(res))
-
-    def test_a_prompt_with_no_files_is_left_exactly_as_written(self):
-        self.job("job-0002", "askme", prompt="Say hi")
-        self.w.fetch()
-        self.w.execute("job-0002")
-        call = self.runner.calls[-1]
-        self.assertEqual(call["argv"][call["argv"].index("-p") + 1], "Say hi")
 
 
 class Guard(Base):

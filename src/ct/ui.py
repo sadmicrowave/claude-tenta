@@ -22,7 +22,7 @@ def _color_on(stream):
 
 
 def paint(text, *codes, stream=None):
-    """Colour (by role, see ct.theme) for a person reading a terminal; plain text when piped, captured by Claude, or NO_COLOR is set."""
+    """Colour (by role, see ct.theme) for a person reading a terminal; plain text when piped, captured by a program, or NO_COLOR is set."""
     if not codes or not _color_on(stream or sys.stderr):
         return text
     return theme.sgr(text, *codes)

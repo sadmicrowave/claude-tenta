@@ -7,13 +7,13 @@ from ct import sched, workerstate
 from ct.sched import Prefs, worker_view
 
 
-def state(*, running=0, waiting=0, capacity=4, cores=4, load=0.2, locked=False, jail=True, claude="account", paused=False, classes=("sys-status", "claude-read")):
+def state(*, running=0, waiting=0, capacity=4, cores=4, load=0.2, locked=False, jail=True, classes=("sys-status", "text-read")):
     return {"v": 1, "updated": "2026-11-18T16:00:00Z", "name": "w", "hardware": {"cores": cores, "capacity": capacity},
-            "isolation": {"ready": jail}, "locked": locked, "classes": list(classes), "claude": {"auth": claude, "tool": {"kind": "native", "version": "2"}},
-            "claude_paused": paused, "observed": {"running": running, "waiting": waiting, "load_1m": load}}
+            "isolation": {"ready": jail}, "locked": locked, "classes": list(classes),
+            "observed": {"running": running, "waiting": waiting, "load_1m": load}}
 
 
-KINDS = {"sys-status": {"kind": "command", "cost": "light"}, "claude-read": {"kind": "claude", "cost": "medium"}, "profile-run": {"kind": "profile", "cost": "heavy"}}
+KINDS = {"sys-status": {"kind": "command", "cost": "light"}, "text-read": {"kind": "command", "cost": "medium"}, "profile-run": {"kind": "profile", "cost": "heavy"}}
 
 
 def w(name, connection="direct", age=30, pickup=5, sent=0, **kw):
@@ -70,13 +70,6 @@ class LeftOut(unittest.TestCase):
         self.assertIsNone(c.worker)
         self.assertEqual(len(c.lines), 2)
 
-    def test_a_claude_job_needs_sign_in_a_tool_and_budget(self):
-        c = pick([w("none", claude="none"), w("paused", paused=True), w("ok")], "claude-read", "claude")
-        self.assertEqual(c.worker, "ok")
-        self.assertIn("no Claude sign-in", self.reason(c, "none"))
-        self.assertIn("paused", self.reason(c, "paused"))
-        self.assertEqual(pick([w("none", claude="none")], "sys-status", "command").worker, "none")      # a plain command never needs Claude
-
 
 class EveryReason(unittest.TestCase):
     """A worker is not left out for its first reason only: every reason it cannot take the job is said, each with its catalog code."""
@@ -97,14 +90,12 @@ class EveryReason(unittest.TestCase):
         c = pick([worker_view("blank", "direct", None, None, None, 5), w("ok")])
         self.assertEqual(self.codes(c, "blank"), ["placement.no_state"])
 
-    def test_an_ai_job_reports_a_missing_sign_in_and_a_pause_and_a_missing_class_together(self):
-        c = pick([w("none", claude="none", paused=True, classes=("other",)), w("ok")], "claude-read", "claude")
-        self.assertEqual(self.codes(c, "none"), ["placement.class_missing", "placement.ai.no_signin"])         # (a pause is only meaningful for a worker that is signed in)
-        c = pick([w("paused", paused=True), w("ok")], "claude-read", "claude")
-        self.assertEqual(self.codes(c, "paused"), ["placement.ai.paused"])
+    def test_a_worker_that_does_not_offer_the_class_is_left_out_with_that_one_reason(self):
+        c = pick([w("none", classes=("other",)), w("ok")], "text-read", "command")
+        self.assertEqual(self.codes(c, "none"), ["placement.class_missing"])
 
     def test_a_dedicated_worker_that_also_has_a_closed_connection_gives_both_reasons(self):
-        prefs = Prefs(dedicated={"lab": ["claude-read"]}, connections={"sys-status": ["direct"]})
+        prefs = Prefs(dedicated={"lab": ["text-read"]}, connections={"sys-status": ["direct"]})
         c = pick([w("lab", connection="github"), w("ok")], prefs=prefs)
         self.assertEqual(self.codes(c, "lab"), ["placement.reserved", "placement.connection"])
 
@@ -145,12 +136,12 @@ class WrongChannel(unittest.TestCase):
 
 class Preferences(unittest.TestCase):
     def test_a_dedicated_worker_takes_only_its_classes_and_is_left_out_of_everything_else(self):
-        prefs = Prefs(dedicated={"lab": ["claude-read"]})
+        prefs = Prefs(dedicated={"lab": ["text-read"]})
         self.assertEqual(pick([w("lab"), w("gen", running=3)], "sys-status", "command", prefs).worker, "gen")
-        self.assertEqual(pick([w("lab", running=3), w("gen")], "claude-read", "claude", prefs).worker, "gen")           # freer, and the reserved worker is allowed this class
-        self.assertEqual(pick([w("lab"), w("gen", running=3)], "claude-read", "claude", prefs).worker, "lab")
+        self.assertEqual(pick([w("lab", running=3), w("gen")], "text-read", "command", prefs).worker, "gen")           # freer, and the reserved worker is allowed this class
+        self.assertEqual(pick([w("lab"), w("gen", running=3)], "text-read", "command", prefs).worker, "lab")
         c = pick([w("lab"), w("gen", running=3)], "sys-status", "command", prefs)
-        self.assertIn("reserved for claude-read", dict((n, r) for n, _, r in c.lines)["lab"])
+        self.assertIn("reserved for text-read", dict((n, r) for n, _, r in c.lines)["lab"])
 
     def test_a_preferred_worker_wins_over_a_freer_one_but_not_over_a_locked_one(self):
         prefs = Prefs(preferred={"sys-status": ["slow", "fast"]})
@@ -184,7 +175,7 @@ class TheRealPublisher(unittest.TestCase):
                 return True
         snap = {"cores": 2, "mem_total_mb": 2924, "load_1m": 0.3, "temp_c": None, "mem_available_mb": 2400, "disk_free_gb": 4.0, "running": 1, "waiting": 2, "at": "2026-11-18T16:00:00Z"}
         registry = {"classes": {"sys-status": {"kind": "command", "cost": "light"}}}
-        _env, doc = workerstate.build(snapshot=snap, registry=registry, extra={"name": "w", "capacity": 4, "claude": {"auth": "none"}, "approvers": []}, jail=Jail(), locked=False, now_iso="2026-11-18T16:00:00Z")
+        _env, doc = workerstate.build(snapshot=snap, registry=registry, extra={"name": "w", "capacity": 4, "approvers": []}, jail=Jail(), locked=False, now_iso="2026-11-18T16:00:00Z")
         v = worker_view("w", "direct", doc, registry, 30, 5)
         self.assertEqual((v.capacity, v.busy, v.headroom), (4, 3, 1))
         self.assertEqual(pick([v]).worker, "w")
@@ -273,7 +264,7 @@ class TheWorkerKnowsBest(unittest.TestCase):
 
             def ready(self):
                 return True
-        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "pickup_max_s": 300, "claude": {"auth": "none"}}, jail=Jail(), locked=False, now_iso="x")
+        _e, doc = workerstate.build(snapshot={"cores": 2, "at": "x"}, registry={"classes": {}}, extra={"name": "w", "transport": "github", "pickup_max_s": 300}, jail=Jail(), locked=False, now_iso="x")
         self.assertEqual((doc["transport"], doc["pickup_max_s"]), ("github", 300))
 
 
@@ -342,7 +333,7 @@ class CostAware(unittest.TestCase):
     def test_a_medium_job_needs_two_points(self):
         a = w("a", age=1000, sent=3)                                         # 1 point free
         b = w("b", age=1000, sent=2)                                         # 2 free
-        self.assertEqual(pick([a, b], "claude-read", "claude").worker, "b")
+        self.assertEqual(pick([a, b], "text-read", "command").worker, "b")
 
     def test_the_cost_of_a_class_is_what_each_workers_own_registry_says(self):
         heavy_here = worker_view("h", "direct", state(classes=("profile-run",)), {"classes": {"profile-run": {"kind": "profile", "cost": "heavy"}}}, 30, 5)

@@ -13,9 +13,9 @@ from ct.admin.ssh import family_for
 from ct.setup import addworker, assess, discover, install
 from ct.setup.host import Host
 
-MAIN = '[identity]\nname = "claude-tenta"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n[transport]\nkind = "direct"\n'
+MAIN = '[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n[transport]\nkind = "direct"\n'
 GOOD = assess.verdict({"OS_ID": "ubuntu", "OS_LIKE": "debian", "OS_VERSION": "24.04", "OS_NAME": "Ubuntu 24.04", "ARCH": "x86_64", "CORES": "2", "MEM_MB": "4000", "DISK_MB": "20000", "PYTHON": "3.12",
-                      "SYSTEMD": "yes", "SUDO": "yes", "SUDO_GROUP": "yes", "VIRT": "vmware", "INSTALLS": "", "WHO": "agent", "HOSTNAME": "claude-tenta2"}, "agent")
+                      "SYSTEMD": "yes", "SUDO": "yes", "SUDO_GROUP": "yes", "VIRT": "vmware", "INSTALLS": "", "WHO": "agent", "HOSTNAME": "armada2"}, "agent")
 BAD = assess.verdict({"OS_ID": "ubuntu", "OS_VERSION": "22.04", "OS_NAME": "Ubuntu 22.04", "ARCH": "x86_64", "MEM_MB": "4000", "DISK_MB": "20000", "PYTHON": "3.10", "SYSTEMD": "yes", "SUDO": "yes", "SUDO_GROUP": "yes", "WHO": "agent"}, "agent")
 
 
@@ -25,8 +25,8 @@ def args(**kw):
 
 class Pieces(unittest.TestCase):
     def test_a_worker_name_is_valid_unused_and_made_from_the_hostname(self):
-        self.assertEqual(addworker.worker_name("claude-tenta2" + ".lo" + "cal", set()), "tenta2")
-        self.assertEqual(addworker.worker_name("claude-tenta2" + ".lo" + "cal", {"tenta2"}), "tenta2-2")
+        self.assertEqual(addworker.worker_name("tenta2" + ".lo" + "cal", set()), "tenta2")
+        self.assertEqual(addworker.worker_name("tenta2" + ".lo" + "cal", {"tenta2"}), "tenta2-2")
         self.assertEqual(addworker.worker_name("Pi 5!", set()), "pi-5")
         self.assertEqual(addworker.worker_name("9lives", set()), "w9lives")
         self.assertEqual(addworker.worker_name("", set()), "worker")
@@ -42,7 +42,7 @@ class Pieces(unittest.TestCase):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.conf_dir = self.tmp / ".config" / "claude-tenta"
+        self.conf_dir = self.tmp / ".config" / "armada"
         self.conf_dir.mkdir(parents=True)
         self.main = self.conf_dir / "ct.toml"
         self.main.write_text(MAIN + f'[paths]\nclient_home = "{self.tmp}/.ct"\n')
@@ -87,15 +87,15 @@ class Targeted(Base):
         rc = self.run_flow(args(name="worker2.example", yes=True))
         self.assertEqual(rc, 0, self.text())
         (c,) = self.calls
-        self.assertEqual((c["name"], c["host"], c["user"]), ("tenta2", "worker2.example", "me"))
-        self.assertEqual(c["conf"], self.conf_dir / "tenta2.toml")                                     # its own file beside the main one
-        self.assertEqual(c["home"], self.tmp / ".ct" / "workers" / "tenta2")                           # its own folder
-        self.assertEqual(c["ct_config"], str(self.conf_dir / "tenta2.toml"))                           # the install's own commands read the new worker's configuration
+        self.assertEqual((c["name"], c["host"], c["user"]), ("armada2", "worker2.example", "me"))
+        self.assertEqual(c["conf"], self.conf_dir / "armada2.toml")                                     # its own file beside the main one
+        self.assertEqual(c["home"], self.tmp / ".ct" / "workers" / "armada2")                           # its own folder
+        self.assertEqual(c["ct_config"], str(self.conf_dir / "armada2.toml"))                           # the install's own commands read the new worker's configuration
         self.assertEqual(os.environ["CT_CONFIG"], str(self.main))                                      # and the environment is put back
         for p, text in before.items():
             self.assertEqual(Path(p).read_text(), text, p)                                             # nothing of the host changed
         self.assertTrue((c["home"] / "approval").is_symlink())                                         # the one approval key is shared
-        self.assertEqual(config.load(self.main).identity.name, "claude-tenta")
+        self.assertEqual(config.load(self.main).identity.name, "armada")
 
     def test_the_worker_is_listed_where_admin_workers_and_watch_look_for_it(self):
         from ct.admin import workers
@@ -131,7 +131,7 @@ class Targeted(Base):
 
     def test_a_name_that_is_taken_is_refused_with_a_suggestion(self):
         with self.assertRaises(addworker.SetupError) as e:
-            self.run_flow(args(name="box.example", worker_name="claude-tenta", yes=True))
+            self.run_flow(args(name="box.example", worker_name="armada", yes=True))
         self.assertIn("already a worker", e.exception.why)
         self.assertIn("--worker-name", " ".join(e.exception.steps))
         self.assertEqual(self.calls, [])
@@ -193,7 +193,7 @@ class AWindowsComputer(Base):
 
     def test_a_name_that_is_already_a_worker_is_refused(self):
         with self.assertRaises(addworker.SetupError):
-            self.go(yes=True, worker_name="claude-tenta")
+            self.go(yes=True, worker_name="armada")
 
 
 class AWindowsWorkerAgain(Base):
@@ -202,7 +202,7 @@ class AWindowsWorkerAgain(Base):
     def register(self):
         from ct.admin import workers
         conf = self.conf_dir / "win.toml"
-        conf.write_text('[identity]\nname = "win"\n[server]\nhost = "win.example"\nadmin_user = "me"\n[paths]\ncode = "C:/ProgramData/claude-tenta/release"\nstate_root = "C:/ProgramData/claude-tenta/state"\nconfig = "C:/ProgramData/claude-tenta/config"\nworker_home = "C:/ProgramData/claude-tenta/state"\nclient_home = "%s"\n' % (self.tmp / ".ct" / "workers" / "win"))
+        conf.write_text('[identity]\nname = "win"\n[server]\nhost = "win.example"\nadmin_user = "me"\n[paths]\ncode = "C:/ProgramData/armada/release"\nstate_root = "C:/ProgramData/armada/state"\nconfig = "C:/ProgramData/armada/config"\nworker_home = "C:/ProgramData/armada/state"\nclient_home = "%s"\n' % (self.tmp / ".ct" / "workers" / "win"))
         workers.add(self.conf_dir / "workers.toml", "win", str(conf))
 
     def go(self, **kw):
@@ -268,7 +268,7 @@ class TheRealCommand(unittest.TestCase):
         self.addCleanup(self.base.doCleanups)
         self.addCleanup(self.base.tearDown)
         b = self.base
-        self.conf_dir = b.tmp / ".config" / "claude-tenta"
+        self.conf_dir = b.tmp / ".config" / "armada"
         self.conf_dir.mkdir(parents=True)
         self.main = self.conf_dir / "ct.toml"
         self.main.write_text(MAIN + f'[paths]\nclient_home = "{b.tmp}/.ct"\n')
@@ -296,7 +296,7 @@ class TheRealCommand(unittest.TestCase):
         self.assertEqual([n for n, _ in registered], ["tenta2"])
         self.assertTrue(self.base.machine.exists(str(self.conf_dir / "tenta2.toml")), "the worker's own configuration was written")
         self.assertIn("tenta2", self.base.machine.read(str(self.conf_dir / "tenta2.toml")))
-        self.assertEqual(config.load(self.main).identity.name, "claude-tenta")                       # and the first install's file is as it was
+        self.assertEqual(config.load(self.main).identity.name, "armada")                       # and the first install's file is as it was
         self.assertEqual(os.environ["CT_CONFIG"], str(self.main))                                     # the environment is put back
 
     def test_the_same_command_again_sets_the_registered_worker_up_again_through_the_real_installer(self):
@@ -452,7 +452,7 @@ class SettingAWorkerUpAgain(SettingAWorkerUpAgainFixture):
         self.assertEqual(c["ct_config"], str(self.w_conf))
         self.assertEqual(c["suggest"]["transport.kind"], "github")                                     # ITS connection, not the first install's (direct)
         self.assertIn("set up again", self.text())
-        self.assertEqual(config.load(self.main).identity.name, "claude-tenta")                          # the first install is as it was
+        self.assertEqual(config.load(self.main).identity.name, "armada")                          # the first install is as it was
 
     def test_the_workers_own_files_may_change_and_any_other_file_may_not(self):
         other = self.conf_dir / "other.toml"
@@ -485,9 +485,9 @@ class SettingAWorkerUpAgain(SettingAWorkerUpAgainFixture):
         self.assertNotIn("may appear only once", t)
 
     def test_another_workers_missing_file_does_not_stop_you_naming_a_healthy_one(self):
-        """Seen on a real machine: tenta3's file was gone and `ct-setup install --worker claude-tenta` refused, about tenta3."""
+        """Seen on a real machine: tenta3's file was gone and `ct-setup install --worker armada` refused, about tenta3."""
         self.w_conf.unlink()
-        self.assertIs(self.run_flow(args(worker="claude-tenta", yes=True), command="install"), addworker.MAIN)
+        self.assertIs(self.run_flow(args(worker="armada", yes=True), command="install"), addworker.MAIN)
         self.assertIn("A worker is left out", self.text())                                              # said once, not blocking
         self.assertIn("ct-admin workers remove tenta2", self.text())
 
@@ -576,7 +576,7 @@ class Interactive(Base):
         self.assertEqual(rc, 0, self.text())
         self.assertEqual(asked, [("198.51.100.194", "agent")])
         (c,) = self.calls
-        self.assertEqual((c["host"], c["user"], c["name"]), ("198.51.100.194", "agent", "tenta2"))
+        self.assertEqual((c["host"], c["user"], c["name"]), ("198.51.100.194", "agent", "armada2"))
         t = self.text()
         self.assertIn("2 devices", t)
         self.assertIn("1 look like Linux servers", t)
@@ -621,13 +621,13 @@ class TheRealInstaller(unittest.TestCase):
         b = self.base
         m = b.machine
         home = m.env["HOME"]
-        main, first_home = f"{home}/.config/claude-tenta/ct.toml", str(b.tmp / "client-home")
+        main, first_home = f"{home}/.config/armada/ct.toml", str(b.tmp / "client-home")
         for path, text in ((main, MAIN), (f"{first_home}/install-answers.toml", '[server]\nhost = "mini.example"\n'), (f"{first_home}/approval/key.pub", "ssh-ed25519 AAAAMAIN approver\n"),
                            (f"{first_home}/approval/key", "PRIVATE-PLACEHOLDER")):
             m.write(path, text)
         watched = [m.path(p) for p in (main, f"{first_home}/install-answers.toml", f"{first_home}/approval/key.pub", f"{first_home}/approval/key")]
         before = addworker.fingerprint(watched)
-        worker_home, worker_conf = f"{home}/.ct/workers/tenta2", f"{home}/.config/claude-tenta/tenta2.toml"
+        worker_home, worker_conf = f"{home}/.ct/workers/tenta2", f"{home}/.config/armada/tenta2.toml"
         inst = install.Installer(b.tmp, ssh_factory=lambda h, u, p: b.ssh, local=m, say=b.said.append, use_defaults=True, repos_factory=lambda cfg: b.repos, poll_s=1, sleep=lambda s: None,
                                  archive=lambda src: (b"TARDATA", "a" * 40, False), interactive=lambda argv: (0, ""), verify=lambda cfg: True, home=m.path(worker_home), config_path=worker_conf, targeted=True,
                                  given={**__import__("test_install").GIVEN, "identity.name": "tenta2", "server.host": "worker2.example", "server.admin_user": "agent", "transport.kind": "direct"})
@@ -688,7 +688,7 @@ class InstallChoosesTheComputer(SettingAWorkerUpAgainFixture):
         self.assertIn("Nothing was connected to or changed", self.text())
 
     def test_the_first_install_named_by_its_install_name_or_its_address_is_left_to_the_ordinary_install(self):
-        for key in ("claude-tenta", "mini.example"):
+        for key in ("armada", "mini.example"):
             self.assertIs(self.run_flow(args(worker=key, yes=True), command="install"), addworker.MAIN, key)
         self.assertIs(self.run_flow(args(name="mini.example", yes=True), command="install"), addworker.MAIN)
         self.assertEqual(self.calls, [])

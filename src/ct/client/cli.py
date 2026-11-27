@@ -1,7 +1,7 @@
 """ct-run: queue a job, read its result, list your jobs and what the worker can run.
 
   setup                          clone the two private repos on this computer
-  submit <class> [options]       queue a job (-p name=value, --prompt, --file, --dir/--include); waits for the result in a terminal
+  submit <class> [options]       queue a job (-p name=value, --file, --dir/--include); waits for the result in a terminal
   result <job> [--wait]          read a job's result; --wait keeps checking until it finishes
   jobs [-n N]                    your most recent jobs, and the ones waiting for your approval
   audit [<job>] [-n N] [--json]  where jobs ran, why, and what happened (kept for audit.keep_days)
@@ -9,7 +9,7 @@
   prune [--days N] [--force]     squash old job files out of the jobs branch
   offload log hook|top|show|clear   learn which of your commands are worth running on the worker
   offload fit -- <cmd>           is this command registered, excluded or unknown?  (exit 0 / 3 / 5 / 4)
-  offload history                every fit check you or Claude made
+  offload history                every fit check you or an assistant made
   offload profile ... -- <cmd>   test-run one exact command on the worker (you approve it)
   offload propose <profile-job>  turn a profile result into a registry proposal, or an exclusion
   offload measure                suggest the repeat settings from your own command log
@@ -313,7 +313,6 @@ def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
     params, files = sub.parse_params(a.p), {}
-    prompt = Path(a.prompt_file).expanduser().read_text() if a.prompt_file else a.prompt
     for f in a.file or []:
         p = Path(f).expanduser()
         files[p.name] = p.read_text()
@@ -343,7 +342,7 @@ def cmd_submit(ctx, a):
     batches = [files]
     if files and pack.state != "compressed":
         batches = sub.plan_batches(files, bool(((info or {}).get("classes") or {}).get(a.cls, {}).get("batchable")), limits)
-    job = sub.build_job(a.cls, params, prompt)
+    job = sub.build_job(a.cls, params)
     if pack.state == "compressed":
         batches = [None]
         job["files_z"] = pack.z
@@ -521,7 +520,7 @@ def cmd_audit(ctx, a):
 
 
 def should_wait(ctx, a):
-    """A person typing in a terminal wants to watch it finish; a captured run (Claude, a script) does not want to block. --wait / --no-wait override."""
+    """A person typing in a terminal wants to watch it finish; a captured run (an assistant, a script) does not want to block. --wait / --no-wait override."""
     if getattr(a, "no_wait", False):
         return False
     return bool(a.wait) or ctx.is_tty()
@@ -882,7 +881,7 @@ def cmd_fit(ctx, argv):
 
 
 def print_fit(ctx, res, argv):
-    """The one-line answer with its first word coloured. Goes to stdout: it is what a script or Claude reads."""
+    """The one-line answer with its first word coloured. Goes to stdout: it is what a script or an assistant reads."""
     word, rest = off.fit_message(res, argv, ctx.product).split(" ", 1)
     color = {"registered": GREEN, "excluded": RED, "retry": YELLOW, "unknown": YELLOW}[res["verdict"]]
     _ui.say(rest, tag=word.upper(), color=color, stream=sys.stdout) if _ui._color_on(sys.stdout) else print(f"{word} {rest}")          # output: a card for a person; the plain words for a script
@@ -901,7 +900,7 @@ def cmd_history(ctx, a):
         print(json.dumps(rows if a.all else rows[-a.n:], indent=2))                  # output: data (--json)
         return 0
     if not rows:
-        emit("No fit checks recorded" + (" for that filter" if a.verdict or a.command else " yet"), "Every `ct-run offload fit` is recorded here, whether you or Claude ran it.",
+        emit("No fit checks recorded" + (" for that filter" if a.verdict or a.command else " yet"), "Every `ct-run offload fit` is recorded here, whether you or an assistant ran it.",
              tag="NOTE", color=YELLOW, stream=out, run_label="Make one", run="ct-run offload fit -- <command>")
         return 0
     counts = {}
@@ -937,7 +936,7 @@ def cmd_exclusions(ctx):
     r.fetch_queue()
     ex, out = off.read_exclusions(r).get("excluded", []), sys.stdout
     if not ex:
-        _ui.say("Commands that do not fit this worker", ("Worker", alias.show(ctx.product)), "None yet. Commands that were test-run on it and do not fit are listed here; Claude runs those itself instead.", tag="NONE", color=_ui.GREEN, stream=out)
+        _ui.say("Commands that do not fit this worker", ("Worker", alias.show(ctx.product)), "None yet. Commands that were test-run on it and do not fit are listed here; your assistant runs those itself instead.", tag="NONE", color=_ui.GREEN, stream=out)
     for e in ex:
         pr = e.get("profiled", {})
         _ui.say(" ".join(e["argv"]), ("Why", "; ".join(e.get("reasons", []))), ("Limited by", ", ".join(e.get("limiting", [])) or "?"),
@@ -1015,13 +1014,13 @@ def cmd_profile(ctx, a):
              steps_label="What to do", run=[f"{ctx.admin} approve {jid}", f"ct-run result {jid}"], run_label="Run these")
     if not a.wait:                                           # a profiling run always needs approval, usually from another terminal: never block on it
         if not ctx.is_tty():
-            print(jid)                                       # output: data (the bare id is for scripts and Claude)
+            print(jid)                                       # output: data (the bare id is for scripts and assistants)
         return 0
     return wait(ctx, jid, a.timeout, False, told=True)
 
 
 def cmd_fit_quiet(ctx, argv):
-    """A fit check made on the way to profiling: logged, but the unknown-case advice (written for Claude) is left out."""
+    """A fit check made on the way to profiling: logged, but the unknown-case advice (written for an assistant) is left out."""
     res = off.check_fit(ctx.repos, argv, ctx.fitlog, source="profile", by="terminal" if ctx.is_tty() else "captured")
     if res["verdict"] != "unknown":
         print_fit(ctx, res, argv)
@@ -1040,7 +1039,7 @@ def cmd_propose(ctx, a):
     kind = out["kind"]
     if kind == "excluded":
         emit("Recorded: this command does not fit", ("Worker", alias.show(ctx.product)), ("Command", " ".join(out["argv"])), ("Reasons", "; ".join(out["reasons"])), "\n",
-             "Claude will not offload it again.", tag="RECORDED", color=YELLOW)
+             "It will not be offloaded again.", tag="RECORDED", color=YELLOW)
         return 0
     pk = out.get("packages")
     details = [("Cost", out["entry"]["cost"]), ("Tier", out["tier"]), ("Branch", out["branch"] + ("  (already proposed)" if out.get("already") else ""))]
@@ -1060,7 +1059,7 @@ def cmd_measure(ctx, a, cfg=None):
     log = command_log(ctx, cfg)
     m = log.measure(a.min_seconds, repeat_runs=ctx.repeat_runs, repeat_days=ctx.repeat_days)
     if not m["records"]:
-        emit("Nothing recorded yet", ("Where", "ct-run offload log show"), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
+        emit("Nothing recorded yet", ("Where", "ct-run offload log show"), tag="NOTE", color=YELLOW, steps=["Install your coding assistant's hooks: ct-run offload log hook pre|post"])
         return 0
     _ui.table("Candidates at each setting", ["runs needed", *(f"in {plural(d, 'day')}" for d in log.GRID_DAYS)],
               [[str(k), *(str(m["grid"][k][d]) for d in log.GRID_DAYS)] for k in sorted(m["grid"])], tag="MEASURE", stream=sys.stdout,
@@ -1077,7 +1076,7 @@ def cmd_measure(ctx, a, cfg=None):
 
 
 # ---- offload: what is worth running on the worker ----
-LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yourself)", [("Installed once in Claude Code's settings", "ct-run offload log hook pre")]),
+LOG_HELP = {"hook": ("(called by your coding assistant's hooks; you never run this yourself)", [("Installed once in your coding assistant's settings", "ct-run offload log hook pre")]),
             "top": ("rank the commands you run most that the worker could take",
                     [("The top 10 candidates", "ct-run offload log top"), ("Include shapes that are not candidates, with the reason", "ct-run offload log top --all"),
                      ("Only commands that usually take over a minute", "ct-run offload log top --min-seconds 60")]),
@@ -1116,7 +1115,7 @@ def cmd_offload(ctx, a, cfg):
         try:
             log.hook(a.phase, sys.stdin.read())
         except Exception:
-            pass                                              # a hook must never get in Claude Code's way
+            pass                                              # a hook must never get in the assistant's way
         return 0
     if a.log_cmd == "show":
         emit(f"{len(log.read())} commands recorded", ("Log file", str(log.path) + ("" if log.path.exists() else "  (not created yet)")), tag="LOG", color=CYAN)
@@ -1127,7 +1126,7 @@ def cmd_offload(ctx, a, cfg):
         return 0
     recs = log.read()
     if not recs:
-        emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
+        emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install your coding assistant's hooks: ct-run offload log hook pre|post"])
         return 0
     rows = log.rank(a.min_seconds, a.all, recs, ctx.repeat_runs, ctx.repeat_days)[:a.top]
     out = sys.stdout
@@ -1158,8 +1157,6 @@ def build_parser():
     s = sp.add_parser("submit", add_help=False)
     s.add_argument("cls", metavar="class", help="the job class (ct-run classes lists them)")
     s.add_argument("-p", action="append", metavar="name=value", help="a job parameter; repeat for more")
-    s.add_argument("--prompt", help="the prompt, for a claude class")
-    s.add_argument("--prompt-file", metavar="FILE", help="read the prompt from a file")
     s.add_argument("--file", action="append", metavar="F", help="attach one text file; repeat for more")
     s.add_argument("--dir", metavar="D", help="attach the text files under a folder")
     s.add_argument("--include", action="append", metavar="GLOB", help="with --dir: only these files, for example 'src/**/*.js'")

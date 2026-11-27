@@ -396,10 +396,10 @@ class ManyPlacementsAtOnce(Setup):
 class PendingJobsCountInCapacityPoints(Setup):
     def test_a_pending_heavy_job_weighs_four_a_light_one_and_an_unknown_class_one(self):
         self.add("vmx", classes=("sys-status", "profile-run"))
-        (self.repos["vmx"].results / "registry.json").write_text(json.dumps({"classes": {"sys-status": {"cost": "light"}, "profile-run": {"cost": "heavy"}, "claude-read": {"cost": "medium"}}, "capacity": 4}))
+        (self.repos["vmx"].results / "registry.json").write_text(json.dumps({"classes": {"sys-status": {"cost": "light"}, "profile-run": {"cost": "heavy"}, "text-read": {"cost": "medium"}}, "capacity": 4}))
         home = self.tmp / "home"
         place.record(home, ["j-heavy"], "vmx", "profile-run")
-        place.record(home, ["j-medium"], "vmx", "claude-read")
+        place.record(home, ["j-medium"], "vmx", "text-read")
         place.record(home, ["j-light"], "vmx", "sys-status")
         place.record(home, ["j-old-style"], "vmx")                            # recorded before classes were: counts as one
         self.assertEqual(place.pending_sent(home, "vmx", self.repos["vmx"]), 4 + 2 + 1 + 1)

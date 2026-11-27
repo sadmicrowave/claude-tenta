@@ -12,7 +12,7 @@ from ct.setup import winsetup, wintools
 from ct.setup.server import SetupError
 
 TOOLS = {"git": "git version 2.56.1.windows.1", "python": "Python 3.13.17", "changed": False}
-ANSWERS = [("requirements.txt", TOOLS), ("claude-tenta worker (standard account)", {"user": "ctworker", "changed": True}), ("robocopy", {"commit": "a" * 40, "changed": True}), ("claude-tenta mailbox account", {"user": "claude-tenta-mail", "changed": True}),
+ANSWERS = [("requirements.txt", TOOLS), ("armada worker (standard account)", {"user": "ctworker", "changed": True}), ("robocopy", {"commit": "a" * 40, "changed": True}), ("armada mailbox account", {"user": "armada-mail", "changed": True}),
            ("$cfgB64", {"changed": True}), ("started = $true", {"started": True}), ("Register-ScheduledTask -TaskName $tn -Action $action -Trigger", {"changed": True})]
 
 
@@ -65,7 +65,7 @@ class Whole(Fixture):
         self.assertEqual([r[0] for r in report], ["your configuration", "mailbox key", "tools", "accounts and folders", "release", "mailbox", "worker files", "worker task", "your copies of the mailbox", "first job"])
         self.assertTrue(all(r[1] != "failed" for r in report))
         order = [next(m for m, _ in ANSWERS if m in t) for t in self.sent]
-        self.assertEqual(order, ["requirements.txt", "claude-tenta worker (standard account)", "robocopy", "claude-tenta mailbox account", "$cfgB64", "Register-ScheduledTask -TaskName $tn -Action $action -Trigger", "started = $true"])
+        self.assertEqual(order, ["requirements.txt", "armada worker (standard account)", "robocopy", "armada mailbox account", "$cfgB64", "Register-ScheduledTask -TaskName $tn -Action $action -Trigger", "started = $true"])
 
     def test_the_computers_own_configuration_is_written_once_with_its_client_folder_and_kept_after(self):
         inst = self.installer()
@@ -139,7 +139,7 @@ class Reach(Fixture):
 
 class Failures(Fixture):
     def test_each_step_that_fails_stops_with_the_real_text_and_says_to_run_it_again(self):
-        for marker in ("requirements.txt", "claude-tenta worker (standard account)", "robocopy", "claude-tenta mailbox account", "$cfgB64"):
+        for marker in ("requirements.txt", "armada worker (standard account)", "robocopy", "armada mailbox account", "$cfgB64"):
             with self.assertRaises(SetupError, msg=marker) as e:
                 self.installer(fail_on=marker).run_all()
             self.assertIn("the real words", e.exception.why)

@@ -96,7 +96,7 @@ def canary_files(state):
         return []
 
 
-def plant_canaries(state, home, identity="claude-tenta"):
+def plant_canaries(state, home, identity="armada"):
     """Plant fake credentials nothing legitimate ever reads. Their text in any output is a breach; a read of the files is an alarm
     (canary-watch). Returns True if it planted them now, False if they were already there."""
     f = Path(state) / "canary.json"

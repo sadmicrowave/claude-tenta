@@ -35,7 +35,7 @@ def pairs(a, flag):
 
 class Arguments(unittest.TestCase):
     def build(self, **over):
-        kw = dict(network=False, wd="/var/lib/ct/work/j1", home="/home/w", claude=False, env={"PATH": "/usr/bin:/bin"})
+        kw = dict(network=False, wd="/var/lib/ct/work/j1", home="/home/w", env={"PATH": "/usr/bin:/bin"})
         kw.update(over)
         return bwrap().args(["/bin/echo", "hi"], **kw)
 
@@ -87,10 +87,9 @@ class Arguments(unittest.TestCase):
         a = bwrap(hide=["/srv/elsewhere"]).args(["x"], network=False, wd="/w", home="/h")
         self.assertNotIn("/srv/elsewhere", a)
 
-    def test_only_the_model_tool_folder_of_the_home_is_shown_for_claude_jobs(self):
-        self.assertNotIn(["/home/w/.local", "/home/w/.local"], pairs(self.build(claude=False), "--ro-bind-try"))
-        self.assertIn(["/home/w/.local", "/home/w/.local"], pairs(self.build(claude=True), "--ro-bind-try"))
-        self.assertNotIn("/home/w/.ssh", " ".join(self.build(claude=True)))
+    def test_nothing_under_the_home_is_shown_to_a_job(self):
+        self.assertNotIn(["/home/w/.local", "/home/w/.local"], pairs(self.build(), "--ro-bind-try"))
+        self.assertNotIn("/home/w/.ssh", " ".join(self.build()))
 
     def test_a_throwaway_tools_folder_on_the_search_path_is_bound_read_only(self):
         tools = tempfile.mkdtemp(prefix="ct-tools-")
@@ -182,13 +181,13 @@ class FailingClosed(unittest.TestCase):
 class RealJail(unittest.TestCase):
     """Runs real jailed commands. Skipped where bubblewrap or unprivileged namespaces are unavailable (for example macOS)."""
 
-    def run_in_jail(self, script, network=False, claude=False):
+    def run_in_jail(self, script, network=False):
         wd = Path(tempfile.mkdtemp(prefix="ct-real-"))
         home = Path(tempfile.mkdtemp(prefix="ct-home-"))
         (home / ".ssh").mkdir()
         (home / ".ssh" / "id_test").write_text("not really a key")
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
-        argv = jail.Bwrap(hide=["/etc/ssh"]).wrap([sys.executable, "-c", script], network=network, wd=wd, home=home, claude=claude, env=env)
+        argv = jail.Bwrap(hide=["/etc/ssh"]).wrap([sys.executable, "-c", script], network=network, wd=wd, home=home, env=env)
         r = subprocess.run(argv, capture_output=True, text=True, cwd=str(wd), env=env, timeout=60)
         return r, wd, home
 

@@ -124,7 +124,7 @@ class EndToEnd(OffloadFixture):
         self.assertEqual(code, 0)
         self.assertIn("Recorded: this command does not fit", out + err)
         self.assertIn("testct", out + err)
-        self.assertIn("Claude will not offload it again", out + err)
+        self.assertIn("It will not be offloaded again", out + err)
         data = json.loads(sh("git", "show", "data:exclusions.json", cwd=self.tmp / "queue.git"))
         (e,) = data["excluded"]
         self.assertEqual((e["argv"], e["limiting"], e["profiled"]["job"], e["profiled"]["mem_total_mb"]), (["ls", "-l"], ["memory"], jid, 8000))

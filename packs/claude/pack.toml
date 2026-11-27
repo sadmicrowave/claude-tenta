@@ -1,7 +1,0 @@
-name = "claude"
-version = "0.1.0"
-description = "A read-only Claude class: Claude reads the files you attach and answers, and cannot change or run anything"
-kinds = ["classes"]
-
-[requires]
-os = ["ubuntu", "debian"]

@@ -124,9 +124,6 @@ define("files.too_many", "limit", "Bounds how much one job asks of the worker an
 define("files.name.path", "security", "Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. "
        "Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.", "A file name could leave the job's folder",
        "bad file name: {name!r} ({reason})", steps=["Rename the file, or leave it out with --include on ct-run submit."])
-define("files.name.hidden", "policy", "A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.",
-       "This kind of class takes no file whose name starts with a dot", "a name may not start with a dot for this kind of class: {name!r}",
-       depends="the class kind: claude (decided by the kind, never by a setting the person makes)", steps=["Leave the file out with --include on ct-run submit."])
 define("files.not_text", "limit", "A job file carries file contents as text, so a file that is not text cannot be sent yet. It is reported and never dropped silently; archive transfer is a later design.",
        "A file is not text", "file {name!r} is not text, so it cannot be sent in a job", who="client", depends="the carrier (text inside the job file)",
        steps=["Leave it out with --include on ct-run submit."])
@@ -186,12 +183,6 @@ define("placement.tools.not_allowed", "placement", "A class that needs a tool fo
        "does not allow the tool folder {folder} that {cls} needs", who="client", steps=["Allow the folder with ct-admin class."])
 define("placement.connection", "placement", "The owner limited this class to some kinds of connection.", "A worker is reached over a connection the class does not allow",
        "is reached over {listens}, and {cls} is limited to {allowed}", who="client", depends="the transport", config="ct-admin class", steps=["See the limits with ct-admin class."])
-define("placement.ai.no_signin", "placement", "An AI class runs only where the AI tool is signed in.", "A worker has no AI sign-in", "has no Claude sign-in", who="client", depends="the class kind: claude",
-       steps=["Sign it in with ct-setup install --worker NAME."])
-define("placement.ai.no_tool", "placement", "An AI class runs only where its tool is installed.", "A worker has no AI tool", "has no Claude tool installed", who="client", depends="the class kind: claude",
-       steps=["Install it with ct-setup install --worker NAME."])
-define("placement.ai.paused", "placement", "An AI worker stops taking AI jobs for the day when its limit is reached, so the person's usage is bounded.", "A worker paused AI jobs for today",
-       "has paused Claude jobs for today (its daily limit)", who="client", depends="the class kind: claude", config="the worker's daily limits", steps=["See its usage with ct-admin status."])
 define("placement.transport.mismatch", "placement", "A job sent over a connection the worker does not listen on is never picked up (this computer pushes to GitHub, the worker reads its own mailbox, or the other way round), so it is not sent: "
        "the worker is left out, and a worker named with --worker is refused, instead of the job disappearing.", "This computer and the worker use different connections",
        "this computer sends over {connection}, but the worker listens on {listens}, so a job sent now would never be picked up", who="client", depends="the transport",
@@ -213,10 +204,8 @@ define("job.profile.params", "format", "A profile run is one exact command, not 
        steps=["Give the command after a double dash on ct-run offload profile."])
 define("job.action.missing", "security", "A root-level class must point at an action in the root-owned registry, or it would run nothing it could be checked against.",
        "The class's root-level action is missing", "the class's action is not in the installed registry", steps=["Reinstall the registry with ct-admin apply."])
-define("job.root.params_only", "security", "A root-level job may carry only typed parameters: no files and no prompt can reach something that runs as root.",
+define("job.root.params_only", "security", "A root-level job may carry only typed parameters: no files and no free text can reach something that runs as root.",
        "A root-level job carries more than parameters", "a root-level job takes parameters only")
-define("job.prompt.length", "limit", "Bounds what one AI job can spend; the cap is a fixed number today and should become a setting per class.", "The prompt has the wrong length",
-       "prompt must be 1-8000 characters", depends="the class kind: claude", steps=["Shorten the prompt, or attach the text as a file."])
 define("job.kind.unknown", "format", "A class of a kind this worker does not know cannot be run safely.", "The class is of an unknown kind", "unknown kind {kind!r}",
        steps=["Update the worker with ct-admin apply."])
 define("job.packages.plan", "placement", "The packages a job asks for must be installable here, or the job would start and fail.", "The requested packages cannot be installed", "{problems}",
@@ -480,8 +469,6 @@ define('server.release.unknown', 'error', 'The release a worker runs is recorded
 define('server.install.refused', 'error', "The install's own checks refused it; the reasons are shown.", 'The install was refused', '{errors}', who="client")
 define('server.queue.unreadable', 'error', 'The worker must read the queue repository before the registry is installed.', 'The worker could not read the queue repository, so the job registry was not installed', '{reason}', who="client")
 define('server.registry.not_installed', 'error', 'A registry with a problem is not installed.', 'The job registry was not installed', '{reason}', who="client")
-define('server.ai_tool.not_running', 'error', 'An AI tool that was installed but does not run is reported, not left half-working.', 'The Claude tool does not run on this machine', 'It installed but `claude --version` failed.', who="client")
-define('server.token.invalid', 'format', 'A token is one long line with no spaces.', 'That does not look like a token', 'It should be one long line with no spaces. Run ct-setup install again to enter it.', who="client")
 define('server.protection.failed', 'error', 'A protection that could not be applied stops the worker from starting.', 'A protection could not be applied, so the worker was not started', '{failed}', who="client")
 define('install.package.failed', 'error', 'The real error text of a release that could not be packaged.', 'Could not package the release', '{reason}', who="client")
 define('install.workdir.failed', 'error', 'The real error text of a working folder that could not be made on the server.', 'Could not make a working folder on the server', '{reason}', who="client")

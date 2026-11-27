@@ -33,7 +33,7 @@ NEW_REV=$(git_rel rev-parse HEAD)
 chmod -R a+rX $SRC
 python3 - <<PY                                                    # the release source must be an https address; git is told that address is this checkout (the install recorded the author's GitHub address, which this machine cannot reach)
 import re
-p = "/etc/claude-tenta/ct.toml"
+p = "/etc/armada/ct.toml"
 t = open(p).read()
 t = re.sub(r'(?m)^source = .*\n', '', t.split("[updates]")[0]) + "[updates]" + t.split("[updates]")[1] if "[updates]" in t else t + "\n[updates]\n"
 t = t.replace("[updates]", '[updates]\nsource = "https://releases.example.test/ct.git"', 1) if 'source = "https://releases.example.test/ct.git"' not in t else t
@@ -62,7 +62,7 @@ check "the drop-in exists with exactly what was set" bash -c "grep -qx 'CPUWeigh
 check "systemd reports the limits on the step service" bash -c "systemctl show $NAME-step.service -p CPUWeight -p Nice | sort | tr '\n' ' ' | grep -q 'CPUWeight=20 Nice=10'"
 python3 - <<'PY'
 import re
-p = "/etc/claude-tenta/ct.toml"
+p = "/etc/armada/ct.toml"
 t = open(p).read()
 t = re.sub(r"\n\[availability\].*?(?=\n\[|\Z)", "\n", t, flags=re.S)
 open(p, "w").write(t)

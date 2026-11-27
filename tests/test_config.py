@@ -55,7 +55,7 @@ class ProfileApproval(unittest.TestCase):
 class Defaults(unittest.TestCase):
     def test_built_in_defaults_are_valid_and_complete(self):
         c = config.load(None, env={"CT_CONFIG": ""})
-        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("claude-tenta", "ctworker", True))
+        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("armada", "ctworker", True))
         self.assertEqual((c.hardware.capacity, c.hardware.max_load, c.hardware.max_temp_c), (4, 3.0, 75))
         self.assertEqual(c.alerts.remind_hours, [1, 6, 24])
 
@@ -181,8 +181,8 @@ class Requirements(unittest.TestCase):
         with self.assertRaises(config.ConfigError):
             c.queue_url
         c2 = load_text('[github]\nowner = "alice"\n')
-        self.assertEqual(c2.queue_url, "git@github.com:alice/claude-tenta-queue.git")
-        self.assertEqual(c2.results_url, "git@github.com:alice/claude-tenta-results.git")
+        self.assertEqual(c2.queue_url, "git@github.com:alice/armada-queue.git")
+        self.assertEqual(c2.results_url, "git@github.com:alice/armada-results.git")
 
 
 class ExampleFile(unittest.TestCase):
@@ -211,8 +211,8 @@ class Secrets(unittest.TestCase):
     def test_env_file_parsing(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "secrets.env"
-            p.write_text('# comment\nCT_ALERT_TOKEN="tk_x"\n\nANTHROPIC_API_KEY=abc=def\nnot a pair\n')
-            self.assertEqual(config.read_env_file(p), {"CT_ALERT_TOKEN": "tk_x", "ANTHROPIC_API_KEY": "abc=def"})
+            p.write_text('# comment\nCT_ALERT_TOKEN="tk_x"\n\nEXAMPLE_API_KEY=abc=def\nnot a pair\n')
+            self.assertEqual(config.read_env_file(p), {"CT_ALERT_TOKEN": "tk_x", "EXAMPLE_API_KEY": "abc=def"})
             self.assertEqual(config.read_env_file(Path(d) / "missing"), {})
 
     def test_a_world_readable_secrets_file_is_a_problem(self):
@@ -244,50 +244,3 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class LegacyInstall(unittest.TestCase):
-    """An install made before the project was renamed keeps working: its settings are in cw.toml in the old folder, its clones and keys in ~/.cw."""
-
-    def test_the_old_settings_file_is_found_and_its_client_folder_is_the_old_one(self):
-        legacy = config.legacy_config_paths()[0]
-        legacy.parent.mkdir(parents=True, exist_ok=True)
-        legacy.write_text('[identity]\nname = "claude-ballast"\n')
-        try:
-            self.assertEqual(config.default_config_path({}), legacy)
-            c = config.load(None, env={})
-            self.assertEqual((c.identity.name, c.paths.client_home), ("claude-ballast", "~/.cw"))
-            new = Path.home() / ".config" / "claude-tenta" / "ct.toml"
-            new.parent.mkdir(parents=True, exist_ok=True)
-            new.write_text('[identity]\nname = "claude-tenta"\n')
-            self.assertEqual(config.default_config_path({}), new)                        # the new place wins once it exists
-            self.assertEqual(config.load(None, env={}).paths.client_home, "~/.ct")
-        finally:
-            for p in (legacy, Path.home() / ".config" / "claude-tenta" / "ct.toml"):
-                p.unlink(missing_ok=True)
-
-    def test_an_old_file_that_never_named_the_install_means_the_old_default_name_and_its_repositories(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "cw.toml"
-            p.write_text('[github]\nowner = "someone"\n')
-            c = config.load(p, env={})
-            self.assertEqual((c.identity.name, c.github.queue_repo, c.github.results_repo, c.paths.code),
-                             ("claude-ballast", "claude-ballast-queue", "claude-ballast-results", "/opt/claude-ballast"))
-            q = Path(d) / "ct.toml"
-            q.write_text('[github]\nowner = "someone"\n')
-            self.assertEqual(config.load(q, env={}).identity.name, "claude-tenta")          # a current file keeps the new default
-
-    def test_an_old_file_that_never_named_the_worker_account_means_the_account_it_had(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "cw.toml"
-            p.write_text('[github]\nowner = "someone"\n')
-            self.assertEqual(config.load(p, env={}).server.worker_user, "cwworker")
-            q = Path(d) / "ct.toml"
-            q.write_text('[github]\nowner = "someone"\n')
-            self.assertEqual(config.load(q, env={}).server.worker_user, "ctworker")
-
-    def test_an_explicit_client_folder_in_an_old_file_is_kept(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "cw.toml"
-            p.write_text('[paths]\nclient_home = "~/elsewhere"\n')
-            self.assertEqual(config.load(p, env={}).paths.client_home, "~/elsewhere")

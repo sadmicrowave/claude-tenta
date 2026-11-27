@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import approvals, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
@@ -52,9 +52,6 @@ class Settings:
     identity: str = "ct-worker"             # the name decoy credentials are planted under
     approve_note: str = "approve it: ct-admin approve {jid} (on your computer) or ct-approve {jid} (on the worker)"
     exec_argv: list = field(default_factory=list)       # the command that runs one job: exec_argv + [job id]
-    claude_command: str = "claude"
-    claude_jobs_per_day: int = 0              # the daily Claude limits (see ledger); 0 is no limit
-    claude_turns_per_day: int = 0
     prune_days: int = 14
     prune_threshold: int = 200
     pkg_timeout: int = 900
@@ -71,26 +68,23 @@ class Settings:
 
 class Worker:
     def __init__(self, settings, io, lockdown, keeper, packages, *, seclog=None, sensors=None, runner=run_command, log=None, clock=now,
-                 home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, privileged_call=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
+                 home=None, signed_approval=None, approvers_file=None, state_facts=None, privileged_call=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
-        self.claude_flags = claudeflags.flags
         self.sensors = sensors
         self.runner, self.clock = runner, clock
         self.log = log or (lambda msg: None)
-        self.home, self.api_key, self.hostname = str(home or Path.home()), api_key, hostname
-        self.oauth_token = oauth_token
+        self.home, self.hostname = str(home or Path.home()), hostname
         self.approvers_file = approvers_file
         self.idle_now = False
         self.mode = "active"                       # active (checks every fetch_s) | idle (every idle_fetch_s) | sleep (every sleep_fetch_s)
         self.privileged_call = privileged_call            # (exact job file, signed approval text, timeout) -> the root helper's answer; the worker never runs a root-level action itself
-        self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS, Claude tool...) for worker-state.json
+        self.state_facts = state_facts            # () -> the facts only the install knows (name, release, OS...) for worker-state.json
         self.signed_approval = signed_approval            # (job id, digest) -> bool: is there a valid approval, signed on the administrator's own computer?
         self.jail = jail if jail is not None else Unshare()
         self.loadavg = loadavg or plat.loadavg
         self.is_job_process = is_job_process or self._pid_is_job
         self._spawn = spawn or self._default_spawn
         self.find_program = find_program or (lambda name: shutil.which(name, path=SAFE_PATH))
-        self.ledger = ledger_mod.Ledger(settings.state, settings.claude_jobs_per_day, settings.claude_turns_per_day, clock=clock)
         self.limits = registry.limits_of({})
         self.policy = registry.policy_of({})
         self.state = Path(settings.state)
@@ -385,7 +379,7 @@ class Worker:
         if not isinstance(params, dict):
             raise refusals.refuse("job.params.not_object")
         kind = cls.get("kind", "command")
-        argv = prompt = None
+        argv = None
         files, meta = {}, {}
         try:
             if kind == "command":
@@ -403,18 +397,13 @@ class Worker:
                     raise refusals.refuse("job.root.params_only")
                 from . import actions as actions_mod
                 argv = actions_mod.build_argv(action, params)               # only to validate the parameters now; the helper builds it again from the root-owned registry
-            elif kind == "claude":
-                prompt = job.get("prompt")
-                if not isinstance(prompt, str) or not 1 <= len(prompt) <= 8000:
-                    raise refusals.refuse("job.prompt.length")
-                files = jobs.check_files(job.get("files"), cls, limits)
             else:
                 raise refusals.refuse("job.kind.unknown", kind=kind)
         except refusals.Refused:
             raise                                                           # already a catalog refusal: its code goes on to the result
         except ValueError as e:                                             # a validator that has no entry of its own yet (actions.build_argv): the generic one, with its text
             raise refusals.refuse("job.invalid", detail=str(e))
-        return job, cls, kind, argv, prompt, files, meta
+        return job, cls, kind, argv, files, meta
 
     # ---- one job ----
     def process(self, path, reg, run=False):
@@ -430,7 +419,7 @@ class Worker:
         digest = hashlib.sha256(raw).hexdigest()
         res = {"id": jid, "class": None, "status": "rejected", "started": None, "finished": None, "exit_code": None, "output": "", "note": ""}
         try:
-            job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res)
+            job, cls, kind, argv, files, meta = self._validate(jid, raw, reg, res)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
             if (kind in ("profile", "privileged") or cls.get("tier", "approve") != "auto") and not (kind == "profile" and self.profile_runs_unapproved()) \
                     and not self._approved(jid, digest, signed_only=(kind == "privileged")):
@@ -457,7 +446,7 @@ class Worker:
                 self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s"), "est_time_s": job.get("est_time_s")}))      # what step needs, so it never parses the whole job
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
                 return
-            self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
+            self._execute(jid, job, cls, kind, argv, files, meta, reg, res)
         except Reject as e:
             res.update(status="rejected", note=str(e))
             if getattr(e, "code", None):
@@ -481,20 +470,9 @@ class Worker:
             self._p("queued", f"{jid}.meta").unlink(missing_ok=True)
             self._p("running", jid).unlink(missing_ok=True)
 
-    def _command_for(self, jid, cls, kind, argv, prompt, meta, reg, res):
+    def _command_for(self, jid, cls, kind, argv, meta, reg, res):
         """(argv to run, extra environment, limits, refusal or None)."""
         limits = {k: cls[k] for k in ("max_rss_mb", "max_temp_c", "max_disk_mb") if cls.get(k)}
-        if kind == "claude":
-            have = self.claude_flags(self.s.claude_command)
-            names = [registry.tool_name(t) for t in cls["allowed_tools"]]
-            if "--tools" not in have and "--disallowedTools" not in have and "--disallowed-tools" not in have:
-                return ([], None, limits, "the installed Claude cannot restrict its tools (no --tools or --disallowedTools), so a Claude job is not run: it could start helper agents or use tools its class did not name")
-            argv = [self.s.claude_command, "-p", prompt, "--output-format", "json", "--max-turns", str(cls.get("max_turns", 10)), "--allowedTools", ",".join(cls["allowed_tools"])]
-            if "--tools" in have:
-                argv += ["--tools", ",".join(dict.fromkeys(names))]                  # exactly the named tools exist for this job: no helper agent, nothing else
-            if "--disallowedTools" in have or "--disallowed-tools" in have:
-                argv += ["--disallowedTools", ",".join(registry.HELPER_TOOLS)]       # and the helper-starting tools are named as forbidden, whatever the release does with --tools
-            return (argv, None, limits, None)
         run_argv, extra, prep_fail = argv, cls.get("env"), None
         if cls.get("tools") and kind == "command":
             real, prep_fail = self.tool_folders(cls["tools"])
@@ -534,7 +512,7 @@ class Worker:
         self.log(f"root helper answered {jid}: {ans.get('status')}" + (f" ({ans.get('note')})" if ans.get("note") else ""))
         return status, ans.get("exit_code"), ans.get("output") or "", {}, ans.get("note") or ""
 
-    def _execute(self, jid, job, cls, kind, argv, prompt, files, meta, reg, res):
+    def _execute(self, jid, job, cls, kind, argv, files, meta, reg, res):
         wd = self._p("work", jid)
         wd.mkdir(parents=True, exist_ok=True)
         res["started"] = iso(self.clock())
@@ -550,30 +528,19 @@ class Worker:
                 raise refusals.refuse("files.name.path", name=name, reason="it would be written outside the job's folder")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
-        returns_patch = kind == "claude" and cls.get("returns") == "patch"
-        before, before_notes = patch_mod.snapshot(wd) if returns_patch else ({}, [])      # what the folder held when the job began: the patch is the difference from this
         self.io.publish({**res, "status": "running", "note": f"approved; running on {self.s.product} now"})   # so the client can tell it was picked up
-        if kind == "claude" and files:                    # Claude is not told by the files themselves that they exist: "this file" would have nothing to point at
-            prompt = f"{prompt}\n\n[Attached files, in the current directory: {', '.join(sorted(files))}. Use the Read tool to look at them.]"
         if kind == "privileged":
             st, rc, out, metrics, note = self._run_privileged(jid, cls, reg)
         else:
-            run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, prompt, meta, reg, res)
+            run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, meta, reg, res)
             if prep_fail:
                 st, rc, out, metrics, note = "error", None, "", {}, prep_fail
             else:
-                st, rc, out, metrics, note = self.runner(run_argv, self.time_limit(cls, job, reg), wd, home=self.home, claude=(kind == "claude"),
+                st, rc, out, metrics, note = self.runner(run_argv, self.time_limit(cls, job, reg), wd, home=self.home,
                                                          marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
-                                                         api_key=self.api_key, oauth_token=self.oauth_token, sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
-        if kind == "claude":
-            self.ledger.finish(jid, job.get("class"), (metrics or {}).get("claude"), st)
-        patch_text = ""
-        if returns_patch and st == "ok":
-            after, after_notes = patch_mod.snapshot(wd)
-            patch_text, changed, patch_note = patch_mod.make(before, after, int(cls.get("patch_max_kb", 200)) * 1000)
-            res["patch"] = {"files": changed, "text": patch_text, "notes": sorted(set(before_notes + after_notes + ([patch_note] if patch_note else [])))}
+                                                         sensors=self.sensors, require_netns=self.s.require_netns, jail=self.jail)
         shaped, shape_note = results.shape_output(cls, out, self.limits["output_max_chars"])
-        summarised = st == "error" and kind != "claude" and not cls.get("output_keys") and bool(out)
+        summarised = st == "error" and not cls.get("output_keys") and bool(out)
         if summarised:
             self.keeper.keep(jid, out)                       # a failed command: send back only its error messages, not the stack traces
             shaped = results.failure_summary(out, where=f"on {self.s.product}")
@@ -584,8 +551,6 @@ class Worker:
         allow, tokens = set(cls.get("output_allow") or []), guard.canary_tokens(self.state)
         scan = lambda text: guard.scan(text, allow=allow, hostname=self.hostname, canary_tokens=tokens)   # noqa: E731
         hits = scan(shaped if summarised or cls.get("output_keys") else out)       # what is sent is what the guard judges
-        if patch_text:
-            hits = sorted(set(hits) | set(scan(patch_text)))                        # the patch is published too, so the guard reads it like any output
         if summarised and "canary" not in hits and any(t and t in (out or "") for t in tokens):
             hits.append("canary")                            # a decoy credential in the full output is a breach even if it was not going to be sent
         if hits:
@@ -727,23 +692,15 @@ class Worker:
                 if used + w > self.s.capacity:
                     self.log(f"waiting: {jid} needs {w}, {self.s.capacity - used} of {self.s.capacity} free")
                     break                                    # strict FIFO so a big job cannot be starved by a stream of small ones
-                cap = cls.get("max_running") or (1 if cls.get("kind") == "claude" else None)     # a Claude class runs one job at a time unless it says otherwise: usage is spent one job at a time
+                cap = cls.get("max_running")
                 if cap and sum(1 for mk in markers.values() if mk.get("class") == job.get("class")) >= cap:
                     self.log(f"waiting: {jid}: {cap} {plural(job.get('class'), 'job')} already running")
                     continue
-                if cls.get("kind") == "claude":
-                    spent = self.ledger.exceeded()
-                    if spent:
-                        self.log(f"waiting: {jid}: {spent}")
-                        self._announce_pause(spent)
-                        continue                                 # a pause for Claude jobs only: everything else behind it still runs
                 why = self.busy_reason()
                 if why:
                     self.log(f"waiting: {jid}: {why}")
                     break
                 pid = self._spawn(jid)
-                if cls.get("kind") == "claude":
-                    self.ledger.start(jid, job.get("class"))
                 limit = min(self.time_limit(cls, job, reg), MAX_TIMEOUT) + (self.s.pkg_timeout if job.get("packages") else 0)
                 markers[jid] = {"pid": pid, "weight": w, "class": job.get("class"), "started": iso(self.clock()), "deadline": time.time() + limit + self.s.grace_s}
                 self._p("running", jid).write_text(json.dumps(markers[jid]))
@@ -751,23 +708,6 @@ class Worker:
                 started.append(jid)
                 self.log(f"started {jid} (weight {w}, {used}/{self.s.capacity} in use)")
         return started
-
-    def _announce_pause(self, why):
-        """Say once per UTC day that new Claude jobs are paused (a quiet notice, not an alarm: nothing is wrong)."""
-        mark = self._p("ledger-paused")
-        day = self.ledger.day()
-        try:
-            if mark.read_text().strip() == day:
-                return
-        except OSError:
-            pass
-        mark.write_text(day)
-        try:
-            self.lock.notifier.send(f"{self.s.product} PAUSED CLAUDE JOBS", f"{why}. They start again tomorrow or when the limit is raised.",
-                                    fields=[("State", "new Claude jobs are paused; other jobs still run"), ("Why", why), ("Next", "ct-admin status shows today's use; raise claude.jobs_per_day or turns_per_day to continue now")],
-                                    tags="hourglass", priority="default")
-        except Exception as e:
-            self.log(f"pause notice: {e}")
 
     def execute(self, jid):
         """The exec pass: run one queued job in this process. A stop signal is turned into a 'killed' result by the runner."""
@@ -849,7 +789,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg)}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())

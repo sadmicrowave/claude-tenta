@@ -18,7 +18,7 @@ from ct.client import view  # noqa: E402
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]|\x1b\][^\x07]*\x07")
 WIDTHS = (20, 24, 30, 36, 40, 43, 44, 45, 50, 59, 60, 61, 80, 100, 140, 200)      # the edges of every switch (stack below 44, rail below 60) on both sides, and the extremes
 LONG = "a-long-worker-name-that-is-longer-than-the-pane"
-PATH = "/home/example/.local/share/claude-tenta/workers/win/mailbox/key"
+PATH = "/home/example/.local/share/armada/workers/win/mailbox/key"
 
 
 class Tty(io.StringIO):
@@ -80,16 +80,16 @@ def _help_screen(out):
 def _worker_status_card(out):
     """The rows of `ct-worker status`: a value with an explanation after it (the first part must not push the line past the pane), a value ending in chips, a long path, a long explanation."""
     S = cards.Styled
-    ui.say("Status, Thu 2026-11-26 20:07 UTC", ("Worker", "claude-tenta"), ("Needs attention", "Registry sync, Security"),
+    ui.say("Status, Thu 2026-11-26 20:07 UTC", ("Worker", "armada"), ("Needs attention", "Registry sync, Security"),
            ("Memory", S([("14.1 GB free of 14.9 GB", "ok"), ("enough for the next job", "muted")])),
            ("Disk", S([("458 GB free of 488 GB", "ok"), ("plenty of room", "muted")])),
            ("Registry sync", S([("REFUSED", "bad"), ("20:04 UTC: refused: the signed approval is for a different registry.yaml than the one on the queue repository", None)])),
-           ("Runs on", S([("claude-tenta", None), ("DEDICATED", "warn_chip")])), tag="ATTENTION", color=ui.YELLOW, stream=out)
+           ("Runs on", S([("armada", None), ("DEDICATED", "warn_chip")])), tag="ATTENTION", color=ui.YELLOW, stream=out)
 
 
 def _classes_card(out):
-    ui.say("What your workers can run for you today", *[(cards.Chip("Class", "primary"), cards.Styled([("claude-read", "strong")])), ("Runs", "read-only Claude on files you attach"),
-           ("Runs on", cards.Styled([("claude-tenta", None), ("DEDICATED", "warn_chip")])), ("Cost", "medium, waits for your approval")], "\n",
+    ui.say("What your workers can run for you today", *[(cards.Chip("Class", "primary"), cards.Styled([("summarise-read", "strong")])), ("Runs", "read-only summaries of files you attach"),
+           ("Runs on", cards.Styled([("armada", None), ("DEDICATED", "warn_chip")])), ("Cost", "medium, waits for your approval")], "\n",
            "A dedicated class goes only to its worker (the command below).", tag="CLASSES", color=ui.PRIMARY, run=["ct-admin workers use WORKER --command CLASS", "ct-run classes --worker NAME"], stream=out)
 
 
@@ -102,7 +102,7 @@ KINDS = {
     "the rows of ct-worker status": _worker_status_card,
     "a class list card with two commands": _classes_card,
     "a fleet heading with a long name": _fleet_rule,
-    "a card with a long steps heading": say("The workers do not all run the same release", ("Worker", "claude-tenta"), tag="RELEASES", color=ui.YELLOW, steps=["`ct-admin apply` (every worker in turn)"], steps_label="How to bring them together"),
+    "a card with a long steps heading": say("The workers do not all run the same release", ("Worker", "armada"), tag="RELEASES", color=ui.YELLOW, steps=["`ct-admin apply` (every worker in turn)"], steps_label="How to bring them together"),
     "the status panel": _status_panel,
     "the update cards for several workers": _update_cards,
     "a short card": say("Ready", "It is done.", tag="DONE", color=ui.GREEN),
@@ -118,12 +118,12 @@ KINDS = {
     "a quiet facts block": lambda out: out.write("\n".join(cards.meta([("Measured", [("Time", "0.02 s wall, 0.01 s cpu"), ("Memory", "peak 0 MB of 15219 MB")])])) + "\n"),
     "named blocks": say("Waiting for you", *cards.job_blocks([("profile-bkhudd", [("CLASS", "profile-run"), ("WAITING", "3 hours")])]), tag="APPROVE", color=ui.YELLOW, run=["ct-admin approve profile-bkhudd"]),
     "the workers list": lambda out: out.write("\n".join(__import__("ct.admin.workers", fromlist=["x"]).cards(
-        [{"name": "tenta2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "claude": "none", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
-          "age": "5 min ago", "has_claude": False, "locked": False, "stale": False, "packages": 0, "classes": 3}], width=__import__("shutil").get_terminal_size().columns, color=True)) + "\n"),
+        [{"name": "tenta2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
+          "age": "5 min ago", "locked": False, "stale": False, "packages": 0, "classes": 3}], width=__import__("shutil").get_terminal_size().columns, color=True)) + "\n"),
     "a setup progress row": lambda out: out.write(_setup_rows() + "\n"),
     "the approval screen": lambda out: out.write(__import__("ct.review", fromlist=["x"]).review_text({"argv": ["python3", "-m", "unittest", "discover", "-s", "tests"], "what": "Runs the unit tests of the project against the attached source.",
                                                                                                   "expect": "about 15 seconds", "files": {"src/ct/jobs.py": "x"}}) + "\n"),
-    "a yes/no question": lambda out: out.write(ui.confirm_prompt("Remove the claude-tenta worker from 192.0.2.50?", stream=out) + "\n"),
+    "a yes/no question": lambda out: out.write(ui.confirm_prompt("Remove the armada worker from 192.0.2.50?", stream=out) + "\n"),
 }
 
 

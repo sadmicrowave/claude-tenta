@@ -54,7 +54,7 @@ class DefaultsFollowTheChosenName(unittest.TestCase):
         from ct.setup import questions
         self.assertEqual(questions.default_for("github.queue_repo", None, {"identity.name": "tenta-two"}), "tenta-two-queue")
         self.assertEqual(questions.default_for("github.results_repo", None, {"identity.name": "tenta-two"}), "tenta-two-results")
-        self.assertEqual(questions.default_for("github.queue_repo"), "claude-tenta-queue")                   # nothing chosen: the built-in name
+        self.assertEqual(questions.default_for("github.queue_repo"), "armada-queue")                   # nothing chosen: the built-in name
 
     def test_collecting_with_a_given_name_gives_repositories_of_that_name(self):
         from ct.setup import questions

@@ -89,9 +89,9 @@ class GithubWorkerSteps(unittest.TestCase):
         from ct.admin import workerrepos
         cfg, p = self.cfg("wk-a")
         rows = workerrepos.prepare(cfg, p, self.wfile, run=self.run_gh(missing={"wk-a-queue"}), clone=lambda: [("cloned", "/x/queue"), ("cloned", "/x/results")])
-        self.assertIn(["repo", "create", "someone/wk-a-queue", "--private", "--description", "claude-tenta queue (private)"], self.calls)
+        self.assertIn(["repo", "create", "someone/wk-a-queue", "--private", "--description", "armada queue (private)"], self.calls)
         self.assertEqual([c for c in self.calls if c[:2] == ["repo", "create"]].__len__(), 1)
-        self.assertEqual(sum(c[:2] == ["repo", "edit"] and c[-1] == "claude-tenta" for c in self.calls), 2)
+        self.assertEqual(sum(c[:2] == ["repo", "edit"] and c[-1] == "armada" for c in self.calls), 2)
         self.assertEqual([r[2] for r in rows], ["created, private", "exists", "cloned", "cloned"])
 
     def test_prepare_refuses_a_shared_repository_before_it_calls_gh(self):

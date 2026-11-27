@@ -30,8 +30,8 @@ ct-admin        administrator: act on the worker over SSH, and manage the privat
  ├─ quarantine / unlock / output   withheld results, clearing a lockdown, a failed command's full output
  └─ kill / cancel                  stop a running / not-yet-started job
 
-ct-log          recorder of the commands Claude Code runs, ranked for offloading
- ├─ hook pre|post                  (called by Claude Code)
+ct-log          recorder of the commands a coding assistant runs, ranked for offloading
+ ├─ hook pre|post                  (called by the assistant's hooks)
  ├─ top                            what is worth offloading
  └─ show / clear                   the log's location / forget it
 

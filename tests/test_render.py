@@ -82,7 +82,7 @@ class Units(unittest.TestCase):
     # uses a placeholder outside this set cannot be installed on any worker that runs an older release: seen on the first `ct-admin apply` of {{resources}}, on all three workers
     # ("the template uses {{resources}} but no value is defined for it"). Add to this set only with a plan for the workers that cannot be upgraded in one step.
     UPGRADE_SAFE_PLACEHOLDERS = {"name", "worker_user", "admin_user", "alias", "state_root", "worker_home", "lib", "config", "code", "fetch_s", "step_s", "canary_s", "update_min",
-                                 "claude_update_days", "registry_sync_min", "commands", "mailbox_rw", "sandbox"}      # release f4c9ae706
+                                 "registry_sync_min", "commands", "mailbox_rw", "sandbox"}      # release f4c9ae706
 
     def test_no_template_uses_a_placeholder_an_older_updater_cannot_fill(self):
         import re
@@ -99,7 +99,7 @@ class Units(unittest.TestCase):
         self.assertEqual(sorted(units), sorted(f"homect-{u}" for u in render.UNITS))
         for name, text in units.items():
             self.assertNotIn("{{", text, name)
-            self.assertNotIn("claude-tenta", text, name)                        # nothing of the original install leaks into another's units
+            self.assertNotIn("armada", text, name)                        # nothing of the original install leaks into another's units
         fetch = units["homect-fetch.service"]
         for needle in ("User=runner1", "Environment=PYTHONPATH=/opt/homect/lib", "Environment=CT_CONFIG=/etc/homect/ct.toml",
                        "ReadWritePaths=/var/lib/homect /home/runner1 /tmp -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m ct.cli fetch"):
@@ -111,7 +111,7 @@ class Units(unittest.TestCase):
     def test_the_fetch_and_step_units_carry_the_same_sandbox_and_it_is_the_tested_one(self):
         units = render.unit_files(cfg(), TEMPLATES)
         sandbox_lines = lambda t: [l for l in t.splitlines() if re.match(r"^(Protect|Private|Restrict|ReadWritePaths|LockPersonality|SystemCall)", l)]   # noqa: E731
-        a, b = sandbox_lines(units["claude-tenta-fetch.service"]), sandbox_lines(units["claude-tenta-step.service"])
+        a, b = sandbox_lines(units["armada-fetch.service"]), sandbox_lines(units["armada-step.service"])
         self.assertEqual(a, b)
         self.assertIn("ProtectSystem=strict", a)
         keys = {l.split("=")[0] for l in a}
@@ -120,7 +120,7 @@ class Units(unittest.TestCase):
 
     def test_the_root_run_units_are_not_sandboxed_and_carry_no_secrets(self):
         units = render.unit_files(cfg(), TEMPLATES)
-        for name in ("claude-tenta-canary.service", "claude-tenta-update.service"):
+        for name in ("armada-canary.service", "armada-update.service"):
             self.assertNotIn("ProtectSystem", units[name])
             self.assertNotIn("EnvironmentFile", units[name])
         for name, text in units.items():
@@ -129,20 +129,10 @@ class Units(unittest.TestCase):
     def test_a_hostile_configuration_value_cannot_reach_a_unit(self):
         c = cfg()
         bad = type("C", (), {})()
-        bad.__dict__.update({k: getattr(c, k) for k in ("identity", "server", "paths", "schedule", "access", "claude")})
+        bad.__dict__.update({k: getattr(c, k) for k in ("identity", "server", "paths", "schedule", "access")})
         bad.paths = c.paths.__class__("paths", {**c.paths.as_dict(), "state_root": "/var/x\nExecStartPre=/bin/evil"})
         with self.assertRaises(render.RenderError):
             render.unit_files(bad, TEMPLATES)
-
-
-class ClaudeUpdateUnit(unittest.TestCase):
-    def test_the_weekly_update_unit_runs_as_the_worker_under_the_same_sandbox(self):
-        units = render.unit_files(cfg(CT_CLAUDE_UPDATE_DAYS="7"), TEMPLATES)
-        svc, timer = units["claude-tenta-claude-update.service"], units["claude-tenta-claude-update.timer"]
-        self.assertIn("ExecStart=/usr/bin/python3 -m ct.cli claude-update", svc)
-        self.assertIn("User=ctworker", svc)
-        self.assertIn("ProtectSystem=strict", svc)
-        self.assertIn("OnUnitInactiveSec=7d", timer)
 
 
 class Sudoers(unittest.TestCase):

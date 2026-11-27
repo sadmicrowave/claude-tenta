@@ -73,7 +73,7 @@ class Script(unittest.TestCase):
 
 class Inputs(unittest.TestCase):
     def test_the_mail_account_name_must_fit_a_windows_account(self):
-        self.assertEqual(winmailbox.mail_user("claude-tenta"), "claude-tenta-mail")
+        self.assertEqual(winmailbox.mail_user("armada"), "armada-mail")
         with self.assertRaises(ValueError):
             winmailbox.mail_user("a-very-long-install-name")
 
@@ -97,7 +97,7 @@ class Calls(unittest.TestCase):
 
         def runner(argv, text):
             seen.append((argv, text))
-            return 0, 'CT-RESULT {"changed": true, "user": "claude-tenta-mail"}'
+            return 0, 'CT-RESULT {"changed": true, "user": "armada-mail"}'
         self.assertTrue(winmailbox.ensure(runner, key=KEY)["changed"])
         self.assertEqual(seen[0][0], wintools.POWERSHELL)
         self.assertIn(KEY, seen[0][1])

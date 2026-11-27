@@ -15,33 +15,16 @@ def errs(cls, **top):
     return registry.validate({"classes": {"x1": cls}, **top}, TOOLS)
 
 
-class ClaudeClassTools(unittest.TestCase):
-    def check(self, tools, **extra):
-        reg = {"classes": {"askme": {"kind": "claude", "tier": "approve", "cost": "light", "allowed_tools": tools, **extra}}}
+class CommandClassKeys(unittest.TestCase):
+    def check(self, **extra):
+        reg = {"classes": {"cmd": {"kind": "command", "tier": "approve", "cost": "light", "run": ["/bin/true"], **extra}}}
         return registry.validate(reg, "/nonexistent-tools-root", allow_empty=True)
 
-    def test_read_tools_are_fine(self):
-        self.assertEqual(self.check(["Read", "Grep", "Glob"]), [])
-
-    def test_helper_agents_are_never_allowed_even_for_a_reviewed_class(self):
-        for tool in ("Task", "Agent", "Task(general)"):
-            errs = self.check([tool], reviewed=True)
-            self.assertTrue(any("starts helper agents" in e for e in errs), (tool, errs))
-
-    def test_tools_that_write_run_or_fetch_need_the_class_to_say_it_was_reviewed(self):
-        for tool in ("Bash", "Bash(git log:*)", "Edit", "WebFetch", "mcp__x__y"):
-            self.assertTrue(any("reviewed: true" in e for e in self.check(["Read", tool])), tool)
-            self.assertEqual(self.check(["Read", tool], reviewed=True), [], tool)
-
     def test_max_running_is_accepted_as_a_positive_number(self):
-        self.assertEqual(self.check(["Read"], max_running=2), [])
+        self.assertEqual(self.check(max_running=2), [])
 
-    def test_a_patch_returning_class_needs_files_and_only_the_value_patch_is_known(self):
-        self.assertEqual(self.check(["Read", "Edit"], reviewed=True, accepts_files=True, returns="patch", patch_max_kb=100), [])
-        self.assertTrue(any("accepts_files" in e for e in self.check(["Read", "Edit"], reviewed=True, returns="patch")))
-        self.assertTrue(any("returns may only be patch" in e for e in self.check(["Read"], returns="branch")))
-        self.assertTrue(any("only a claude class" in e for e in registry.validate(
-            {"classes": {"c": {"kind": "command", "tier": "auto", "cost": "light", "run": ["/bin/true"], "returns": "patch"}}}, "/nonexistent-tools-root", allow_empty=True)))
+    def test_only_the_known_kinds_are_accepted(self):
+        self.assertTrue(any("unknown kind" in e for e in registry.validate({"classes": {"c": {"kind": "assistant"}}}, "/nonexistent-tools-root", allow_empty=True)))
 
 
 class Packages(unittest.TestCase):
@@ -87,7 +70,7 @@ class Validation(unittest.TestCase):
         self.assertTrue(errs({"run": ["a"], "tier": "yes"}))
         self.assertTrue(errs({"run": ["a"], "timeout_s": "60"}))
         self.assertTrue(errs({"run": ["a"], "params": {"p": {"int": [1, 2], "enum": [1]}}}))
-        self.assertTrue(errs({"kind": "claude"}))
+        self.assertTrue(errs({"kind": "bogus"}))
         self.assertEqual(errs({"run": ["a"], "repeatable": True}), [])
         self.assertTrue(errs({"run": ["a"], "repeatable": "yes"}))             # true or false only
         self.assertTrue(errs({"run": ["a"], "batchable": True}))              # needs accepts_files
@@ -191,7 +174,7 @@ class ToolFolders(unittest.TestCase):
             self.assertTrue(self.check([t]), t)
         self.assertTrue(any("twice" in e for e in self.check(["/opt/a", "/opt/a"])))
         self.assertTrue(any("list of folders" in e for e in self.check([])))
-        reg = {"classes": {"askme": {"kind": "claude", "tier": "approve", "cost": "light", "allowed_tools": ["Read"], "tools": ["/opt/a"]}}}
+        reg = {"classes": {"askme": {"kind": "profile", "tier": "approve", "cost": "light", "tools": ["/opt/a"]}}}
         self.assertTrue(any("only a command class" in e for e in registry.validate(reg, TOOLS, allow_empty=True)))
 
 
@@ -200,18 +183,17 @@ if __name__ == "__main__":
 
 
 class PlatformRefusals(unittest.TestCase):
-    """Decided for the Windows Special Use worker: it refuses a class that must run without the network (it cannot enforce that) and any Claude class; Linux is untouched."""
-    CLASSES = {"quiet": {"kind": "command", "run": "/bin/true"}, "net": {"kind": "command", "run": "/bin/true", "network": True}, "ask": {"kind": "claude"}}
+    """Decided for the Windows Special Use worker: it refuses a class that must run without the network (it cannot enforce that) Linux is untouched."""
+    CLASSES = {"quiet": {"kind": "command", "run": "/bin/true"}, "net": {"kind": "command", "run": "/bin/true", "network": True}}
 
     def test_linux_refuses_nothing(self):
         for p in (None, "", "linux", "macos"):
             self.assertEqual(registry.platform_problems(self.CLASSES, p), [])
 
-    def test_windows_refuses_the_no_network_class_and_the_claude_class_by_name(self):
+    def test_windows_refuses_the_no_network_class_by_name(self):
         got = registry.platform_problems(self.CLASSES, "windows")
-        self.assertEqual(len(got), 2, got)
+        self.assertEqual(len(got), 1, got)
         self.assertTrue(any(p.startswith("quiet:") and "cannot enforce" in p for p in got))
-        self.assertTrue(any(p.startswith("ask:") and "no Claude jobs" in p for p in got))
         self.assertFalse(any(p.startswith("net:") for p in got))
 
     def test_validate_carries_it(self):

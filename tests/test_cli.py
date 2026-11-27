@@ -420,22 +420,6 @@ class Status(CliBase):
         self.assertTrue((self.state / "activity.stamp").exists())
         self.assertIn("wake", [c for c, _ in cli.CT_HELP] + [c.split()[0] for c, _ in cli.CT_HELP])
 
-    def test_status_shows_the_claude_tool_and_is_honest_about_the_older_release(self):
-        from ct import claudeupdate
-        import time as _t
-        claudeupdate.save(self.w.state, {"ts": int(_t.time()), "kind": "native", "before": "2.1.325", "after": "2.1.325", "ok": True, "note": ""})
-        self.assertRegex(self.run_cli("status")[1], r"Claude\s+2\.1\.325")
-        claudeupdate.save(self.w.state, {"ts": int(_t.time()), "kind": "legacy", "before": "2.1.112", "after": "2.1.112", "ok": False, "note": "x"})
-        out = self.run_cli("status")[1]
-        self.assertRegex(out, r"Claude\s+OLDER 2\.1\.112")
-        self.assertIn("newer ones need a newer machine", out)
-        from unittest import mock
-        seen = []
-        with mock.patch.object(cli._ui, "say", lambda title, *details, **k: seen.append(details)):
-            self.run_cli("status")
-        row = next(d for d in seen[0] if isinstance(d, tuple) and d[0] == "Claude")
-        self.assertEqual(row[1][0][1], "ok")                                                          # an old processor is expected: information, never a reason for ATTENTION
-
     def test_action_hash_refuses_places_a_program_cannot_be_and_prints_the_pin_for_one_that_can(self):
         code, out = self.run_cli("action-hash", "/tmp/evil")[:2]
         self.assertEqual(code, 2)
@@ -463,10 +447,10 @@ class FromConfig(unittest.TestCase):
         return config.load(toml, env={"CT_CONFIG": ""})
 
     def test_everything_is_built_from_the_configuration(self):
-        cfg = self.cfg(extra='[claude]\nauth = "api-key"\n')
+        cfg = self.cfg()
         (self.root / "etc").mkdir()
         sec = self.root / "etc" / "secrets.env"
-        sec.write_text("CT_ALERT_TOKEN=tk_1\nANTHROPIC_API_KEY=key_1\nCLAUDE_CODE_OAUTH_TOKEN=tok_1\n")
+        sec.write_text("CT_ALERT_TOKEN=tk_1\n")
         sec.chmod(0o640)
         ctx = cli.Context.from_config(cfg, env={})
         w = ctx.w
@@ -474,7 +458,6 @@ class FromConfig(unittest.TestCase):
         self.assertEqual((str(w.state), str(w.s.registry_path), str(w.io.queue), str(w.io.results)),
                          (f"{self.root}/var/state", f"{self.root}/etc/registry.yaml", f"{self.root}/var/queue", f"{self.root}/var/results"))
         self.assertEqual(w.io.job_sources[0][0], "origin/jobs")
-        self.assertEqual((w.api_key, w.oauth_token), ("key_1", None))               # api-key: the token that is also in the file is not given out
 
     def test_a_direct_worker_never_slows_down_when_idle_and_a_github_one_does(self):
         """Seen on a real machine: Direct was promised within seconds but an idle worker only looked every 90 s, because the GitHub pace applied to it."""
@@ -492,15 +475,8 @@ class FromConfig(unittest.TestCase):
         ctx = cli.Context.from_config(cfg, env={})
         self.assertEqual(ctx.notifier.url, "https://ntfy.example/from-secrets")
 
-    def test_only_the_chosen_sign_in_reaches_the_worker(self):
-        for auth, want in (("account", (None, "tok_1")), ("none", (None, None))):
-            cfg = self.cfg(extra=f'[claude]\nauth = "{auth}"\n')
-            (self.root / "etc").mkdir(exist_ok=True)
-            sec = self.root / "etc" / "secrets.env"
-            sec.write_text("ANTHROPIC_API_KEY=key_1\nCLAUDE_CODE_OAUTH_TOKEN=tok_1\n")
-            sec.chmod(0o640)
-            w = cli.Context.from_config(cfg, env={}).w
-            self.assertEqual((w.api_key, w.oauth_token), want, auth)
+    def test_the_worker_runs_its_jobs_through_exec_and_keeps_a_private_quarantine(self):
+        w = cli.Context.from_config(self.cfg(), env={}).w
         self.assertEqual(w.s.exec_argv[1:], ["-m", "ct.cli", "exec"])
         self.assertTrue((w.state / "quarantine").is_dir())
         self.assertEqual(oct((w.state / "quarantine").stat().st_mode & 0o777), "0o700")
@@ -518,7 +494,7 @@ class FromConfig(unittest.TestCase):
         cfg = self.cfg()
         (self.root / "etc").mkdir()
         sec = self.root / "etc" / "secrets.env"
-        sec.write_text("ANTHROPIC_API_KEY=k\n")
+        sec.write_text("EXAMPLE_API_KEY=k\n")
         sec.chmod(0o644)
         out = io.StringIO()
         with redirect_stdout(out):

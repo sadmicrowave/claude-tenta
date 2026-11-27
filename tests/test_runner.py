@@ -64,9 +64,8 @@ class Isolation(unittest.TestCase):
 
     def test_class_network_defaults(self):
         self.assertFalse(runner.class_network({}))
-        self.assertTrue(runner.class_network({"kind": "claude"}))
         self.assertTrue(runner.class_network({"network": True}))
-        self.assertFalse(runner.class_network({"kind": "claude", "network": False}))
+        self.assertFalse(runner.class_network({"network": False}))
 
     def test_a_real_namespace_has_only_loopback_when_this_machine_can_build_one(self):
         flags = runner.netns_flags(refresh=True)
@@ -78,23 +77,13 @@ class Isolation(unittest.TestCase):
 
 
 class Environment(unittest.TestCase):
-    def test_path_is_system_dirs_only_and_claude_gets_local_bin_last(self):
+    def test_path_is_system_dirs_only(self):
         self.assertEqual(runner.build_env("/h")["PATH"], SAFE_PATH)
-        self.assertEqual(runner.build_env("/h", claude=True)["PATH"], SAFE_PATH + ":/h/.local/bin")
 
     def test_a_class_tool_folder_goes_in_front_and_cannot_replace_the_path(self):
         env = runner.build_env("/h", extra_env={"PATH": "/opt/t/bin", "PYTHONPATH": "/opt/t/pip"})
         self.assertEqual((env["PATH"], env["PYTHONPATH"]), ("/opt/t/bin:" + SAFE_PATH, "/opt/t/pip"))
         self.assertEqual(runner.build_env("/h", extra_env={"HOME": "/evil"})["HOME"], "/evil")        # a class may set its own variables
-
-    def test_the_subscription_token_goes_to_claude_jobs_only(self):
-        self.assertEqual(runner.build_env("/h", claude=True, oauth_token="t")["CLAUDE_CODE_OAUTH_TOKEN"], "t")
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", runner.build_env("/h", claude=False, oauth_token="t"))
-
-    def test_the_api_key_goes_to_claude_jobs_only(self):
-        self.assertEqual(runner.build_env("/h", claude=True, api_key="k")["ANTHROPIC_API_KEY"], "k")
-        self.assertNotIn("ANTHROPIC_API_KEY", runner.build_env("/h", claude=False, api_key="k"))
-        self.assertNotIn("ANTHROPIC_API_KEY", runner.build_env("/h", claude=True))
 
     def test_a_job_sees_nothing_of_the_workers_environment(self):
         os.environ["CT_TEST_SECRET"] = "leak"
@@ -178,16 +167,6 @@ class Running(unittest.TestCase):
         marker.write_text(json.dumps({"job": "j"}))
         run("print(1)", marker=marker)
         self.assertEqual(set(json.loads(marker.read_text())), {"job", "child_pgid"})
-
-    def test_claude_output_is_the_result_field(self):
-        doc = json.dumps({"result": "the answer", "other": 1})
-        (status, _, out, *_), _ = run(f"print({doc!r})", claude=True)
-        self.assertEqual((status, out), ("ok", "the answer"))
-        (status, _, out, *_), _ = run("print('not json')", claude=True)
-        self.assertEqual(out.strip(), "not json")
-        (status, _, out, *_), _ = run(f"print({doc!r}); raise SystemExit(1)", claude=True)
-        self.assertEqual(status, "error")
-        self.assertIn("the answer", out)                                       # a failed claude job returns its raw stdout
 
     def test_the_timeout_is_capped(self):
         # a job cannot ask for more than MAX_TIMEOUT, a one-day watchdog: the real limits come from the class and, for a profile run, from the person's estimate

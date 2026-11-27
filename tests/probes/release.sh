@@ -62,7 +62,7 @@ d = pathlib.Path("/tmp/units"); d.mkdir(exist_ok=True)
 for name, text in render.unit_files(cfg, "/src/templates").items():
     (d / name).write_text(text)
 PY
-useradd -r -M -s /usr/sbin/nologin ctworker 2>/dev/null; mkdir -p /opt/claude-tenta/lib /etc/claude-tenta /var/lib/claude-tenta
+useradd -r -M -s /usr/sbin/nologin ctworker 2>/dev/null; mkdir -p /opt/armada/lib /etc/armada /var/lib/armada
 check "every unit the project writes parses (only accounts and programs a container lacks are ignored)" bash -c '
   cd /tmp/units; out=$(systemd-analyze verify --man=no ./*.service ./*.timer ./*.socket 2>&1 | grep -viE "is not executable|No such file or directory|Failed to (create|connect|open)|Cannot find unit|org.freedesktop|bus|/proc|cgroup|Unit .* not found|not found|Failed to determine user|transient|Unknown user|Failed to look up|aliased" | grep -E "[A-Za-z]" || true)
   [ -z "$out" ] || { echo "$out"; exit 1; }'

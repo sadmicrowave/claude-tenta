@@ -28,7 +28,7 @@ RESERVED_USERS = {"root", "daemon", "bin", "sys", "nobody", "www-data", "ubuntu"
 PURPOSE_WORDS = {"tenta-only": "only for tenta", "shared": "shared with other uses", "special-use": "special use"}      # how a computer's purpose is said on screen
 PROTECTED_PATHS = {"/", "/etc", "/var", "/var/lib", "/usr", "/usr/local", "/usr/bin", "/usr/sbin", "/opt", "/home", "/root", "/boot", "/bin", "/sbin", "/lib", "/tmp"}
 PROTECTED_WINDOWS = {"c:", "c:/windows", "c:/programdata", "c:/users", "c:/program", "c:/temp"}          # a system folder of Windows (compared lower-case; any drive letter)
-PROJECT_URL = "https://github.com/sadmicrowave/claude-tenta.git"      # privacy-ok: the project's own public home, the default place updates come from
+PROJECT_URL = "https://github.com/sadmicrowave/armada.git"      # privacy-ok: the project's own public home, the default place updates come from
 RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
 # Hardware profiles fill in capacity, load and temperature limits the user did not set explicitly.
@@ -199,7 +199,7 @@ def _hours(v):
 # section -> key -> (default, check, plain-words description). A default of None means "not set yet": the wizard fills it in.
 SCHEMA = {
     "identity": {
-        "name": ("claude-tenta", _str(NAME_RE, "3 to 24 lowercase letters, digits or -, starting with a letter"),
+        "name": ("armada", _str(NAME_RE, "3 to 24 lowercase letters, digits or -, starting with a letter"),
                  "prefix for services, folders and commands on this install"),
     },
     "server": {
@@ -264,14 +264,6 @@ SCHEMA = {
         "ipv6": ("enabled", _enum("enabled", "disabled"),
                  "disabled turns IPv6 off on the server (less to attack, and nothing to firewall); enabled keeps it and blocks unique-local addresses"),
     },
-    "claude": {
-        "auth": ("none", _enum("account", "api-key", "none"),
-                 "how jobs that use Claude sign in on this worker: account (a claude.ai subscription token), api-key (an Anthropic API key), or none (Claude is not used here; every other job still runs). "
-                 "The token or key itself lives only in secrets.env"),
-        "jobs_per_day": (20, _num(0, 10000), "the most Claude jobs this worker STARTS in a UTC day; at the limit new ones wait (they start tomorrow or when you raise this) and other jobs carry on. 0 means no limit"),
-        "turns_per_day": (300, _num(0, 1000000), "the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit"),
-        "update_days": (7, _num(1, 60), "days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail)"),
-    },
     "health": {
         "silent_hours": (24, _int(1, 312), "a worker whose latest reading is older than this many hours is called silent (at most 312, a bit under the 14 days placements are remembered): no new job is placed on it, and a job sent to it that has no result by then is called lost (re-queued only if its class is repeatable)"),
     },
@@ -321,7 +313,6 @@ SCHEMA = {
         "offered": ([], _list_of(_str(IDENT_RE, "a module name")), "hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others"),
     },
 }
-CLAUDE_SECRET_KEYS = {"account": "CLAUDE_CODE_OAUTH_TOKEN", "api-key": "ANTHROPIC_API_KEY"}      # the name each sign-in route has in secrets.env
 
 
 def set_env_var(text, key, value):
@@ -504,24 +495,13 @@ class Config:
         return {s: dict(v) for s, v in self._clean.items()}
 
 
-LEGACY_CONFIG = "cw.toml"                                  # what the configuration file was called before the project was renamed (claude-tenta, ct-*)
-LEGACY_CLIENT_HOME = "~/.cw"
-LEGACY_WORKER = "cwworker"                                # the worker account those installs ran jobs as when the file did not say
-LEGACY_NAME = "claude-ballast"                              # the install name those files meant when they did not say (its folders, services and repositories)
-
-
-def legacy_config_paths():
-    """Where an install made before the rename keeps its configuration (the old default folder names)."""
-    return (Path.home() / ".config" / "claude-ballast" / LEGACY_CONFIG, Path("/etc/claude-ballast") / LEGACY_CONFIG)
-
-
 def default_config_path(env=None):
     env = os.environ if env is None else env
     if env.get("CT_CONFIG"):
         return Path(env["CT_CONFIG"])
-    for p in (Path.home() / ".config" / "claude-tenta" / "ct.toml", Path("/etc/claude-tenta/ct.toml"), *legacy_config_paths()):
+    for p in (Path.home() / ".config" / "armada" / "ct.toml", Path("/etc/armada/ct.toml")):
         if p.exists():
-            return p                                       # an old install keeps working until `ct-setup rename` moves it to the new names
+            return p
     return None
 
 
@@ -537,12 +517,6 @@ def load(path=None, env=None):
             raise ConfigError([f"cannot read {path}: {e.strerror}"])
         except tomllib.TOMLDecodeError as e:
             raise ConfigError([f"{path} is not valid TOML: {e}"])
-    if path is not None and path.name == LEGACY_CONFIG and isinstance(raw.get("paths", {}), dict):
-        raw.setdefault("paths", {}).setdefault("client_home", LEGACY_CLIENT_HOME)         # its clones, keys and notes are still where the old version put them
-        if isinstance(raw.get("identity", {}), dict):
-            raw.setdefault("identity", {}).setdefault("name", LEGACY_NAME)
-        if isinstance(raw.get("server", {}), dict):
-            raw.setdefault("server", {}).setdefault("worker_user", LEGACY_WORKER)         # the account that exists on the machine, not today's default               # the old default name was never written to the file: without it the install would already "have" the new name
     clean, problems = validate(_env_overrides(raw, env), require_alert_url=False)         # the address is in secrets.env (read where the notifier is built)
     if problems:
         raise ConfigError(problems)

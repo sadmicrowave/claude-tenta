@@ -10,7 +10,6 @@ class Facts:
         self.os_id = self.os_version = self.sudo = ""
         self.ram_mb = self.cores = 0
         self.systemd = self.laptop = self.virtual = False
-        self.claude_native = True
         self.thermal = "none"
         self.__dict__.update(kw)
 
@@ -44,8 +43,7 @@ class Facts:
 
     def summary(self):
         return [("Operating system", f"{self.os_id} {self.os_version}"), ("Memory", f"{self.ram_mb} MB"), ("Processor cores", str(self.cores)),
-                ("sudo", self.sudo or "unknown"), ("Temperature sensors", {"apple-smc": "readable (Apple SMC)", "lm-sensors": "readable", "none": "none found"}.get(self.thermal, self.thermal)), ("Portable (battery)", "yes" if self.laptop else "no")] + (
-            [] if self.claude_native else [("Claude Code", "needs an older release here: this processor is too old for the current one")])
+                ("sudo", self.sudo or "unknown"), ("Temperature sensors", {"apple-smc": "readable (Apple SMC)", "lm-sensors": "readable", "none": "none found"}.get(self.thermal, self.thermal)), ("Portable (battery)", "yes" if self.laptop else "no")]
 
 
 def detect(host):
@@ -55,11 +53,6 @@ def detect(host):
     mem = re.search(r"MemTotal:\s+(\d+)\s*kB", host.read("/proc/meminfo") or "")
     f.ram_mb = int(mem.group(1)) // 1024 if mem else 0
     f.cores = len(re.findall(r"^processor\s*:", host.read("/proc/cpuinfo") or "", re.M)) or 1
-    cpu = host.read("/proc/cpuinfo") or ""
-    flags = re.search(r"^flags\s*:\s*(.*)$", cpu, re.M)
-    # Current Claude Code is a native program built for newer processors: on one without SSE4.2 (a 2010-era Core 2, say) it dies with "Illegal instruction".
-    # Those machines get the last plain-JavaScript release instead, which runs on Node.
-    f.claude_native = flags is None or "sse4_2" in flags.group(1).split()
     f.systemd = host.exists("/run/systemd/system")
     f.laptop = host.exists("/sys/class/power_supply/BAT0") or host.exists("/sys/class/power_supply/BAT1")
     vm = host.run(["systemd-detect-virt", "--vm"])

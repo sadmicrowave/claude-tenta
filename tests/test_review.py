@@ -63,7 +63,7 @@ class Layout(unittest.TestCase):
         t = text(product="homect", facts={"binary": "/x"})
         self.assertIn("homect will run exactly", t)
         self.assertIn("LOOKED UP BY HOMECT ITSELF", t.upper())
-        self.assertNotIn("claude-tenta", t)
+        self.assertNotIn("armada", t)
 
     def test_a_minimal_job(self):
         t = review.review_text({"argv": ["ls"]}, width=80)

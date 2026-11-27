@@ -12,9 +12,9 @@
 A Windows computer is only found when its owner has turned on the OpenSSH Server optional feature. A machine without it is not discoverable by this scan; finding it by SMB, RDP or WinRM is a possible later step.
 
 ## The promise, stated plainly
-- **Kept:** every job needs your approval (a Windows worker does not honour `tier: auto`: the tier is always `approve`), approvals are signed over the exact job file, results pass the output guard, the Claude ledger and limits apply, and what the worker publishes (state, registry) works as on Linux.
+- **Kept:** every job needs your approval (a Windows worker does not honour `tier: auto`: the tier is always `approve`), approvals are signed over the exact job file, results pass the output guard, and what the worker publishes (state, registry) works as on Linux.
 - **Not promised:** the job jail. There is no equivalent of bubblewrap, so "no network unless the class declares it" and "no view of the worker's home" cannot be guaranteed; jobs run as a dedicated standard (non-admin) local account, with a Job Object for kill and limits. The status card says `ISOLATION RELAXED` and `Used for: special use`, as for any Special Use worker, and the setup says so before it installs.
-- **Out for the first version:** root-level (privileged) actions, tripwire canaries, the whole-machine protections (none apply), and Claude jobs.
+- **Out for the first version:** root-level (privileged) actions, tripwire canaries, the whole-machine protections (none apply).
 
 ## What has to be written (the platform layer)
 | Linux today | Windows replacement | Size |
@@ -46,6 +46,5 @@ The code that does not change: the class model, the orchestrator, approvals and 
 
 ## Decisions
 - Supported: Windows 10 and 11 (Pro and Enterprise). Home is not a target.
-- No Claude jobs in version 1: the sign-in tool and its isolation need their own work.
 - A Windows worker refuses a class that needs no network (`network: false`), because it cannot enforce it. The refusal names the class and says why; the review card does not offer it. Nothing is accepted with a warning.
 - Windows 10 is an **unverified target** (2026-11-20): no Windows 10 test image could be found, so everything is proven on Windows 11 only. It is expected to work and is not claimed to; a beta tester will confirm. Nothing Windows-11-only may be used.

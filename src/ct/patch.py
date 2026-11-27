@@ -22,7 +22,7 @@ def snapshot(root):
     """({relative path: text}, notes) for the regular text files under `root`. Symbolic links, binary and oversize files are skipped with a note, never followed."""
     root, files, notes = Path(root), {}, []
     for dirpath, dirnames, names in os.walk(root, followlinks=False):
-        dirnames[:] = [d for d in dirnames if d not in (".git", ".claude") and not (Path(dirpath) / d).is_symlink()]
+        dirnames[:] = [d for d in dirnames if d not in (".git",) and not (Path(dirpath) / d).is_symlink()]
         for name in names:
             p = Path(dirpath) / name
             rel = p.relative_to(root).as_posix()

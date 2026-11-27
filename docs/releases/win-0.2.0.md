@@ -1,4 +1,4 @@
-# Claude Tenta for Windows 0.2.0 (preview)
+# Armada for Windows 0.2.0 (preview)
 
 The first Windows release that can be a worker. `ct-setup add-worker <windows address>` sets a Windows computer up over SSH, a job sent from your computer runs there, and its result comes back.
 
@@ -10,7 +10,7 @@ The first Windows release that can be a worker. `ct-setup add-worker <windows ad
 - **Each job runs in a Job Object:** its whole process tree is stopped together on a timeout, a limit or when the worker stops.
 
 ## What it changes on the Windows computer
-Everything is under `C:\ProgramData\claude-tenta` except: two local accounts, one marked block in the OpenSSH server's `sshd_config` (for the mailbox account only; backed up and checked before use), the git trust list of the worker's own git, and one Scheduled Task. All of it can be removed again.
+Everything is under `C:\ProgramData\armada` except: two local accounts, one marked block in the OpenSSH server's `sshd_config` (for the mailbox account only; backed up and checked before use), the git trust list of the worker's own git, and one Scheduled Task. All of it can be removed again.
 
 ## Requirements
 - Windows 11 Pro or Enterprise, with the OpenSSH server installed and key login working for an administrator account. (Windows 10 is expected to work and is unverified until a tester tries it; Home is not a target.)
@@ -18,6 +18,6 @@ Everything is under `C:\ProgramData\claude-tenta` except: two local accounts, on
 
 ## Limits you should know about
 - **Special Use only.** A Windows worker has no file or network isolation for jobs (there is no equivalent of the Linux jail): a class must say `network: true` to be offered there, and what a job does is limited by what the worker account may do. Use it for tools boxes and trusted work.
-- No Claude jobs on Windows in this version; the Direct connection only (no GitHub connection).
+- The Direct connection only (no GitHub connection).
 - `ct-admin apply` does not update a Windows worker yet (it refuses with a clear message): set it up again to move it to a newer release.
 - Not included: removing a Windows worker with `ct-setup uninstall`, approvals and signatures on Windows, load average (reported as 0), a double-click setup tool for a computer without OpenSSH.
