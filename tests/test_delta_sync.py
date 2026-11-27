@@ -283,7 +283,8 @@ class WorkerSide(support.Base):
         support.sh("git", "push", "-q", "origin", "HEAD:refs/heads/jobs", cwd=req)
 
 
-class ClientSide(support.RepoFixture):
+class ClientSideFixture(support.RepoFixture):
+    """The client and worker fixtures, and the shared bodies of the cases that run on both transports (no tests of its own)."""
     kind = "direct"
 
     def setUp(self):
@@ -318,7 +319,7 @@ class ClientSide(support.RepoFixture):
     def run_worker(self):
         self.run_all()
 
-    def test_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it(self):
+    def check_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it(self):
         jid, _ = self.submit()
         job = self.queued(jid)
         self.assertNotIn("files", job)
@@ -327,7 +328,7 @@ class ClientSide(support.RepoFixture):
         self.run_worker()
         self.assertEqual(self.result(jid)["status"], "ok", self.result(jid))
 
-    def test_an_unchanged_rerun_sends_the_manifest_only(self):
+    def check_an_unchanged_rerun_sends_the_manifest_only(self):
         self.submit()
         self.run_worker()
         jid, text = self.submit()
@@ -337,7 +338,7 @@ class ClientSide(support.RepoFixture):
         self.run_worker()
         self.assertEqual(self.result(jid)["status"], "ok")
 
-    def test_one_changed_file_sends_only_that_file(self):
+    def check_one_changed_file_sends_only_that_file(self):
         self.submit()
         self.run_worker()
         self.write({**FILES, "in.txt": "alpha changed\n"})
@@ -346,6 +347,48 @@ class ClientSide(support.RepoFixture):
         self.run_worker()
         self.assertEqual(self.result(jid)["status"], "ok")
         self.assertEqual((self.runner.calls[-1]["wd"] / "in.txt").read_text(), "alpha changed\n")
+
+    def check_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs(self):
+        self.submit()
+        self.run_worker()
+        import shutil
+        shutil.rmtree(self.w.cache.root)                                           # reset, but the client has NOT seen the new epoch (the worker did not republish)
+        self.w.cache = filecache.FileCache(self.w.cache.root, self.w.cache.max_mb)
+        jid, _ = self.submit()
+        self.assertEqual(self.queued(jid).get("blobs", {}), {})
+        self.w.fetch()
+        self.assertEqual(self.result(jid)["status"], "needs-files")
+        code, out, err = self.run_cli("result", jid)                               # the client sees it, tops up, and says so
+        self.assertIn("sending", (out + err).lower())
+        self.run_worker()
+        self.assertEqual(self.result(jid)["status"], "ok", self.result(jid))
+        self.assertEqual(self.runner.calls[-1]["wd"].joinpath("c.txt").read_bytes(), FILES["c.txt"].encode())
+
+    def check_a_secret_is_never_in_the_manifest_or_the_blobs(self):
+        self.write({**FILES, "server.pem": "-----BEGIN PRIVATE KEY-----"}, wipe=False)         # privacy-ok: a fake key header
+        jid, _ = self.submit("--send-incomplete")
+        job = self.queued(jid)
+        self.assertNotIn("server.pem", job["manifest"])
+        self.assertNotIn("PRIVATE KEY", json.dumps(job))
+
+
+class ClientSide(ClientSideFixture):
+    kind = "direct"
+
+    def test_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it(self):
+        self.check_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it()
+
+    def test_an_unchanged_rerun_sends_the_manifest_only(self):
+        self.check_an_unchanged_rerun_sends_the_manifest_only()
+
+    def test_one_changed_file_sends_only_that_file(self):
+        self.check_one_changed_file_sends_only_that_file()
+
+    def test_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs(self):
+        self.check_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs()
+
+    def test_a_secret_is_never_in_the_manifest_or_the_blobs(self):
+        self.check_a_secret_is_never_in_the_manifest_or_the_blobs()
 
     def test_a_deleted_and_a_renamed_file_send_nothing(self):
         self.submit()
@@ -370,22 +413,6 @@ class ClientSide(support.RepoFixture):
         self.run_worker()
         self.assertEqual(self.result(jid)["status"], "ok")
 
-    def test_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs(self):
-        self.submit()
-        self.run_worker()
-        import shutil
-        shutil.rmtree(self.w.cache.root)                                           # reset, but the client has NOT seen the new epoch (the worker did not republish)
-        self.w.cache = filecache.FileCache(self.w.cache.root, self.w.cache.max_mb)
-        jid, _ = self.submit()
-        self.assertEqual(self.queued(jid).get("blobs", {}), {})
-        self.w.fetch()
-        self.assertEqual(self.result(jid)["status"], "needs-files")
-        code, out, err = self.run_cli("result", jid)                               # the client sees it, tops up, and says so
-        self.assertIn("sending", (out + err).lower())
-        self.run_worker()
-        self.assertEqual(self.result(jid)["status"], "ok", self.result(jid))
-        self.assertEqual(self.runner.calls[-1]["wd"].joinpath("c.txt").read_bytes(), FILES["c.txt"].encode())
-
     def test_resend_all_ignores_what_the_worker_is_thought_to_hold(self):
         self.submit()
         self.run_worker()
@@ -400,13 +427,6 @@ class ClientSide(support.RepoFixture):
         job = self.queued(jid)
         self.assertEqual(job["files"], FILES)
         self.assertNotIn("manifest", job)
-
-    def test_a_secret_is_never_in_the_manifest_or_the_blobs(self):
-        self.write({**FILES, "server.pem": "-----BEGIN PRIVATE KEY-----"}, wipe=False)         # privacy-ok: a fake key header
-        jid, _ = self.submit("--send-incomplete")
-        job = self.queued(jid)
-        self.assertNotIn("server.pem", job["manifest"])
-        self.assertNotIn("PRIVATE KEY", json.dumps(job))
 
     def test_a_binary_file_is_still_not_text_and_still_stops_the_job(self):
         (self.dir / "img.bin").write_bytes(b"\xff\xfe\x00\x01")
@@ -466,16 +486,24 @@ class ClientSide(support.RepoFixture):
         self.assertRegex(text, r"Already on the worker\W+2 files")
 
 
-class ClientSideGitHub(ClientSide):
+class ClientSideGitHub(ClientSideFixture):
     """The GitHub transport differs from Direct only in the secret policy and the compression threshold, so it runs the cases that decide the delta and the secret case; the rest are the same code."""
     kind = "github"
-    CORE = ("test_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it", "test_an_unchanged_rerun_sends_the_manifest_only", "test_one_changed_file_sends_only_that_file",
-            "test_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs", "test_a_secret_is_never_in_the_manifest_or_the_blobs")
 
-    def setUp(self):
-        if self._testMethodName not in self.CORE:
-            self.skipTest("the same code as the Direct run")
-        super().setUp()
+    def test_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it(self):
+        self.check_first_run_sends_everything_as_a_manifest_and_the_worker_runs_it()
+
+    def test_an_unchanged_rerun_sends_the_manifest_only(self):
+        self.check_an_unchanged_rerun_sends_the_manifest_only()
+
+    def test_one_changed_file_sends_only_that_file(self):
+        self.check_one_changed_file_sends_only_that_file()
+
+    def test_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs(self):
+        self.check_a_wrong_guess_is_corrected_by_a_top_up_and_the_job_still_runs()
+
+    def test_a_secret_is_never_in_the_manifest_or_the_blobs(self):
+        self.check_a_secret_is_never_in_the_manifest_or_the_blobs()
 
 
 class Bytes(unittest.TestCase):
