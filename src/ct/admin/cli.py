@@ -2,7 +2,7 @@
 
   WORKER     status [--hours N]     check
   JOBS       review [job...]        approve <job>|--all        cancel <job>      kill <job> [--hard]
-  SECURITY   quarantine [job]       unlock                     output [job]
+  SECURITY   quarantine [job]       unlock                     output [job]       received [--last N]
   REGISTRY   adopt <profile-job>    retire <class>             proposals [list|merge|tidy]
   RELEASE    diff [rev]             apply [rev]
 
@@ -983,6 +983,12 @@ def cmd_quarantine(ctx, a):
     return rc
 
 
+def cmd_received(ctx, a):
+    rc = ctx.remote("received", *(["--last", str(a.last)] if a.last else []))
+    _ui.related(("If a job here is not yours, the key was copied: replace it", "ct-setup rotate-key") if ctx.cfg and ctx.cfg.transport.kind == "direct" else None)
+    return rc
+
+
 def cmd_output(ctx, a):
     rc = ctx.remote("output", *([jobs.require_id(a.id)] if a.id else []))
     _ui.related(None if a.id else ("Read one in full", "ct-admin output <job>"), ("See the job's published result", "ct-run result <job>"))
@@ -1467,7 +1473,7 @@ def selftest(ctx, wait_s=240):
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output", "received"]),
           ("Registry", ["adopt", "retire", "class", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
@@ -1484,6 +1490,7 @@ HELP = {
     "cancel": ("stop a job that has not started yet", [("Cancel it", "ct-admin cancel some-job")]),
     "kill": ("stop a running job", [("Ask it to stop", "ct-admin kill some-job"), ("Stop the whole process tree", "ct-admin kill some-job --hard")]),
     "quarantine": ("list results held back by the output guard, or read one", [("List them", "ct-admin quarantine"), ("Read one in full", "ct-admin quarantine some-job")]),
+    "received": ("every job the Direct mailbox key sent to the worker, as the worker saw it (a copied key shows up here)", [("Show the latest", "ct-admin received"), ("Show more", "ct-admin received --last 100")]),
     "unlock": ("clear a security lockdown after you have looked at it", [("Unlock", "ct-admin unlock")]),
     "output": ("the full output of a failed command (only its error lines are ever published)", [("List the kept outputs", "ct-admin output"), ("Read one", "ct-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "ct-admin adopt profile-k7m2xq --name ssh-version")]),
@@ -1575,6 +1582,8 @@ def build_parser():
     s = sp.add_parser("unlock", add_help=False)
     s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
     yes(s)
+    s = sp.add_parser("received", add_help=False)
+    s.add_argument("--last", type=int, help="how many of the newest jobs to show (default 30)")
     s = sp.add_parser("output", add_help=False)
     s.add_argument("id", nargs="?", help="a job id, to read the full output of its failed command")
     s = sp.add_parser("adopt", add_help=False)
@@ -1607,7 +1616,7 @@ def build_parser():
     return ap, sp
 
 
-FLEET_COMMANDS = ("update", "apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
+FLEET_COMMANDS = ("update", "apply", "diff", "check", "status", "quarantine", "received", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
 PICK_COMMANDS = ("clean", "adopt", "retire", "class", "action", "proposals")      # one worker: the main one, or the one named with --worker
 
 
@@ -1681,7 +1690,7 @@ def run_command(ctx, a):
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "class": cmd_class, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
+            "quarantine": cmd_quarantine, "received": cmd_received, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "class": cmd_class, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 

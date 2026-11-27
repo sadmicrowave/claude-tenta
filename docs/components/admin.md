@@ -7,7 +7,7 @@
 
 - **Worker:** `status` (is it healthy, what is it doing, what did it do lately) and `check` (does the connection work).
 - **Jobs:** `review` shows waiting jobs; `approve` approves the one you looked at; `cancel` and `kill` stop a job.
-- **Security:** `quarantine` shows results the guard held back, `unlock` clears a lockdown once you have looked, `output` shows the full output of a failed command.
+- **Security:** `quarantine` shows results the guard held back, `unlock` clears a lockdown once you have looked, `output` shows the full output of a failed command, `received` lists every job the Direct mailbox key sent, as the worker saw it.
 - **Registry:** `adopt` turns a tested command into a job class; `retire` removes a class; `proposals` lists, merges and tidies waiting changes.
 - **Release:** `diff` shows what installing a version would change; `apply` installs it, checks the worker still works, and offers to put the old version back if not.
 
@@ -20,7 +20,7 @@ Anything that changes something shows you what it will do and asks first.
 `admin/ssh.py`: `ssh` with `BatchMode` for captured commands (fails fast if key login is not set up) and a terminal for interactive ones (so `sudo` can ask for the password).
 A connection may be shared for at most 60 seconds so that one command that makes several calls asks once; nothing remembers a password or keeps a long-lived connection. A host
 beginning with `-` is refused. The worker's commands are run as `<name> <command>` through the worker's own `sudo` entry point; the read-only ones (`status`, `show`, `review`,
-`quarantine`, `output`) are allowed without a password when `access.sudo = "readonly-nopasswd"`, everything else asks.
+`quarantine`, `output`, `received`) are allowed without a password when `access.sudo = "readonly-nopasswd"`, everything else asks.
 
 ### Reviewing and approving
 

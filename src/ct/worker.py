@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import ledger as ledger_mod, patch as patch_mod, received as received_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
@@ -94,6 +94,7 @@ class Worker:
         self.limits = registry.limits_of({})
         self.policy = registry.policy_of({})
         self.state = Path(settings.state)
+        self.received = received_mod.Received(self.state, clock=lambda: self.clock()) if settings.transport == "direct" else None      # the record of jobs the mailbox key sent (F4)
         for d in ("done", "approved", "notified", "work", "queued", "running", "fetching", "finished", "inbox", "quarantine", "output"):
             (self.state / d).mkdir(parents=True, exist_ok=True)
         (self.state / "quarantine").chmod(0o700)
@@ -429,6 +430,7 @@ class Worker:
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         res = {"id": jid, "class": None, "status": "rejected", "started": None, "finished": None, "exit_code": None, "output": "", "note": ""}
+        job = kind = None
         try:
             job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
@@ -451,20 +453,40 @@ class Worker:
                                        "with your approval key); an approval typed on the worker is not accepted")
                     self.io.publish(res)
                     self._p("notified", jid).touch()
+                if not run:
+                    self._record_received(jid, raw, "awaiting_approval", job, kind)
                 return
             if not run:
                 self._p("queued", f"{jid}.json").write_bytes(raw)          # the snapshot that will execute is exactly what was validated
                 self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s"), "est_time_s": job.get("est_time_s")}))      # what step needs, so it never parses the whole job
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
+                self._record_received(jid, raw, "started_unapproved" if kind == "profile" and self.profile_runs_unapproved() else "queued", job, kind)
                 return
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
         except Reject as e:
             res.update(status="rejected", note=str(e))
             if getattr(e, "code", None):
                 res["refusal"] = e.code                                    # machine-readable: which rule refused it (shown as the last row, and counted later)
+            if not run:
+                self._record_received(jid, raw, "rejected", job, kind, getattr(e, "code", None) or "")
         except Exception as e:                                              # one bad job must never kill the loop
             res.update(status="error", note=f"worker error: {e}")
+            if not run:
+                self._record_received(jid, raw, "error", job, kind)
         self._finish(res, run)
+
+    def _record_received(self, jid, raw, outcome, job=None, kind=None, code=""):
+        """Direct only: write the worker's own record that this job arrived and what was done with it (src/ct/received.py). A failure to write it is logged, never fatal."""
+        if self.received is None:
+            return
+        if not isinstance(job, dict):                                  # refused before it was parsed into a job: read what the file itself claims, if it is JSON at all
+            try:
+                job = json.loads(raw)
+            except ValueError:
+                job = None
+        cls = job.get("class") if isinstance(job, dict) else None
+        if not self.received.record(jid, raw, outcome, cls=cls, kind=kind, code=code):
+            self.log(f"could not write the record of received jobs for {jid}")
 
     def _finish(self, res, run):
         jid = res["id"]

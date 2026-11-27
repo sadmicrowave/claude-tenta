@@ -35,7 +35,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native"""
 
 # Read-only subcommands the admin may run as the worker without a password (access.sudo = "readonly-nopasswd"). Each is matched exactly.
-READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "quarantine *", "output", "output *", "action-hash *", "wake")      # wake changes nothing but when the next check happens
+READ_ONLY = ("status", "status --hours *", "show *", "review *", "quarantine", "quarantine *", "output", "output *", "received", "received --last *", "action-hash *", "wake")      # wake changes nothing but when the next check happens
 
 UNITS = ("fetch.service", "fetch.timer", "step.service", "step.timer", "canary.service", "canary.timer", "update.service", "update.timer",
          "claude-update.service", "claude-update.timer", "registry-sync.service", "registry-sync.timer", "helper.socket", "helper@.service")
