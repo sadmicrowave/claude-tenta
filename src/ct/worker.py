@@ -545,6 +545,9 @@ class Worker:
             pass
         base = wd.resolve()
         for name, content in files.items():
+            problem = jobs.file_name_problem(name, kind)                        # the same primitive as at intake, on the name actually about to be written
+            if problem:
+                raise refusals.refuse(problem[0], name=name, reason=problem[1])
             target = wd / name
             if not target.resolve().is_relative_to(base):                       # the second defence, on the path actually written: the name check (jobs.file_name_problem) is the first
                 raise refusals.refuse("files.name.path", name=name, reason="it would be written outside the job's folder")

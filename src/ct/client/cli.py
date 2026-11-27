@@ -33,6 +33,7 @@ from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
 from . import candidacy, cap, refuse
 from .. import patch as patch_mod
+from ..jobs import file_name_problem
 from . import offload as off
 from . import submit as sub
 from . import audit, health, here, place, queue, retry, view
@@ -309,14 +310,22 @@ def rerun_for(ctx, res):
     return off.rerun_with_limit(raw, pr["next_limit_s"]) if raw else None
 
 
+def add_named_file(files, path, windows):
+    """A file named on the command line (--file): sent under its own name, which gets the same check as every collected file (jobs.file_name_problem), so a name the worker would refuse is refused here, before sending."""
+    problem = file_name_problem(path.name, windows=windows)
+    if problem:
+        raise refuse.error(problem[0], name=path.name, reason=problem[1])
+    files[path.name] = path.read_text()
+
+
 def cmd_submit(ctx, a):
     r = ctx.repos
     r.need_setup()
     params, files = sub.parse_params(a.p), {}
     prompt = Path(a.prompt_file).expanduser().read_text() if a.prompt_file else a.prompt
+    windows = sub.worker_is_windows(r.worker_state())
     for f in a.file or []:
-        p = Path(f).expanduser()
-        files[p.name] = p.read_text()
+        add_named_file(files, Path(f).expanduser(), windows)
     info = r.registry_info()
     limits = sub.file_limits(info)
     left = sub.LeftOut()
@@ -326,10 +335,9 @@ def cmd_submit(ctx, a):
         emit("Using how this class was profiled", *[(k.capitalize(), ", ".join(v) if isinstance(v, list) else v) for k, v in recipe.items()],
              "Give --dir or --file to choose other files, or --no-pack to send none.", tag="NOTE", color=CYAN)
         for f in a_files or []:
-            p = Path(f)
-            files[p.name] = p.read_text()
+            add_named_file(files, Path(f), windows)
     if a_dir:
-        files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct"))
+        files.update(sub.collect_dir(a_dir, limits, a_include, left=left, hold_secret_text=ctx.kind != "direct", windows=windows))
     show_left_out(left)
     pack = sub.plan_pack(ctx.kind, files, info, getattr(a, "no_compress", False), off.own_command_with(a.raw, "--no-compress"), alias.show(ctx.product)) if files else sub.Pack()
     if pack.state == "compressed":                                      # after the secret scan above, on exactly what is sent
@@ -973,16 +981,16 @@ def cmd_profile(ctx, a):
         if rc in (0, 3, 5):                                  # registered, excluded, or "excluded before the upgrade: ask the user, then --retry"
             return 0 if rc == 0 else 1
     files = {}
+    windows = sub.worker_is_windows(r.worker_state())
     for f in a.file or []:
-        p = Path(f).expanduser()
-        files[p.name] = p.read_text()
+        add_named_file(files, Path(f).expanduser(), windows)
     worker_cap = int((((r.registry_info() or {}).get("classes") or {}).get("profile-run") or {}).get("timeout_s") or 0)       # the worker's own cap, published: no need to send what it will refuse
     if timeout_s and worker_cap and not 10 <= timeout_s <= worker_cap:
         raise refuse.error("profile.timeout.range", ("Asked for", f"{timeout_s} s"), ("Worker's cap", f"{worker_cap} s"), cap=worker_cap)
     limits = sub.file_limits(r.registry_info())
     left = sub.LeftOut()
     if a.dir:
-        files.update(sub.collect_dir(a.dir, limits, a.include, left=left, hold_secret_text=ctx.kind != "direct"))
+        files.update(sub.collect_dir(a.dir, limits, a.include, left=left, hold_secret_text=ctx.kind != "direct", windows=windows))
     show_left_out(left)
     show_summary(ctx, files, left)
     sub.check_complete(left, getattr(a, "send_incomplete", False))
