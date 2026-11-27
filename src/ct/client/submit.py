@@ -28,6 +28,11 @@ ID_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"            # no 0/o or 1/l: easy
 OLD_FILE_LIMITS = {"max_count": 50, "max_file_kb": 100, "max_total_kb": 300, "max_batches": 6}
 
 
+def worker_is_windows(state):
+    """True when the worker's published state (worker-state.json) says it runs Windows. An unknown platform is not Windows: the worker applies its own rules to whatever arrives either way."""
+    return ((state or {}).get("platform") or "") == "windows"
+
+
 def file_limits(info):
     """{'max_count', 'max_file_kb', 'max_total_kb', 'max_batches'} exactly as the worker's installed registry says."""
     given = ((info or {}).get("limits") or {}).get("files") or {}
@@ -220,10 +225,11 @@ def walked(base, include, left):
                 yield rel
 
 
-def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
+def collect_dir(d, limits, include=None, left=None, hold_secret_text=False, windows=False):
     """Text files under `d`. In a git folder the project's own rules decide: tracked files and untracked ones that are not ignored (what it ignores is named in `left`, and `.git` is never part of it). Elsewhere hidden files and
     folders, build output and dependency folders are left out unless an include names them. `include` (glob patterns like 'src/**/*.js') keeps only what the command needs. A file whose name usually holds a secret is held back
-    unless an include names it exactly. With `hold_secret_text` (the GitHub transport: the job leaves the person's network) a file whose text looks like a secret is held the same way; otherwise it is sent with a warning. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently."""
+    unless an include names it exactly. With `hold_secret_text` (the GitHub transport: the job leaves the person's network) a file whose text looks like a secret is held the same way; otherwise it is sent with a warning. Every file that is left out, held back or cannot be sent is recorded in `left` (a LeftOut), never dropped silently.
+    `windows`: the worker that will write the files is a Windows one (see worker_is_windows), so its name rules apply here, and the person sees the refusal now, not as a refused job later."""
     base = Path(d).expanduser().resolve()
     left = left if left is not None else LeftOut()
     found = git_candidates(base)
@@ -249,7 +255,7 @@ def collect_dir(d, limits, include=None, left=None, hold_secret_text=False):
         if secret_name(rel) and not named_exactly(rel, include):
             left.hold(rel)
             continue
-        problem = file_name_problem(rel)
+        problem = file_name_problem(rel, windows=windows)
         if problem:
             left.unsend(rel, problem[0], reason=problem[1])
             continue
