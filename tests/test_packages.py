@@ -108,8 +108,8 @@ class Runtime(unittest.TestCase):
         p, tools, _ = make()
         env = "/var/x/env/j1"
         self.assertEqual(p.promote_path(f"{env}/apt/usr/bin/jq", env), "/usr/bin/jq")
-        self.assertEqual(p.promote_path(f"{env}/npm/node_modules/.bin/eslint", env), f"{tools}/npm/node_modules/.bin/eslint")
-        self.assertEqual(p.promote_path(f"{env}/pip/bin/pyflakes", env), f"{tools}/pip/bin/pyflakes")
+        self.assertEqual(p.promote_path(f"{env}/npm/node_modules/.bin/eslint", env), "eslint")          # npm and pip programs are found by name in their shared environment
+        self.assertEqual(p.promote_path(f"{env}/pip/bin/pyflakes", env), "pyflakes")
         self.assertEqual(p.promote_path("/usr/bin/other", env), "/usr/bin/other")
 
 
@@ -257,14 +257,14 @@ class Preparing(unittest.TestCase):
             d.mkdir()
             t = time.time() - age_days * 86400
             os.utime(d, (t, t))
-        self.assertEqual(p.prune_old_envs(), 1)
+        self.assertEqual(p.prune_old_envs(keep_days=7).folders, 1)
         self.assertEqual(sorted(x.name for x in env.iterdir()), ["new"])
         p.drop_env("new")
         self.assertEqual(list(env.iterdir()), [])
 
 
 class InstallingForReal(unittest.TestCase):
-    def test_installs_only_what_is_missing_in_order_then_clears_the_throwaway_folders(self):
+    def test_installs_only_missing_apt_packages_and_leaves_npm_and_pip_to_the_shared_environments(self):
         p, tools, env = make(run=Fake({("dpkg", "-s"): lambda a, k: done(a, rc=0 if a[-1] == "git" else 1)}))
         put_pip(tools, "have", "1.0")
         (env / "leftover").mkdir()
@@ -272,11 +272,9 @@ class InstallingForReal(unittest.TestCase):
         reg = {"classes": {"a": {"packages": ["apt:git", "apt:jq", "npm:eslint@9.12.0", "pip:have==1.0", "pip:new==2.0"]}, "b": {"packages": []}, "c": {}}}
         rc = p.install_registry_packages(reg, out=said.append, run_root=lambda cmd: ran.append(cmd) or done(cmd))
         self.assertEqual(rc, 0)
-        self.assertEqual([c[0] for c in ran], ["apt-get", "npm", "python3"])
+        self.assertEqual([c[0] for c in ran], ["apt-get"])
         self.assertEqual(ran[0][-1], "jq")                                                  # git is already installed
-        self.assertEqual(ran[2][-1], "new==2.0")                                            # have==1.0 is already there at that version
-        self.assertTrue(tools.exists())
-        self.assertFalse((env / "leftover").exists())
+        self.assertTrue((env / "leftover").exists())                                        # per-job folders are pruned by age now, not by an install
         self.assertTrue(any(s.startswith("installing: apt-get") for s in said))
 
     def test_a_failing_command_stops_the_install_and_keeps_the_folders(self):

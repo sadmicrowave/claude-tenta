@@ -67,6 +67,12 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 |---|---|---|---|
 | `max_mb` | *(not set)* | int | the most file content this worker keeps so a repeat run of a folder needs only what changed, in MB (least recently used goes first, never a file a waiting job needs); unset means automatic: the smaller of 2048 and a quarter of its free disk |
 
+## [packages]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `keep_days` | `30` | int | software built on this worker for a class (its npm and pip packages) is removed when it has not been used for this many days, and rebuilt on the next run (the result says so); one that a job is using is never removed. Under disk pressure the least recently used go first |
+
 ## [isolation]
 
 | Setting | Default | Allowed | What it does |

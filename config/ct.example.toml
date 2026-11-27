@@ -70,6 +70,9 @@ update_days = 7                 # days between automatic updates of the claude t
 [cache]
 # max_mb = 2048                 # the most file content this worker keeps so a repeat run of a folder needs only what changed, in MB; unset means automatic: the smaller of 2048 and a quarter of its free disk
 
+[packages]
+keep_days = 30                   # software built on this worker for a class (its npm and pip packages) is removed when unused for this many days, and rebuilt on the next run (the result says so); one a job is using is never removed. Under disk pressure the least recently used go first
+
 [offload]
 auto_adopt = true                # on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt
 repeat_runs = 3                 # a command you run this many times within repeat_days counts as repeated work worth offloading

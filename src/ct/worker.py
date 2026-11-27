@@ -24,7 +24,7 @@ from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, 
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
-from .packages import PKG_KEEP_DAYS, PrepError, missing_hint
+from .packages import PrepError, missing_hint
 from .jail import Unshare
 from . import plat
 from .runner import MAX_TIMEOUT, class_network, kill_group, run_command
@@ -58,6 +58,7 @@ class Settings:
     prune_days: int = 14
     prune_threshold: int = 200
     pkg_timeout: int = 900
+    pkg_keep_days: int = 30                 # environments built for classes are removed after this many days unused (config packages.keep_days)
     require_netns: bool = True
     cache_max_mb: int = None                # the most file content kept for repeat runs (None: automatic, see Worker.cache_cap_mb)
     max_job_mb: int = None                  # the largest job file accepted (None: automatic, see Worker.job_ceiling_mb)
@@ -83,6 +84,7 @@ class Worker:
                  home=None, api_key=None, oauth_token=None, signed_approval=None, approvers_file=None, state_facts=None, privileged_call=None, hostname=None, jail=None, is_job_process=None, spawn=None, find_program=None, loadavg=None):
         self.s, self.io, self.lock, self.keeper, self.pkgs = settings, io, lockdown, keeper, packages
         self.claude_flags = claudeflags.flags
+        self._leases = {}                         # job id -> the shared environment it holds (released when the job ends)
         self.sensors = sensors
         self.runner, self.clock = runner, clock
         self.log = log or (lambda msg: None)
@@ -578,26 +580,48 @@ class Worker:
             real, prep_fail = self.tool_folders(cls["tools"])
             if real:
                 extra = {**(extra or {}), "PATH": ":".join(real + ([extra["PATH"]] if extra and extra.get("PATH") else []))}
+        if kind == "command" and cls.get("packages") and self.pkgs.needs_env(cls["packages"]):
+            acq, prep_fail = self._environment(jid, cls["packages"], res, kind)
+            if acq and not prep_fail:
+                rt = acq.rt
+                extra = {**rt["vars"], **(extra or {}), "PATH": ":".join(rt["path"] + ([extra["PATH"]] if extra and extra.get("PATH") else []))}
+                found = shutil.which(argv[0], path=":".join(rt["path"] + [SAFE_PATH])) if "/" not in argv[0] else None
+                if found:
+                    argv = [found] + argv[1:]                      # the very binary the environment provides, not whatever the worker's PATH says
+                run_argv = argv
         if kind == "profile":
             rules = registry.profiling_rules(reg)
             limits = profiling.profile_limits(rules, self.mem_total())
             search, fetched_path = SAFE_PATH, []
             if meta.get("packages"):
                 self.io.publish({**res, "status": "running", "note": "approved; fetching packages on the worker"})
-                try:
-                    rt = self.pkgs.prepare(jid, meta["packages"], on_step=lambda text: self._p("fetching", jid).write_text(json.dumps({"step": text})))
+                acq, prep_fail = self._environment(jid, meta["packages"], res, kind, prefix="package preparation failed: ")
+                if acq and not prep_fail:
+                    rt = acq.rt
                     fetched_path, search = rt["path"], ":".join(rt["path"] + [SAFE_PATH])
                     extra = {"PATH": ":".join(rt["path"]), **rt["vars"]}
-                except PrepError as e:
-                    prep_fail = f"package preparation failed: {e}"
-                finally:
-                    self._p("fetching", jid).unlink(missing_ok=True)
             # run the very binary that was validated (the system path plus the throwaway folder), not whatever the worker's PATH says
             found = shutil.which(argv[0], path=search) if "/" not in argv[0] else argv[0]
             if not found and not prep_fail:
                 prep_fail = f"{argv[0]!r} was not found, even after fetching the packages." + missing_hint(fetched_path)
             run_argv = [found or argv[0]] + argv[1:]
         return run_argv, extra, limits, prep_fail
+
+    def _environment(self, jid, pkgs, res, kind, prefix=""):
+        """(the shared environment held for this job, failure text or None). The hold is released when the job ends. A command job whose environment cannot be built ends as
+        `needs-environment` (the job did not run, and the class is not marked unable to run here)."""
+        label = res.get("class") or "this class"
+        try:
+            acq = self.pkgs.acquire(pkgs, on_step=lambda text: self._p("fetching", jid).write_text(json.dumps({"step": text})), label=label)
+        except PrepError as e:
+            if kind == "command":
+                res["env_failed"] = e.code or "env.rebuild.failed"
+            return None, prefix + str(e)
+        finally:
+            self._p("fetching", jid).unlink(missing_ok=True)
+        self._leases[jid] = acq
+        res["environment"] = {"rebuilt": bool(acq.note), "build_s": acq.seconds}
+        return acq, None
 
     def _run_privileged(self, jid, cls, reg):
         """Ask the root helper to run the class's action. The helper decides: it is given the exact job file and the signed approval and believes nothing else.
@@ -613,6 +637,14 @@ class Worker:
         return status, ans.get("exit_code"), ans.get("output") or "", {}, ans.get("note") or ""
 
     def _execute(self, jid, job, cls, kind, argv, prompt, files, meta, reg, res):
+        try:
+            self._execute_inner(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
+        finally:
+            lease = self._leases.pop(jid, None)
+            if lease:
+                lease.release()                                  # the environment may be pruned again once no job holds it
+
+    def _execute_inner(self, jid, job, cls, kind, argv, prompt, files, meta, reg, res):
         wd = self._p("work", jid)
         wd.mkdir(parents=True, exist_ok=True)
         res["started"] = iso(self.clock())
@@ -640,7 +672,7 @@ class Worker:
         else:
             run_argv, extra, limits, prep_fail = self._command_for(jid, cls, kind, argv, prompt, meta, reg, res)
             if prep_fail:
-                st, rc, out, metrics, note = "error", None, "", {}, prep_fail
+                st, rc, out, metrics, note = ("needs-environment" if res.pop("env_failed", None) else "error"), None, "", {}, prep_fail
             else:
                 st, rc, out, metrics, note = self.runner(run_argv, self.time_limit(cls, job, reg), wd, home=self.home, claude=(kind == "claude"),
                                                          marker=self._p("running", jid), limits=limits, network=class_network(cls), extra_env=extra,
@@ -659,6 +691,8 @@ class Worker:
             shaped = results.failure_summary(out, where=f"on {self.s.product}")
             shape_note = "; ".join(x for x in (shape_note, results.kept_output_note(self.s.product, jid)) if x)
         res.update(status=st, exit_code=rc, output=guard.scrub(shaped, self.limits["output_max_chars"]), metrics=metrics)
+        held = self._leases.get(jid)
+        note = "; ".join(x for x in (note, held.note if held else None) if x)         # the one line saying the packages were rebuilt and what it cost
         if note or shape_note:
             res["note"] = "; ".join(x for x in (note, shape_note) if x)
         allow, tokens = set(cls.get("output_allow") or []), guard.canary_tokens(self.state)
@@ -678,17 +712,15 @@ class Worker:
             self.learn_speed(st, metrics, meta)
             shutil.rmtree(wd, ignore_errors=True)            # a profiled command may leave a lot behind
             if meta.get("packages"):
-                pv, env_dir = res["profile"], self.pkgs.env_root / jid
+                pv, env_dir = res["profile"], (self._leases[jid].path if jid in self._leases else self.pkgs.env_root / jid)
                 if pv["verdict"] == "fits":
                     pv["entry"]["run"] = [self.pkgs.promote_path(x, env_dir) if i == 0 else x for i, x in enumerate(pv["entry"]["run"])]
                     pv["entry"]["packages"] = self.pkgs.resolve(env_dir, meta["packages"])      # pinned to what was just fetched
-                    if any(p.startswith("pip:") for p in meta["packages"]):
-                        pv["entry"]["env"] = {"PYTHONPATH": str(self.s.tools_root / "pip")}
-                    pv["packages_note"] = (f"the packages are in a throwaway folder on {self.s.product} (deleted after {plural(PKG_KEEP_DAYS, 'day')}); "
-                                           "applying the registry entry installs them for real")
+                    pv["packages_note"] = (f"the npm and pip packages are in an environment on {self.s.product}, kept while it is used and removed after {plural(self.s.pkg_keep_days, 'unused day')} "
+                                           "(rebuilt on the next run); applying the registry entry installs any apt packages for real")
                 else:
-                    self.pkgs.drop_env(jid)
-                    pv["packages_note"] = "the throwaway folder with the packages was deleted; nothing was installed"
+                    pv["packages_note"] = (f"the packages stay in an environment on {self.s.product} for {plural(self.s.pkg_keep_days, 'unused day')}, then are removed; "
+                                           "nothing was installed on the system")
 
     # ---- watchdog, kill, cancel ----
     @staticmethod
@@ -886,6 +918,36 @@ class Worker:
             self.log(f"file cache: removed {len(gone)} least recently used files to stay within {self.cache.max_mb:g} MB")
         return gone
 
+    def environments_info(self):
+        """What the worker publishes about its package environments: how many are kept, their size, the keep_days setting, and apt packages left by retired classes."""
+        try:
+            left = len(self.pkgs.manifest.leftovers({pk[4:] for c in (registry.parse(self.s.registry_path.read_text()).get("classes") or {}).values()
+                                                     for pk in c.get("packages") or [] if pk.startswith("apt:")}))
+        except (OSError, ValueError):
+            left = 0
+        keys = self.pkgs.envs.keys()
+        return {"count": len(keys), "mb": round(self.pkgs.envs.total_mb()), "keep_days": self.s.pkg_keep_days, "apt_left": left}
+
+    def prune_envs(self):
+        """Remove shared environments unused for packages.keep_days (never one a job holds), report apt packages left by retired classes, and under disk pressure
+        (free space below the reserve) evict the least recently used environments first; the file cache goes after them (prune_cache)."""
+        rep = self.pkgs.prune_old_envs(self.s.pkg_keep_days)
+        if rep.text():
+            self.log("environments: " + rep.text())
+        free = plat.disk_free_gb(self.state)
+        if free is not None and self.s.disk_reserve and free < self.disk_reserve_gb():
+            gone = self.pkgs.envs.evict_lru((self.disk_reserve_gb() - free) * 1000)
+            if gone:
+                self.log(f"environments: disk nearly full ({free:.1f} GB free); removed {plural(len(gone), 'least recently used environment')} ({sum(mb for _, mb in gone):.0f} MB)")
+        try:
+            left = self.pkgs.apt_leftovers(registry.parse(self.s.registry_path.read_text()))      # read only: load_registry also resets the limits
+        except (OSError, ValueError):
+            left = []
+        if left and left != getattr(self, "_reported_leftovers", None):
+            self._reported_leftovers = left
+            self.log("environments: " + self.pkgs.apt_leftover_text(left))
+        return rep
+
     def clean_work(self, days=3):
         cutoff = time.time() - days * 86400
         for old in self._p("inbox").glob("*.json"):          # finished jobs' snapshots; unfinished ones are kept
@@ -894,7 +956,7 @@ class Worker:
                     old.unlink()
             except OSError:
                 pass
-        self.pkgs.prune_old_envs()
+        self.prune_envs()
         self.prune_cache(due_s=600)
         self.keeper.prune()
         for d in self._p("work").iterdir():
@@ -964,7 +1026,7 @@ class Worker:
         if self.state_facts is None:
             return False
         try:
-            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg), "claude_budget": self.ledger.summary()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
+            env, doc = workerstate.build(snapshot=self.snapshot(), registry=reg, extra={**self.state_facts(), "job_ceiling_mb": self.job_ceiling_mb(), "profile_approval": "none" if self.profile_runs_unapproved() else "required", "profile_time": self.profile_time_info(reg), "claude_budget": self.ledger.summary(), "environments": self.environments_info()}, jail=self.jail, locked=bool(self.lock.locked()), now_iso=iso(self.clock()))
             stamp, key = self._p("worker-state.stamp"), workerstate.digest(env)
             try:
                 last = json.loads(stamp.read_text())

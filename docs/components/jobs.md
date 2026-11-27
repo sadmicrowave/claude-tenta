@@ -44,7 +44,7 @@ A worker with nothing to do stops asking GitHub every pass. The timers still fir
 ### Status values
 
 `rejected` (refused, with a note) · `awaiting_approval` · `queued` · `running` · `ok` · `error` · `quarantined` (output withheld by the guard) ·
-`killed` (stopped by a limit or by you) · `cancelled` (never started). A job in `awaiting_approval`, `queued` or `running` has no final result yet.
+`killed` (stopped by a limit or by you) · `cancelled` (never started) · `needs-environment` (the job did not run: the worker could not fetch its packages; send it again). A job in `awaiting_approval`, `queued` or `running` has no final result yet.
 
 ### Admission
 
@@ -73,7 +73,15 @@ failed command stays on the worker (mode 0600, 30 days) and is read with `ct-adm
 ### Packages
 
 A class (or profile run) may list `apt:`, `npm:` or `pip:` packages. They must be pinned to an exact version unless the install turns pinning off, are fetched
-into a throwaway tools folder with install scripts disabled, and never put on the search path of other jobs.
+into an environment with install scripts disabled, and never put on the search path of other jobs.
+
+**Environments (npm and pip).** One environment per package set (a hash of the sorted pinned packages and the worker's OS release), so two classes with the same packages share it.
+It is built unprivileged on the first run, reused after, and stamped on every use. It is **removed when not used for `packages.keep_days` days** (default 30; exactly that many is kept), and
+**rebuilt on the next run**: the result then says "the packages for this class were rebuilt (unused for N days); this run took X s longer". The rebuild has its own limit (15 minutes) and is not charged to the job's
+time limit. An environment a job is using is never removed (each job holds a lock; the cleanup pass skips it and says so in the worker's log). Under disk pressure (free space below the reserve) the least recently
+used environments go first, then the file cache. A profile run builds the same environment, so an adopted class starts warm. apt packages are still installed for real, as root, when the registry is applied; what tenta
+installed is written to `<state>/apt-manifest.json` (a package that was already on the machine is never listed). Apt packages left by classes that no longer exist are **reported** in the worker's log and
+`ct-admin workers` (name and size, with the command to remove them); this release never removes them. An older worker keeps its 7-day per-job folders and its root-installed npm and pip packages.
 
 ## Repeat runs: only what changed is sent
 
@@ -94,6 +102,9 @@ A worker that keeps files by hash (its `registry.json` says `cache: {version: 1,
 | A file changed after the job was sent | `files.cache.source_changed` | the same `ct-run submit` with `--resend-all` |
 | A file kept on the worker was damaged | `files.cache.damaged`, job not run | the same `ct-run submit` with `--resend-all` |
 | An older worker | the whole set is sent each time | `ct-admin apply` |
+| Packages removed after a long idle time and the worker is offline | status `needs-environment`, `env.rebuild.failed` with the tool's own error; the job did not run | send the job again once the worker reaches the package servers |
+| A rebuild ran out of its own time (15 min) | `env.rebuild.timeout`; the job did not start | send it again |
+| Not enough free disk to rebuild | `env.rebuild.no_space` with the sizes | free disk on the worker, or lower `packages.keep_days` |
 | Binary files in the folder | `files.not_text` | leave them out with `--exclude` |
 
 ## Files a class was profiled with
