@@ -210,7 +210,7 @@ class Screens(unittest.TestCase):
                              "offload": type("O", (), {"repeat_runs": 3, "repeat_days": 14, "busy_load_ratio": 1.0, "busy_min_seconds": 10, "review_days": 14, "review_top": 5, "review_min_commands": 20, "review_min_days": 3})()})()
         self.assertFalse(cli.after_install_review(cfg, stream=pipe, host_load=IDLE, now=NOW))
         self.assertEqual(pipe.getvalue(), "")
-        self.assertTrue(cli.after_install_review(cfg, stream=tty, host_load=IDLE, now=NOW))
+        self.assertTrue(cli.after_install_review(cfg, stream=tty, host_load=IDLE, now=NOW, ask=lambda p: "n"))
         self.assertIn("10 runs", tty.getvalue())
         with mock.patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")):
             tty2 = io.StringIO()

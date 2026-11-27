@@ -224,3 +224,15 @@ def confirm_prompt(question, stream=None):
     lines = textwrap.wrap(cards.code_spans(question), cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False) or [""]     # a command in the question is a code chip
     lines[0], lines[-1] = "  ❯ " + lines[0], lines[-1] + "  [y/N] "
     return "\n" + "\n".join(cards.inline(lines, ("prompt", "strong")))
+
+
+def choice_prompt(question, hint="[y/n/never]", stream=None):
+    """`confirm_prompt` for a question with more than yes and no: the same look, with the answers it takes as the hint (Enter, alone, means "skip this one for now")."""
+    stream = stream or sys.stdout
+    if not _color_on(stream):
+        return f"\n  {question} {hint} "
+    from . import cards
+    import textwrap
+    lines = textwrap.wrap(cards.code_spans(question), cards.width() - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False) or [""]
+    lines[0], lines[-1] = "  ❯ " + lines[0], lines[-1] + f"  {hint} "
+    return "\n" + "\n".join(cards.inline(lines, ("prompt", "strong")))

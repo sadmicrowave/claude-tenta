@@ -30,7 +30,7 @@ Nothing in `ct-run` can change what the worker is allowed to do. It only sends r
 | `offload history` | every fit check you or Claude made |
 | `offload profile [options] -- <cmd>` | queue a profiling run of one exact command |
 | `offload propose <profile-job>` | turn a profile result into a registry proposal (a branch) or an exclusion |
-| `offload review` | what your own command log says a worker could take, ranked (below); changes nothing |
+| `offload review` | what your own command log says a worker could take, ranked; at a terminal then one y/n per command to register it on your workers (below) |
 | `offload exclusions` | commands that were tested and do not fit |
 
 Status and errors go to standard error; standard output carries only what a script wants (a job id, a result, JSON).
@@ -57,7 +57,21 @@ It reads only the local log and sends nothing; it shows shapes, never paths or v
 - **What the hours are.** The recorded seconds of the commands that pass the candidate rules above, in the window (`offload.review_days`, 14 by default; a younger log is read whole). It is the time they took on this computer, never a promise that a worker is quicker (a small worker can be slower): the gain is a free computer. Runs with no recorded timing are counted aside and said.
 - **Order.** The highest-weighted reason met first (docs/design/OFFLOAD-REASONS.md), then the most time. `offload.review_top` (5) are listed; the totals cover every candidate.
 - **Too little to say.** Fewer than `offload.review_min_commands` (20) commands in the window, or a log younger than `offload.review_min_days` (3), shows no hours. An empty log says so. A log with nothing a worker could take says why (the two most common reasons).
-- **For slice 7.** `CommandLog.review` returns the ranked list (`recs`) that the per-command y/n review will walk.
+- **The y/n list.** At a terminal the same command goes on to the list below (the end of `ct-setup install` asks once whether to go through it now).
+
+### Registering the recommendations (one y/n each)
+
+For each recommended command, best first, `ct-run offload review` asks `Register it as a worker class? [y/n/never]`. That one answer is the approval of that one command: there is no "yes to all".
+
+- **yes** sends a test run of that command to **every worker that can be asked** (the folder it last ran in is confirmed first: Enter keeps it, `-` sends none, or type another; the packages the folder's marker files propose are shown on the same card and the yes covers exactly those). Each worker's own approval comes next (`ct-admin approve`, unchanged), the run is measured there, and a worker where it **fits** gets the class adopted (`offload.auto_adopt`; off: the card prints the exact `ct-admin adopt` command). The class has the same name on every worker. The review picks no worker for later jobs: where the class is registered, the orchestrator chooses per job (availability and its other criteria), so "registered on this worker" is all it needs.
+- **What the approver reads.** The run says it comes from your command history; the time is the median of the recorded runs, and the memory figure is a labelled placeholder (the log does not record memory).
+- **A worker that cannot be asked** (unreachable, no report for over two hours, locked, or on a release older than this one) is named once, with its reason and, for an old release, `ct-admin apply --worker NAME`. Nothing is skipped silently; after fixing it, run the review again: it offers only what the worker lacks.
+- **A command that fails on some workers** is registered where it passed and reported where not, with the tool's own text (does not fit: the limit it hit; ran out of time: the longer limit; not approved; not sent; no result in time, with the command to read it later).
+- **A command already registered** everywhere is not offered; one registered on some workers is offered for the others only. A command excluded on a worker is not tried there again.
+- **Never offered:** a command that is network, git, a package manager, privileged, one of tenta's own, or that looks like it carries a secret.
+- **Enter** skips a command for this time only. **n** (not now) is not asked again for `offload.review_ask_again_days` (30); **never** is not asked again until undone. `ct-run offload review --declined` lists the answers and `ct-run offload review --forget N` undoes one. They are kept in `review-answers.json` in this computer's client folder (private to you).
+- **Without a terminal** (a pipe, a script, a run started by Claude) it prints the list and the exact `ct-run offload profile` commands and asks or registers nothing.
+- **Workers to update:** a worker must run this release (it publishes `profile_time` and `cache`) to be asked; update with `ct-admin apply`.
 
 ### Known problems
 
