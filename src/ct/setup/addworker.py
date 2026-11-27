@@ -467,7 +467,12 @@ def install_worker(cfg, wfile, installer_factory, ui, notice, conf, home, name, 
         if screen is not None:
             screen.banner(f"add {name}", unless_shown=True)
         with (screen.session() if screen is not None else _nullcontext()):
-            report = inst.run_all()
+            try:
+                report = inst.run_all()
+            except SetupError as e:
+                if ("Code", "win.first_job.failed") in e.facts:          # the worker is set up on its computer: list it here too, so ct-admin check and status can say what is wrong with it (nothing is left half-registered)
+                    workers_mod.add(wfile, name, str(conf))
+                raise
     finally:
         if old_env is None:
             os.environ.pop("CT_CONFIG", None)
