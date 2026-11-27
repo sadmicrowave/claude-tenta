@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ct import cli, received, render, worker  # noqa: E402
-from support import Base  # noqa: E402
+from support import Base, sh  # noqa: E402
 from test_worker_approvals_b import ProfileWithoutApproval as PWA  # noqa: E402
 
 
@@ -56,13 +56,13 @@ class RecordsEveryJobThatArrives(DirectBase):
         self.assertEqual(outcomes, ["awaiting_approval"])
 
     def test_a_job_that_is_not_json_is_still_recorded(self):
-        import subprocess
         req = self.tmp / "requester"
-        subprocess.run(["git", "checkout", "-q", "-B", "jobs", "origin/main"], cwd=req, check=True)
+        sh("git", "checkout", "-q", "-B", "jobs", "origin/main", cwd=req)
         (req / "jobs").mkdir(exist_ok=True)
         (req / "jobs" / "job-0001.json").write_text("{ nope")
-        for c in (["add", "-A"], ["commit", "-q", "-m", "x"], ["push", "-q", "origin", "HEAD:refs/heads/jobs"]):
-            subprocess.run(["git", *c], cwd=req, check=True)
+        sh("git", "add", "-A", cwd=req)
+        sh("git", "commit", "-q", "-m", "x", cwd=req)                              # (support.sh carries a committer identity: a CI machine has none)
+        sh("git", "push", "-q", "origin", "HEAD:refs/heads/jobs", cwd=req)
         self.run_all()
         [e] = self.entries()
         self.assertEqual((e["id"], e["outcome"], e["class"]), ("job-0001", "rejected", None))
