@@ -1,7 +1,7 @@
 """worker-state.json: what one worker is, published so the administrator's computer can compare workers without logging in to any of them.
 
 Two kinds of fact. The ENVIRONMENT changes rarely (release, operating system, processor, which Claude sign-in and tool, packages the installed classes need,
-the trusted approver keys, whether the worker is locked): it is published when it changes, and the scheduler's candidate choice is only valid for the
+the trusted approver keys, whether the worker is locked): it is published when it changes, and the orchestrator's candidate choice is only valid for the
 environment it was made against. What is OBSERVED changes constantly (load, heat, free memory, queue length): it is only refreshed at most every half hour,
 so it is a recent reading, not a live one. `status` on the worker is the live view.
 """

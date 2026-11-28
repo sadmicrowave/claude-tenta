@@ -105,6 +105,8 @@ class WindowsInstaller:
         self.note("mailbox", "set up" if mb["changed"] else "ready", f"account {mb['user']}; only git on two repositories")
         files = self.step("worker files", lambda: winfiles.ensure(self.run, winfiles.windows_config(cfg.identity.name, self.host, self.user, ssh_port=self.port), winfiles.pack_text()), [])
         self.note("worker files", "written" if files["changed"] else "ready", "configuration, job classes, clones of the mailbox")
+        self.step("configuration check", lambda: winfiles.check_config(self.run), ["The Windows release on that computer is older than this computer's settings: a newer Windows release has to be published, then run ct-setup add-worker for it again."])
+        self.note("configuration check", "ok", "the installed release reads the worker's configuration")
         task = self.step("worker task", lambda: (wintask.ensure(self.run), wintask.start(self.run))[0], [])
         self.note("worker task", "registered" if task["changed"] else "ready", "starts at boot as the worker account; started now")
         self.clone_here(cfg)
@@ -136,5 +138,8 @@ class WindowsInstaller:
                 break
         if not res or res.get("status") != "ok":
             self.report.append(("first job", "failed", f"{FIRST_JOB}: {(res or {}).get('status', 'no result yet')}"))
-            raise refuse.error("win.first_job.failed", steps=[f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\claude-tenta\\state\\worker.log", "Run the same command again once it is fixed: nothing is set up twice."], job=FIRST_JOB, status=(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds'))
+            said = winfiles.worker_error(self.run)
+            raise refuse.error("win.first_job.failed", ("The worker said", said or "(its log could not be read)"),
+                               steps=[f"See why: ssh {self.user}@{self.host} type C:\\ProgramData\\claude-tenta\\state\\worker.log", *(["A setting this computer wrote is not known to the Windows release on that computer: a newer Windows release has to be published, then run ct-setup add-worker for it again."] if "not a known setting" in said else []), "Run the same command again once it is fixed: nothing is set up twice."],
+                               job=FIRST_JOB, status=(res or {}).get('status', 'no result within ' + str(self.wait_s) + ' seconds'))
         self.note("first job", "ok", f"{FIRST_JOB} ran on the Windows computer and came back")

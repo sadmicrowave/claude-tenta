@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ledger as ledger_mod, patch as patch_mod, approvals, claudeflags, filecache, guard, jobs, profiling, publishdiag, registry, results, snapshot, workerstate
+from . import intake, ledger as ledger_mod, patch as patch_mod, received as received_mod, approvals, claudeflags, filecache, guard, jobs, profiling, publishdiag, registry, results, snapshot, workerstate
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
@@ -105,6 +105,7 @@ class Worker:
         self.limits = registry.limits_of({})
         self.policy = registry.policy_of({})
         self.state = Path(settings.state)
+        self.received = received_mod.Received(self.state, clock=lambda: self.clock()) if settings.transport == "direct" else None      # the record of jobs the mailbox key sent (F4)
         for d in ("done", "approved", "notified", "work", "queued", "running", "fetching", "finished", "inbox", "quarantine", "output"):
             (self.state / d).mkdir(parents=True, exist_ok=True)
         self.cache = filecache.FileCache(self.state / "filecache", self.cache_cap_mb(), clock=time.time)
@@ -124,15 +125,8 @@ class Worker:
     def job_ceiling_mb(self):
         """The largest job file this worker accepts, in MB: the owner's hardware.max_job_mb, or automatically the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB (a job's files travel inside
         one JSON file that is staged in memory, so memory bounds it until files are streamed to disk). A reading that is missing does not limit."""
-        if self.s.max_job_mb:
-            return int(self.s.max_job_mb)
         snap = self.snapshot()
-        terms = [1024.0]
-        if snap.get("disk_free_gb") is not None:
-            terms.append(snap["disk_free_gb"] * 1000 / 4)
-        if snap.get("mem_available_mb") is not None:
-            terms.append(snap["mem_available_mb"] / 4)
-        return int(max(1, min(terms)))
+        return intake.ceiling_mb(self.s.max_job_mb, snap.get("disk_free_gb"), snap.get("mem_available_mb"))
 
     def cache_cap_mb(self):
         """The most file content kept for repeat runs, in MB: the owner's cache.max_mb, or automatically the smaller of 2048 and a quarter of the free disk."""
@@ -155,7 +149,7 @@ class Worker:
         """Free disk kept back: 10% of the volume, never less than 2 GB. Below it the worker starts no job."""
         if total_gb is None:
             total_gb = shutil.disk_usage(self.state).total / 1e9
-        return max(2.0, round(total_gb * 0.10, 1))
+        return intake.reserve_gb(total_gb)
 
     def time_limit(self, cls, job, reg):
         """A job's time limit: the class's own, or for a profile run the person's estimate x speed factor x margin (the owner's ceiling only where the computer is shared)."""
@@ -497,6 +491,7 @@ class Worker:
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         res = {"id": jid, "class": None, "status": "rejected", "started": None, "finished": None, "exit_code": None, "output": "", "note": ""}
+        job = kind = None
         try:
             job, cls, kind, argv, prompt, files, meta = self._validate(jid, raw, reg, res, run=run)
             # a profile run executes a command nobody has seen before, so it ALWAYS needs approval
@@ -519,11 +514,14 @@ class Worker:
                                        "with your approval key); an approval typed on the worker is not accepted")
                     self.io.publish(res)
                     self._p("notified", jid).touch()
+                if not run:
+                    self._record_received(jid, raw, "awaiting_approval", job, kind)
                 return
             if not run:
                 self._p("queued", f"{jid}.json").write_bytes(raw)          # the snapshot that will execute is exactly what was validated
                 self._p("queued", f"{jid}.meta").write_text(json.dumps({"class": job.get("class"), "packages": bool(job.get("packages")), "timeout_s": job.get("timeout_s"), "est_time_s": job.get("est_time_s")}))      # what step needs, so it never parses the whole job
                 self.log(f"queued {jid} ({cls.get('cost', 'medium')})")
+                self._record_received(jid, raw, "started_unapproved" if kind == "profile" and self.profile_runs_unapproved() else "queued", job, kind)
                 return
             self._execute(jid, job, cls, kind, argv, prompt, files, meta, reg, res)
         except NeedFiles as e:
@@ -533,8 +531,12 @@ class Worker:
             res.update(status="rejected", note=str(e))
             if getattr(e, "code", None):
                 res["refusal"] = e.code                                    # machine-readable: which rule refused it (shown as the last row, and counted later)
+            if not run:
+                self._record_received(jid, raw, "rejected", job, kind, getattr(e, "code", None) or "")
         except Exception as e:                                              # one bad job must never kill the loop
             res.update(status="error", note=f"worker error: {e}")
+            if not run:
+                self._record_received(jid, raw, "error", job, kind)
         self._finish(res, run)
 
     def _needs_files(self, jid, res, hashes):
@@ -545,6 +547,19 @@ class Worker:
         note = str(refusals.refuse("files.cache.missing", count=plural(len(hashes), "file")))
         if self.io.publish({**res, "status": "needs-files", "needs": hashes, "note": note}):
             marker.write_text(",".join(hashes))
+
+    def _record_received(self, jid, raw, outcome, job=None, kind=None, code=""):
+        """Direct only: write the worker's own record that this job arrived and what was done with it (src/ct/received.py). A failure to write it is logged, never fatal."""
+        if self.received is None:
+            return
+        if not isinstance(job, dict):                                  # refused before it was parsed into a job: read what the file itself claims, if it is JSON at all
+            try:
+                job = json.loads(raw)
+            except ValueError:
+                job = None
+        cls = job.get("class") if isinstance(job, dict) else None
+        if not self.received.record(jid, raw, outcome, cls=cls, kind=kind, code=code):
+            self.log(f"could not write the record of received jobs for {jid}")
 
     def _finish(self, res, run):
         jid = res["id"]
@@ -655,6 +670,9 @@ class Worker:
             pass
         base = wd.resolve()
         for name, content in files.items():
+            problem = jobs.file_name_problem(name, kind)                        # the same primitive as at intake, on the name actually about to be written
+            if problem:
+                raise refusals.refuse(problem[0], name=name, reason=problem[1])
             target = wd / name
             if not target.resolve().is_relative_to(base):                       # the second defence, on the path actually written: the name check (jobs.file_name_problem) is the first
                 raise refusals.refuse("files.name.path", name=name, reason="it would be written outside the job's folder")
@@ -998,7 +1016,7 @@ class Worker:
             classes[name] = {k: v for k, v in {
                 "privileged": c.get("privileged"), "writable": c.get("writable"),
                 "kind": kind, "cost": c.get("cost", "medium"), "tier": "approve" if kind in ("profile", "privileged") else c.get("tier", "approve"),
-                "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"), "submit": c.get("submit"),
+                "run": c.get("run"), "params": c.get("params"), "accepts_files": c.get("accepts_files"), "batchable": c.get("batchable"), "repeatable": c.get("repeatable") or None, "retries": c.get("retries") or None, "retry_delay_s": c.get("retry_delay_s"), "max_timeout_s": c.get("max_timeout_s"), "submit": c.get("submit"),
                 "packages": c.get("packages"), "tools": c.get("tools"), "timeout_s": c.get("timeout_s") or c.get("max_timeout_s"), "max_rss_mb": c.get("max_rss_mb"),
                 "max_temp_c": c.get("max_temp_c"), "max_disk_mb": c.get("max_disk_mb"), "network": class_network(c)}.items() if v is not None}
         when, since_file = iso(self.clock()), self._p("registry.since")

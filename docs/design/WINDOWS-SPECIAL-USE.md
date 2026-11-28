@@ -30,7 +30,7 @@ A Windows computer is only found when its owner has turned on the OpenSSH Server
 | Python from the distribution | an embeddable Python unpacked into the worker's folder | S |
 | git and `ssh-keygen -Y` | Git for Windows and the OpenSSH client that Windows ships | S |
 
-The code that does not change: the class model, the scheduler, approvals and signatures, the client and admin commands (they run on the administrator's computer), the registry and the transport logic. A small `platform` module (posix and windows implementations behind one interface) is the seam, so the Linux build only gains an import, not behaviour.
+The code that does not change: the class model, the orchestrator, approvals and signatures, the client and admin commands (they run on the administrator's computer), the registry and the transport logic. A small `platform` module (posix and windows implementations behind one interface) is the seam, so the Linux build only gains an import, not behaviour.
 
 ## Release split
 - A separate release line and artifact for Windows (own version tag and release branch, own CI), so a Windows change can never block or alter a Linux release. The Linux release carries the detection and the hand-off, and nothing else of Windows.

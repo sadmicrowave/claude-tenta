@@ -15,6 +15,11 @@ PACK = Path(__file__).resolve().parents[3] / "packs" / "windows-core" / "classes
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{2,23}$")
 
 
+# Settings the validator defaults in for a Direct worker that a Windows worker must not be given: profile_approval never applies there (a Windows worker has no jail), and a packaged release that predates it
+# refuses to start on an unknown key (the worker.log of a real Windows worker said so). tests/test_winfiles.py loads the written file with the newest release-win tag's own config code.
+NOT_FOR_WINDOWS = (("transport", "profile_approval"),)
+
+
 def windows_config(name, host, admin_user, worker_user=USER, ssh_port=22, root=None, client_home=None):
     """The worker's ct.toml for a Windows computer whose files live under `root` (forward slashes, e.g. C:/ProgramData/claude-tenta)."""
     root = root or "C:/ProgramData/claude-tenta"
@@ -24,6 +29,8 @@ def windows_config(name, host, admin_user, worker_user=USER, ssh_port=22, root=N
     clean, problems = config.validate(answers)
     if problems:
         raise ValueError("; ".join(problems))
+    for section, key in NOT_FOR_WINDOWS:
+        clean[section].pop(key, None)
     return toml_out.dump(clean, header="Written by ct-setup for a Windows worker.")
 
 
@@ -79,4 +86,56 @@ try {{
 
 def ensure(runner, config_text, registry_text, root=ROOT, worker=USER):
     rc, out = runner(list(POWERSHELL), ensure_script(config_text, registry_text, root, worker))
+    return parse_result(out)
+
+
+def log_tail_script(root=ROOT, lines=40, worker=USER):
+    """Print the last lines of the worker's own log as one CT-RESULT {"log": ...}; a missing log is an empty text, never an error."""
+    _check_args(root, worker)
+    return _PRE.format(root=root, user=worker) + f"""$ErrorActionPreference = 'SilentlyContinue'
+$p = Join-Path $root 'state\\worker.log'
+$t = ''
+if (Test-Path $p) {{ $t = (Get-Content -Tail {int(lines)} $p) -join "`n" }}
+Write-Output ('CT-RESULT ' + (@{{log = $t}} | ConvertTo-Json -Compress))
+
+"""
+
+
+def worker_error(runner, root=ROOT):
+    """The worker's own last error, in its own words, or "" when it cannot be read (the log is the worker's, so a failure to read it is never a reason to hide the first failure)."""
+    try:
+        rc, out = runner(list(POWERSHELL), log_tail_script(root))
+        text = parse_result(out).get("log") or ""
+    except Exception:
+        return ""
+    lines = [x.strip() for x in str(text).splitlines() if x.strip()]
+    at = [i for i, x in enumerate(lines) if "ERROR" in x]
+    if not at:
+        return (lines or [""])[-1][:300]
+    got = [lines[at[-1]]]
+    for x in lines[at[-1] + 1:]:
+        if re.match(r"\d{4}-\d\d-\d\d", x) or "ERROR" in x:          # the next log entry starts with a date; what lies between is the error's own detail
+            break
+        got.append(x)
+    return " ".join(got)[:300]
+
+
+def check_config_script(root=ROOT, worker=USER):
+    _check_args(root, worker)
+    return _PRE.format(root=root, user=worker) + """try {
+  $ErrorActionPreference = 'Continue'                                                    # a native program's stderr is its message, not an exception
+  $py = Join-Path $root 'tools\\python\\python.exe'
+  $cfg = Join-Path $root 'config\\ct.toml'
+  $env:PYTHONPATH = Join-Path $root 'release\\src'
+  $out = (& $py -c "import sys; from ct import config; config.load(sys.argv[1], env={'CT_CONFIG': ''})" $cfg 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { Fail 'config check' ("the installed release cannot read the worker's configuration: " + $out.Substring([Math]::Max(0, $out.Length - 400))) }
+  Write-Output ('CT-RESULT ' + (@{ok = $true} | ConvertTo-Json -Compress))
+} catch { Fail 'config check' $_.Exception.Message }
+
+"""
+
+
+def check_config(runner, root=ROOT, worker=USER):
+    """Load the worker's configuration with the INSTALLED release's own loader, before the worker is started: a release older than a setting in the file refuses it, and the worker would otherwise just never run."""
+    rc, out = runner(list(POWERSHELL), check_config_script(root, worker))
     return parse_result(out)

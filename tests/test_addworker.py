@@ -179,6 +179,21 @@ class AWindowsComputer(Base):
         (name, path), = workers.load_list(self.conf_dir / "workers.toml").items()
         self.assertEqual((name, Path(path)), ("win", self.conf_dir / "win.toml"))
 
+    def test_a_worker_whose_first_job_fails_is_still_registered_so_admin_can_diagnose_it(self):
+        from ct.admin import workers
+        from ct.setup import refuse
+
+        def make(conf, home, name, host, user, suggest):
+            class Inst:
+                def run_all(inner):
+                    Path(conf).write_text(f'[identity]\nname = "{name}"\n')
+                    raise refuse.error("win.first_job.failed", job="x", status="no result")
+            return Inst()
+        with self.assertRaises(addworker.SetupError):
+            addworker.run(args(name="win.example", user="me", yes=True), Host(str(self.tmp / "root")), lambda p: "", None, lambda m: None, ui=None, installer_factory=self.factory(), interactive=False,
+                          networks=lambda: [], assess=lambda h, u, p=22: WIN, resolve=lambda n: (_ for _ in ()).throw(OSError()), notice=self.notice, win_installer_factory=make)
+        self.assertEqual(list(workers.load_list(self.conf_dir / "workers.toml")), ["win"])
+
     def test_a_preview_installs_nothing(self):
         rc, calls = self.go(yes=True, dry_run=True)
         self.assertEqual((rc, calls), (0, []))

@@ -1,4 +1,4 @@
-"""Checks that are ABOUT one worker (the install check after `ct-admin apply`, the wizard's first job) must run on that worker, never on whichever the scheduler prefers.
+"""Checks that are ABOUT one worker (the install check after `ct-admin apply`, the wizard's first job) must run on that worker, never on whichever the orchestrator prefers.
 
 Found in the first real `ct-admin apply` on two workers: the Mac mini was upgraded, its check printed "a test job ran and came back: ok", and the job had run on the other worker."""
 import unittest

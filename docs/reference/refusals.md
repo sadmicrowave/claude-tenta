@@ -80,7 +80,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 ### `files.name.path`: A file name could leave the job's folder
 
 - **Text:** bad file name: {name!r} ({reason})
-- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.
+- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space (the client applies the same rules before sending when the worker says it runs Windows, and the worker checks again where it writes).
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable
@@ -967,6 +967,24 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Configured:** the worker's hardware.max_job_mb (unset: automatic)
 - **What to do:** Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room.
 
+### `job.push.disk_nearly_full`: This worker's disk is nearly full
+
+- **Text:** {free} GB is free on this worker and {reserve} GB is kept in reserve, so it takes no job until space is back. Nothing was sent.
+- **Protects:** A worker's mailbox takes no push while the disk is below its reserve, so a client cannot fill the last of the disk, however small each job.
+- **Decided by:** worker
+- **Depends on:** the worker's free disk (the same reserve that stops it starting a job)
+- **Configured:** none: the reserve is 10% of the disk, at least 2 GB
+- **What to do:** On the worker, free disk space: ct-worker status shows how much is free. Or send it to another worker.
+
+### `job.push.too_big`: The job is too big for this worker
+
+- **Text:** this push is over the {ceiling} MB this worker accepts right now (plus {slack} MB for git); it was stopped and nothing was kept.
+- **Protects:** A worker's mailbox stops a push that is over what the worker accepts as a job, while it is still arriving, so one push cannot fill the disk before the job file is ever checked.
+- **Decided by:** worker
+- **Depends on:** the worker's free disk and memory, or hardware.max_job_mb
+- **Configured:** the worker's hardware.max_job_mb (unset: automatic)
+- **What to do:** Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room.
+
 ### `files.compress.over_worker_cap`: These files are too big for this worker, even compressed
 
 - **Text:** {count} is {size} before compression, over the {cap} MB this worker unpacks (a quarter of its free disk, and within its memory). Attach only the files the command needs (--include).
@@ -1022,6 +1040,15 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Update it with ct-admin apply.
+
+### `placement.silent`: A worker has gone silent
+
+- **Text:** has published nothing for {age} (its latest reading is older than health.silent_hours), so no job is placed on it
+- **Protects:** A worker that has not published for a day may be off, broken or cut off, so no new job goes to it until it does.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** the client setting health.silent_hours (default 24 hours)
+- **What to do:** Look at the computer: is it on and on the network? It is used again as soon as it publishes a new reading.
 
 ### `placement.locked`: A worker is locked
 

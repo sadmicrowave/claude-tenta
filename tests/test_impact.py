@@ -39,7 +39,7 @@ class TheTableKnowsTheProject(unittest.TestCase):
 class ThePlan(unittest.TestCase):
     def test_a_mailbox_change_plans_its_unit_test_the_ownership_probe_and_the_direct_route(self):
         p = impact.plan(["src/ct/mailshell.py"])
-        self.assertEqual((p["unit"], p["probes"], p["routes"], p["unmapped"]), (["test_mailshell"], ["ownership"], ["direct"], []))
+        self.assertEqual((p["unit"], p["probes"], p["routes"], p["unmapped"]), (["test_intake", "test_mailshell"], ["ownership"], ["direct"], []))
 
     def test_a_docs_change_runs_no_probe_and_no_route(self):
         p = impact.plan(["docs/components/testing.md"])

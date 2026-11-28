@@ -33,10 +33,15 @@ class Styled(list):
 
     def lines(self, room):
         """The value as one or more lines: the pieces before the last stay on the first line, and the last (the long explanation) wraps under itself, so nothing is cut off."""
-        if any(r and str(r).endswith("_chip") for _, r in self):            # a value that ends in chips (a worker name and its DEDICATED chip): one line, the chips drawn as chips
-            return ["  ".join(chip_piece(t, r) for t, r in self)]
+        if any(r and str(r).endswith("_chip") for _, r in self):            # a value that ends in chips (a worker name and its DEDICATED chip): one line, the chips drawn as chips; when they do not fit, one piece per line
+            if len(self.plain()) <= room:
+                return ["  ".join(chip_piece(t, r) for t, r in self)]
+            return [chip_piece(line, r) for t, r in self for line in wrap(t, room - 2 if str(r).endswith("_chip") else room)]
         *head, (last, last_role) = list(self)
         lead = "".join(t for t, _ in head)
+        if len(lead) + 12 > room:                                           # the first pieces alone would fill the line: each piece on its own wrapped lines, the explanation under them
+            lines = [theme.sgr(line, r) if r else line for t, r in head if t for line in wrap(t, room)]
+            return lines + [theme.sgr(line, last_role) if last_role else line for line in (wrap(last.lstrip(), room) if last else [])] or [""]
         text = [theme.sgr(t, r) if r and t else t for t, r in head]
         width = max(10, room - len(lead))
         pieces = wrap(last.lstrip(), width - 2 if lead else width) if last else [""]
@@ -83,6 +88,7 @@ def vlen(text):
 
 MIN_W, MAX_W = 20, 100          # a card is never wider than 100 columns, and never narrower than is readable
 FRAME_MIN = 60                  # from this width up a card is drawn in a frame; below it, as the rail (a left border only), which costs two columns instead of four
+VALUE_MIN = 20                  # a value gets at least this many columns beside its labels: when the labels would leave it less, the card stacks (label above value) instead of cutting words in pieces
 STACK_BELOW = 44                # below this width a label sits above its value instead of beside it, so a short pane is not spent on a label column
 
 
@@ -333,10 +339,16 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
     if not rows and not steps:                                          # nothing to put in a frame: a heading, drawn as one line
         return [rule(title, tag, color, cols)]
     framed = (True if framed is None else framed) and w >= FRAME_MIN      # every card has the same outline in the colour of its kind; below FRAME_MIN columns the rail instead, whatever the caller asked for
-    stacked = w < STACK_BELOW
+    stacked = w < STACK_BELOW or bool(lw and (w - 4 if framed else w - 2) - lw - 2 < VALUE_MIN)      # too narrow for a label column, or the labels would leave the values too little room
     if stacked:
         lw = 0                                                          # no label column: each label stands above its value
     inner = w - 4 if framed else w - 2
+
+    def label_lines(text):
+        """The label as one or more lines: a command or chip longer than the room is cut into several, each its own chip (never a line wider than the pane)."""
+        if isinstance(text, (Cmd, Chip)) and len(text) + 2 > inner:
+            return [label(type(text)(piece, *([text.role] if isinstance(text, Chip) else []))) for piece in wrap(str(text), inner - 2)]
+        return [label(text)]
 
     def label(text):
         if isinstance(text, Cmd):
@@ -384,19 +396,19 @@ def card(title, details, *, tag, color, steps=None, steps_label="Next", cols=Non
             out.append(row(p(" WHY ", CHIP.get(role, "primary_chip")) + " " + first))
             out += [row("      " + line) for line in rest]
         elif kind == "head":
-            out.append(row(p(item.upper(), role if framed else "label")))
+            out += [row(p(t, role if framed else "label")) for t in wrap(item.upper(), inner)]
         elif kind == "raw":
             out += [row(item)] if vlen(item) <= inner else [row(item[i:i + inner]) for i in range(0, max(len(item), 1), inner)]
         elif kind == "fact" and item[1] is None:                        # a heading inside the card ("NEXT")
-            out.append(row(p(item[0].upper(), role if framed else "label")))
+            out += [row(p(t, role if framed else "label")) for t in wrap(item[0].upper(), inner)]
         elif kind == "fact" and item[1] is not None and stacked:
-            out.append(row(label(item[0])))                                       # a narrow pane: the label, then its value under it, indented two
+            out += [row(t) for t in label_lines(item[0])]                          # a narrow pane: the label, then its value under it, indented two
             if isinstance(item[1], Styled):
                 out += [row("  " + line) for line in item[1].lines(inner - 2)]
             else:
                 out += [row("  " + line) for line in inline(wrap(lift(item[1], inner - 2, found), inner - 2))]
         elif kind == "fact" and item[1] is not None and (len(item[0]) + (2 if isinstance(item[0], (Cmd, Chip)) else 0)) > lw and lw and not isinstance(item[1], Styled):
-            out.append(row(label(item[0])))                                       # the long label on its own line, the value under it where the values start
+            out += [row(t) for t in label_lines(item[0])]                          # the long label on its own line, the value under it where the values start
             first, *rest = inline(wrap(lift(item[1], fact_room, found), fact_room))
             out += [row(" " * (lw + 2) + line) for line in [first, *rest]]
         elif kind == "fact" and isinstance(item[1], Styled):
