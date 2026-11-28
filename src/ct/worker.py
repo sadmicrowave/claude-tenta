@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ledger as ledger_mod, patch as patch_mod, received as received_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
+from . import intake, ledger as ledger_mod, patch as patch_mod, received as received_mod, approvals, claudeflags, guard, jobs, profiling, publishdiag, registry, results, workerstate
 from .gitio import FileLock
 from . import refusals
 from .jobs import Reject
@@ -113,15 +113,8 @@ class Worker:
     def job_ceiling_mb(self):
         """The largest job file this worker accepts, in MB: the owner's hardware.max_job_mb, or automatically the smallest of a quarter of its free disk, a quarter of its free memory and 1024 MB (a job's files travel inside
         one JSON file that is staged in memory, so memory bounds it until files are streamed to disk). A reading that is missing does not limit."""
-        if self.s.max_job_mb:
-            return int(self.s.max_job_mb)
         snap = self.snapshot()
-        terms = [1024.0]
-        if snap.get("disk_free_gb") is not None:
-            terms.append(snap["disk_free_gb"] * 1000 / 4)
-        if snap.get("mem_available_mb") is not None:
-            terms.append(snap["mem_available_mb"] / 4)
-        return int(max(1, min(terms)))
+        return intake.ceiling_mb(self.s.max_job_mb, snap.get("disk_free_gb"), snap.get("mem_available_mb"))
 
     def unpacked_cap_mb(self):
         """The most a compressed job may unpack to, in MB: a quarter of the free disk, half of the free memory (the files are held in memory) and 10 times the job-file ceiling (text shrinks 5 to 10 times). Zip-bomb guard, finding F5."""
@@ -137,7 +130,7 @@ class Worker:
         """Free disk kept back: 10% of the volume, never less than 2 GB. Below it the worker starts no job."""
         if total_gb is None:
             total_gb = shutil.disk_usage(self.state).total / 1e9
-        return max(2.0, round(total_gb * 0.10, 1))
+        return intake.reserve_gb(total_gb)
 
     def time_limit(self, cls, job, reg):
         """A job's time limit: the class's own, or for a profile run the person's estimate x speed factor x margin (the owner's ceiling only where the computer is shared)."""
