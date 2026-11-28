@@ -12,9 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from ct.setup import tui                                  # noqa: E402
-from ct.setup.client import ClientSetup                   # noqa: E402
-from ct.setup.host import Host                            # noqa: E402
+from armada.setup import tui                                  # noqa: E402
+from armada.setup.client import ClientSetup                   # noqa: E402
+from armada.setup.host import Host                            # noqa: E402
 
 GH = """#!/bin/sh
 S="@STATE@"

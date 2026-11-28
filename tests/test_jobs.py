@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import guard, jobs, registry, util  # noqa: E402
+from armada import guard, jobs, registry, util  # noqa: E402
 
 LIMITS = registry.limits_of({})
 
@@ -27,7 +27,7 @@ class FileNames(unittest.TestCase):
     LIM = {"files": {"max_count": 200, "max_file_kb": 500, "max_total_kb": 2000}}
 
     def test_a_name_is_checked_only_for_what_could_leave_the_job_folder(self):
-        for ok in ("helper@.service.in", "a b.txt", "src/a+b/c=d,e.py", ".gitignore", ".tenta.toml", "dir/.hidden/x", "ünï.txt", "x" * 255):
+        for ok in ("helper@.service.in", "a b.txt", "src/a+b/c=d,e.py", ".gitignore", ".armada.toml", "dir/.hidden/x", "ünï.txt", "x" * 255):
             self.assertIsNone(jobs.file_name_problem(ok), ok)
         for bad, why in (("", "empty"), ("/etc/passwd", "relative"), ("../x", "relative"), ("a/../b", "relative"), ("a//b", "relative"), ("a/", "relative"), ("./a", "relative"),
                          ("a\\b", "backslash"), ("a\x00b", "control"), ("a\nb", "control"), ("a" * 256, "long"), ("a/" * 600, "long")):

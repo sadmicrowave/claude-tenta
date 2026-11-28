@@ -9,9 +9,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import theme, ui  # noqa: E402
+from armada import theme, ui  # noqa: E402
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
+SRC = Path(__file__).resolve().parents[1] / "src" / "armada"
 
 
 class Themes(unittest.TestCase):
@@ -56,21 +56,21 @@ class Themes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "theme.toml"
             f.write_text('[colors]\nok = "38;5;22"\n')
-            theme.load({"CT_THEME_FILE": str(f)})
+            theme.load({"ARM_THEME_FILE": str(f)})
             self.assertEqual(theme.source, str(f))
-            with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+            with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
                 self.assertIn("38;5;22", ui.paint("x", ui.GREEN))
                 self.assertIn("38;5;22", ui.paint("x", "ok"))
 
     def test_mono_has_no_colour_only_weight(self):
-        theme.load({"CT_THEME": "mono"})
+        theme.load({"ARM_THEME": "mono"})
         self.assertEqual(theme.resolve("ok"), "1")
         self.assertEqual(theme.resolve("accent"), "")
 
     def test_the_theme_is_found_by_environment_then_by_home(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / ".ct").mkdir()
-            (Path(d) / ".ct" / "theme.toml").write_text('theme = "mono"\n')
+            (Path(d) / ".armada").mkdir()
+            (Path(d) / ".armada" / "theme.toml").write_text('theme = "mono"\n')
             with mock.patch.object(Path, "home", return_value=Path(d)):
                 theme.load({})
             self.assertEqual(theme.code("accent"), "")
@@ -83,21 +83,21 @@ class FollowsTheTerminal(unittest.TestCase):
         theme.load()
 
     def test_a_light_terminal_gets_the_light_theme_when_nothing_was_chosen(self):
-        env = {k: v for k, v in os.environ.items() if k not in ("CT_THEME", "CT_THEME_FILE")}
-        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "light", "HOME": tempfile.mkdtemp()}, clear=True):
+        env = {k: v for k, v in os.environ.items() if k not in ("ARM_THEME", "ARM_THEME_FILE")}
+        with mock.patch.dict(os.environ, {**env, "ARM_BACKGROUND": "light", "HOME": tempfile.mkdtemp()}, clear=True):
             theme.load()
             self.assertEqual(theme.code("primary"), theme.THEMES["light"]["primary"])
             self.assertIn("light terminal", theme.source)
-        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "dark", "HOME": tempfile.mkdtemp()}, clear=True):
+        with mock.patch.dict(os.environ, {**env, "ARM_BACKGROUND": "dark", "HOME": tempfile.mkdtemp()}, clear=True):
             theme.load()
             self.assertEqual(theme.code("primary"), theme.THEMES["default"]["primary"])
 
     def test_a_chosen_theme_is_never_overridden_by_the_background(self):
-        env = {k: v for k, v in os.environ.items() if k not in ("CT_THEME", "CT_THEME_FILE")}
-        with mock.patch.dict(os.environ, {**env, "CT_BACKGROUND": "light", "CT_THEME": "default", "HOME": tempfile.mkdtemp()}, clear=True):
+        env = {k: v for k, v in os.environ.items() if k not in ("ARM_THEME", "ARM_THEME_FILE")}
+        with mock.patch.dict(os.environ, {**env, "ARM_BACKGROUND": "light", "ARM_THEME": "default", "HOME": tempfile.mkdtemp()}, clear=True):
             theme.load()
             self.assertEqual(theme.code("primary"), theme.THEMES["default"]["primary"])
-            self.assertEqual(theme.source, "CT_THEME=default")
+            self.assertEqual(theme.source, "ARM_THEME=default")
 
     def test_a_piped_command_never_asks_the_terminal(self):
         import io
@@ -106,7 +106,7 @@ class FollowsTheTerminal(unittest.TestCase):
 
 
     def test_the_terminal_is_asked_through_dev_tty_even_when_stdin_is_not_the_terminal(self):
-        """Seen on the real fleet: `ct-run classes </dev/null` made the colours follow a DARK default on a light terminal, because the question was only asked when stdin was a terminal."""
+        """Seen on the real fleet: `arm-run classes </dev/null` made the colours follow a DARK default on a light terminal, because the question was only asked when stdin was a terminal."""
         import io
         written, opened = [], []
 
@@ -130,13 +130,13 @@ class NoColourOutsideTheTheme(unittest.TestCase):
         sgr = re.compile(r"(?:\\x1b|\\033)\[[^A-Za-z\"'\\]*m")
         for f in SRC.rglob("*.py"):
             if f.name != "theme.py":
-                self.assertIsNone(sgr.search(f.read_text()), f"{f.relative_to(SRC)} writes a colour code; ask ct.theme for a role instead")
+                self.assertIsNone(sgr.search(f.read_text()), f"{f.relative_to(SRC)} writes a colour code; ask armada.theme for a role instead")
 
     def test_no_numeric_colour_is_named_outside_theme_py(self):
         number = re.compile(r"[\"']((?:38|48);5;\d+)")
         for f in SRC.rglob("*.py"):
             if f.name != "theme.py":
-                self.assertIsNone(number.search(f.read_text()), f"{f.relative_to(SRC)} names a colour number; add or use a role in ct.theme")
+                self.assertIsNone(number.search(f.read_text()), f"{f.relative_to(SRC)} names a colour number; add or use a role in armada.theme")
 
 
 if __name__ == "__main__":

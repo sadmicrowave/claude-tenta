@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct.client import place, queue
+from armada.client import place, queue
 from test_place import Ctx, Setup
 
 SRC = str(Path(__file__).resolve().parent.parent / "src")
@@ -33,7 +33,7 @@ class Store(unittest.TestCase):
         self.assertEqual(queue.add(self.home, "a-1", "x", "urgent", {}, "busy")["priority"], "normal")
 
     def test_a_job_survives_a_process_killed_right_after_adding_it(self):
-        code = f"import sys,os,signal; sys.path.insert(0, {SRC!r}); from ct.client import queue; queue.add({str(self.home)!r}, 'killed-1', 'sys-status', 'high', {{'p': 1}}, 'busy'); os.kill(os.getpid(), signal.SIGKILL)"
+        code = f"import sys,os,signal; sys.path.insert(0, {SRC!r}); from armada.client import queue; queue.add({str(self.home)!r}, 'killed-1', 'sys-status', 'high', {{'p': 1}}, 'busy'); os.kill(os.getpid(), signal.SIGKILL)"
         r = subprocess.run([sys.executable, "-c", code])
         self.assertEqual(r.returncode, -signal.SIGKILL)
         got = queue.waiting(self.home)
@@ -254,7 +254,7 @@ class Drain(Setup):
 
 class Screens(Setup):
     def test_queue_list_cancel_and_priority(self):
-        from ct.client import cli
+        from armada.client import cli
         home = self.tmp / "hq"
         queue.add(home, "q-1", "sys-status", "normal", {}, "every worker is busy")
         ctx = Ctx("mini", home)
@@ -279,7 +279,7 @@ class Screens(Setup):
         return rc, out.getvalue(), err.getvalue()
 
     def test_hold_jobs_queues_prints_the_id_and_says_why(self):
-        from ct.client import cli
+        from armada.client import cli
         for n in ("mini", "vmx", "ghx"):
             self.add(n, running=4, capacity=4)
         (ctx, ch), main, _ = Drain.route_hold(self)
@@ -292,7 +292,7 @@ class Screens(Setup):
         self.assertEqual(queue.find(main.home, "wait-1")["priority"], "high")
 
     def test_result_of_a_waiting_job_says_waiting_not_no_such_job(self):
-        from ct.client import cli
+        from armada.client import cli
         home = self.tmp / "h"
         queue.add(home, "wait-2", "sys-status", "normal", {}, "every worker is busy")
         ctx = Ctx("mini", home)

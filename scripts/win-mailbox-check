@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BY HAND, on a real Windows computer: set up the Direct transport's mailbox (src/ct/setup/winmailbox.py) with a throwaway client key, then use it the way ct-run does, from this computer, over SSH:
+"""BY HAND, on a real Windows computer: set up the Direct transport's mailbox (src/armada/setup/winmailbox.py) with a throwaway client key, then use it the way arm-run does, from this computer, over SSH:
 push a job to the queue, read the results, and be refused everything else. Run it twice: the second ensure must say changed=false. Finish with --remove to undo the account and the sshd_config block.
   scripts/win-mailbox-check USER@HOST [--remove]
 The layout (scripts/win-layout-check), the tools and the release must be there first."""
@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winmailbox, wintools   # noqa: E402
+from armada.setup import winmailbox, wintools   # noqa: E402
 
 NAME = "armada"
 

@@ -1,16 +1,16 @@
 # Removing an install: Windows workers and your own computer
 
-Scope of the branch `uninstall-all` (2026-11-21). Before it, only a Linux worker could be removed (`ct-setup uninstall`); a Windows worker could be installed and reinstalled but not removed, and nothing took the commands off your own computer.
+Scope of the branch `uninstall-all` (2026-11-21). Before it, only a Linux worker could be removed (`arm-setup uninstall`); a Windows worker could be installed and reinstalled but not removed, and nothing took the commands off your own computer.
 
 ## What each command removes
 
-`ct-setup uninstall --worker NAME` on a Windows worker (preview first, `--apply` asks once, `--keep-data` as on Linux):
+`arm-setup uninstall --worker NAME` on a Windows worker (preview first, `--apply` asks once, `--keep-data` as on Linux):
 1. the start task, and any job still running as the worker account (`wintask.remove`);
 2. the mailbox account, its sshd_config block and the git trust (`winmailbox.remove`);
 3. the Python the setup put under the worker's tools folder, through its own uninstaller (a folder delete would leave its registration behind and a later install would stop with error 1601), the rights the setup set (only the four it changed, and only entries whose account no longer exists), the worker account and its profile, and the folders (`winremove`);
 4. this computer's side of that worker: its line in `workers.toml`, its configuration file and its own client folder (`workers/<name>`, never a folder shared with other installs).
 
-`ct-setup uninstall --client`: the links to `ct-run`, `ct-admin`, `ct-setup`, `ct-help` in `~/.local/bin` (only links that point at these commands), the two lines the setup added to the shell startup file, and unless `--keep-data` the configuration files and the client folder (approval key, mailbox keys, clones). It prints the one command that removes the Python environment; it never runs it (the process is using it).
+`arm-setup uninstall --client`: the links to `arm-run`, `arm-admin`, `arm-setup`, `arm-help` in `~/.local/bin` (only links that point at these commands), the two lines the setup added to the shell startup file, and unless `--keep-data` the configuration files and the client folder (approval key, mailbox keys, clones). It prints the one command that removes the Python environment; it never runs it (the process is using it).
 
 ## What stays, on purpose
 

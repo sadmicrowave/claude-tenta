@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import jail as jail_mod  # noqa: E402
+from armada import jail as jail_mod  # noqa: E402
 from support import REGISTRY, Base, sh  # noqa: E402
 
 
@@ -36,7 +36,7 @@ class ProfileTime(Base):
         self.assertEqual(meta.get("est_time_s"), 100)
 
     def test_a_worker_that_was_measured_at_install_gets_a_longer_limit_and_publishes_why(self):
-        from ct import calibration, calibration_reference
+        from armada import calibration, calibration_reference
         self.worker_with(isolation_purpose="special-use")
         slow = {p: v * 2 for p, v in calibration_reference.REFERENCE.items()}
         calibration.store(self.w._p("calibration.json"), slow)
@@ -138,7 +138,7 @@ class ToolFolders(Base):
         self.w.publish_registry_info(self.w.load_registry())
         info = json.loads(sh("git", "show", "main:registry.json", cwd=self.tmp / "results.git"))
         self.assertEqual(info["classes"]["probe"]["tools"], ["%s/nmap/bin" % self.root, "%s/extra" % self.root])
-        from ct import workerstate
+        from armada import workerstate
         env, _ = workerstate.build(snapshot={}, registry=self.w.load_registry(), extra={"isolation_mode": "relaxed", "tool_roots": [str(self.root)]}, jail=jail_mod.NoJail(), locked=False, now_iso="x")
         self.assertEqual((env["isolation"]["mode"], env["isolation"]["tool_roots"]), ("relaxed", [str(self.root)]))
 

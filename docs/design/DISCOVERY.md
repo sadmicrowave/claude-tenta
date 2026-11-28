@@ -14,15 +14,15 @@ A scan of every network takes about 14 seconds, which is fine once, when a perso
 candidate shows the recorded key. A rung that finds only other machines is not a failure; the next rung runs.
 
 1. **The configured name or address** (one key read, under a second).
-2. **The last address that worked.** Every successful monitoring pass and `ct-admin locate` writes the worker's address and its network card's address (from the neighbour table) to `last-seen.json` in the client home.
+2. **The last address that worked.** Every successful monitoring pass and `arm-admin locate` writes the worker's address and its network card's address (from the neighbour table) to `last-seen.json` in the client home.
 3. **The name's multicast answer** (`avahi-resolve` / `dns-sd`, 1 to 2 seconds), from this computer only. A hint: the key still decides.
 4. **The neighbour table entry for the same network card**: the machine has just talked to the router, so it is very likely listed under its new address.
-5. **A scan, last, and only when a person asked** (`ct-admin locate`): the real networks first, the virtual ones inside this computer (VM and container bridges, most of the addresses and the least likely place) only if needed.
+5. **A scan, last, and only when a person asked** (`arm-admin locate`): the real networks first, the virtual ones inside this computer (VM and container bridges, most of the addresses and the least likely place) only if needed.
 
-`ct-admin watch` runs rungs 1 to 4 only. It never scans. A worker that does not answer gets an alert that says where it answers now, or that `ct-admin locate --worker NAME` looks for it. Only a
+`arm-admin watch` runs rungs 1 to 4 only. It never scans. A worker that does not answer gets an alert that says where it answers now, or that `arm-admin locate --worker NAME` looks for it. Only a
 worker reached by address (Direct) can have moved; a GitHub worker does not use one.
 
-`ct-admin locate [--worker NAME]` reports the machine whose key matches, says which rung found it, and offers to save it: the new address replaces `server.host` (asks first; the old value stays in a comment),
+`arm-admin locate [--worker NAME]` reports the machine whose key matches, says which rung found it, and offers to save it: the new address replaces `server.host` (asks first; the old value stays in a comment),
 and this computer's copies of the queue and results are pointed at it. Several matches (a cloned machine shares its key) or none are reported as such, never guessed.
 
 The scan stops at the first match: each machine's key is read as it answers, and the first one that shows the recorded key ends the scan (addresses not yet probed are skipped). Consequence, decided 2026-11-25: a cloned machine that shares the key and sits later in the same scan is not seen, so `several` can only come from one rung's candidates, not from a scan; `locate` still asks before saving anything.

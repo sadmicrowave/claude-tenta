@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renew the vendored language ignore templates (src/ct/client/ignore_templates) from github/gitignore at one pinned commit. CC0: the licence is copied beside them.
+"""Renew the vendored language ignore templates (src/armada/client/ignore_templates) from github/gitignore at one pinned commit. CC0: the licence is copied beside them.
   scripts/refresh-gitignore COMMIT_SHA        (find the newest with:  gh api repos/github/gitignore/commits/main -q .sha)
 Run it by hand, review the diff, commit. Nothing is fetched when a job is sent."""
 import hashlib
@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.client import submit   # noqa: E402
+from armada.client import submit   # noqa: E402
 
 BASE = "https://raw.githubusercontent.com/github/gitignore/{sha}/{path}"
 

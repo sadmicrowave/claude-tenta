@@ -3,8 +3,8 @@ import itertools
 import unittest
 
 import support  # noqa: F401
-from ct import sched, workerstate
-from ct.sched import Prefs, worker_view
+from armada import sched, workerstate
+from armada.sched import Prefs, worker_view
 
 
 def state(*, running=0, waiting=0, capacity=4, cores=4, load=0.2, locked=False, jail=True, classes=("sys-status", "text-read")):
@@ -100,7 +100,7 @@ class EveryReason(unittest.TestCase):
         self.assertEqual(self.codes(c, "lab"), ["placement.reserved", "placement.connection"])
 
     def test_a_worker_that_can_take_the_job_has_no_reasons_and_every_code_is_in_the_catalog(self):
-        from ct import refusals
+        from armada import refusals
         c = pick([w("a"), w("bad", locked=True, jail=False)])
         self.assertNotIn("a", c.reasons)
         for code, text in c.reasons["bad"]:
@@ -347,7 +347,7 @@ class TheWorkersOwnConfigurationDisagrees(unittest.TestCase):
         s["transport"], s["transport_configured"], s["pickup_max_s"] = "github", "direct", 300
         v = worker_view("mini", "github", s, {"classes": {"sys-status": KINDS["sys-status"]}}, 30, 90)
         self.assertIn("its own configuration says direct, but it fetches over github", v.mismatch)
-        self.assertIn("ct-setup install", v.mismatch)
+        self.assertIn("arm-setup install", v.mismatch)
         self.assertIn("WARNING", dict((n, r) for n, _, r in pick([v]).lines)["mini"])
 
     def test_a_worker_whose_configuration_agrees_says_nothing(self):

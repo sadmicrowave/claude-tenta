@@ -1,4 +1,4 @@
-"""The folder's own settings (.tenta.toml, written by `ct-run use`): which worker this folder's jobs go to, and single commands that go to another."""
+"""The folder's own settings (.armada.toml, written by `arm-run use`): which worker this folder's jobs go to, and single commands that go to another."""
 import io
 import os
 import tempfile
@@ -7,8 +7,8 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import support  # noqa: F401
-from ct.client import cli, here
-from ct.client.repo import ClientError
+from armada.client import cli, here
+from armada.client.repo import ClientError
 from test_place import cfg_file
 
 
@@ -90,7 +90,7 @@ class FolderFile(FolderFileFixture):
         with in_dir(self.d), self.assertRaises(ClientError) as c:
             cli.pinned_worker(self.cfg, "pytest")
         self.assertIn(here.FILE, str(c.exception.facts))
-        self.assertIn("ct-run use --clear", c.exception.steps)
+        self.assertIn("arm-run use --clear", c.exception.steps)
 
     def test_a_broken_file_is_reported_with_the_real_error(self):
         (self.d / here.FILE).write_text("worker = \n")
@@ -146,10 +146,10 @@ class Warnings(FolderFileFixture):
 
 
 class ComputerFile(FolderFileFixture):
-    """~/.tenta.toml: the same file for the whole computer, written by ct-admin workers use."""
+    """~/.armada.toml: the same file for the whole computer, written by arm-admin workers use."""
 
     def admin(self, argv):
-        from ct.admin import cli as admin_cli
+        from armada.admin import cli as admin_cli
         from types import SimpleNamespace
         out = io.StringIO()
         ap = admin_cli.build_parser()[0]
@@ -190,7 +190,7 @@ class ComputerFile(FolderFileFixture):
         self.assertNotIn("reserved", here.global_path().read_text())
 
     def test_the_workers_card_and_the_classes_table_show_it(self):
-        from ct.admin import workers
+        from armada.admin import workers
         self.admin(["pentest", "--command", "nmap"])
         self.admin(["pentest", "--command", "sqlmap"])
         text = workers.dedicated_text(here.global_pins(), "pentest")
@@ -199,7 +199,7 @@ class ComputerFile(FolderFileFixture):
 
     def test_the_classes_view_says_which_workers_offer_each_class_and_flags_a_dedication_to_one_that_does_not(self):
         import re
-        from ct.client import view
+        from armada.client import view
         info = {"cost": "light", "tier": "auto", "kind": "command", "run": ["nmap"]}
         classes = {"nmap": {"info": info, "offered_by": ["a", "b"], "dedicated": "b"},
                    "sys": {"info": info, "offered_by": ["a"], "dedicated": None},
@@ -212,13 +212,13 @@ class ComputerFile(FolderFileFixture):
         self.assertIn("DEDICATED  NOT OFFERED", text)                                   # a dedicated class its worker does not offer is flagged
         self.assertNotIn("every folder", text)
         self.assertIn("c could not be read (timed out)", text)
-        self.assertIn("ct-run classes --worker", text)
+        self.assertIn("arm-run classes --worker", text)
 
 
 class ClassesCarryTheirOwnInstallDate(unittest.TestCase):
     def render(self, info):
         import re
-        from ct.client import view
+        from armada.client import view
         out = io.StringIO()
         view.render_classes(info, out=out, product="w1")
         return re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
@@ -234,8 +234,8 @@ class ClassesCarryTheirOwnInstallDate(unittest.TestCase):
         self.assertIn("REGISTRY   last changed 2026-11-19 04:39 UTC", text)
 
     def test_where_puts_a_warning_on_a_line_of_its_own(self):
-        from ct import sched
-        from ct.client import place
+        from armada import sched
+        from armada.client import place
         rows = place.rows(sched.Choice("a", [("a", "CHOSEN", "4 of 4 free, WARNING: sends over github, but the worker listens on direct")]))
         self.assertEqual([r[1] if not hasattr(r[1], "plain") else r[1].plain() for r in rows], ["a", "4 of 4 free", "WARNING: sends over github, but the worker listens on direct"])
 
@@ -243,7 +243,7 @@ class ClassesCarryTheirOwnInstallDate(unittest.TestCase):
 class ClassesShowTheirToolFolders(unittest.TestCase):
     def test_a_class_with_tool_folders_lists_them_one_per_line(self):
         import re
-        from ct.client import view
+        from armada.client import view
         text = re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(f"{k}  {v}" for k, v in view.class_rows("scan", {"cost": "light", "tier": "approve", "kind": "command", "run": ["nmap-wrapper"], "tools": ["/opt/tools/nmap", "/opt/tools/bin"]})))
         self.assertRegex(text, r"TOOLS  /opt/tools/nmap\n  /opt/tools/bin")
 

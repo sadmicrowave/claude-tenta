@@ -1,3 +1,4 @@
+import re
 import json
 import os
 import importlib.util
@@ -12,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import config, render, update  # noqa: E402
+from armada import config, render, update  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REV = "a" * 40
@@ -31,7 +32,7 @@ class InstallBase(unittest.TestCase):
         shutil.copytree(ROOT / "templates", self.release / "templates")
         shutil.copytree(ROOT / "packs", self.release / "packs")
         self.prefix = self.tmp / "root"
-        self.cfg = config.load(None, env={"CT_CONFIG": "", "CT_SERVER_ADMIN_USER": "ctadmin", "CT_IDENTITY_NAME": "homect"})
+        self.cfg = config.load(None, env={"ARM_CONFIG": "", "ARM_SERVER_ADMIN_USER": "ctadmin", "ARM_IDENTITY_NAME": "homect"})
         self.calls, self.sandboxed = [], []
         self.said = []
 
@@ -51,13 +52,13 @@ class Install(InstallBase):
     def test_a_first_install_writes_code_wrappers_units_sudoers_and_the_revision(self):
         r = self.install()
         self.assertTrue(r.ok, r.errors)
-        lib = self.at("/opt/homect/lib/ct")
+        lib = self.at("/opt/homect/lib/armada")
         self.assertTrue((lib / "config.py").is_file() and (lib / "cli.py").is_file())
-        self.assertEqual((lib / "cli.py").read_bytes(), (self.release / "src" / "ct" / "cli.py").read_bytes())
+        self.assertEqual((lib / "cli.py").read_bytes(), (self.release / "src" / "armada" / "cli.py").read_bytes())
         self.assertEqual(mode(lib / "cli.py"), 0o644)
         self.assertEqual(mode(self.at("/opt/homect/bin/homect")), 0o755)
-        self.assertEqual(mode(self.at("/usr/local/bin/ct-worker")), 0o755)
-        self.assertIn("-u ctworker /opt/homect/bin/homect", self.at("/usr/local/bin/ct-worker").read_text())
+        self.assertEqual(mode(self.at("/usr/local/bin/arm-worker")), 0o755)
+        self.assertIn("-u armworker /opt/homect/bin/homect", self.at("/usr/local/bin/arm-worker").read_text())
         for unit in render.UNITS:
             self.assertEqual(mode(self.at(f"/etc/systemd/system/homect-{unit}")), 0o644)
         self.assertEqual(mode(self.at("/etc/sudoers.d/homect")), 0o440)
@@ -66,7 +67,7 @@ class Install(InstallBase):
         self.assertEqual(update.installed_rev(self.cfg, self.prefix), REV)
         self.assertEqual(self.calls, [("daemon-reload",)])
         self.assertEqual(len(self.sandboxed), 1)
-        self.assertIn("ExecStart=/usr/bin/python3 -m ct.cli step", self.sandboxed[0])           # the step unit is what gets sandbox-tested
+        self.assertIn("ExecStart=/usr/bin/python3 -m armada.cli step", self.sandboxed[0])           # the step unit is what gets sandbox-tested
 
     def test_a_second_install_of_the_same_release_changes_nothing_and_does_not_retest_or_reload(self):
         self.install()
@@ -95,7 +96,7 @@ class Install(InstallBase):
         old_timer = self.at("/etc/systemd/system/homect-step.timer").read_text()
         (self.release / "templates" / "systemd" / "fetch.service.in").write_text("[Service]\nProtectSystem=strict\nExecStart=/bin/true\n")
         (self.release / "templates" / "systemd" / "step.timer.in").write_text("[Timer]\nOnBootSec=1\n")
-        (self.release / "src" / "ct" / "newmodule.py").write_text("X = 1\n")
+        (self.release / "src" / "armada" / "newmodule.py").write_text("X = 1\n")
         self.calls.clear()
         r = self.install(REV2, sandbox_result=1)
         self.assertTrue(r.rolled_back)
@@ -105,7 +106,7 @@ class Install(InstallBase):
         self.assertEqual(self.at("/etc/systemd/system/homect-step.timer").read_text(), old_timer)
         self.assertEqual(self.calls, [])                                                                  # and systemd was not reloaded
         self.assertEqual(update.installed_rev(self.cfg, self.prefix), REV)                                # the new revision is NOT recorded
-        self.assertTrue(self.at("/opt/homect/lib/ct/newmodule.py").exists())                              # the code itself stays installed
+        self.assertTrue(self.at("/opt/homect/lib/armada/newmodule.py").exists())                              # the code itself stays installed
 
     def test_a_unit_that_did_not_exist_before_is_removed_on_rollback(self):
         r = self.install(sandbox_result=1)
@@ -115,35 +116,35 @@ class Install(InstallBase):
 
     def test_modules_a_release_no_longer_has_are_removed(self):
         self.install()
-        stale = self.at("/opt/homect/lib/ct/oldmodule.py")
+        stale = self.at("/opt/homect/lib/armada/oldmodule.py")
         stale.write_text("OLD = 1\n")
-        (self.at("/opt/homect/lib/ct") / "notes.txt").write_text("not python: left alone")
+        (self.at("/opt/homect/lib/armada") / "notes.txt").write_text("not python: left alone")
         r = self.install(REV2)
         self.assertFalse(stale.exists())
-        self.assertIn("/opt/homect/lib/ct/oldmodule.py", r.removed)
-        self.assertTrue((self.at("/opt/homect/lib/ct") / "notes.txt").exists())
+        self.assertIn("/opt/homect/lib/armada/oldmodule.py", r.removed)
+        self.assertTrue((self.at("/opt/homect/lib/armada") / "notes.txt").exists())
 
     def test_subpackages_are_installed_and_stale_files_in_them_are_removed(self):
         r = self.install()
-        self.assertTrue(self.at("/opt/homect/lib/ct/client/cli.py").is_file())
-        self.assertIn("/opt/homect/lib/ct/client/cli.py", r.updated)
-        stale = self.at("/opt/homect/lib/ct/client/gone.py")
+        self.assertTrue(self.at("/opt/homect/lib/armada/client/cli.py").is_file())
+        self.assertIn("/opt/homect/lib/armada/client/cli.py", r.updated)
+        stale = self.at("/opt/homect/lib/armada/client/gone.py")
         stale.write_text("OLD = 1\n")
         r = self.install(REV2)
         self.assertFalse(stale.exists())
-        self.assertIn("/opt/homect/lib/ct/client/gone.py", r.removed)
-        self.assertTrue(self.at("/opt/homect/lib/ct/client/cli.py").is_file())
+        self.assertIn("/opt/homect/lib/armada/client/gone.py", r.removed)
+        self.assertTrue(self.at("/opt/homect/lib/armada/client/cli.py").is_file())
 
     def test_an_invalid_sudoers_rule_is_never_installed_but_the_rest_is(self):
         r = self.install(visudo_ok=False)
         self.assertFalse(self.at("/etc/sudoers.d/homect").exists())
         self.assertIn("NOT installed: parse error near line 3", r.errors[0])
-        self.assertTrue(self.at("/opt/homect/lib/ct/cli.py").exists())
+        self.assertTrue(self.at("/opt/homect/lib/armada/cli.py").exists())
 
     def test_a_sudoers_rule_from_an_earlier_release_goes_when_the_config_stops_asking_for_it(self):
         self.install()
         self.assertTrue(self.at("/etc/sudoers.d/homect").exists())
-        c2 = config.load(None, env={"CT_CONFIG": "", "CT_SERVER_ADMIN_USER": "ctadmin", "CT_IDENTITY_NAME": "homect", "CT_ACCESS_SUDO": "password"})
+        c2 = config.load(None, env={"ARM_CONFIG": "", "ARM_SERVER_ADMIN_USER": "ctadmin", "ARM_IDENTITY_NAME": "homect", "ARM_ACCESS_SUDO": "password"})
         r = self.install(REV2, cfg=c2)
         self.assertFalse(self.at("/etc/sudoers.d/homect").exists())
         self.assertIn("/etc/sudoers.d/homect", r.removed)
@@ -180,7 +181,7 @@ class Install(InstallBase):
 
     def test_ipv6_follows_the_configuration(self):
         sysctls = []
-        off = config.load(None, env={"CT_CONFIG": "", "CT_SERVER_ADMIN_USER": "ctadmin", "CT_IDENTITY_NAME": "homect", "CT_NETWORK_IPV6": "disabled"})
+        off = config.load(None, env={"ARM_CONFIG": "", "ARM_SERVER_ADMIN_USER": "ctadmin", "ARM_IDENTITY_NAME": "homect", "ARM_NETWORK_IPV6": "disabled"})
         r = update.install_release(self.release, off, REV, self.prefix, visudo=lambda t: (True, ""), chown=lambda p: None, sysctl=lambda *a: sysctls.append(a))
         f = self.at("/etc/sysctl.d/60-homect-ipv6.conf")
         self.assertIn("/etc/sysctl.d/60-homect-ipv6.conf", r.updated)
@@ -200,10 +201,10 @@ class Install(InstallBase):
 
     def test_a_file_whose_mode_was_loosened_is_put_right(self):
         self.install()
-        p = self.at("/opt/homect/lib/ct/cli.py")
+        p = self.at("/opt/homect/lib/armada/cli.py")
         os.chmod(p, 0o666)
         r = self.install()
-        self.assertIn("/opt/homect/lib/ct/cli.py", r.updated)
+        self.assertIn("/opt/homect/lib/armada/cli.py", r.updated)
         self.assertEqual(mode(p), 0o644)
 
     def test_no_systemctl_or_sandbox_means_units_are_just_written(self):
@@ -214,7 +215,7 @@ class Install(InstallBase):
         self.install()
         for p in self.prefix.rglob("*"):
             if p.is_file() and p.suffix in ("", ".service", ".timer"):
-                self.assertNotIn("armada", p.read_text(errors="ignore"), str(p))
+                self.assertNotIn("armada", re.sub(r"armada(\.[a-z_]+|/)", "", p.read_text(errors="ignore")), str(p))
 
 
 def run(*cmd, cwd=None, env=None):
@@ -227,19 +228,19 @@ class UpdateWrapper(InstallBase):
     def test_the_update_command_is_installed_root_run_with_a_fixed_environment(self):
         r = self.install()
         self.assertTrue(r.ok, r.errors)
-        w = self.at("/usr/local/sbin/ct-update")
+        w = self.at("/usr/local/sbin/arm-update")
         self.assertEqual(mode(w), 0o755)
         text = w.read_text()
         self.assertIn("cd / || exit 1", text)
         self.assertIn("env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin", text)
         self.assertIn("PYTHONPATH='/opt/homect/lib'", text)
-        self.assertIn("-m ct.update \"$@\"", text)
+        self.assertIn("-m armada.update \"$@\"", text)
         self.assertNotIn(" -I ", text)           # -I would ignore the PYTHONPATH the tool needs
         self.assertEqual(w.read_text().count("\n"), 4)
 
     def test_the_wrapper_is_the_only_thing_the_read_only_sudo_rule_does_not_cover(self):
         self.install()
-        self.assertNotIn("ct-update", self.at("/etc/sudoers.d/homect").read_text())
+        self.assertNotIn("arm-update", self.at("/etc/sudoers.d/homect").read_text())
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML is not installed")
@@ -284,7 +285,7 @@ class RegistryInstall(RegistryInstallFixture):
         self.assertEqual(sorted(reg["classes"]), ["core-one", "echo", "netty"])
         self.assertIn("GENERATED", self.registry_file().read_text())
         for argv in self.ran:
-            self.assertEqual(argv[:5], ["runuser", "-u", "ctworker", "--", "git"])
+            self.assertEqual(argv[:5], ["runuser", "-u", "armworker", "--", "git"])
         self.assertIn("origin/main:registry.yaml", self.ran[-1])
 
     def test_policy_is_in_the_installed_registry_and_forces_approval(self):
@@ -431,8 +432,8 @@ class Fetch(unittest.TestCase):
         self.c2 = self.commit("two")
         self.c3 = self.commit("three")
         run("git", "clone", "-q", "--bare", str(work), str(self.upstream))
-        self.cfg = config.load(None, env={"CT_CONFIG": "", "CT_PATHS_STATE_ROOT": str(t / "var"), "CT_PATHS_CONFIG": str(t / "etc"),
-                                           "CT_PATHS_CODE": str(t / "code"), "CT_UPDATES_SOURCE": "https://example.com/project.git"})
+        self.cfg = config.load(None, env={"ARM_CONFIG": "", "ARM_PATHS_STATE_ROOT": str(t / "var"), "ARM_PATHS_CONFIG": str(t / "etc"),
+                                           "ARM_PATHS_CODE": str(t / "code"), "ARM_UPDATES_SOURCE": "https://example.com/project.git"})
         self.said = []
 
     def commit(self, text):
@@ -507,11 +508,11 @@ class Fetch(unittest.TestCase):
     def test_the_export_has_no_git_folder_hooks_or_config(self):
         self.publish()
         src, rev, label = self.fetch(rev=self.c3)
-        self.assertEqual([p for p in src.rglob("*") if p.name in (".git", "hooks", "config") and p.parent.name != "ct"], [])
+        self.assertEqual([p for p in src.rglob("*") if p.name in (".git", "hooks", "config") and p.parent.name != "armada"], [])
         self.assertFalse((src / ".git").exists())
 
     def test_the_source_must_be_configured_and_an_unreachable_one_is_explained(self):
-        c = config.load(None, env={"CT_CONFIG": "", "CT_PATHS_STATE_ROOT": str(self.tmp / "var2")})
+        c = config.load(None, env={"ARM_CONFIG": "", "ARM_PATHS_STATE_ROOT": str(self.tmp / "var2")})
         clean = c.to_dict()
         clean["updates"]["source"] = None                      # the default is the project itself; here, none at all
         c = config.Config(clean)
@@ -525,7 +526,7 @@ class Fetch(unittest.TestCase):
         self.tag("release-1", self.c1, "good", "2026-01-01T00:00:00")
         self.publish()
         src, rev, label = self.fetch(verified=True)
-        c2 = config.load(None, env={"CT_CONFIG": "", "CT_IDENTITY_NAME": "homect", "CT_SERVER_ADMIN_USER": "ctadmin"})
+        c2 = config.load(None, env={"ARM_CONFIG": "", "ARM_IDENTITY_NAME": "homect", "ARM_SERVER_ADMIN_USER": "ctadmin"})
         r = update.install_release(src, c2, rev, self.tmp / "root", visudo=lambda t: (True, ""), chown=lambda p: None)
         self.assertTrue(r.ok, r.errors)
         self.assertEqual(update.installed_rev(c2, self.tmp / "root"), self.c1)
@@ -552,7 +553,7 @@ class RegistrySync(RegistryInstallFixture):
         super().setUp()
         import subprocess as sp
         import tempfile as tf
-        from ct import approvals
+        from armada import approvals
         self.approvals = approvals
         self.keys = Path(tf.mkdtemp())
         for n in ("key", "stranger"):
@@ -626,7 +627,7 @@ class RegistrySync(RegistryInstallFixture):
         status, ok = self.sync()
         self.assertEqual(ok, False)
         self.assertIn("different registry.yaml", status)
-        self.assertIn("ct-admin proposals publish", status)                    # the refusal says how to sign it again
+        self.assertIn("arm-admin proposals publish", status)                    # the refusal says how to sign it again
         self.assertFalse(self.registry_file().exists())
 
     def test_an_older_signed_registry_cannot_replace_a_newer_one(self):
@@ -714,10 +715,10 @@ class StepLimitsDropin(unittest.TestCase):
     """The resource limits of a shared computer are a drop-in file the update tool writes, changes and removes with the configuration."""
 
     def setUp(self):
-        self.prefix = tempfile.mkdtemp(prefix="ct-dropin-")
+        self.prefix = tempfile.mkdtemp(prefix="arm-dropin-")
 
     def install(self, **env):
-        c = config.load(None, env={"CT_CONFIG": "", "CT_SERVER_ADMIN_USER": "ctadmin", "CT_IDENTITY_NAME": "homect", **env})
+        c = config.load(None, env={"ARM_CONFIG": "", "ARM_SERVER_ADMIN_USER": "ctadmin", "ARM_IDENTITY_NAME": "homect", **env})
         files = update.desired_files(ROOT, c)
         return c, files, update.install_release(ROOT, c, "a" * 40, prefix=self.prefix, sandbox=None, systemctl=lambda *a: None, visudo=lambda t: (True, ""), chown=lambda p: None)
 
@@ -725,7 +726,7 @@ class StepLimitsDropin(unittest.TestCase):
         return Path(self.prefix) / render.step_dropin_path(c).lstrip("/")
 
     def test_set_limits_are_written_and_systemd_is_told(self):
-        c, files, report = self.install(CT_AVAILABILITY_NICE="10")
+        c, files, report = self.install(ARM_AVAILABILITY_NICE="10")
         self.assertIn(render.step_dropin_path(c), files)
         self.assertIn("Nice=10", self.path(c).read_text())
         self.assertTrue(report.units_changed)
@@ -736,7 +737,7 @@ class StepLimitsDropin(unittest.TestCase):
         self.assertFalse(self.path(c).exists())
 
     def test_limits_removed_from_the_configuration_remove_the_file(self):
-        c, _, _ = self.install(CT_AVAILABILITY_NICE="10")
+        c, _, _ = self.install(ARM_AVAILABILITY_NICE="10")
         self.assertTrue(self.path(c).exists())
         c, _, report = self.install()
         self.assertFalse(self.path(c).exists())

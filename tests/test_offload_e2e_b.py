@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct import registry  # noqa: E402
-from ct.client import cli  # noqa: E402
-from ct.client import offload as off  # noqa: E402
-from ct.client.cli import adopt_tier as cli_tier  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada import registry  # noqa: E402
+from armada.client import cli  # noqa: E402
+from armada.client import offload as off  # noqa: E402
+from armada.client.cli import adopt_tier as cli_tier  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 from offload_support import OffloadFixture  # noqa: E402
 from support import sh  # noqa: E402
 
@@ -36,7 +36,7 @@ class EndToEnd(OffloadFixture):
         self.assertEqual(code, 2)
         self.assertIn("This profiling run is missing required details", out + err)
         self.assertIn("--est-time-s", out + err)
-        self.assertIn("ct-run offload profile --what lists --expect 'a few seconds, tiny, prints one line' --est-time-s 10 --est-mem-mb 100 -- ls -l", out + err)
+        self.assertIn("arm-run offload profile --what lists --expect 'a few seconds, tiny, prints one line' --est-time-s 10 --est-mem-mb 100 -- ls -l", out + err)
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("jobs"))
 
@@ -44,7 +44,7 @@ class EndToEnd(OffloadFixture):
         code, out, err = self.profile("--name", "my-ls", "--why", "to see")
         self.assertEqual(code, 0)
         jid = out.strip()
-        for needle in ("This profiling run needs YOUR approval", "ls -l", jid, "my-ls", f"tct-admin approve {jid}", f"ct-run result {jid}"):
+        for needle in ("This profiling run needs YOUR approval", "ls -l", jid, "my-ls", f"tct-admin approve {jid}", f"arm-run result {jid}"):
             self.assertIn(needle, err)
         self.assertEqual(self.ctx.names.get(jid), "my-ls")                                          # remembered for the job list and the proposal
         self.assertIn("my-ls", self.run_cli("jobs")[1])

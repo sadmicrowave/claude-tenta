@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 CHANGED=$( (git diff --name-only "${1:-HEAD}"; git ls-files --others --exclude-standard) | sort -u) || exit 1
 export CHANGED
-exec "${CT_PY:-$HOME/.ct-venv/bin/python}" -I - "$ROOT" <<'PYEOF'
+exec "${ARM_PY:-$HOME/.arm-venv/bin/python}" -I - "$ROOT" <<'PYEOF'
 import os
 import sys
 sys.path.insert(0, sys.argv[1] + "/tests")

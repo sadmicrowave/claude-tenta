@@ -25,7 +25,7 @@ jobs:
         run: python -m unittest tests.test_windows_ready tests.test_platform_seam tests.test_winproc -v
 
   test:
-    # Linux is where the worker runs; macOS is where the commands on your computer run (ct-run, ct-admin, ct-setup client), so the unit tests run on both.
+    # Linux is where the worker runs; macOS is where the commands on your computer run (arm-run, arm-admin, arm-setup client), so the unit tests run on both.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,7 +66,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/ctv"
           "$RUNNER_TEMP/ctv/bin/pip" install --quiet .
-          for c in ct-run ct-admin ct-setup ct-help; do "$RUNNER_TEMP/ctv/bin/$c" --help >/dev/null || { echo "$c does not start"; exit 1; }; done
+          for c in arm-run arm-admin arm-setup arm-help; do "$RUNNER_TEMP/ctv/bin/$c" --help >/dev/null || { echo "$c does not start"; exit 1; }; done
           command -v pbcopy ssh-keygen ssh-keyscan arp ifconfig        # what the clipboard copy and the network discovery call on a Mac
 
       - name: Reference pages are current
@@ -90,7 +90,7 @@ jobs:
           fetch-depth: 0
       - name: The tag carries the release notes
         run: |
-          # `ct-admin update` shows people the tag's message: it must contain docs/releases/<version>.md, so a re-tag with a short message cannot slip through
+          # `arm-admin update` shows people the tag's message: it must contain docs/releases/<version>.md, so a re-tag with a short message cannot slip through
           tag="${GITHUB_REF_NAME#release-}"
           git fetch --quiet --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > /tmp/tag-message.txt
@@ -104,7 +104,7 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#release-}"
           grep -q "^version = \"$tag\"" pyproject.toml || { echo "pyproject.toml does not say $tag"; exit 1; }
-          grep -q "^__version__ = \"$tag\"" src/ct/__init__.py || { echo "src/ct/__init__.py does not say $tag"; exit 1; }
+          grep -q "^__version__ = \"$tag\"" src/armada/__init__.py || { echo "src/armada/__init__.py does not say $tag"; exit 1; }
 
   release-tag-windows:
     # The Windows line (release-win-X.Y.Z) is its own release: it must point at a commit that passed the tests and the Windows job, and its tag message must carry docs/releases/win-X.Y.Z.md.

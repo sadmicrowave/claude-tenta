@@ -5,21 +5,21 @@ import unittest
 import support  # noqa: F401
 
 ADMIN = "agent" + "@" + "worker.example"
-from ct import clonediag
-from ct.client.repo import ClientError, ClientRepos
+from armada import clonediag
+from armada.client.repo import ClientError, ClientRepos
 
 
 class Classify(unittest.TestCase):
-    DUBIOUS = "fatal: detected dubious ownership in repository at '/var/lib/tenta2-mail/results.git'\nTo add an exception for this directory, call:\n\n\tgit config --global --add safe.directory /var/lib/tenta2-mail/results.git\n"
+    DUBIOUS = "fatal: detected dubious ownership in repository at '/var/lib/arm2-mail/results.git'\nTo add an exception for this directory, call:\n\n\tgit config --global --add safe.directory /var/lib/arm2-mail/results.git\n"
 
     def test_dubious_ownership_names_its_own_fix_not_the_general_list(self):
         cause, meaning, steps = clonediag.classify(self.DUBIOUS, admin=ADMIN)
         self.assertEqual(cause, "dubious-ownership")
         self.assertIn("another account", meaning)
         joined = " ".join(steps)
-        self.assertIn(f"ssh -t {ADMIN} 'sudo git config --system --add safe.directory /var/lib/tenta2-mail/results.git'", joined)
+        self.assertIn(f"ssh -t {ADMIN} 'sudo git config --system --add safe.directory /var/lib/arm2-mail/results.git'", joined)
         self.assertNotIn("Is the worker on", joined)                                  # the general list would have sent the person to re-run an installer that cannot fix this
-        self.assertNotIn("run ct-setup install again", joined)
+        self.assertNotIn("run arm-setup install again", joined)
 
     def test_each_known_cause_has_its_own_steps(self):
         cases = {"key-refused": "agent@h: Permission denied (publickey).", "host-key": "Host key verification failed.", "unreachable": "ssh: connect to host h port 22: Connection timed out",
@@ -53,7 +53,7 @@ class InTheClone(unittest.TestCase):
             repos.clone_all(d)
         self.assertIn("does not exist", e.exception.why)                            # git's own words are kept
         self.assertIn("mailbox repository is not there", e.exception.why)           # and the cause is named in plain words
-        self.assertTrue(any("ct-setup install again" in s for s in e.exception.steps))
+        self.assertTrue(any("arm-setup install again" in s for s in e.exception.steps))
 
 
 if __name__ == "__main__":

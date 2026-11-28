@@ -9,7 +9,7 @@
 Two layers of rules:
   1. GENERIC patterns below (private IPs, MAC addresses, emails, *.local hosts, key material, tokens). Documentation must use the
      reserved example values: 192.0.2.x / 198.51.100.x / 203.0.113.x, example.com, host.example.
-  2. YOUR OWN denylist: one case-insensitive regex per line in $CT_PRIVACY_DENYLIST (default ~/.config/armada-dev/denylist,
+  2. YOUR OWN denylist: one case-insensitive regex per line in $ARM_PRIVACY_DENYLIST (default ~/.config/armada-dev/denylist,
      outside the repo, so the list of things you want hidden is never itself published). Put your GitHub handle, real name, e-mail,
      employer, hostnames, LAN subnet, and so on there.
 
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or ".")
-DENYLIST = Path(os.environ.get("CT_PRIVACY_DENYLIST", Path.home() / ".config/armada-dev/denylist"))
+DENYLIST = Path(os.environ.get("ARM_PRIVACY_DENYLIST", Path.home() / ".config/armada-dev/denylist"))
 
 GENERIC = {
     "private-ip": re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"),
@@ -38,7 +38,7 @@ GENERIC = {
 # Files that legitimately contain test fixtures of these shapes (the guard's own tests).
 SKIP_FILES = {"scripts/privacy-check"}
 SKIP_PREFIXES = ("tests/fixtures/",                       # recorded tool output of throwaway containers
-                 "src/ct/client/ignore_templates/")      # third-party CC0 data vendored unchanged from github/gitignore: it holds nothing of ours, and an upstream line such as `.idea/**/dataSources.local.xml` matches the host-name rule
+                 "src/armada/client/ignore_templates/")      # third-party CC0 data vendored unchanged from github/gitignore: it holds nothing of ours, and an upstream line such as `.idea/**/dataSources.local.xml` matches the host-name rule
 
 
 def denylist():

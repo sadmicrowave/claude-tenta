@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BY HAND, on a real Windows computer: create the worker's folders and account (src/ct/setup/winlayout.py), run it twice, then check and prove the rules with a live probe as the worker account.
+"""BY HAND, on a real Windows computer: create the worker's folders and account (src/armada/setup/winlayout.py), run it twice, then check and prove the rules with a live probe as the worker account.
   scripts/win-layout-check USER@HOST
 Key login must work and the account must be an administrator. The second run must say changed=false."""
 import subprocess
@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winlayout, wintools   # noqa: E402
+from armada.setup import winlayout, wintools   # noqa: E402
 
 
 def main(argv):

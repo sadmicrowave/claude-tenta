@@ -59,7 +59,7 @@ class Lifecycle(Base):
 
     def test_a_file_is_never_written_outside_the_job_folder_even_if_the_name_check_were_wrong(self):
         from unittest import mock
-        from ct import jobs
+        from armada import jobs
         with mock.patch.object(jobs, "file_name_problem", return_value=None):                  # the name check is the first defence; this is the second, on the path actually written
             self.job("job-0001", "files", files={"../escape.txt": "pwned"})
             self.run_all()
@@ -203,9 +203,9 @@ class JobCeiling(Base):
         usage = lambda free_gb, total_gb: mock.Mock(free=int(free_gb * 1e9), total=int(total_gb * 1e9))      # noqa: E731
         self.assertEqual(self.w.disk_reserve_gb(total_gb=100), 10.0)                              # 10% of the volume ...
         self.assertEqual(self.w.disk_reserve_gb(total_gb=10), 2.0)                                # ... but never less than 2 GB
-        with mock.patch("ct.worker.shutil.disk_usage", return_value=usage(1.5, 100)):
+        with mock.patch("armada.worker.shutil.disk_usage", return_value=usage(1.5, 100)):
             self.assertIn("disk nearly full", self.w.busy_reason())
-        with mock.patch("ct.worker.shutil.disk_usage", return_value=usage(50, 100)):
+        with mock.patch("armada.worker.shutil.disk_usage", return_value=usage(50, 100)):
             self.assertIsNone(self.w.busy_reason())
 
     def test_on_direct_the_published_file_limits_follow_the_ceiling_and_on_github_they_do_not(self):

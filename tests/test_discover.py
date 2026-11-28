@@ -2,7 +2,7 @@ import ipaddress
 import unittest
 
 import support  # noqa: F401
-from ct.setup import discover
+from armada.setup import discover
 
 MAC_IFCONFIG = """lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
 \tinet 127.0.0.1 netmask 0xff000000

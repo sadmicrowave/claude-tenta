@@ -4,7 +4,7 @@ from pathlib import Path
 
 import support  # noqa: F401
 
-from ct import config, transport
+from armada import config, transport
 
 
 def cfg_with(**over):
@@ -16,7 +16,7 @@ def cfg_with(**over):
 
 class Words(unittest.TestCase):
     def test_every_transport_says_what_you_gain_and_what_you_give_up(self):
-        from ct.setup import questions
+        from armada.setup import questions
         for kind, t in transport.TRANSPORTS.items():
             self.assertGreater(len(t.gain), 30, kind)
             self.assertGreater(len(t.cost), 30, kind)
@@ -28,7 +28,7 @@ class Words(unittest.TestCase):
             self.assertIn(transport.TRANSPORTS[kind].cost, text)
 
     def test_the_github_questions_are_not_asked_for_a_direct_install(self):
-        from ct.setup import questions
+        from armada.setup import questions
         by = questions.BY_KEY
         self.assertTrue(by["github.owner"]["when"]({"transport.kind": "github"}))
         self.assertFalse(by["github.owner"]["when"]({"transport.kind": "direct"}))
@@ -46,16 +46,16 @@ class Direct(unittest.TestCase):
 
     def test_the_repositories_are_reached_with_that_ssh_command(self):
         from unittest import mock
-        from ct.client.repo import ClientRepos
+        from armada.client.repo import ClientRepos
         cfg = cfg_with(transport={"kind": "direct"})
         repos = ClientRepos.from_config(cfg)
         self.assertEqual((repos.where, repos.queue_url), ("the worker", cfg.queue_url))
-        with mock.patch("ct.client.repo.subprocess.run") as run:
+        with mock.patch("armada.client.repo.subprocess.run") as run:
             run.return_value.returncode, run.return_value.stdout, run.return_value.stderr = 0, "", ""
             repos.git("/tmp/x", "fetch")
         self.assertIn("mailbox/key", run.call_args.kwargs["env"]["GIT_SSH_COMMAND"])
         github = ClientRepos.from_config(cfg_with())
-        with mock.patch("ct.client.repo.subprocess.run") as run:
+        with mock.patch("armada.client.repo.subprocess.run") as run:
             run.return_value.returncode, run.return_value.stdout, run.return_value.stderr = 0, "", ""
             github.git("/tmp/x", "fetch")
         self.assertIsNone(run.call_args.kwargs["env"])
@@ -110,10 +110,10 @@ class GitHub(unittest.TestCase):
         self.assertTrue(t.uses_deploy_keys)
 
     def test_a_custom_name_and_repository_names_are_followed(self):
-        cfg = cfg_with(identity={"name": "tenta-two"}, github={"owner": "someone", "queue_repo": "jobs-in"})
+        cfg = cfg_with(identity={"name": "arm-two"}, github={"owner": "someone", "queue_repo": "jobs-in"})
         t = transport.for_config(cfg)
-        self.assertEqual(t.worker_url(cfg, "queue"), "git@github-tenta-two-queue:someone/jobs-in.git")
-        self.assertEqual(cfg.results_url, "git@github.com:someone/tenta-two-results.git")
+        self.assertEqual(t.worker_url(cfg, "queue"), "git@github-arm-two-queue:someone/jobs-in.git")
+        self.assertEqual(cfg.results_url, "git@github.com:someone/arm-two-results.git")
 
     def test_an_unknown_transport_is_a_configuration_problem_not_a_crash(self):
         clean, problems = config.validate({"server": {"admin_user": "me", "host": "h.example"}, "github": {"owner": "someone"}, "transport": {"kind": "carrier-pigeon"}})

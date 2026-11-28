@@ -38,7 +38,7 @@ class TheTableKnowsTheProject(unittest.TestCase):
 
 class ThePlan(unittest.TestCase):
     def test_a_mailbox_change_plans_its_unit_test_the_ownership_probe_and_the_direct_route(self):
-        p = impact.plan(["src/ct/mailshell.py"])
+        p = impact.plan(["src/armada/mailshell.py"])
         self.assertEqual((p["unit"], p["probes"], p["routes"], p["unmapped"]), (["test_mailshell"], ["ownership"], ["direct"], []))
 
     def test_a_docs_change_runs_no_probe_and_no_route(self):
@@ -59,7 +59,7 @@ class TheThemeGate(unittest.TestCase):
     """A pull request into a theme branch runs the theme's gate; everything else runs the full suite (tests/themes.toml, scripts/test-gate)."""
 
     def test_a_theme_base_gets_the_guards_the_mapped_tests_and_the_themes_own(self):
-        g = impact.theme_gate(["src/ct/client/cmdlog.py"], "theme/orchestrator")
+        g = impact.theme_gate(["src/armada/client/cmdlog.py"], "theme/orchestrator")
         self.assertEqual(g["theme"], "orchestrator")
         self.assertFalse(g["full"])
         for m in ("test_printout_rules", "test_docs", "test_cmdlog", "test_candidacy"):
@@ -68,7 +68,7 @@ class TheThemeGate(unittest.TestCase):
 
     def test_main_or_an_unlisted_base_is_the_full_suite(self):
         for base in ("main", "release/1", "theme/unlisted"):
-            g = impact.theme_gate(["src/ct/client/cmdlog.py"], base)
+            g = impact.theme_gate(["src/armada/client/cmdlog.py"], base)
             self.assertEqual((g["theme"], g["full"], g["modules"]), (None, True, []), base)
 
     def test_a_file_the_table_does_not_know_makes_the_theme_gate_full(self):

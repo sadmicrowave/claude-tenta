@@ -2,13 +2,13 @@ import unittest
 
 import support  # noqa: F401
 from test_setup import FakeHost, cfg_of
-from ct import config, render
-from ct.setup import rename
-from ct.setup.host import Result
-from ct.setup.server import SetupError
+from armada import config, render
+from armada.setup import rename
+from armada.setup.host import Result
+from armada.setup.server import SetupError
 
 H = "/" + "home"
-OLD, NEW = "armada", "tenta-two"
+OLD, NEW = "armada", "arm-two"
 
 
 class Installed(unittest.TestCase):
@@ -25,9 +25,9 @@ class Installed(unittest.TestCase):
         self.h.put(f"/etc/sudoers.d/{OLD}", "rules\n")
         self.h.put(f"{self.cfg.paths.code}/bin/{OLD}", "wrapper\n")
         self.h.put(f"/etc/sysctl.d/61-{OLD}-userns.conf", f"# Written for {OLD}\nkernel.apparmor_restrict_unprivileged_userns = 1\n")
-        self.h.put(f"/etc/audit/rules.d/60-{OLD}.rules", "-w /home/x/.aws/credentials -p r -k ct-canary\n")
+        self.h.put(f"/etc/audit/rules.d/60-{OLD}.rules", "-w /home/x/.aws/credentials -p r -k arm-canary\n")
         self.h.replies["systemctl is-enabled"] = Result(0, "enabled\n")
-        self.h.put("/opt/src/src/ct/__init__.py", "")
+        self.h.put("/opt/src/src/armada/__init__.py", "")
         self.said = []
 
     def rn(self, new=NEW, **kw):
@@ -43,7 +43,7 @@ class Plan(Installed):
     def test_the_configuration_gets_the_new_name_and_nothing_else_changes(self):
         r, steps = self.plan()
         (act,) = steps["Write the new name into the configuration"]
-        self.assertEqual(act.path, f"/etc/{NEW}/ct.toml")
+        self.assertEqual(act.path, f"/etc/{NEW}/armada.toml")
         loaded = config.Config(config.validate(__import__("tomllib").loads(act.text), require_alert_url=False)[0])
         self.assertEqual((loaded.identity.name, loaded.github.owner, loaded.server.admin_user), (NEW, "someone", "me"))
 
@@ -75,8 +75,8 @@ class Plan(Installed):
     def test_the_release_installer_writes_the_files_named_after_the_install_for_the_new_name(self):
         r, steps = self.plan()
         (act,) = steps["Write every file that is named after the install (the same installer an update uses)"]
-        self.assertIn(f"CT_CONFIG=/etc/{NEW}/ct.toml", act.argv)
-        self.assertEqual(act.argv[-5:-2], ["-m", "ct.update", "--local"])
+        self.assertIn(f"ARM_CONFIG=/etc/{NEW}/armada.toml", act.argv)
+        self.assertEqual(act.argv[-5:-2], ["-m", "armada.update", "--local"])
 
     def test_a_current_install_has_none_of_the_old_name_cleanup(self):
         _, steps = self.plan()
@@ -112,7 +112,7 @@ class Plan(Installed):
         remotes = [a.argv for a in acts if a.kind == "run" and "set-url" in a.argv]
         self.assertEqual(len(remotes), 2)
         self.assertTrue(all(f"git@github-{NEW}-" in argv[-1] for argv in remotes))
-        self.assertTrue(all(argv[:4] == ["runuser", "-u", "ctworker", "--"] for argv in remotes))                      # git runs as the worker, never as root
+        self.assertTrue(all(argv[:4] == ["runuser", "-u", "armworker", "--"] for argv in remotes))                      # git runs as the worker, never as root
 
 
 class Refusals(Installed):
@@ -145,7 +145,7 @@ class Apply(Installed):
         report = r.run_all()
         self.assertEqual(report[-1][1], "planned")
         self.assertEqual([c for c in self.h.calls if c[0] in ("mv", "runuser", "env")], [])
-        self.assertFalse(self.h.exists(f"/etc/{NEW}/ct.toml"))
+        self.assertFalse(self.h.exists(f"/etc/{NEW}/armada.toml"))
 
     def test_applying_runs_the_steps_in_order_stop_move_write_install_remove_start(self):
         r = self.rn(dry_run=False)
@@ -161,7 +161,7 @@ class Apply(Installed):
         reset = [c for c in self.h.calls if c[:2] == ["sh", "-c"] and "reset-failed" in c[2]]
         self.assertEqual(len(reset), 1)                                              # the old name's failed marks are cleared, and only that name's
         self.assertIn(f"'{OLD}*'", reset[0][2])
-        self.assertTrue(self.h.exists(f"/etc/{NEW}/ct.toml"))
+        self.assertTrue(self.h.exists(f"/etc/{NEW}/armada.toml"))
 
     def test_saying_no_changes_nothing(self):
         report = self.rn(dry_run=False, confirm=lambda p: False).run_all()
@@ -172,8 +172,8 @@ class Apply(Installed):
         self.h.replies["env "] = Result(1, "boom")
         with self.assertRaises(SetupError) as e:
             self.rn(dry_run=False).run_all()
-        self.assertIn("run the same ct-setup rename command again", " ".join(e.exception.steps))
-        self.assertIn(f"Do not run `ct-setup rename {OLD}`", " ".join(e.exception.steps))
+        self.assertIn("run the same arm-setup rename command again", " ".join(e.exception.steps))
+        self.assertIn(f"Do not run `arm-setup rename {OLD}`", " ".join(e.exception.steps))
         self.assertFalse(any(c[0] == "systemctl" and c[1] == "enable" for c in self.h.calls))        # nothing was started on a half-renamed machine
 
 
@@ -182,7 +182,7 @@ class Local(unittest.TestCase):
         from pathlib import Path
         h = FakeHost()
         cfg = cfg_of()
-        cfg.source = h.path("/me/.config/armada/ct.toml").as_posix()
+        cfg.source = h.path("/me/.config/armada/armada.toml").as_posix()
         text = '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD
         h.write(cfg.source, text)
         answers = Path(cfg.paths.client_home).expanduser() / "install-answers.toml"
@@ -199,7 +199,7 @@ class Local(unittest.TestCase):
     def test_without_saved_answers_only_the_configuration_changes(self):
         h = FakeHost()
         cfg = cfg_of()
-        cfg.source = h.path("/me/.config/armada/ct.toml").as_posix()
+        cfg.source = h.path("/me/.config/armada/armada.toml").as_posix()
         h.write(cfg.source, '[identity]\nname = "%s"\n[github]\nowner = "someone"\n' % OLD)
         self.assertEqual(rename.rewrite_local(h, cfg, rename.load_new_config(h.read(cfg.source), NEW), NEW), [cfg.source])
 
@@ -216,8 +216,8 @@ class GitHub(unittest.TestCase):
         self.assertEqual(rename.rename_repositories(self.h, custom, NEW), [])
 
     def test_the_repositories_are_renamed_with_gh_and_a_rerun_skips_the_ones_already_renamed(self):
-        self.h.replies["gh repo view someone/tenta-two-queue"] = Result(1)
-        self.h.replies["gh repo view someone/tenta-two-results"] = Result(0)
+        self.h.replies["gh repo view someone/arm-two-queue"] = Result(1)
+        self.h.replies["gh repo view someone/arm-two-results"] = Result(0)
         notes = rename.rename_repositories(self.h, self.cfg, NEW)
         self.assertEqual([n[1] for n in notes], ["renamed", "exists"])
         self.assertTrue(self.h.ran(f"gh repo rename {NEW}-queue --repo someone/{OLD}-queue --yes"))
@@ -237,11 +237,11 @@ class GitHub(unittest.TestCase):
 
     def test_the_deploy_keys_get_the_new_name_in_their_title_with_the_same_key_and_access(self):
         listing = ('[{"id": 7, "title": "%s-server", "key": "ssh-ed25519 AAAAKEY", "readOnly": true}, {"id": 8, "title": "someone-elses-key", "key": "ssh-ed25519 AAAAOTHER", "readOnly": true}]' % OLD)
-        self.h.replies["gh repo deploy-key list -R someone/tenta-two-queue"] = Result(0, listing)
-        self.h.replies["gh repo deploy-key list -R someone/tenta-two-results"] = Result(0, listing.replace('"readOnly": true}, {"id": 8', '"readOnly": false}, {"id": 8'))
+        self.h.replies["gh repo deploy-key list -R someone/arm-two-queue"] = Result(0, listing)
+        self.h.replies["gh repo deploy-key list -R someone/arm-two-results"] = Result(0, listing.replace('"readOnly": true}, {"id": 8', '"readOnly": false}, {"id": 8'))
         notes = rename.retitle_keys(self.h, self.cfg, NEW)
         self.assertEqual([n[1] for n in notes], ["retitled", "retitled"])                     # only the keys named after the install, never anyone else's
-        self.assertTrue(self.h.ran("gh repo deploy-key delete 7 -R someone/tenta-two-queue"))
+        self.assertTrue(self.h.ran("gh repo deploy-key delete 7 -R someone/arm-two-queue"))
         adds = self.h.ran("gh repo deploy-key add")
         self.assertEqual(len(adds), 2)
         self.assertTrue(all(f"{NEW}-server" in " ".join(a) for a in adds))
@@ -249,9 +249,9 @@ class GitHub(unittest.TestCase):
         self.assertIn("--allow-write", adds[1])                                                # the results key keeps its write access
 
     def test_the_results_key_is_given_write_access_even_when_the_listing_does_not_say(self):
-        self.h.replies["gh repo deploy-key list -R someone/tenta-two-results"] = Result(0, '[{"id": 7, "title": "%s-server", "key": "ssh-ed25519 AAAAKEY"}]' % OLD)
+        self.h.replies["gh repo deploy-key list -R someone/arm-two-results"] = Result(0, '[{"id": 7, "title": "%s-server", "key": "ssh-ed25519 AAAAKEY"}]' % OLD)
         rename.retitle_keys(self.h, self.cfg, NEW)
-        adds = [a for a in self.h.ran("gh repo deploy-key add") if "tenta-two-results" in " ".join(a)]
+        adds = [a for a in self.h.ran("gh repo deploy-key add") if "arm-two-results" in " ".join(a)]
         self.assertTrue(adds and "--allow-write" in adds[0])
 
 
@@ -265,7 +265,7 @@ class SameName(unittest.TestCase):
         import io
         from contextlib import redirect_stderr
         h = FakeHost()
-        cfg_file = h.path("/me/.config/armada/ct.toml").as_posix()
+        cfg_file = h.path("/me/.config/armada/armada.toml").as_posix()
         h.write(cfg_file, '[identity]\nname = "%s"\n[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n' % OLD)
         err = io.StringIO()
         real = rename.config.load
@@ -287,7 +287,7 @@ class PlanCard(Installed):
         r.check()
         lines = dict(r.plan_lines())
         self.assertIn(f"mv /opt/{OLD} /opt/{NEW}", lines["Move the folders"])
-        self.assertEqual(lines["Write the new name into the configuration"], [f"write /etc/{NEW}/ct.toml"])        # the path, not the text
+        self.assertEqual(lines["Write the new name into the configuration"], [f"write /etc/{NEW}/armada.toml"])        # the path, not the text
         self.assertTrue(all(len(ln) < 400 for ls in lines.values() for ln in ls))
 
     def test_the_preview_is_one_card_with_a_heading_per_step_and_what_is_kept(self):
@@ -302,7 +302,7 @@ class PlanCard(Installed):
         r = self.rn()
         r.check()
         err = Tty()
-        with mock.patch.dict(os.environ, {"CW_COLOR": "always", "CT_COLOR": "always"}), redirect_stderr(err):
+        with mock.patch.dict(os.environ, {"CW_COLOR": "always", "ARM_COLOR": "always"}), redirect_stderr(err):
             rename.render_plan(r.plan_lines(), OLD, NEW, where="on worker.example")
         import re
         text = re.sub(r"\x1b\[[0-9;]*m", "", err.getvalue())
@@ -332,10 +332,10 @@ class Resume(Installed):
         import shutil
         for old, new in ((self.cfg.paths.code, f"/opt/{NEW}"), (self.cfg.paths.config, f"/etc/{NEW}"), (self.cfg.paths.state_root, f"/var/lib/{NEW}")):
             shutil.move(self.h.path(old), self.h.path(new))                                        # the folders are where the failed run left them
-        os.remove(self.h.path(f"/etc/{NEW}/ct.toml")) if os.path.exists(self.h.path(f"/etc/{NEW}/ct.toml")) else None
-        self.h.put(f"/etc/{NEW}/ct.toml", text)
-        cfg = config.load(self.h.path(f"/etc/{NEW}/ct.toml"), env={})
-        cfg.source = f"/etc/{NEW}/ct.toml"
+        os.remove(self.h.path(f"/etc/{NEW}/armada.toml")) if os.path.exists(self.h.path(f"/etc/{NEW}/armada.toml")) else None
+        self.h.put(f"/etc/{NEW}/armada.toml", text)
+        cfg = config.load(self.h.path(f"/etc/{NEW}/armada.toml"), env={})
+        cfg.source = f"/etc/{NEW}/armada.toml"
         r = rename.Rename(self.h, cfg, NEW, source="/opt/src", rev="a" * 40, say=self.said.append)
         r.check()                                                                                    # nothing is "already there": the old folders are simply gone
         steps = dict(r.steps())
@@ -359,11 +359,11 @@ class ResumedRenameRestartsTheWorker(Installed):
         import shutil
         for old, new in ((self.cfg.paths.code, f"/opt/{NEW}"), (self.cfg.paths.config, f"/etc/{NEW}"), (self.cfg.paths.state_root, f"/var/lib/{NEW}")):
             shutil.move(self.h.path(old), self.h.path(new))
-        self.h.put(f"/etc/{NEW}/ct.toml", '[identity]\nname = "old-name"\n[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n')
+        self.h.put(f"/etc/{NEW}/armada.toml", '[identity]\nname = "old-name"\n[server]\nhost = "worker.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n')
         self.h.put(f"/etc/{NEW}/registry.yaml", "actions:\n  a:\n    run: [/usr/local/sbin/x]\n")
         self.h.replies["systemctl is-enabled"] = Result(1, "disabled\n")                              # the first run disabled them
-        cfg = config.load(self.h.path(f"/etc/{NEW}/ct.toml"), env={})
-        cfg.source = f"/etc/{NEW}/ct.toml"
+        cfg = config.load(self.h.path(f"/etc/{NEW}/armada.toml"), env={})
+        cfg.source = f"/etc/{NEW}/armada.toml"
         r = rename.Rename(self.h, cfg, NEW, source="/opt/src", rev="a" * 40, say=self.said.append)
         r.check()
         self.assertTrue(r.resumed)

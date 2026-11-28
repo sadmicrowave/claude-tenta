@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import jail as jail_mod  # noqa: E402
+from armada import jail as jail_mod  # noqa: E402
 from support import Base, sh  # noqa: E402
 
 
@@ -68,7 +68,7 @@ class Approval(Base):
         self.w.fetch()
         res = self.result("job-0001")
         self.assertEqual(res["status"], "awaiting_approval")
-        self.assertIn("ct-admin approve job-0001", res["note"])
+        self.assertIn("arm-admin approve job-0001", res["note"])
         self.assertEqual((self.spawned, self.runner.calls), ([], []))
         self.w.fetch()                                                                       # still waiting; not announced a second time
         log = sh("git", "log", "--format=%s", "main", cwd=self.tmp / "results.git").splitlines()

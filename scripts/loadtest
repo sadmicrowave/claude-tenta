@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Load test across every worker you administer: send a burst of jobs AT ONCE through `ct-run submit` (so the orchestrator places each one), then read every job back and report where each went and
+"""Load test across every worker you administer: send a burst of jobs AT ONCE through `arm-run submit` (so the orchestrator places each one), then read every job back and report where each went and
 how long each stage took. Uses the harmless auto-approved class (default sys-status: `uptime`), so what it measures is placement and latency, not the workers' CPU.
     scripts/loadtest [--jobs 8] [--waves 1] [--class sys-status] [--timeout 600] [--json FILE]
-    scripts/loadtest --jobs 4 --pinned 4 --to tenta3      the same burst PLUS 4 jobs sent from a folder whose .tenta.toml dedicates the class to tenta3 (an alias works): all 8 go out at once;
-                                                          the report says whether every pinned job landed on tenta3 and where the orchestrator put the other 4 (exit 1 if a pinned job strayed)
+    scripts/loadtest --jobs 4 --pinned 4 --to arm3      the same burst PLUS 4 jobs sent from a folder whose .armada.toml dedicates the class to arm3 (an alias works): all 8 go out at once;
+                                                          the report says whether every pinned job landed on arm3 and where the orchestrator put the other 4 (exit 1 if a pinned job strayed)
 The host's own cap (limits.max_in_flight, default 8) applies: more jobs than that in one burst are refused by design. Run it from the checkout you want to test."""
 import argparse
 import json
@@ -18,9 +18,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from ct import config  # noqa: E402
-from ct.client import place  # noqa: E402
-from ct.client.repo import ClientRepos  # noqa: E402
+from armada import config  # noqa: E402
+from armada.client import place  # noqa: E402
+from armada.client.repo import ClientRepos  # noqa: E402
 
 
 def ts(s):
@@ -28,14 +28,14 @@ def ts(s):
 
 
 def plan_for(jobs, pinned, free_dir, pin_dir):
-    """What each job of the burst is: [(group, folder it is sent from)]. The scheduled jobs go from a folder with no .tenta.toml, the pinned ones from a folder that dedicates the class to one worker."""
+    """What each job of the burst is: [(group, folder it is sent from)]. The scheduled jobs go from a folder with no .armada.toml, the pinned ones from a folder that dedicates the class to one worker."""
     return [("scheduled", free_dir)] * jobs + [("pinned", pin_dir)] * pinned
 
 
 def global_note(cls, commands):
-    """A sentence when the computer's own ~/.tenta.toml dedicates `cls` to a worker, else None: the 'scheduled' jobs would then follow it and the burst would not show the orchestrator at work."""
+    """A sentence when the computer's own ~/.armada.toml dedicates `cls` to a worker, else None: the 'scheduled' jobs would then follow it and the burst would not show the orchestrator at work."""
     w = (commands or {}).get(cls)
-    return f"~/.tenta.toml dedicates {cls} to {w}, so even the scheduled jobs go there and this burst cannot show the orchestrator spreading them. Clear it first: ct-admin workers use --clear" if w else None
+    return f"~/.armada.toml dedicates {cls} to {w}, so even the scheduled jobs go there and this burst cannot show the orchestrator spreading them. Clear it first: arm-admin workers use --clear" if w else None
 
 
 def pin_verdict(rows, to):
@@ -47,8 +47,8 @@ def pin_verdict(rows, to):
 
 def submit(cls, i, cwd=None, group="scheduled"):
     t = time.time()
-    r = subprocess.run([sys.executable, "-c", "import sys; from ct.client import cli; sys.exit(cli.main(sys.argv[1:]))", "submit", cls, "--no-wait"], cwd=cwd,
-                       capture_output=True, text=True, env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src"), "CT_COLOR": "never"})
+    r = subprocess.run([sys.executable, "-c", "import sys; from armada.client import cli; sys.exit(cli.main(sys.argv[1:]))", "submit", cls, "--no-wait"], cwd=cwd,
+                       capture_output=True, text=True, env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src"), "ARM_COLOR": "never"})
     ids = [l for l in r.stdout.split() if l.startswith(cls)]
     return {"i": i, "group": group, "id": ids[-1] if ids else None, "rc": r.returncode, "took": round(time.time() - t, 1), "err": (r.stderr.strip().splitlines() or [""])[-1][:160] if r.returncode else ""}
 
@@ -115,7 +115,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs", type=int, default=8, help="jobs left to the orchestrator")
     ap.add_argument("--pinned", type=int, default=0, help="extra jobs sent from a folder that dedicates the class to --to")
-    ap.add_argument("--keep-global", action="store_true", help="run even when ~/.tenta.toml dedicates the class to a worker")
+    ap.add_argument("--keep-global", action="store_true", help="run even when ~/.armada.toml dedicates the class to a worker")
     ap.add_argument("--to", help="with --pinned: the worker (or its alias) the class is dedicated to")
     ap.add_argument("--waves", type=int, default=1)
     ap.add_argument("--class", dest="cls", default="sys-status")
@@ -125,17 +125,17 @@ def main():
     cfg = config.load()
     if a.pinned and not a.to:
         ap.error("--pinned needs --to WORKER")
-    from ct import alias
-    from ct.client import here
+    from armada import alias
+    from armada.client import here
     note = global_note(a.cls, here.global_pins().commands)
     if note and not a.keep_global:
         print("STOPPED: " + note + "  (--keep-global runs it anyway)")
         return 2
     to = alias.resolve(a.to, [e[0] for e in place.entries(cfg)]) if a.to else None
     out, bad = [], 0
-    with tempfile.TemporaryDirectory(prefix="ct-load-free-") as free, tempfile.TemporaryDirectory(prefix="ct-load-pin-") as pin:
+    with tempfile.TemporaryDirectory(prefix="arm-load-free-") as free, tempfile.TemporaryDirectory(prefix="arm-load-pin-") as pin:
         if a.pinned:
-            (Path(pin) / ".tenta.toml").write_text(f'[commands]\n{a.cls} = "{to}"\n')          # the same file `ct-run use {to} --command {a.cls}` writes
+            (Path(pin) / ".armada.toml").write_text(f'[commands]\n{a.cls} = "{to}"\n')          # the same file `arm-run use {to} --command {a.cls}` writes
         for w in range(a.waves):
             rows, wall, sent_at = wave(cfg, a.cls, plan_for(a.jobs, a.pinned, free, pin), a.timeout)
             report(rows, wall, sent_at)

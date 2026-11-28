@@ -2,10 +2,10 @@
 
 ## In plain words
 
-A job is a small file that says "run this class of work with these inputs". You send it with `ct-run submit`. Within a minute the worker
+A job is a small file that says "run this class of work with these inputs". You send it with `arm-run submit`. Within a minute the worker
 notices it, checks it against its list of allowed classes, and does one of three things: **refuses** it (with a plain reason), **holds** it for your
 approval, or **queues** it. Queued jobs start when the machine has room: not too many at once, not too busy, not too hot. When a job finishes, its
-output is checked, trimmed to what the class says may leave, and published for you to read with `ct-run result`.
+output is checked, trimmed to what the class says may leave, and published for you to read with `arm-run result`.
 
 Some classes run on their own (`auto`). Others always wait for you (`approve`): you read exactly what would run, then approve it. A job you are
 testing for the first time (a *profile run*) always waits.
@@ -37,7 +37,7 @@ Commands are **argument lists built from the class's template**; there is no she
 
 ### Smart sleep
 
-A worker with nothing to do stops asking GitHub every pass. The timers still fire every `schedule.fetch_s` seconds (a pass that skips costs almost nothing), but once nothing has been queued, running or waiting (for approval, say) for `schedule.idle_after_min` minutes (default 10), the fetch pass only really runs every `schedule.idle_fetch_s` seconds (default 90). After `schedule.sleep_after_min` minutes with nothing to do (default 120) it goes into **sleep mode**: the fetch pass only really runs every `schedule.sleep_fetch_s` seconds (default 300, five minutes; `0` means no sleep mode). Any work ends the idleness at once and the normal pace returns: a queued, running or waiting job, a lockdown (so a signed unlock is seen quickly), or a new job found by one of the slow checks. The cost is that a job sent to an idle worker waits at most `idle_fetch_s` seconds before it is noticed; a job sent to a sleeping worker waits at most `sleep_fetch_s`, and then the worker is active again (every `schedule.fetch_s`, default 5 s). `idle_fetch_s = 0` turns smart sleep off, sleep mode included. `ct-admin wake` ends idle or sleep at once without waiting. `status` says whether a worker is active, idle or asleep and how often it is asking.
+A worker with nothing to do stops asking GitHub every pass. The timers still fire every `schedule.fetch_s` seconds (a pass that skips costs almost nothing), but once nothing has been queued, running or waiting (for approval, say) for `schedule.idle_after_min` minutes (default 10), the fetch pass only really runs every `schedule.idle_fetch_s` seconds (default 90). After `schedule.sleep_after_min` minutes with nothing to do (default 120) it goes into **sleep mode**: the fetch pass only really runs every `schedule.sleep_fetch_s` seconds (default 300, five minutes; `0` means no sleep mode). Any work ends the idleness at once and the normal pace returns: a queued, running or waiting job, a lockdown (so a signed unlock is seen quickly), or a new job found by one of the slow checks. The cost is that a job sent to an idle worker waits at most `idle_fetch_s` seconds before it is noticed; a job sent to a sleeping worker waits at most `sleep_fetch_s`, and then the worker is active again (every `schedule.fetch_s`, default 5 s). `idle_fetch_s = 0` turns smart sleep off, sleep mode included. `arm-admin wake` ends idle or sleep at once without waiting. `status` says whether a worker is active, idle or asleep and how often it is asking.
 
 ### Status values
 
@@ -52,9 +52,9 @@ A worker with nothing to do stops asking GitHub every pass. The timers still fir
 
 ### Approval
 
-`tier: approve` classes, profile runs, and any class a policy rule says needs approval wait. `ct-admin approve` shows the job, computes the SHA-256 of the
-job file it showed you, and sends `approve <id> --sha256 <digest>`. The worker approves only if its own snapshot has that digest. `ct-admin review` records
-what you saw, so `ct-admin approve --all` can approve several jobs at once, but only those that are unchanged since you viewed them.
+`tier: approve` classes, profile runs, and any class a policy rule says needs approval wait. `arm-admin approve` shows the job, computes the SHA-256 of the
+job file it showed you, and sends `approve <id> --sha256 <digest>`. The worker approves only if its own snapshot has that digest. `arm-admin review` records
+what you saw, so `arm-admin approve --all` can approve several jobs at once, but only those that are unchanged since you viewed them.
 
 ### Execution limits
 
@@ -65,7 +65,7 @@ Every job runs inside a **jail** ([security](security.md)): its own process tree
 ### What is published
 
 Only the fields the class declares (`output_keys`), capped in length; for a failed command only its error lines, never stack traces. The full output of a
-failed command stays on the worker (mode 0600, 30 days) and is read with `ct-admin output <job>`. Before anything is published it is scanned by the guard
+failed command stays on the worker (mode 0600, 30 days) and is read with `arm-admin output <job>`. Before anything is published it is scanned by the guard
 ([security](security.md)).
 
 ### Packages
@@ -75,11 +75,11 @@ into a throwaway tools folder with install scripts disabled, and never put on th
 
 ## Files a class was profiled with
 
-When a profiling run is sent with `--dir`, `--include` or `--file`, the packaging (folder, patterns, files, relative to where the command was typed) is kept on this computer. `ct-admin adopt` writes it into the proposed class as a `submit:` section. The worker never acts on it; it only publishes it. `ct-run submit CLASS` then packages the same files when no `--dir`, `--file` or `--include` is given. Anything typed wins, `--no-pack` sends none, and a recipe with an absolute folder or `..` is refused (`pack.recipe.unsafe`). A folder outside the one you were in is not saved, and the profile output says so.
+When a profiling run is sent with `--dir`, `--include` or `--file`, the packaging (folder, patterns, files, relative to where the command was typed) is kept on this computer. `arm-admin adopt` writes it into the proposed class as a `submit:` section. The worker never acts on it; it only publishes it. `arm-run submit CLASS` then packages the same files when no `--dir`, `--file` or `--include` is given. Anything typed wins, `--no-pack` sends none, and a recipe with an absolute folder or `..` is refused (`pack.recipe.unsafe`). A folder outside the one you were in is not saved, and the profile output says so.
 
 ## Adopting a profile result automatically
 
-At a terminal, `ct-run result` of a profile run whose verdict is `fits` adopts it right away: it runs `ct-admin adopt JOB --tier T --yes` on this computer, so the class is added to the registry and installed with **your own approval key**. A light or medium class is adopted with tier `auto` (it runs as soon as it is submitted); a heavy one is adopted with tier `approve` (it waits for your OK each time it runs). Each result is offered once, whatever came of it, and never in a pipe or script. Switch it off with `offload.auto_adopt = false` (`ct-setup install --set offload.auto_adopt=false`); then `ct-admin adopt` is yours to run. The tighter conditions (who or what may trigger it) belong to the AI layer and are on the backlog.
+At a terminal, `arm-run result` of a profile run whose verdict is `fits` adopts it right away: it runs `arm-admin adopt JOB --tier T --yes` on this computer, so the class is added to the registry and installed with **your own approval key**. A light or medium class is adopted with tier `auto` (it runs as soon as it is submitted); a heavy one is adopted with tier `approve` (it waits for your OK each time it runs). Each result is offered once, whatever came of it, and never in a pipe or script. Switch it off with `offload.auto_adopt = false` (`arm-setup install --set offload.auto_adopt=false`); then `arm-admin adopt` is yours to run. The tighter conditions (who or what may trigger it) belong to the AI layer and are on the backlog.
 
 ## How long a profile run may take
 
@@ -90,5 +90,5 @@ A profile run's time limit is not a fixed number. It is **your estimate x this w
 - **The owner's ceiling** (`max_timeout_s` of `profile-run`) applies only on a computer whose purpose is `shared`. A dedicated computer is limited by memory and heat, not by a fixed time.
 - **A run that only ran out of time** is reported as `needs-longer`, not `does-not-fit`, so it is never recorded as an exclusion. The result shows the next limit (double, up to a shared computer's ceiling) and the exact command to send it again.
 
-`ct-admin workers` and the worker's own `status` show the line, for example `estimate x 1.59 x 3; no ceiling; from install, 4 of 4 steps + 2 profile runs`. The worker also publishes it as `profile_time` in `registry.json`, which `ct-run offload profile` checks a `--timeout-s` against before sending.
+`arm-admin workers` and the worker's own `status` show the line, for example `estimate x 1.59 x 3; no ceiling; from install, 4 of 4 steps + 2 profile runs`. The worker also publishes it as `profile_time` in `registry.json`, which `arm-run offload profile` checks a `--timeout-s` against before sending.
 

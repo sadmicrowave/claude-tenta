@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest import mock
 
 import support  # noqa: F401
-from ct.admin import workers
-from ct.client import audit, overview, queue
+from armada.admin import workers
+from armada.client import audit, overview, queue
 
 NOW = 1_800_000_000
 DOC = {"updated": "2027-01-15T07:59:00Z", "hardware": {"cores": 4, "mem_total_mb": 8000}, "observed": {"load_1m": 2.0, "mem_available_mb": 4000}, "os": {"id": "debian", "version": "12"}}
@@ -54,7 +54,7 @@ class Aliases(unittest.TestCase):
     def test_the_audit_trail_names_the_real_worker_and_the_panel_still_counts_it_under_the_alias(self):
         home = Path(tempfile.mkdtemp())
         audit.append(home, "placed", "j-1", NOW - 60, worker="real1", **{"class": "build"})
-        with mock.patch("ct.alias.show", side_effect=lambda n: {"real1": "Studio"}.get(n, n)):
+        with mock.patch("armada.alias.show", side_effect=lambda n: {"real1": "Studio"}.get(n, n)):
             d = overview.collect(home, [("real1", workers.row_for("real1", DOC, now=NOW))], now=NOW)
         self.assertEqual((d["workers"][0]["name"], d["workers"][0]["running"], d["running"][0]["worker"]), ("Studio", 1, "Studio"))
 

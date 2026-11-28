@@ -2,7 +2,7 @@
 # Probe: git and the worker's repositories that belong to ANOTHER account. Runs inside a throwaway container as root (scripts/probe ownership); the checkout is mounted read-only at /src.
 # Two real accounts exist here, which a unit test cannot have. It proves, with the project's own code:
 #   1. the PREMISE: on this OS and git, an account asked to serve a repository owned by another account is refused ("dubious ownership"), so the problem is real;
-#   2. the mailbox shell (ct.mailshell) serves such a repository anyway, for that one repository and no other;
+#   2. the mailbox shell (armada.mailshell) serves such a repository anyway, for that one repository and no other;
 #   3. root copying history between repositories owned by other accounts works with the project's helper (transport.copy_history_commands) and does not without it.
 # Found by full end-to-end runs; this keeps them found in seconds.
 set -uo pipefail
@@ -22,7 +22,7 @@ chown -R worker:armada-mail $RES && chmod -R u+rwX,g+rX,o-rwx $RES
 EMPTY=$(runuser -u worker -- git -C $RES hash-object -w -t tree /dev/null)
 COMMIT=$(runuser -u worker -- git -c user.name=w -c user.email=w@w -C $RES commit-tree -m results $EMPTY)
 runuser -u worker -- git -C $RES update-ref refs/heads/main $COMMIT                    # the worker's own data in it
-cat > /tmp/ct.toml <<'TOML'
+cat > /tmp/armada.toml <<'TOML'
 [server]
 host = "h.example"
 admin_user = "me"
@@ -36,7 +36,7 @@ echo "1. the premise"
 check "an account that does not own a repository is refused by git (dubious ownership)" refused runuser -u armada-mail -- git upload-pack --advertise-refs $RES
 
 echo "2. the mailbox shell"
-serve() { runuser -u armada-mail -- env -i PATH=/usr/bin:/bin SSH_ORIGINAL_COMMAND="$1" PYTHONPATH=/src/src CT_CONFIG=/tmp/ct.toml python3 -m ct.mailshell; }
+serve() { runuser -u armada-mail -- env -i PATH=/usr/bin:/bin SSH_ORIGINAL_COMMAND="$1" PYTHONPATH=/src/src ARM_CONFIG=/tmp/armada.toml python3 -m armada.mailshell; }
 check "it serves the results repository to the mailbox account" bash -c "$(declare -f serve); serve \"git-upload-pack '$RES'\" | head -c 4 | grep -qE '^[0-9a-f]{4}$'"
 check "and refuses anything that is not git on those repositories" bash -c "$(declare -f serve); ! serve 'id' 2>&1 | grep -q uid="
 check "the trust is for that one repository: another repository of the worker is still refused" bash -c "
@@ -49,7 +49,7 @@ runuser -u worker -- git clone -q /home/worker/w /home/worker/clone
 BARE=$M/queue.git; git init -q --bare -b main $BARE && chown -R armada-mail:armada-mail $BARE
 helper() { PYTHONPATH=/src/src python3 - "$@" <<'PY'
 import subprocess, sys
-from ct import transport
+from armada import transport
 clone, bare, use_helper = sys.argv[1], sys.argv[2], sys.argv[3] == "yes"
 for argv in transport.copy_history_commands(clone, bare):
     if not use_helper:                       # the same push without the trust wrapper

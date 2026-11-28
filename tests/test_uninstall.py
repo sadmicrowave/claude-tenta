@@ -1,4 +1,4 @@
-"""ct-setup uninstall: removes exactly what the installer put there, previews first, asks once, and leaves the protections alone."""
+"""arm-setup uninstall: removes exactly what the installer put there, previews first, asks once, and leaves the protections alone."""
 import contextlib
 import io
 import subprocess
@@ -8,13 +8,13 @@ import unittest
 import support  # noqa: F401
 from test_setup import FakeHost, cfg_of
 
-from ct import config
-from ct.setup import cli as setup_cli
-from ct.setup.host import Result
-from ct.setup.server import SetupError
-from ct.setup.uninstall import Uninstall
+from armada import config
+from armada.setup import cli as setup_cli
+from armada.setup.host import Result
+from armada.setup.server import SetupError
+from armada.setup.uninstall import Uninstall
 
-from ct import render  # noqa: E402
+from armada import render  # noqa: E402
 UNITS = render.UNITS          # the real list: an uninstall that forgets a unit is exactly what this guards against
 
 
@@ -23,7 +23,7 @@ def installed_host(name="armada"):
     for u in UNITS:
         h.put(f"/etc/systemd/system/{name}-{u}", "[Unit]\n")
     for p in (f"/etc/sudoers.d/{name}", f"/etc/sysctl.d/60-{name}-ipv6.conf", f"/etc/sysctl.d/61-{name}-userns.conf", f"/etc/audit/rules.d/60-{name}.rules",
-              "/usr/local/bin/ct-worker", "/usr/local/sbin/ct-update"):
+              "/usr/local/bin/arm-worker", "/usr/local/sbin/arm-update"):
         h.put(p, "x\n")
     for d in (f"/opt/{name}", f"/etc/{name}", f"/var/lib/{name}"):
         h.put(d + "/marker", "x")
@@ -51,7 +51,7 @@ class Removal(unittest.TestCase):
     def test_applying_removes_the_units_files_commands_and_folders(self):
         self.un().run_all()
         for p in ("/etc/sudoers.d/armada", "/etc/sysctl.d/60-armada-ipv6.conf", "/etc/sysctl.d/61-armada-userns.conf",
-                  "/etc/audit/rules.d/60-armada.rules", "/usr/local/bin/ct-worker", "/usr/local/sbin/ct-update",
+                  "/etc/audit/rules.d/60-armada.rules", "/usr/local/bin/arm-worker", "/usr/local/sbin/arm-update",
                   "/etc/systemd/system/armada-fetch.timer", "/etc/systemd/system/armada-update.service"):
             self.assertFalse(self.h.exists(p), p)
         for d in ("/opt/armada", "/etc/armada", "/var/lib/armada"):
@@ -73,10 +73,10 @@ class Removal(unittest.TestCase):
     def test_the_worker_account_is_removed_only_when_asked(self):
         self.un().run_all()
         self.assertEqual(self.h.ran("userdel"), [])
-        self.assertTrue(any("worker account ctworker" in line for line in self.said))
+        self.assertTrue(any("worker account armworker" in line for line in self.said))
         self.h.calls.clear()
         self.un(remove_account=True).run_all()
-        self.assertTrue(self.h.ran("userdel -r ctworker"))
+        self.assertTrue(self.h.ran("userdel -r armworker"))
 
     def test_the_protections_are_never_touched(self):
         self.un(remove_account=True).run_all()
@@ -138,7 +138,7 @@ class FakeSsh:
     def capture(self, remote):
         self.captured.append(remote)
         if "mktemp" in remote:
-            return subprocess.CompletedProcess(remote, 0, "/tmp/ct-install.AbC123\n", "")
+            return subprocess.CompletedProcess(remote, 0, "/tmp/arm-install.AbC123\n", "")
         return subprocess.CompletedProcess(remote, 0, "STEP LIST\n", "")
 
     def send(self, remote, data):
@@ -156,12 +156,12 @@ class FromYourComputer(unittest.TestCase):
         from pathlib import Path
         self.cfgdir = Path(os.environ["HOME"]) / ".config" / "armada"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
-        (self.cfgdir / "ct.toml").write_text('[server]\nhost = "worker.example"\nadmin_user = "admin"\n[github]\nowner = "someone"\n')
+        (self.cfgdir / "armada.toml").write_text('[server]\nhost = "worker.example"\nadmin_user = "admin"\n[github]\nowner = "someone"\n')
         self.ssh, self.answers = FakeSsh(), []
         self.tmp_src = tempfile.mkdtemp()
 
     def tearDown(self):
-        (self.cfgdir / "ct.toml").unlink()
+        (self.cfgdir / "armada.toml").unlink()
 
     def run_cli(self, *args, ssh=None):
         err = io.StringIO()
@@ -176,11 +176,11 @@ class FromYourComputer(unittest.TestCase):
         preview = [c for c in self.ssh.captured if "uninstall --here" in c][0]
         self.assertNotIn("sudo", preview)
         self.assertNotIn("--apply", preview)
-        self.assertIn("PYTHONPATH=/tmp/ct-install.AbC123/src", preview)              # the removal code comes from this checkout, not from the install being removed
-        self.assertIn("CT_CONFIG=/etc/armada/ct.toml", preview)
-        self.assertEqual(self.ssh.sent[0][0], "tar -xf - -C /tmp/ct-install.AbC123")
-        self.assertIn("rm -rf /tmp/ct-install.AbC123", self.ssh.captured)
-        self.assertIn("ct-setup uninstall --apply", err)
+        self.assertIn("PYTHONPATH=/tmp/arm-install.AbC123/src", preview)              # the removal code comes from this checkout, not from the install being removed
+        self.assertIn("ARM_CONFIG=/etc/armada/armada.toml", preview)
+        self.assertEqual(self.ssh.sent[0][0], "tar -xf - -C /tmp/arm-install.AbC123")
+        self.assertIn("rm -rf /tmp/arm-install.AbC123", self.ssh.captured)
+        self.assertIn("arm-setup uninstall --apply", err)
 
     def test_apply_asks_once_then_runs_the_removal_under_sudo_on_a_terminal(self):
         self.answers = ["y"]
@@ -190,11 +190,11 @@ class FromYourComputer(unittest.TestCase):
             code, err = self.run_cli("--apply", "--keep-data")
         self.assertEqual(code, 0)
         call = self.ssh.interactive_calls[0]
-        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/ct-install.AbC123/src CT_CONFIG=/etc/armada/ct.toml python3 -m ct.setup uninstall --here"))
-        self.assertIn("rm -rf /tmp/ct-install.AbC123", self.ssh.captured)
+        self.assertTrue(call.startswith("sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/arm-install.AbC123/src ARM_CONFIG=/etc/armada/armada.toml python3 -m armada.setup uninstall --here"))
+        self.assertIn("rm -rf /tmp/arm-install.AbC123", self.ssh.captured)
         for piece in ("--keep-data", "--apply", "--yes"):
             self.assertIn(piece, call)
-        self.assertIn("ct-setup install", err)
+        self.assertIn("arm-setup install", err)
 
     def test_answering_no_removes_nothing(self):
         self.answers = ["n"]
@@ -219,7 +219,7 @@ class FromYourComputer(unittest.TestCase):
         self.assertIn("The removal stopped", err)
 
     def test_a_connection_failure_is_explained_not_a_traceback(self):
-        from ct.client.repo import ClientError
+        from armada.client.repo import ClientError
 
         class Down(FakeSsh):
             def capture(self, remote):
@@ -247,7 +247,7 @@ class APreviewByANormalAccount(unittest.TestCase):
 
     def test_a_path_inside_a_folder_the_account_cannot_search_is_not_a_crash(self):
         import os
-        from ct.setup.host import Host
+        from armada.setup.host import Host
         root = tempfile.mkdtemp()
         os.makedirs(f"{root}/etc/audit/rules.d")
         open(f"{root}/etc/audit/rules.d/60-armada.rules", "w").write("x")

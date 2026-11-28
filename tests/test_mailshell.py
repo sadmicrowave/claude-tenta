@@ -5,7 +5,7 @@ from unittest import mock
 
 import support  # noqa: F401
 
-from ct import mailshell
+from armada import mailshell
 
 Q, R = "/var/lib/x-mail/queue.git", "/var/lib/x-mail/results.git"
 
@@ -37,8 +37,8 @@ class DecideOnWindows(unittest.TestCase):
 class MailboxFromTheLauncher(unittest.TestCase):
     def test_a_launcher_that_names_the_mailbox_needs_no_configuration_file(self):
         with mock.patch("sys.stderr"):
-            rc = mailshell.main(environ={"CT_MAILBOX": "C:/ProgramData/x/state-mail", "SSH_ORIGINAL_COMMAND": "cmd /c dir"})
-        self.assertEqual(rc, 1)                                              # refused as any other command, without ever loading ct.toml (which would have raised)
+            rc = mailshell.main(environ={"ARM_MAILBOX": "C:/ProgramData/x/state-mail", "SSH_ORIGINAL_COMMAND": "cmd /c dir"})
+        self.assertEqual(rc, 1)                                              # refused as any other command, without ever loading armada.toml (which would have raised)
 
 
 class Decide(unittest.TestCase):
@@ -67,7 +67,7 @@ class Main(unittest.TestCase):
     def test_a_refused_command_exits_with_a_message_and_runs_nothing(self):
         cfg = mock.Mock()
         cfg.path.return_value = "/var/lib/x-mail"
-        with mock.patch("ct.config.load", return_value=cfg), mock.patch.object(os, "execv") as ex, mock.patch("sys.stderr"):
+        with mock.patch("armada.config.load", return_value=cfg), mock.patch.object(os, "execv") as ex, mock.patch("sys.stderr"):
             self.assertEqual(mailshell.main(environ={"SSH_ORIGINAL_COMMAND": "id"}), 1)
             ex.assert_not_called()
 
@@ -77,7 +77,7 @@ class GitIsToldTheRepositoryIsMeant(unittest.TestCase):
         """Found on a real machine: the results repository belongs to the worker, so git refused to serve it to the mailbox account ('dubious ownership')."""
         cfg = mock.Mock()
         cfg.path.return_value = "/var/lib/x-mail"
-        with mock.patch("ct.config.load", return_value=cfg), mock.patch.object(os, "execve") as ex, mock.patch.object(os, "execv", side_effect=AssertionError("the old exec, with the whole environment")):
+        with mock.patch("armada.config.load", return_value=cfg), mock.patch.object(os, "execve") as ex, mock.patch.object(os, "execv", side_effect=AssertionError("the old exec, with the whole environment")):
             mailshell.main(environ={"SSH_ORIGINAL_COMMAND": f"git-upload-pack '{R}'"})
         (program, argv, env), _ = ex.call_args
         self.assertEqual(argv, ["git-upload-pack", R])
@@ -102,16 +102,16 @@ class TheInstalledWrapper(unittest.TestCase):
         import sys
         import tempfile
         from pathlib import Path
-        from ct import config, render
+        from armada import config, render
         from test_setup import cfg_of
         cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
         v = render.values_for(cfg)
         tmp = Path(tempfile.mkdtemp())
-        (tmp / "ct.toml").write_text('[server]\nhost = "h"\nadmin_user = "me"\n[github]\nowner = "o"\n[transport]\nkind = "direct"\n')
+        (tmp / "armada.toml").write_text('[server]\nhost = "h"\nadmin_user = "me"\n[github]\nowner = "o"\n[transport]\nkind = "direct"\n')
         text = render.mail_shell(cfg).replace(v["lib"], str(Path(mailshell.__file__).parents[1])).replace(v["config"], str(tmp)).replace("/usr/bin/python3", sys.executable)
         script = tmp / "shell"
         script.write_text(text)
-        mailbox = config.load(str(tmp / "ct.toml")).path("mailbox")
+        mailbox = config.load(str(tmp / "armada.toml")).path("mailbox")
         run = lambda command: subprocess.run(["sh", str(script)], env={**({"SSH_ORIGINAL_COMMAND": command} if command else {}), "PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
         self.assertNotIn("can only fetch", run(f"git-upload-pack '{mailbox}/queue.git'").stderr)        # an allowed command reaches the shell (git then fails: no such repository here)
         self.assertIn("can only fetch", run("id").stderr)

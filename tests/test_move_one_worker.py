@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import config, transport
-from ct.client import place
-from ct.setup import migrate
-from ct.setup.host import Host
+from armada import config, transport
+from armada.client import place
+from armada.setup import migrate
+from armada.setup.host import Host
 
 
 def conf(name, host, home, kind="github"):
@@ -23,10 +23,10 @@ class MoveOne(unittest.TestCase):
         self.t = tempfile.TemporaryDirectory()
         self.addCleanup(self.t.cleanup)
         self.d = Path(self.t.name)
-        self.names = ("main", "tenta2", "tenta3")
+        self.names = ("main", "arm2", "arm3")
         self.files, self.clones = {}, {}
         for n in self.names:
-            home = self.d / "ct" / n
+            home = self.d / "armada" / n
             self.files[n] = self.d / f"{n}.toml"
             self.files[n].write_text(conf(n, f"{n}.example", home))
             for which in ("queue", "results"):
@@ -35,11 +35,11 @@ class MoveOne(unittest.TestCase):
                 subprocess.run(["git", "-C", str(clone), "init", "-q"], check=True)
                 subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", f"https://github.com/someone/{n}-{which}.git"], check=True)
                 self.clones[n, which] = clone
-        (self.d / "workers.toml").write_text(f'[workers.tenta2]\nconfig = "{self.files["tenta2"]}"\n[workers.tenta3]\nconfig = "{self.files["tenta3"]}"\n')
+        (self.d / "workers.toml").write_text(f'[workers.arm2]\nconfig = "{self.files["arm2"]}"\n[workers.arm3]\nconfig = "{self.files["arm3"]}"\n')
         self.before = {p.name: p.read_bytes() for p in self.d.glob("*.toml")}
 
     def load(self, n):
-        return config.load(str(self.files[n]), env={"CT_CONFIG": ""})
+        return config.load(str(self.files[n]), env={"ARM_CONFIG": ""})
 
     def origin(self, n, which):
         return subprocess.run(["git", "-C", str(self.clones[n, which]), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
@@ -51,50 +51,50 @@ class MoveOne(unittest.TestCase):
         return notes
 
     def test_only_the_named_worker_is_changed_and_every_other_file_is_byte_for_byte_the_same(self):
-        notes = self.move("tenta2")
+        notes = self.move("arm2")
         self.assertEqual([s for s, status, _ in notes if status in ("pointed", "written")], ["configuration", "queue clone", "results clone"])
-        self.assertEqual(transport.for_config(self.load("tenta2")).kind, "direct")
+        self.assertEqual(transport.for_config(self.load("arm2")).kind, "direct")
         after = {p.name: p.read_bytes() for p in self.d.glob("*.toml")}
-        for name in ("main.toml", "tenta3.toml", "workers.toml"):
+        for name in ("main.toml", "arm3.toml", "workers.toml"):
             self.assertEqual(after[name], self.before[name], name)
-        self.assertNotEqual(after["tenta2.toml"], self.before["tenta2.toml"])
+        self.assertNotEqual(after["arm2.toml"], self.before["arm2.toml"])
         for which in ("queue", "results"):
-            self.assertNotIn("github.com", self.origin("tenta2", which))                       # its clones fetch from the mailbox now
-            for other in ("main", "tenta3"):
+            self.assertNotIn("github.com", self.origin("arm2", which))                       # its clones fetch from the mailbox now
+            for other in ("main", "arm3"):
                 self.assertEqual(self.origin(other, which), f"https://github.com/someone/{other}-{which}.git")
 
     def test_the_orchestrators_view_of_each_worker_follows_the_move(self):
-        self.move("tenta2")
+        self.move("arm2")
         main = self.load("main")
         main_source = main.source
         self.assertTrue(main_source)
         ents = {name: transport.for_config(c).kind for name, c, _ in place.entries(main)}
-        self.assertEqual(ents, {"main": "github", "tenta2": "direct", "tenta3": "github"})
+        self.assertEqual(ents, {"main": "github", "arm2": "direct", "arm3": "github"})
         # and what each pick-up is assumed to take follows the connection: a Direct worker is read in seconds, a GitHub one at its idle pace
         pick = {name: place.pickup_s(c) for name, c, _ in place.entries(main)}
-        self.assertEqual(pick["tenta2"], 5)
-        self.assertGreaterEqual(pick["tenta3"], 5)
+        self.assertEqual(pick["arm2"], 5)
+        self.assertGreaterEqual(pick["arm3"], 5)
 
     def test_moving_a_second_worker_after_the_first_changes_only_that_one_too(self):
-        self.move("tenta2")
-        self.move("tenta3")
-        self.assertEqual({n: transport.for_config(self.load(n)).kind for n in self.names}, {"main": "github", "tenta2": "direct", "tenta3": "direct"})
+        self.move("arm2")
+        self.move("arm3")
+        self.assertEqual({n: transport.for_config(self.load(n)).kind for n in self.names}, {"main": "github", "arm2": "direct", "arm3": "direct"})
         self.assertEqual((self.d / "main.toml").read_bytes(), self.before["main.toml"])
 
 
 class BackToGitHub(unittest.TestCase):
-    """ct-setup transport github: the way back. Local bare repositories stand in for GitHub; the installer is a recorder."""
+    """arm-setup transport github: the way back. Local bare repositories stand in for GitHub; the installer is a recorder."""
 
     def setUp(self):
         self.t = tempfile.TemporaryDirectory()
         self.addCleanup(self.t.cleanup)
         self.d = Path(self.t.name)
-        self.cfg_file = self.d / "tenta2.toml"
-        home = self.d / "ct" / "tenta2"
-        self.cfg_file.write_text(conf("tenta2", "tenta2.example", home, kind="direct"))
+        self.cfg_file = self.d / "arm2.toml"
+        home = self.d / "armada" / "arm2"
+        self.cfg_file.write_text(conf("arm2", "arm2.example", home, kind="direct"))
         self.gh, self.clones = {}, {}
         for which in ("queue", "results"):
-            bare = self.d / "gh" / f"tenta2-{which}.git"
+            bare = self.d / "gh" / f"arm2-{which}.git"
             subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
             clone = home / which
             clone.mkdir(parents=True)
@@ -107,10 +107,10 @@ class BackToGitHub(unittest.TestCase):
             self.gh[which], self.clones[which] = bare, clone
         self.reinstalls = []
 
-    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="tenta2"):
+    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="arm2"):
         from types import SimpleNamespace
         a = SimpleNamespace(name="github", apply=apply, yes=yes, worker=worker, here=False)
-        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        cfg = config.load(str(self.cfg_file), env={"ARM_CONFIG": ""})
         out = []
         rc = migrate.back_to_github(a, Host(), lambda p: "y", out.append, cfg, reinstall=lambda av: self.reinstalls.append(av) or reinstall_rc, url_of=lambda c, which: str(self.gh[which]))
         return rc, out
@@ -130,8 +130,8 @@ class BackToGitHub(unittest.TestCase):
         self.assertEqual(rc, 0)
         for which in ("queue", "results"):
             self.assertEqual(self.head(which), "work done on direct")
-        self.assertEqual(self.reinstalls, [["install", "--worker", "tenta2", "--set", "transport.kind=github", "--yes"]])
-        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"CT_CONFIG": ""})).kind, "github")
+        self.assertEqual(self.reinstalls, [["install", "--worker", "arm2", "--set", "transport.kind=github", "--yes"]])
+        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"ARM_CONFIG": ""})).kind, "github")
         for which in ("queue", "results"):
             origin = subprocess.run(["git", "-C", str(self.clones[which]), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
             self.assertNotIn("mailbox", origin)
@@ -156,7 +156,7 @@ class BackToGitHub(unittest.TestCase):
     def test_the_main_install_is_set_up_again_by_its_address(self):
         rc, _ = self.run_move(worker=None)
         self.assertEqual(rc, 0)
-        self.assertEqual(self.reinstalls[0][:2], ["install", "tenta2.example"])
+        self.assertEqual(self.reinstalls[0][:2], ["install", "arm2.example"])
 
 
 class BackToGitHubWithoutAnAccount(unittest.TestCase):
@@ -169,10 +169,10 @@ class BackToGitHubWithoutAnAccount(unittest.TestCase):
         self.addCleanup(lambda: None)
         self.cfg_file.write_text(self.cfg_file.read_text().replace('owner = "someone"\n', ""))        # what a Direct install leaves: no account
 
-    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="tenta2", sets=(), login=None, interactive_answer=None):
+    def run_move(self, apply=True, yes=True, reinstall_rc=0, worker="arm2", sets=(), login=None, interactive_answer=None):
         from types import SimpleNamespace
         a = SimpleNamespace(name="github", apply=apply, yes=yes, worker=worker, here=False, set=list(sets))
-        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        cfg = config.load(str(self.cfg_file), env={"ARM_CONFIG": ""})
         out, asked = [], []
 
         def ask(prompt):
@@ -180,8 +180,8 @@ class BackToGitHubWithoutAnAccount(unittest.TestCase):
             return interactive_answer if interactive_answer is not None else "y"
         host = Host()
         real_run = host.run
-        host.run = lambda argv, **kw: (__import__("ct.setup.host", fromlist=["Result"]).Result(0, login + "\n") if (login and argv[:3] == ["gh", "api", "user"]) else
-                                       __import__("ct.setup.host", fromlist=["Result"]).Result(1, "not signed in") if argv[:3] == ["gh", "api", "user"] else real_run(argv, **kw))
+        host.run = lambda argv, **kw: (__import__("armada.setup.host", fromlist=["Result"]).Result(0, login + "\n") if (login and argv[:3] == ["gh", "api", "user"]) else
+                                       __import__("armada.setup.host", fromlist=["Result"]).Result(1, "not signed in") if argv[:3] == ["gh", "api", "user"] else real_run(argv, **kw))
         rc = migrate.back_to_github(a, host, ask, out.append, cfg, reinstall=lambda av: self.reinstalls.append(av) or reinstall_rc, url_of=lambda c, which: str(self.gh[which]))
         self.asked = asked
         return rc, out
@@ -191,7 +191,7 @@ class BackToGitHubWithoutAnAccount(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("github.owner=someone", self.reinstalls[0])                                  # the installer is told the account too
         text = self.cfg_file.read_text()
-        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"CT_CONFIG": ""})).kind, "github")        # GitHub is the default, so the file simply no longer says direct
+        self.assertEqual(transport.for_config(config.load(str(self.cfg_file), env={"ARM_CONFIG": ""})).kind, "github")        # GitHub is the default, so the file simply no longer says direct
         self.assertNotIn('kind = "direct"', text)
         self.assertIn('owner = "someone"', text)                                                   # and the configuration remembers it
 
@@ -212,14 +212,14 @@ class BackToGitHubWithoutAnAccount(unittest.TestCase):
         err = io.StringIO()
         with redirect_stderr(err):
             self.run_move(yes=True)
-        self.assertIn("--set github.owner=", err.getvalue())                                       # the exact command, not "run ct-setup install"
-        self.assertNotIn("Run this\n\nct-setup install", err.getvalue())
+        self.assertIn("--set github.owner=", err.getvalue())                                       # the exact command, not "run arm-setup install"
+        self.assertNotIn("Run this\n\narm-setup install", err.getvalue())
 
     def test_a_person_at_a_terminal_is_asked_for_the_account_and_enter_takes_the_signed_in_one(self):
         from types import SimpleNamespace
-        cfg = config.load(str(self.cfg_file), env={"CT_CONFIG": ""})
+        cfg = config.load(str(self.cfg_file), env={"ARM_CONFIG": ""})
         host = Host()
-        host.run = lambda argv, **kw: __import__("ct.setup.host", fromlist=["Result"]).Result(0, "signed-in-user\n")
+        host.run = lambda argv, **kw: __import__("armada.setup.host", fromlist=["Result"]).Result(0, "signed-in-user\n")
         a = SimpleNamespace(set=[])
         self.assertEqual(migrate.github_owner_for(a, host, cfg, lambda p: "typed-name", True), "typed-name")
         self.assertEqual(migrate.github_owner_for(a, host, cfg, lambda p: "", True), "signed-in-user")

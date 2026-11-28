@@ -1,4 +1,4 @@
-"""The refusal catalog (src/ct/refusals.py): every refusal on the job path is defined once, with what it protects, and the modules that refuse reference it (scope: docs/design/REFUSAL-CATALOG.md).
+"""The refusal catalog (src/armada/refusals.py): every refusal on the job path is defined once, with what it protects, and the modules that refuse reference it (scope: docs/design/REFUSAL-CATALOG.md).
 A refusal is never written as a literal string where it is raised: the guard below fails on one in the modules listed in POLICY_MODULES."""
 import ast
 import re
@@ -9,9 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import refusals  # noqa: E402
+from armada import refusals  # noqa: E402
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
+SRC = Path(__file__).resolve().parents[1] / "src" / "armada"
 POLICY_MODULES = ("jobs.py", "worker.py", "sched.py", "client/place.py", "client/cap.py", "client/here.py", "client/submit.py", "client/view.py", "client/cmdlog.py",
                   "pkgspec.py", "registry.py", "approvals.py", "rediscover.py", "setup/winsetup.py", "setup/winrelease.py", "setup/winlayout.py", "setup/winmailbox.py", "setup/wintask.py",
                   "setup/winuninstall.py", "setup/server.py", "setup/install.py", "setup/migrate.py", "setup/rename.py", "setup/client.py", "setup/addworker.py", "setup/uninstall.py", "admin/cli.py", "admin/actionadd.py", "admin/jobs.py", "admin/proposals.py", "admin/release.py", "admin/selfupdate.py", "admin/ssh.py", "admin/workers.py")            # each later slice adds its modules here
@@ -43,7 +43,7 @@ class Catalog(unittest.TestCase):
         self.assertEqual(unused, [], "an entry is defined that nothing uses")
 
     def test_a_refusal_is_both_a_reject_and_a_value_error_so_every_existing_catch_still_works(self):
-        from ct import jobs
+        from armada import jobs
         r = refusals.refuse("job.params.not_object")
         self.assertIsInstance(r, jobs.Reject)
         self.assertIsInstance(r, ValueError)
@@ -70,7 +70,7 @@ class Guard(unittest.TestCase):
                     called = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else ""
                     if called in RAISED and node.exc.args and isinstance(node.exc.args[0], (ast.Constant, ast.JoinedStr)):
                         bad.append(f"{name}:{node.lineno}")
-        self.assertEqual(bad, [], "define it in ct/refusals.py and raise refusals.refuse(code, ...)")
+        self.assertEqual(bad, [], "define it in armada/refusals.py and raise refusals.refuse(code, ...)")
 
 
 OPERATIONAL = {"client/cli.py": set(), "client/offload.py": set(), "client/repo.py": set(), "setup/wintools.py": {"script"}}      # (WinToolsError("script", ...) is the installer's own exception type: its fields are what/detail)       # the client's operational errors are all in the catalog: a new literal one fails the guard below
@@ -82,7 +82,7 @@ class OperationalErrors(unittest.TestCase):
              "repo.not_set_up", "repo.clone_failed", "repo.file_missing", "repo.push_failed")
 
     def test_every_one_is_in_the_catalog_as_an_error_and_builds_a_client_error_with_its_code_last(self):
-        from ct.client import refuse
+        from armada.client import refuse
         self.assertIn("error", refusals.KINDS)
         for code in self.CODES:
             self.assertEqual(refusals.CATALOG[code].kind, "error", code)
@@ -96,7 +96,7 @@ class OperationalErrors(unittest.TestCase):
 
 class EveryClientEntry(unittest.TestCase):
     def test_every_entry_decided_on_this_computer_builds_a_client_error_with_its_code_last(self):
-        from ct.client import refuse
+        from armada.client import refuse
         for code, e in refusals.CATALOG.items():
             if e.who == "client":
                 err = refuse.error(code, ("Thing", "x"))
@@ -116,7 +116,7 @@ class StillLiteral(unittest.TestCase):
                         title = node.exc.args[0].value if isinstance(node.exc.args[0], ast.Constant) else "<f-string>"
                         if title not in allowed:
                             bad.append(f"{name}:{node.lineno} {title!r}")
-        self.assertEqual(bad, [], "a rule about what the person may do belongs in ct/refusals.py (refuse.error); an operational error goes in OPERATIONAL until the follow-on task")
+        self.assertEqual(bad, [], "a rule about what the person may do belongs in armada/refusals.py (refuse.error); an operational error goes in OPERATIONAL until the follow-on task")
 
 
 if __name__ == "__main__":

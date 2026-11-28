@@ -22,7 +22,7 @@ willing to have this device busy with one measured run? That is a consent, not a
    profile runs (measured wall time against estimate). Stored in the worker's own state, per device.
 3. **The owner's ceiling applies where the device is shared.** On a dedicated or special-use worker nothing else needs it, so
    rule 1 is the only limit. On a shared computer the owner's ceiling (today's 600 s) stays as the upper bound. The owner can
-   change it; `ct-admin status` shows the value and where it came from.
+   change it; `arm-admin status` shows the value and where it came from.
 4. **A limit hit is an answer.** A run that stops at its time limit while inside its resource limits returns the verdict
    `needs-longer`: what ran, what it used, the next limit (double, up to the ceiling) and the command that sends it. When the
    next limit is over the ceiling, the result prints the command the owner runs to raise it.
@@ -47,7 +47,7 @@ a baseline from our fleet says nothing about an end user's range, so the prior i
 | 2 | Install phase timings recorded, the reference table as recorded fixtures with a re-record script, the factor prior | tests over recorded phase files; a real install on the Mac mini shows the timings | setup/server.py, a new `calibration.py` (hardening/server: manual merge) |
 | 3 | Evidence: each finished profile updates the factor (bounded step, outliers ignored) | tests with sequences of runs; the factor converges and one outlier moves it little | worker.py, profiling.py (yes) |
 | 4 | The `needs-longer` verdict, the next limit and the command | the result card, a test of the exact wording and the command; a run that stops by time inside its limits ends this way | profiling.py, client/view.py (yes for profiling.py) |
-| 5 | `ct-admin status` shows speed factor, basis and ceiling; docs | status output checked on a real worker | admin/cli.py, docs |
+| 5 | `arm-admin status` shows speed factor, basis and ceiling; docs | status output checked on a real worker | admin/cli.py, docs |
 
 ## Not in this design
 

@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct.client import recommend, view  # noqa: E402
+from armada.client import recommend, view  # noqa: E402
 
 
 def runs(cls, worker, *secs, ok=True):
@@ -97,14 +97,14 @@ class TheHint(unittest.TestCase):
 
 class TheHintLine(unittest.TestCase):
     def ctx(self, d, on=True):
-        from ct.client import cli
+        from armada.client import cli
         return cli.Context(None, home=d, clock=lambda: 10 ** 9, recommend_hint=on)
 
     def run_hint(self, d, on=True):
         import contextlib
         import io
         from unittest import mock
-        from ct.client import cli, here
+        from armada.client import cli, here
         recommend.RunLog(d).path.write_text("".join(__import__("json").dumps(r) + "\n" for r in runs("nmap", "a", 100, 100, 100) + runs("nmap", "b", 50, 50, 50)))
         pins = mock.Mock(commands={"nmap": "a"})
         err = io.StringIO()

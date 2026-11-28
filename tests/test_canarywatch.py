@@ -8,15 +8,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import canarywatch, config, guard  # noqa: E402
+from armada import canarywatch, config, guard  # noqa: E402
 
 SAMPLE = """----
 type=PROCTITLE msg=audit(11/14/2026 13:20:01.123:456) : proctitle=cat /home/worker/.aws/credentials
 type=PATH msg=audit(11/14/2026 13:20:01.123:456) : item=0 name=/home/worker/.aws/credentials inode=1234 dev=08:01 mode=file,600
-type=SYSCALL msg=audit(11/14/2026 13:20:01.123:456) : arch=x86_64 syscall=openat success=yes exit=3 pid=2 auid=unset uid=worker comm=cat exe=/usr/bin/cat key=ct-canary
+type=SYSCALL msg=audit(11/14/2026 13:20:01.123:456) : arch=x86_64 syscall=openat success=yes exit=3 pid=2 auid=unset uid=worker comm=cat exe=/usr/bin/cat key=arm-canary
 ----
 type=PATH msg=audit(11/14/2026 13:20:05.000:457) : item=0 name=/home/worker/.git-credentials inode=9
-type=SYSCALL msg=audit(11/14/2026 13:20:05.000:457) : syscall=openat success=yes uid=worker comm=python3 exe=/usr/bin/python3 key=ct-canary
+type=SYSCALL msg=audit(11/14/2026 13:20:05.000:457) : syscall=openat success=yes uid=worker comm=python3 exe=/usr/bin/python3 key=arm-canary
 """
 
 
@@ -38,10 +38,10 @@ class Parse(unittest.TestCase):
         """The first real install tripped the alarm on its own auditctl: those records carry the key but are not opens of a decoy."""
         loading = (
             "----\n"
-            "type=PATH msg=audit(11/16/2026 14:46:31.725:26404) : item=0 name=/srv/ctworker/ inode=1 nametype=PARENT\n"
-            "type=SYSCALL msg=audit(11/16/2026 14:46:31.725:26404) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=ct-canary\n"
+            "type=PATH msg=audit(11/16/2026 14:46:31.725:26404) : item=0 name=/srv/armworker/ inode=1 nametype=PARENT\n"
+            "type=SYSCALL msg=audit(11/16/2026 14:46:31.725:26404) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=arm-canary\n"
             "----\n"
-            "type=SYSCALL msg=audit(11/16/2026 14:46:31.718:26400) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=ct-canary\n")
+            "type=SYSCALL msg=audit(11/16/2026 14:46:31.718:26400) : arch=x86_64 syscall=sendto success=yes uid=root exe=/usr/sbin/auditctl key=arm-canary\n")
         self.assertEqual(canarywatch.parse_events(loading), [])
 
     def test_unrelated_audit_noise_is_ignored(self):
@@ -63,7 +63,7 @@ class Watch(unittest.TestCase):
         self.calls.append(list(cmd))
         name = cmd[0]
         if name == "auditctl" and cmd[1:] == ("-l",):
-            return done(0, "".join(f"-w {f} -p r -k ct-canary\n" for f in self.decoys) if self.rules_loaded[0] else "")
+            return done(0, "".join(f"-w {f} -p r -k arm-canary\n" for f in self.decoys) if self.rules_loaded[0] else "")
         if name == "augenrules":
             self.rules_loaded[0] = True
             return done(0)
@@ -74,8 +74,8 @@ class Watch(unittest.TestCase):
         return done(0)
 
     def watch(self, **kw):
-        return canarywatch.CanaryWatch(self.state, self.tmp / "run" / "status.json", self.tmp / "watch", self.tmp / "audit.rules", "ctworker",
-                                       ["env", "X=1", "python3", "-m", "ct.cli", "canary-alarm"], run=kw.pop("run", self.fake_run), clock=lambda: self.clock[0], **kw)
+        return canarywatch.CanaryWatch(self.state, self.tmp / "run" / "status.json", self.tmp / "watch", self.tmp / "audit.rules", "armworker",
+                                       ["env", "X=1", "python3", "-m", "armada.cli", "canary-alarm"], run=kw.pop("run", self.fake_run), clock=lambda: self.clock[0], **kw)
 
     def status(self):
         return json.loads((self.tmp / "run" / "status.json").read_text())
@@ -98,8 +98,8 @@ class Watch(unittest.TestCase):
         w = self.watch()
         w.check()
         (alarm,) = self.alarms()
-        self.assertEqual(alarm[:4], ["runuser", "-u", "ctworker", "--"])                              # the privileged part does nothing but hand over
-        self.assertEqual(alarm[4:10], ["env", "X=1", "python3", "-m", "ct.cli", "canary-alarm"])
+        self.assertEqual(alarm[:4], ["runuser", "-u", "armworker", "--"])                              # the privileged part does nothing but hand over
+        self.assertEqual(alarm[4:10], ["env", "X=1", "python3", "-m", "armada.cli", "canary-alarm"])
         self.assertIn("/home/worker/.aws/credentials", alarm[-1])
         w.check()                                                                                       # the same events again must not re-alarm
         self.assertEqual(len(self.alarms()), 1)
@@ -152,7 +152,7 @@ class Watch(unittest.TestCase):
 
         def run(*cmd, **kw):
             if cmd[:2] == ("auditctl", "-l"):
-                return done(0, "".join(f"-w {f} -p r -k ct-canary\n" for f in loaded))
+                return done(0, "".join(f"-w {f} -p r -k arm-canary\n" for f in loaded))
             if cmd[0] == "augenrules":
                 return done(1)
             if cmd[0] == "auditctl" and cmd[1] == "-w":
@@ -189,10 +189,10 @@ class RealPlanting(unittest.TestCase):
 
 class FromConfig(unittest.TestCase):
     def test_the_alarm_runs_the_installs_own_cli_with_its_own_paths(self):
-        cfg = config.load(None, env={"CT_CONFIG": "", "CT_IDENTITY_NAME": "homect", "CT_SERVER_WORKER_USER": "runner1"})
+        cfg = config.load(None, env={"ARM_CONFIG": "", "ARM_IDENTITY_NAME": "homect", "ARM_SERVER_WORKER_USER": "runner1"})
         w = canarywatch.from_config(cfg)
         self.assertEqual(w.worker_user, "runner1")
-        self.assertEqual(w.alarm_argv, ["env", "PYTHONPATH=/opt/homect/lib", "CT_CONFIG=/etc/homect/ct.toml", "/usr/bin/python3", "-m", "ct.cli", "canary-alarm"])
+        self.assertEqual(w.alarm_argv, ["env", "PYTHONPATH=/opt/homect/lib", "ARM_CONFIG=/etc/homect/armada.toml", "/usr/bin/python3", "-m", "armada.cli", "canary-alarm"])
         self.assertEqual((str(w.state), str(w.status_file), str(w.rules_file)), ("/var/lib/homect/state", "/run/homect/canary-watch.json", "/etc/audit/rules.d/60-homect.rules"))
         self.assertEqual(str(w.book_dir), "/var/lib/homect-watch")
 

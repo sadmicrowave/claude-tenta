@@ -19,7 +19,7 @@ systemctl --version 2>&1 | head -1 > /out/systemd-version.txt
 python3 - > /out/assess-script.sh <<'PY'
 import sys
 sys.path.insert(0, "/src/src")
-from ct.setup import assess
+from armada.setup import assess
 print(assess.SCRIPT)
 PY
 sh /out/assess-script.sh 2>/dev/null | sed -E 's/^(KERNEL|HOSTNAME)=.*/\1=recorded-elsewhere/' > /out/assess-output.txt

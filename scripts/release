@@ -8,7 +8,7 @@
     scripts/release 0.2.0 --dry-run       run every check and show what would be tagged, changing nothing
     scripts/release 0.1.0 --windows       the Windows line: tag `release-win-0.1.0` at this commit with docs/releases/win-0.1.0.md as its notes; no version bump, no commit
 
-Everything that people or workers learn about a release comes from this tag: `ct-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
+Everything that people or workers learn about a release comes from this tag: `arm-admin update` finds the newest `release-X.Y.Z`, shows its notes, and a worker
 in `updates.mode = "signed-tags"` installs only a tag whose signature checks. Nothing is pushed here: you read the result, then push.
 """
 import argparse
@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-FILES = (("pyproject.toml", re.compile(r'(?m)^version = "[^"]+"'), 'version = "{v}"'), ("src/ct/__init__.py", re.compile(r'(?m)^__version__ = "[^"]+"'), '__version__ = "{v}"'))
+FILES = (("pyproject.toml", re.compile(r'(?m)^version = "[^"]+"'), 'version = "{v}"'), ("src/armada/__init__.py", re.compile(r'(?m)^__version__ = "[^"]+"'), '__version__ = "{v}"'))
 
 
 class ReleaseError(Exception):
@@ -76,7 +76,7 @@ def check(root, version, skip_tests=False, windows=False):
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"], cwd=root, capture_output=True, text=True)
         if r.returncode:
             out = (r.stderr or "") + (r.stdout or "")
-            log = Path(tempfile.gettempdir()) / "ct-release-tests.log"
+            log = Path(tempfile.gettempdir()) / "arm-release-tests.log"
             log.write_text(out)
             names = [ln for ln in out.splitlines() if ln.startswith(("FAIL:", "ERROR:"))]          # every failing test at once, so one run is enough to fix them all
             raise ReleaseError(f"{len(names)} unit test(s) fail (full output: {log}):\n" + "\n".join(names[:40]) + "\n" + "\n".join(out.splitlines()[-4:]))
@@ -112,7 +112,7 @@ def release(root, version, notes=None, sign=False, skip_tests=False):
     prev = previous_tag(root)
     body = notes if notes is not None else notes_since(root, prev)
     bump(root, version)
-    git(root, "add", "pyproject.toml", "src/ct/__init__.py")
+    git(root, "add", "pyproject.toml", "src/armada/__init__.py")
     if git(root, "status", "--porcelain"):                   # the files may already say this version (the first release): then there is nothing to commit
         git(root, "commit", "-q", "-m", f"release {version}")
     message = f"release {version}\n\n{body}\n"
@@ -134,7 +134,7 @@ def main(argv=None):
     ap.add_argument("--windows", action="store_true")
     a = ap.parse_args(argv)
     sys.path.insert(0, str(ROOT / "src"))
-    from ct import ui                                        # the same card style as every other screen
+    from armada import ui                                        # the same card style as every other screen
     try:
         notes = Path(a.notes).read_text() if a.notes else None
         if a.dry_run:

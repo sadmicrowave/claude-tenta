@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BY HAND, on a real Windows computer: write the worker's own files (src/ct/setup/winfiles.py) and run it twice (the second run must say changed=false). The layout, tools, release and mailbox must be there first
+"""BY HAND, on a real Windows computer: write the worker's own files (src/armada/setup/winfiles.py) and run it twice (the second run must say changed=false). The layout, tools, release and mailbox must be there first
 (scripts/win-layout-check, scripts/win-mailbox-check).
   scripts/win-files-check USER@HOST [--name NAME] [--worker-host ADDRESS]"""
 import sys
@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winfiles, wintools   # noqa: E402
+from armada.setup import winfiles, wintools   # noqa: E402
 
 
 def main(argv):

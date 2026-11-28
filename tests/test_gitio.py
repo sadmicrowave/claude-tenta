@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import gitio, util  # noqa: E402
+from armada import gitio, util  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
 
@@ -115,7 +115,7 @@ class Publishing(Repos):
 
     def test_a_result_is_committed_pushed_and_authored_as_the_configured_worker(self):
         self.assertTrue(self.io.publish(self.res))
-        self.assertEqual(self.results_log(), ["ct-worker|result job-0001: ok"])
+        self.assertEqual(self.results_log(), ["arm-worker|result job-0001: ok"])
         shown = sh("git", "show", "main:results/job-0001.json", cwd=self.tmp / "results.git")
         self.assertEqual(json.loads(shown)["output"], "hi")
 
@@ -142,7 +142,7 @@ class Publishing(Repos):
         self.io._run = recording
         self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
         graph = sh("git", "log", "--all", "--graph", "--format=%h %an|%s (%ci)", cwd=self.tmp / "results.git") + "\nworker: " + sh("git", "log", "--all", "--graph", "--format=%h %an|%s", cwd=self.tmp / "w-results") + "\nlog: " + " | ".join(self.logged) + "\ngit: " + "\n     ".join(calls)
-        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok", graph)
+        self.assertEqual(self.results_log()[0], "arm-worker|result job-0003: ok", graph)
         self.assertIn("other writer", " ".join(self.results_log()))
 
     def test_a_worker_with_no_git_identity_still_publishes_after_losing_a_race(self):
@@ -157,7 +157,7 @@ class Publishing(Repos):
             sh("git", "commit", "-q", "-m", "other writer", cwd=other)
             sh("git", "push", "-q", "origin", "main", cwd=other)
             self.assertTrue(self.io.publish({"id": "job-0003", "status": "ok"}))
-        self.assertEqual(self.results_log()[0], "ct-worker|result job-0003: ok")          # on the remote, on top of the other writer's commit
+        self.assertEqual(self.results_log()[0], "arm-worker|result job-0003: ok")          # on the remote, on top of the other writer's commit
 
     def test_a_push_that_says_up_to_date_without_the_result_on_the_remote_is_not_a_success(self):
         self.io.publish(self.res)
@@ -170,7 +170,7 @@ class Publishing(Repos):
         self.io._run = lying
         self.assertFalse(self.io.publish({"id": "job-0002", "status": "ok"}))               # the worker keeps the result and tries again later
         self.assertIn("push failed", " ".join(self.logged))
-        self.assertEqual(self.results_log(), ["ct-worker|result job-0001: ok"])
+        self.assertEqual(self.results_log(), ["arm-worker|result job-0001: ok"])
 
     def test_a_failing_remote_reports_false_and_logs(self):
         sh("git", "remote", "set-url", "origin", str(self.tmp / "nowhere.git"), cwd=self.tmp / "w-results")

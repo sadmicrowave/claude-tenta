@@ -6,9 +6,9 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winlayout, wintask, wintools  # noqa: E402
+from armada.setup import winlayout, wintask, wintools  # noqa: E402
 
-SETUP = Path(__file__).resolve().parent.parent / "src" / "ct" / "setup"
+SETUP = Path(__file__).resolve().parent.parent / "src" / "armada" / "setup"
 
 
 class Script(unittest.TestCase):
@@ -26,7 +26,7 @@ class Script(unittest.TestCase):
             self.assertIn(needle, self.s)
 
     def test_it_runs_the_tools_python_from_the_release_with_its_own_config_and_logs_to_its_state_folder(self):
-        for needle in (r"tools\python\python.exe", r"release\src", r"config\ct.toml", r"state\worker.log", "-m ct.cli run", "-WorkingDirectory"):
+        for needle in (r"tools\python\python.exe", r"release\src", r"config\armada.toml", r"state\worker.log", "-m armada.cli run", "-WorkingDirectory"):
             self.assertIn(needle, self.s)
 
     def test_the_worker_finds_the_tools_git_because_the_task_puts_it_on_the_workers_own_path(self):
@@ -78,15 +78,15 @@ class PowerShellPitfalls(unittest.TestCase):
 
 
 class Problems(unittest.TestCase):
-    GOOD = {"exists": True, "user": "ctworker", "triggers": ["MSFT_TaskBootTrigger"], "restart_count": 999, "time_limit": "PT0S",
-            "processes": [{"name": "python.exe", "pid": 5, "owner": "BOX\\ctworker"}]}
+    GOOD = {"exists": True, "user": "armworker", "triggers": ["MSFT_TaskBootTrigger"], "restart_count": 999, "time_limit": "PT0S",
+            "processes": [{"name": "python.exe", "pid": 5, "owner": "BOX\\armworker"}]}
 
     def test_a_right_task_has_no_problems(self):
         self.assertEqual(wintask.problems(self.GOOD), [])
 
     def test_each_wrong_thing_is_named(self):
         self.assertIn("not registered", wintask.problems({"exists": False})[0])
-        self.assertIn("not ctworker", wintask.problems({**self.GOOD, "user": "someone"})[0])
+        self.assertIn("not armworker", wintask.problems({**self.GOOD, "user": "someone"})[0])
         self.assertIn("boot trigger", wintask.problems({**self.GOOD, "triggers": []})[0])
         self.assertIn("restart", wintask.problems({**self.GOOD, "restart_count": 0})[0])
         self.assertIn("after PT72H", wintask.problems({**self.GOOD, "time_limit": "PT72H"})[0])

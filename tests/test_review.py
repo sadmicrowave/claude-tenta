@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import perms, review, theme  # noqa: E402
+from armada import perms, review, theme  # noqa: E402
 
 JOB = {"argv": ["eslint", "--max-warnings", "0", "src/"], "what": "Lints the source tree", "why": "before release", "expect": "10 seconds, 200 MB",
        "side_effects": "reads files only", "watch_for": "network access", "flags": {"--max-warnings": "fail if there are more than N warnings"},
@@ -74,13 +74,13 @@ class Layout(unittest.TestCase):
 class Colour(unittest.TestCase):
     def test_plain_unless_a_terminal(self):
         t = text(facts={"binary": "/x"})
-        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "never"}):
             self.assertEqual(review.color_review(t), t)
 
     def test_labels_command_and_warnings_are_coloured(self):
         t = text({**JOB, "packages": ["apt:jq"]}, facts={"binary": "/x", "interpreter": True},
                  package_text="INSTALL REQUIRED. x\n\n    apt-get install jq\n    apt: jq", product="homect")
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
             c = review.color_review(t, product="homect")
         OK_ = theme.sgr("", "strong", "ok")[:-4]; INFO_ = theme.sgr("", "strong", "info")[:-4]
         self.assertIn(OK_, c)                                                     # the command is bold green

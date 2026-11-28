@@ -6,14 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import config, render  # noqa: E402
+from armada import config, render  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
 
 
 def cfg(**env):
-    base = {"CT_SERVER_ADMIN_USER": "ctadmin", "CT_CONFIG": ""}
+    base = {"ARM_SERVER_ADMIN_USER": "ctadmin", "ARM_CONFIG": ""}
     return config.load(None, env={**base, **env})
 
 
@@ -42,7 +42,7 @@ class Units(unittest.TestCase):
         """Found by running the real systemd on every release: systemd has no inline comments, so `AccuracySec=1s  # why` is an invalid value, the whole line is ignored and the timer fires up to a
         minute late (the very thing the comment says the setting prevents). A comment goes on its own line."""
         import re
-        units = render.unit_files(cfg(CT_IDENTITY_NAME="homect", CT_TRANSPORT_KIND="direct"), TEMPLATES)
+        units = render.unit_files(cfg(ARM_IDENTITY_NAME="homect", ARM_TRANSPORT_KIND="direct"), TEMPLATES)
         for name, text in units.items():
             for n, line in enumerate(text.splitlines(), 1):
                 if re.match(r"^[A-Za-z]+=", line):
@@ -54,32 +54,32 @@ class Units(unittest.TestCase):
 
     def test_the_services_that_start_jobs_do_not_set_restrict_suid_sgid(self):
         """Found on Debian 13: with it the jail (bubblewrap 0.12) cannot open /usr and no job runs. A test jail check on the real machine is what caught it."""
-        for unit, text in render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES).items():
+        for unit, text in render.unit_files(cfg(ARM_IDENTITY_NAME="homect"), TEMPLATES).items():
             self.assertNotIn("RestrictSUIDSGID", text, unit)
 
     def test_a_direct_workers_services_may_write_the_mailbox_and_a_github_workers_do_not(self):
         """Found on a real machine: the sandbox stopped the worker pushing results into its own mailbox ('unpacker error'), so no job ever came back."""
-        direct = cfg(CT_IDENTITY_NAME="homect", CT_TRANSPORT_KIND="direct")
+        direct = cfg(ARM_IDENTITY_NAME="homect", ARM_TRANSPORT_KIND="direct")
         for unit in ("homect-fetch.service", "homect-step.service"):
             rw = [l for l in render.unit_files(direct, TEMPLATES)[unit].splitlines() if l.startswith("ReadWritePaths=")][0]
             self.assertIn(" " + direct.path("mailbox") + " ", rw + " ", unit)
-        github = render.unit_files(cfg(CT_IDENTITY_NAME="homect"), TEMPLATES)
+        github = render.unit_files(cfg(ARM_IDENTITY_NAME="homect"), TEMPLATES)
         self.assertTrue(all("-mail" not in t for t in github.values()))
 
     def test_a_shared_computers_limits_are_a_dropin_of_their_own_and_nothing_set_writes_none(self):
         """The jobs run in the step service's cgroup, so its limits keep them from taking a computer other people use. They are a drop-in FILE, never a placeholder in the unit template (see the upgrade guard below)."""
-        plain = cfg(CT_IDENTITY_NAME="homect")
+        plain = cfg(ARM_IDENTITY_NAME="homect")
         self.assertIsNone(render.step_dropin(plain))
         self.assertNotIn("CPUWeight", render.unit_files(plain, TEMPLATES)["homect-step.service"])
-        shared = cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_CPU_WEIGHT="20", CT_AVAILABILITY_IO_WEIGHT="20", CT_AVAILABILITY_MEMORY_MAX_PERCENT="50", CT_AVAILABILITY_NICE="10")
+        shared = cfg(ARM_IDENTITY_NAME="homect", ARM_AVAILABILITY_CPU_WEIGHT="20", ARM_AVAILABILITY_IO_WEIGHT="20", ARM_AVAILABILITY_MEMORY_MAX_PERCENT="50", ARM_AVAILABILITY_NICE="10")
         text = render.step_dropin(shared)
         self.assertIn("[Service]\nCPUWeight=20\nIOWeight=20\nMemoryMax=50%\nNice=10\n", text)
         self.assertEqual(render.step_dropin_path(shared), "/etc/systemd/system/homect-step.service.d/resources.conf")
         self.assertNotIn("CPUWeight", render.unit_files(shared, TEMPLATES)["homect-step.service"])        # the unit itself is byte for byte what it always was
-        self.assertIn("Nice=19\n", render.step_dropin(cfg(CT_IDENTITY_NAME="homect", CT_AVAILABILITY_NICE="19")))
+        self.assertIn("Nice=19\n", render.step_dropin(cfg(ARM_IDENTITY_NAME="homect", ARM_AVAILABILITY_NICE="19")))
 
     # What the updater already installed on a worker knows how to fill. A release is installed by the OLD updater (the installed code renders the NEW templates), so a template that
-    # uses a placeholder outside this set cannot be installed on any worker that runs an older release: seen on the first `ct-admin apply` of {{resources}}, on all three workers
+    # uses a placeholder outside this set cannot be installed on any worker that runs an older release: seen on the first `arm-admin apply` of {{resources}}, on all three workers
     # ("the template uses {{resources}} but no value is defined for it"). Add to this set only with a plan for the workers that cannot be upgraded in one step.
     UPGRADE_SAFE_PLACEHOLDERS = {"name", "worker_user", "admin_user", "alias", "state_root", "worker_home", "lib", "config", "code", "fetch_s", "step_s", "canary_s", "update_min",
                                  "registry_sync_min", "commands", "mailbox_rw", "sandbox"}      # release f4c9ae706
@@ -91,18 +91,18 @@ class Units(unittest.TestCase):
             for key in re.findall(r"\{\{(\w+)\}\}", t.read_text()):
                 used.setdefault(key, []).append(t.name)
         extra = {k: v for k, v in used.items() if k not in self.UPGRADE_SAFE_PLACEHOLDERS}
-        self.assertEqual(extra, {}, "a new template placeholder breaks `ct-admin apply` on workers that run an older release (use a file of its own instead)")
+        self.assertEqual(extra, {}, "a new template placeholder breaks `arm-admin apply` on workers that run an older release (use a file of its own instead)")
 
     def test_every_unit_is_rendered_with_the_installs_names_and_no_placeholder_is_left(self):
-        c = cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1", CT_SCHEDULE_FETCH_S="45", CT_SCHEDULE_UPDATE_MIN="30")
+        c = cfg(ARM_IDENTITY_NAME="homect", ARM_SERVER_WORKER_USER="runner1", ARM_SCHEDULE_FETCH_S="45", ARM_SCHEDULE_UPDATE_MIN="30")
         units = render.unit_files(c, TEMPLATES)
         self.assertEqual(sorted(units), sorted(f"homect-{u}" for u in render.UNITS))
         for name, text in units.items():
             self.assertNotIn("{{", text, name)
-            self.assertNotIn("armada", text, name)                        # nothing of the original install leaks into another's units
+            self.assertNotIn("armada", re.sub(r"armada(\.[a-z_]+|/)", "", text), name)                        # nothing of the original install leaks into another's units
         fetch = units["homect-fetch.service"]
-        for needle in ("User=runner1", "Environment=PYTHONPATH=/opt/homect/lib", "Environment=CT_CONFIG=/etc/homect/ct.toml",
-                       "ReadWritePaths=/var/lib/homect /home/runner1 /tmp -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m ct.cli fetch"):
+        for needle in ("User=runner1", "Environment=PYTHONPATH=/opt/homect/lib", "Environment=ARM_CONFIG=/etc/homect/armada.toml",
+                       "ReadWritePaths=/var/lib/homect /home/runner1 /tmp -/run/sudo -/run/sudo-rs", "ExecStart=/usr/bin/python3 -m armada.cli fetch"):
             self.assertIn(needle, fetch)
         self.assertIn("OnUnitInactiveSec=45", units["homect-fetch.timer"])
         self.assertIn("OnUnitInactiveSec=30min", units["homect-update.timer"])
@@ -137,7 +137,7 @@ class Units(unittest.TestCase):
 
 class Sudoers(unittest.TestCase):
     def test_read_only_commands_without_a_password_and_nothing_else(self):
-        text = render.sudoers_text(cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1"), TEMPLATES)
+        text = render.sudoers_text(cfg(ARM_IDENTITY_NAME="homect", ARM_SERVER_WORKER_USER="runner1"), TEMPLATES)
         self.assertIn("Cmnd_Alias HOMECT_READ = ", text)
         self.assertIn("ctadmin ALL=(runner1) NOPASSWD: HOMECT_READ", text)
         commands = re.search(r"Cmnd_Alias \w+ = (.*)", text).group(1).split(", ")
@@ -148,23 +148,23 @@ class Sudoers(unittest.TestCase):
         self.assertNotIn("NOPASSWD: ALL", text)
 
     def test_no_rule_when_the_admin_prefers_a_password_or_none_is_configured(self):
-        self.assertIsNone(render.sudoers_text(cfg(CT_ACCESS_SUDO="password"), TEMPLATES))
-        self.assertIsNone(render.sudoers_text(config.load(None, env={"CT_CONFIG": ""}), TEMPLATES))
+        self.assertIsNone(render.sudoers_text(cfg(ARM_ACCESS_SUDO="password"), TEMPLATES))
+        self.assertIsNone(render.sudoers_text(config.load(None, env={"ARM_CONFIG": ""}), TEMPLATES))
 
     def test_the_alias_is_a_valid_sudoers_name(self):
-        self.assertRegex(render.alias_for(cfg(CT_IDENTITY_NAME="my-home-ct")), r"^[A-Z][A-Z0-9_]+$")
-        self.assertEqual(render.alias_for(cfg(CT_IDENTITY_NAME="my-home-ct")), "MY_HOME_CT_READ")
+        self.assertRegex(render.alias_for(cfg(ARM_IDENTITY_NAME="my-home-ct")), r"^[A-Z][A-Z0-9_]+$")
+        self.assertEqual(render.alias_for(cfg(ARM_IDENTITY_NAME="my-home-ct")), "MY_HOME_CT_READ")
 
 
 class Wrappers(unittest.TestCase):
     def test_the_cli_wrapper_pins_its_environment_and_passes_arguments_through(self):
-        text = render.cli_wrapper(cfg(CT_IDENTITY_NAME="homect"))
+        text = render.cli_wrapper(cfg(ARM_IDENTITY_NAME="homect"))
         self.assertTrue(text.startswith("#!/bin/sh\n"))
-        self.assertIn("exec env PYTHONPATH='/opt/homect/lib' CT_CONFIG='/etc/homect/ct.toml' /usr/bin/python3 -m ct.cli \"$@\"", text)
+        self.assertIn("exec env PYTHONPATH='/opt/homect/lib' ARM_CONFIG='/etc/homect/armada.toml' /usr/bin/python3 -m armada.cli \"$@\"", text)
 
     def test_the_admin_entry_point_runs_the_cli_as_the_worker_through_sudo(self):
-        text = render.sudo_wrapper(cfg(CT_IDENTITY_NAME="homect", CT_SERVER_WORKER_USER="runner1"))
-        self.assertIn("exec sudo -p '[sudo] password for %p to run ct-worker: ' -u runner1 /opt/homect/bin/homect \"$@\"", text)
+        text = render.sudo_wrapper(cfg(ARM_IDENTITY_NAME="homect", ARM_SERVER_WORKER_USER="runner1"))
+        self.assertIn("exec sudo -p '[sudo] password for %p to run arm-worker: ' -u runner1 /opt/homect/bin/homect \"$@\"", text)
         self.assertNotIn("NOPASSWD", text)
 
 

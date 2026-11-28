@@ -22,24 +22,24 @@ approval is tied to the exact job file you looked at.
 
 | Part | Runs on | What it is |
 |---|---|---|
-| `ct-run` | your computer | queue jobs, read results, test commands (`offload`) |
-| `ct-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
-| `ct-setup` | both | the wizard: `client`, `server`, `audit` |
+| `arm-run` | your computer | queue jobs, read results, test commands (`offload`) |
+| `arm-admin` | your computer | review and approve jobs, manage the registry, install releases; reaches the worker over SSH |
+| `arm-setup` | both | the wizard: `client`, `server`, `audit` |
 | `<name>` (default `armada`) | the worker | the worker's own engine: `fetch`, `step`, `exec` (run by systemd timers) and the admin commands (`status`, `show`, `review`, `quarantine`, `output` need no password; `approve`, `cancel`, `kill`, `unlock` do) |
-| `ct-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
+| `arm-update` | the worker, as root | installs a release (code, units, wrappers, packs, the composed registry) |
 | `canary-watch` | the worker, as root | raises the alarm when auditd sees a decoy credential file being read |
 
 ### Data flow
 
 ```
  your computer                          GitHub (private)                          the worker
- ct-run submit ──push jobs/<id>.json──▶ queue repo, branch `jobs` ◀──fetch (read-only deploy key)── fetch timer
+ arm-run submit ──push jobs/<id>.json──▶ queue repo, branch `jobs` ◀──fetch (read-only deploy key)── fetch timer
                                                                       validate against the INSTALLED registry
                                                                       reject | hold for approval | queue
- ct-admin approve ──ssh──▶ `<name> approve <id> --sha256 <digest>` ──▶ approval recorded for that digest
+ arm-admin approve ──ssh──▶ `<name> approve <id> --sha256 <digest>` ──▶ approval recorded for that digest
                                                                       step timer starts jobs (capacity, load, heat)
                                                                       exec: no-network namespace, limits, shape + scan output
- ct-run result ◀──pull── results repo ◀──push (write deploy key)───── publish result
+ arm-run result ◀──pull── results repo ◀──push (write deploy key)───── publish result
 ```
 
 ### Trust boundaries

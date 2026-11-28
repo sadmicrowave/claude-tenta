@@ -6,7 +6,7 @@ from pathlib import Path
 
 import support  # noqa: F401
 
-ROOT = Path(__file__).resolve().parents[1] / "src" / "ct"
+ROOT = Path(__file__).resolve().parents[1] / "src" / "armada"
 VAGUE = re.compile(r"^(fix|resolve|correct|check|repair)\s+(the|it|that|this)\b|\bsee above\b|\bmessages above\b|--set section\.key", re.I)
 
 
@@ -20,7 +20,7 @@ def step_strings(call):
 
 class Steps(unittest.TestCase):
     def test_no_step_is_a_bare_instruction_to_fix_something(self):
-        from ct import refusals
+        from armada import refusals
         found, bad = 0, []
         for code, entry in refusals.CATALOG.items():                                   # the steps every refusal carries by default
             for text in entry.steps:

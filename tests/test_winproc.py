@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from ct import plat, runner  # noqa: E402
+from armada import plat, runner  # noqa: E402
 
 WIN = os.name == "nt"
 PY = sys.executable
@@ -17,7 +17,7 @@ PY = sys.executable
 
 class Anywhere(unittest.TestCase):
     def test_the_windows_jail_runs_the_command_as_it_is_says_it_is_ready_and_claims_no_isolation(self):
-        from ct import jail
+        from armada import jail
         j = jail.WindowsJobObject()
         self.assertEqual((j.ready(), j.problem()), (True, None))
         self.assertEqual(j.wrap(["a", "b"], network=False, wd="w", home="h"), ["a", "b"])
@@ -25,7 +25,7 @@ class Anywhere(unittest.TestCase):
 
     def test_a_windows_configuration_gets_the_windows_jail_and_a_linux_one_does_not(self):
         from unittest import mock
-        from ct import config, jail
+        from armada import config, jail
         clean, problems = config.validate({"identity": {"name": "armada"}, "server": {"host": "h.example", "admin_user": "me"}})
         cfg = config.Config(clean)
         with mock.patch("os.name", "nt"):
@@ -33,7 +33,7 @@ class Anywhere(unittest.TestCase):
 
     @unittest.skipIf(WIN, "POSIX only")
     def test_a_linux_configuration_does_not_get_the_windows_jail(self):
-        from ct import config, jail
+        from armada import config, jail
         clean, problems = config.validate({"identity": {"name": "armada"}, "server": {"host": "h.example", "admin_user": "me"}})
         self.assertNotEqual(jail.from_config(config.Config(clean)).name, "windows-job")
 
@@ -99,11 +99,11 @@ class OnWindows(unittest.TestCase):
         self.assertIn("memory", note)
 
     def test_the_job_sees_only_the_environment_it_was_given(self):
-        os.environ["CT_SECRET_FOR_TEST"] = "leak"
+        os.environ["ARM_SECRET_FOR_TEST"] = "leak"
         try:
-            status, rc, out, m, note = self.run_it([PY, "-c", "import os; print('SECRET' if 'CT_SECRET_FOR_TEST' in os.environ else 'clean', os.environ['USERPROFILE'], os.environ['TEMP'])"])
+            status, rc, out, m, note = self.run_it([PY, "-c", "import os; print('SECRET' if 'ARM_SECRET_FOR_TEST' in os.environ else 'clean', os.environ['USERPROFILE'], os.environ['TEMP'])"])
         finally:
-            del os.environ["CT_SECRET_FOR_TEST"]
+            del os.environ["ARM_SECRET_FOR_TEST"]
         self.assertEqual(status, "ok", out)
         self.assertIn("clean", out)
         self.assertIn(str(self.home), out)
@@ -119,7 +119,7 @@ class OnWindows(unittest.TestCase):
         path.write_text("x")
         with open(path, "r+") as mine:
             self.assertTrue(plat.try_lock(mine))
-            code = (f"import sys; sys.path.insert(0, r'{Path(__file__).resolve().parents[1] / 'src'}'); from ct import plat; "
+            code = (f"import sys; sys.path.insert(0, r'{Path(__file__).resolve().parents[1] / 'src'}'); from armada import plat; "
                     f"f = open(r'{path}', 'r+'); print(plat.try_lock(f))")
             other = subprocess.run([PY, "-c", code], capture_output=True, text=True).stdout.strip()
             self.assertEqual(other, "False")                                        # held here: refused there

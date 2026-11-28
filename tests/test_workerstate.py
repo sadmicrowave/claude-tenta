@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import workerstate  # noqa: E402
+from armada import workerstate  # noqa: E402
 
 
 class Pieces(unittest.TestCase):
@@ -34,7 +34,7 @@ class Build(unittest.TestCase):
 
     def test_the_environment_and_the_observed_readings_are_kept_apart(self):
         env, doc = workerstate.build(snapshot=self.SNAP, registry={"classes": {"x": {}}}, extra=self.EXTRA, jail=Jail(), locked=False, now_iso="now")
-        self.assertEqual((doc["hardware"]["cores"], doc["isolation"]), (2, {"ready": True, "method": "bwrap", "mode": "full", "purpose": "tenta-only", "tool_roots": []}))
+        self.assertEqual((doc["hardware"]["cores"], doc["isolation"]), (2, {"ready": True, "method": "bwrap", "mode": "full", "purpose": "armada-only", "tool_roots": []}))
         self.assertEqual(doc["classes"], ["x"])
         self.assertEqual(doc["observed"]["load_1m"], 0.2)
         self.assertNotIn("observed", env)
@@ -97,13 +97,13 @@ class ToolCheck(unittest.TestCase):
 
 class LargestJob(unittest.TestCase):
     def test_the_workers_list_shows_the_largest_job_a_worker_accepts_when_it_says_so(self):
-        from ct.admin import workers
+        from armada.admin import workers
         doc = {"v": 1, "updated": "2999-01-01T00:00:00Z", "name": "x", "hardware": {"cores": 4, "mem_total_mb": 8000}, "observed": {"mem_available_mb": 4000, "job_ceiling_mb": 256}, "isolation": {"ready": True}, "classes": []}
-        row = workers.row_for("tenta2", doc)
+        row = workers.row_for("arm2", doc)
         self.assertEqual(row["ceiling"], "256 MB")
         self.assertIn(("Largest job", "256 MB"), workers.fact_rows(row))
         doc["observed"].pop("job_ceiling_mb")
-        self.assertNotIn("Largest job", [k for k, _ in workers.fact_rows(workers.row_for("tenta2", doc))])        # an older worker does not say: no row
+        self.assertNotIn("Largest job", [k for k, _ in workers.fact_rows(workers.row_for("arm2", doc))])        # an older worker does not say: no row
 
 
 class ProfileTimeRow(unittest.TestCase):
@@ -118,7 +118,7 @@ class ProfileTimeRow(unittest.TestCase):
         self.assertNotIn("profile_time", self.doc(None))                        # an older worker does not say
 
     def test_the_workers_list_shows_the_limit_its_basis_and_the_ceiling(self):
-        from ct.admin import workers
+        from armada.admin import workers
         rows = dict(workers.fact_rows(workers.row_for("x", self.doc(self.PT))))
         self.assertEqual(rows["Profile limit"], "estimate x 1.59 x 3; no ceiling; from install, 4 of 4 steps + 2 profile runs")
         shared = dict(workers.fact_rows(workers.row_for("x", self.doc({**self.PT, "ceiling_s": 600, "shared": True, "factor": 1.0, "basis": "none yet"}))))
@@ -129,7 +129,7 @@ class ProfileTimeRow(unittest.TestCase):
 class ListLabelsFit(unittest.TestCase):
     def test_every_label_of_the_workers_list_leaves_a_gap_before_its_value(self):
         """A label as wide as the label column ran into its value (LARGEST JOB1024 MB). Every row a worker can have is built here, so a new longer label fails this."""
-        from ct.admin import workers
+        from armada.admin import workers
         row = {"name": "x", "os": "o", "cpu": "c", "memory": "m", "spend": "s", "state": "st", "release": "r", "load": "l", "age": "a", "ceiling": "1 MB",
                "purpose": "p", "profile_time": "estimate x 1 x 3", "platform": "windows", "held": "busy", "stale": False, "locked": False, "packages": 0}
         labels = [label for label, _ in workers.fact_rows(row, upper=True)]

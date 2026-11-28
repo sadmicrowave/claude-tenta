@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winlayout, wintools  # noqa: E402
+from armada.setup import winlayout, wintools  # noqa: E402
 
 
 class Script(unittest.TestCase):
@@ -16,7 +16,7 @@ class Script(unittest.TestCase):
 
     def test_the_modules_compile_with_no_invalid_escape_in_the_powershell_text(self):
         for name in ("winlayout.py", "wintools.py", "winrelease.py"):
-            src = (Path(__file__).resolve().parent.parent / "src" / "ct" / "setup" / name).read_text(encoding="utf-8")
+            src = (Path(__file__).resolve().parent.parent / "src" / "armada" / "setup" / name).read_text(encoding="utf-8")
             with warnings.catch_warnings():
                 warnings.simplefilter("error")
                 compile(src, name, "exec")
@@ -56,7 +56,7 @@ class Script(unittest.TestCase):
         self.assertEqual(self.s.count("CT-RESULT "), 1)
 
     def test_only_a_plain_folder_and_a_plain_account_name_get_into_the_script(self):
-        for bad in ("a b'c", "9abc", "AB", "x" * 21, "a;b", "ct worker"):
+        for bad in ("a b'c", "9abc", "AB", "x" * 21, "a;b", "armada worker"):
             with self.assertRaises(ValueError):
                 winlayout.ensure_script(user=bad)
         for bad in (r"C:\..\x", "C:\\x'y", "relative"):
@@ -65,7 +65,7 @@ class Script(unittest.TestCase):
 
 
 class Problems(unittest.TestCase):
-    GOOD = {"user": "ctworker", "user_exists": True, "enabled": True, "is_admin": False, "dirs": {"tools": True, "release": True}}
+    GOOD = {"user": "armworker", "user_exists": True, "enabled": True, "is_admin": False, "dirs": {"tools": True, "release": True}}
     PROBE = {"reads_tools": True, "reads_release": True, "writes_jobs": True, "writes_release": False, "writes_config": False, "writes_tools": False, "is_admin": False}
 
     def test_a_right_layout_has_no_problems(self):
@@ -92,7 +92,7 @@ class Calls(unittest.TestCase):
 
         def runner(argv, text):
             seen.append((argv, text))
-            return 0, 'CT-RESULT {"changed": true, "user": "ctworker", "probe": null}'
+            return 0, 'CT-RESULT {"changed": true, "user": "armworker", "probe": null}'
         got = winlayout.ensure(runner)
         self.assertEqual(got["changed"], True)
         self.assertEqual(seen[0][0], wintools.POWERSHELL)

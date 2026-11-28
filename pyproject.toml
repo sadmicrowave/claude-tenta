@@ -12,13 +12,13 @@ requires-python = ">=3.11"
 dependencies = ["PyYAML>=6.0"]          # for the commands on your computer (the registry is YAML). The worker's own code runs on the system python and needs only the standard library plus python3-yaml, which the installer provides
 
 [project.scripts]
-ct-run = "ct.client.cli:main"
-ct-admin = "ct.admin.cli:main"
-ct-setup = "ct.setup.cli:main"
-ct-help = "ct.help:main"
+arm-run = "armada.client.cli:main"
+arm-admin = "armada.admin.cli:main"
+arm-setup = "armada.setup.cli:main"
+arm-help = "armada.help:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ct.client" = ["ignore_templates/**/*"]
+"armada.client" = ["ignore_templates/**/*"]

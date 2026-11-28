@@ -1,4 +1,4 @@
-"""ct-worker: signed approvals, privileged jobs and signed orders."""
+"""arm-worker: signed approvals, privileged jobs and signed orders."""
 import unittest
 import json
 import subprocess
@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import approvals  # noqa: E402
+from armada import approvals  # noqa: E402
 from support import REGISTRY, IP, Base, sh, ssh_key  # noqa: E402
 
 

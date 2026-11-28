@@ -7,13 +7,13 @@ root, automatic security updates, tripwires. Here it is **part of setting up**, 
 one at a time, says in plain words what it does and **how it could lock you out**, shows the exact commands, applies it and checks that it worked. A
 protection that could lock you out refuses to run until it is safe (for example, it will not turn off password logins until your SSH key is installed).
 
-Later, `ct-setup audit` checks every protection again and tells you if anything has drifted.
+Later, `arm-setup audit` checks every protection again and tells you if anything has drifted.
 
 ## Technical specification
 
 ### Module interface
 
-Each module is a class in `src/ct/setup/hardening.py`, registered by `@module`:
+Each module is a class in `src/armada/setup/hardening.py`, registered by `@module`:
 
 | Member | Purpose |
 |---|---|
@@ -39,7 +39,7 @@ and check again. Steps never go through a shell, and the same steps are what is 
 | `state-permissions` | state folder and `secrets.env` are not readable by other accounts | |
 | `job-isolation` | a real jailed command runs as the worker and sees only loopback; `bwrap` is not setuid; on Ubuntu 24.04+ `kernel.apparmor_restrict_unprivileged_userns` is `1` | installs `bubblewrap` if missing; writes `61-<name>-userns.conf` and sets the sysctl back to `1` (Ubuntu's default) |
 
-`hardening.modules` in `ct.toml` chooses which are offered; the default set is `job-isolation`, `ssh-keys-only`, `ufw-lan-egress`, `auditd-canaries`,
+`hardening.modules` in `armada.toml` chooses which are offered; the default set is `job-isolation`, `ssh-keys-only`, `ufw-lan-egress`, `auditd-canaries`,
 `no-root-equivalent-groups`, `unattended-upgrades`.
 
 ### The firewall

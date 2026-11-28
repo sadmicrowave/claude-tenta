@@ -3,12 +3,12 @@ import unittest
 
 import support  # noqa: F401
 from test_setup import FakeHost, cfg_of
-from ct import config, render, transport
-from ct.setup import migrate
-from ct.setup.host import Result
-from ct.setup.server import SetupError
+from armada import config, render, transport
+from armada.setup import migrate
+from armada.setup.host import Result
+from armada.setup.server import SetupError
 
-PUB = "ssh-ed25519 AAAAC3Nza ct-mailbox"
+PUB = "ssh-ed25519 AAAAC3Nza arm-mailbox"
 
 
 class Installed(unittest.TestCase):
@@ -22,7 +22,7 @@ class Installed(unittest.TestCase):
             self.h.put(f"/etc/systemd/system/{self.cfg.unit(part)}", "[Unit]\n")
         for which in ("queue", "results"):
             self.h.put(self.cfg.path(f"{which}_clone") + "/.git/HEAD", "ref: refs/heads/main\n")
-        self.h.put("/opt/src/src/ct/__init__.py", "")
+        self.h.put("/opt/src/src/armada/__init__.py", "")
         self.said = []
 
     def mg(self, to="direct", **kw):
@@ -87,7 +87,7 @@ class Refusals(Installed):
     def test_going_back_to_github_is_refused_with_the_way_to_do_it(self):
         self.cfg = cfg_of(alerts={"kind": "none"}, transport={"kind": "direct"})
         e = self.refused(self.mg(to="github"))
-        self.assertIn("ct-setup install", " ".join(e.steps))
+        self.assertIn("arm-setup install", " ".join(e.steps))
 
     def test_an_unknown_method_is_refused(self):
         e = self.refused(self.mg(to="carrier-pigeon"))
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
 
 class TransportCommandAlreadyThere(unittest.TestCase):
-    """Found by the move route on a real machine: `ct-setup transport direct` on a Direct install said 'already uses that NAME' (the rename wording)."""
+    """Found by the move route on a real machine: `arm-setup transport direct` on a Direct install said 'already uses that NAME' (the rename wording)."""
 
     def test_it_says_method_not_name(self):
         import argparse

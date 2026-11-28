@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import cards, ui, words
+from armada import cards, ui, words
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
+SRC = Path(__file__).resolve().parents[1] / "src" / "armada"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
@@ -91,21 +91,21 @@ class OneOutline(unittest.TestCase):
         self.assertEqual(bad, [], "draw it with cards.card (or add a reason to ALLOWED)")
 
     def test_a_card_with_nothing_in_it_is_a_line_not_an_empty_frame(self):
-        lines = cards.card("status: tenta2", [], tag="WORKER", color=ui.PRIMARY)
+        lines = cards.card("status: arm2", [], tag="WORKER", color=ui.PRIMARY)
         plain = [ANSI.sub("", ln).strip() for ln in lines if ln.strip()]
         self.assertEqual(len(plain), 1, plain)
-        self.assertTrue(plain[0].startswith("── status: tenta2") and plain[0].endswith("WORKER"), plain)
+        self.assertTrue(plain[0].startswith("── status: arm2") and plain[0].endswith("WORKER"), plain)
 
     def test_the_workers_list_is_one_framed_card_per_worker(self):
-        from ct.admin import workers
-        row = {"name": "tenta2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
+        from armada.admin import workers
+        row = {"name": "arm2", "os": "ubuntu 24.04", "cpu": "2 cores", "memory": "2 of 3 GB free", "spend": "0/20 jobs", "state": "jail ON", "release": "f4c9ae706", "load": "0.00",
                "age": "5 min ago", "locked": False, "stale": False, "packages": 0, "classes": 3}
-        out = [ANSI.sub("", x) for x in workers.cards([row, {**row, "name": "tenta3", "locked": True}], width=80, color=True)]
+        out = [ANSI.sub("", x) for x in workers.cards([row, {**row, "name": "arm3", "locked": True}], width=80, color=True)]
         self.assertEqual(sum(x.startswith("╭─") for x in out), 2)
         self.assertEqual(sum(x.startswith("╰") for x in out), 2)
         self.assertFalse(any("┃" in x for x in out))
-        self.assertTrue(any(x.startswith("╭─ tenta2") and x.rstrip().endswith("WORKER ─╮") for x in out))
-        self.assertTrue(any(x.startswith("╭─ tenta3") and x.rstrip().endswith("LOCKED ─╮") for x in out))
+        self.assertTrue(any(x.startswith("╭─ arm2") and x.rstrip().endswith("WORKER ─╮") for x in out))
+        self.assertTrue(any(x.startswith("╭─ arm3") and x.rstrip().endswith("LOCKED ─╮") for x in out))
 
 
 class AFleetCommandSaysWhatHappenedOnce(unittest.TestCase):
@@ -114,7 +114,7 @@ class AFleetCommandSaysWhatHappenedOnce(unittest.TestCase):
     def test_the_summary_names_who_was_updated_who_was_current_and_who_was_left_alone(self):
         import io
         from contextlib import redirect_stdout
-        from ct.admin import cli
+        from armada.admin import cli
         out = io.StringIO()
         with redirect_stdout(out):
             cli.fleet_apply_summary([("a", "current"), ("b", "installed"), ("c", "left")], "f" * 40)
@@ -127,7 +127,7 @@ class FooterWords(unittest.TestCase):
     """Standing rules on the command footer: it says 'From here you can' (one definition), and the clipboard note does not tell the person to paste (the line above already says it was copied)."""
 
     def test_the_footer_title_is_defined_once_and_says_you_can(self):
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         hits = [f"{f.relative_to(root)}:{n}" for f in root.rglob("*.py") for n, l in enumerate(f.read_text().splitlines(), 1) if '"From here"' in l and "title=" in l]
         self.assertEqual(hits, [], "the footer's words live in ui.related only")
         self.assertIn('title="From here you can"', (root / "ui.py").read_text())
@@ -145,7 +145,7 @@ class NamesAreValuesNeverKeys(unittest.TestCase):
     FIXED = {"cli.py": {"c"}, "client/cli.py": {"k.capitalize()", "what"}, "client/view.py": {"word"}}                 # the command names in help, the fixed words of a job's facts and of the status legend
 
     def test_no_card_row_is_labelled_by_something_a_person_named(self):
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         funs, bad = {"emit", "notice", "card", "say", "Card"}, []
         name = lambda f: f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")               # noqa: E731
         for f in root.rglob("*.py"):
@@ -176,8 +176,8 @@ class NamesAreValuesNeverKeys(unittest.TestCase):
         return text
 
     def test_where_keeps_long_worker_names_whole_and_the_label_column_fixed(self):
-        from ct import sched
-        from ct.client import place
+        from armada import sched
+        from armada.client import place
         ch = sched.Choice("a", [("a", "CHOSEN", "free"), (self.LONG_HOST, "left out", "is reserved for sys-status"), ("b", "not chosen", "a is less loaded")])
         text = self.render(place.rows(ch))
         self.assertIn(self.LONG_HOST, text)
@@ -188,8 +188,8 @@ class NamesAreValuesNeverKeys(unittest.TestCase):
         self.assertIn("\x1b[", green)                                                                 # drawn as a chip (colour is on in the card renderer)
 
     def test_use_lists_each_workers_commands_under_it_with_no_command_label(self):
-        from ct.client import cli, here
-        pins = here.Pins(Path("/tmp/x/.tenta.toml"), worker=self.LONG_HOST, commands={self.LONG_SLUG: self.LONG_HOST, "nmap": "tenta3"})
+        from armada.client import cli, here
+        pins = here.Pins(Path("/tmp/x/.armada.toml"), worker=self.LONG_HOST, commands={self.LONG_SLUG: self.LONG_HOST, "nmap": "arm3"})
         text = self.render(cli.use_rows(pins))
         for needle in (self.LONG_HOST, self.LONG_SLUG, "JOBS WORKER", "WORKER"):
             self.assertIn(needle, text)
@@ -221,7 +221,7 @@ class NamesAreValuesNeverKeys(unittest.TestCase):
 
     def test_the_classes_lists_have_fixed_labels_and_names_as_values(self):
         import io
-        from ct.client import view
+        from armada.client import view
         info = {"cost": "light", "tier": "auto", "kind": "command", "run": ["x"]}
         out = io.StringIO()
         view.render_fleet_classes({self.LONG_SLUG: {"info": info, "offered_by": [self.LONG_HOST], "dedicated": None}}, out=out)
@@ -275,7 +275,7 @@ class NamesNeverInTitles(unittest.TestCase):
                ("setup/cli.py", "'Apply' if chose else 'Skip'"), ("setup/cli.py", "mod.title")}      # the wizard's own streamed lines
 
     def test_no_card_title_carries_a_name(self):
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         name = lambda f: f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")               # noqa: E731
         bad = []
         for f in sorted(root.rglob("*.py")):
@@ -296,46 +296,46 @@ class FoundInTheFleetLog(unittest.TestCase):
     def test_an_admin_error_shows_its_labelled_rows_like_every_other_error(self):
         import io
         from contextlib import redirect_stderr, redirect_stdout
-        from ct.admin import cli as admin_cli
-        from ct.client.repo import ClientError
+        from armada.admin import cli as admin_cli
+        from armada.client.repo import ClientError
         out = io.StringIO()
         with redirect_stdout(out), redirect_stderr(out):
             admin_cli.fail_from(ClientError("There is no such worker", "why", facts=[("Name", "nope")]))
-        self.assertIn("nope", out.getvalue())                                           # the first version dropped every fact in ct-admin
+        self.assertIn("nope", out.getvalue())                                           # the first version dropped every fact in arm-admin
 
     def test_a_usage_error_has_a_fixed_title_and_what_was_typed_as_rows(self):
-        from ct import clihelp
-        ap = clihelp.Parser(prog="ct-run", add_help=False)
+        from armada import clihelp
+        ap = clihelp.Parser(prog="arm-run", add_help=False)
         sp = ap.add_subparsers(dest="cmd")
         sp.add_parser("where")
         try:
             ap.parse_args(["bogus-command"])
         except clihelp.UsageError as e:
-            title, why, steps, example, facts = clihelp.usage_problem(e, "ct-run")
+            title, why, steps, example, facts = clihelp.usage_problem(e, "arm-run")
         self.assertEqual(title, "That is not a command")
         self.assertIn(("Command", "bogus-command"), facts)
 
     def test_a_word_that_ends_in_a_colon_is_prose_not_part_of_a_command(self):
-        self.assertEqual(cards.code_spans("ct-run accepts: setup, submit."), "`ct-run` accepts: setup, submit.")
+        self.assertEqual(cards.code_spans("arm-run accepts: setup, submit."), "`arm-run` accepts: setup, submit.")
 
 
 class SyntaxErrorsCarryTheCommandsSyntax(unittest.TestCase):
     """Every command syntax error says in TRY what the right syntax is and where the full help is (not only 'choose one of')."""
 
     def test_a_wrong_verb_gets_usage_and_the_help_pointer(self):
-        from ct import clihelp
-        ap = clihelp.Parser(prog="ct-admin", add_help=False)
+        from armada import clihelp
+        ap = clihelp.Parser(prog="arm-admin", add_help=False)
         sp = ap.add_subparsers(dest="cmd")
         c = sp.add_parser("class", add_help=False)
         c.add_argument("verb", choices=["set", "show"])
         try:
             ap.parse_args(["class", "bogus"])
         except clihelp.UsageError as e:
-            title, why, steps, example, facts = clihelp.usage_problem(e, "ct-admin")
+            title, why, steps, example, facts = clihelp.usage_problem(e, "arm-admin")
         text = " ".join(steps)
         self.assertIn("Choose one of: set, show", text)
-        self.assertIn("Usage: ct-admin class", text)
-        self.assertIn("ct-admin help class", text)
+        self.assertIn("Usage: arm-admin class", text)
+        self.assertIn("arm-admin help class", text)
         self.assertIn(("Verb", "bogus"), facts)                                          # the argument is named by what it is (verb), not 'option'
         self.assertIsNone(example)                                                          # no copied 'did you mean' with placeholders when nothing is close
 
@@ -359,9 +359,9 @@ class HelpIsAlphabetical(unittest.TestCase):
                 heads[cur].append(re.match(r"^[│┃]?\s{1,2}([a-z][a-z-]+)", line).group(1))
         return heads
 
-    def test_ct_admin_and_ct_run_list_their_commands_alphabetically(self):
-        from ct.admin import cli as admin_cli
-        from ct.client import cli as run_cli
+    def test_arm_admin_and_arm_run_list_their_commands_alphabetically(self):
+        from armada.admin import cli as admin_cli
+        from armada.client import cli as run_cli
         for main in (admin_cli.main, run_cli.main):
             heads = self.commands_under_headings(main)
             self.assertTrue(heads)
@@ -369,32 +369,32 @@ class HelpIsAlphabetical(unittest.TestCase):
                 self.assertEqual(names, sorted(names), f"{head}")
 
     def test_leftover_words_are_reported_against_the_subcommand_they_followed(self):
-        from ct import clihelp
-        ap = clihelp.Parser(prog="ct-run", add_help=False)
+        from armada import clihelp
+        ap = clihelp.Parser(prog="arm-run", add_help=False)
         sp = ap.add_subparsers(dest="cmd")
         u = sp.add_parser("use", add_help=False)
         u.add_argument("worker", nargs="?")
         try:
             ap.parse_args(["use", "w", "--bogus"])
         except clihelp.UsageError as e:
-            title, why, steps, example, facts = clihelp.usage_problem(e, "ct-run")
-        self.assertIn(("Command", "ct-run use"), facts)
-        self.assertTrue(any("ct-run help use" in x for x in steps))
+            title, why, steps, example, facts = clihelp.usage_problem(e, "arm-run")
+        self.assertIn(("Command", "arm-run use"), facts)
+        self.assertTrue(any("arm-run help use" in x for x in steps))
 
 
 class JobsListKeepsNamesAsValues(unittest.TestCase):
     def test_a_long_job_id_class_and_worker_never_widen_anything(self):
         import io
         from datetime import datetime, timezone
-        from ct import ui
-        from ct.client import view
+        from armada import ui
+        from armada.client import view
         old = ui._color_on
         ui._color_on = lambda s: True
         try:
             out = io.StringIO()
             long_class, long_worker = "integration-test-suite-nightly-regression", "a-very-long-worker-hostname-for-the-lab.example"
             rows = [(datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc), "ok", f"{long_class}-abc123", "", long_class), (datetime(2026, 11, 19, 11, 0, tzinfo=timezone.utc), "error", "custom-id", "it failed", "sys-status")]
-            view.render_status(rows, {}, lambda jid, cls: cls, [], n=None, out=out, where={rows[0][2]: long_worker, "custom-id": "tenta3"})
+            view.render_status(rows, {}, lambda jid, cls: cls, [], n=None, out=out, where={rows[0][2]: long_worker, "custom-id": "arm3"})
         finally:
             ui._color_on = old
         text = re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
@@ -413,7 +413,7 @@ class TablesKeepNamesLast(unittest.TestCase):
     NAMED = {"job", "name", "branch", "worker", "class", "host", "worker name"}
 
     def test_no_table_has_a_named_column_before_its_last(self):
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         bad = []
         for f in root.rglob("*.py"):
             for call in ast.walk(ast.parse(f.read_text())):

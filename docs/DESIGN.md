@@ -6,10 +6,10 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
 ## Principles
 
 1. **Secure by provisioning, not by fixing.** Nothing in the hardening list is a post-install "fix". The wizard asks plain questions, writes the
-   answers to `ct.toml`, and applies the matching hardening while it builds the machine: key-only SSH, no root-equivalent groups for the admin
+   answers to `armada.toml`, and applies the matching hardening while it builds the machine: key-only SSH, no root-equivalent groups for the admin
    account, isolation that fails closed, restricted file modes, sandboxed units. A user never has to know which commands to run, or in what order.
-2. **Questions in, config out.** The wizard's job is to turn answers into a config file and then converge the machine to it. `ct-setup apply`
-   can be re-run at any time and is idempotent; `ct-setup audit` reports drift from the config.
+2. **Questions in, config out.** The wizard's job is to turn answers into a config file and then converge the machine to it. `arm-setup apply`
+   can be re-run at any time and is idempotent; `arm-setup audit` reports drift from the config.
 3. **Every root-run change is verified.** After installing a new version the tool runs a self-test job end to end and offers an automatic
    rollback to the previous version if it fails, so hardening can never silently strand the worker.
 4. **Quiet is not safe.** Alerts are short and carry no environment detail; a locked worker sends reminders (default after 1, 6, 24 hours, then daily,
@@ -24,38 +24,38 @@ hardened by default, and can extend it (job classes, hardening steps, off-limits
 | `<user>/armada-results` (results mailbox) | created by the wizard, private | no |
 
 The wizard creates the two private repos under the user's account (with `gh` if present, otherwise it prints exact steps), adds a read-only
-deploy key to the queue repo and a write deploy key to the results repo, and writes the names into `ct.toml`. The software is installed
+deploy key to the queue repo and a write deploy key to the results repo, and writes the names into `armada.toml`. The software is installed
 from this public repo at a pinned, signed release; the private repos hold **data and policy only, never code**. (That also removes the need
 for the worker to trust a code path through a repo the user pushes jobs to.)
 
 ## Configuration
 
-Three layers, later wins: built-in defaults, `ct.toml` (non-secret, one per install), environment variables (`CT_*`).
+Three layers, later wins: built-in defaults, `armada.toml` (non-secret, one per install), environment variables (`ARM_*`).
 Secrets (API key, ntfy token) live only in `secrets.env` (mode 0600, root:worker), are never rendered into units or commands, and are
 loaded through `EnvironmentFile=`.
 
-`ct.toml` lives at `~/.config/armada/ct.toml` on the client and `/etc/armada/ct.toml` on the server. Both are gitignored.
-A JSON Schema (`config/ct.schema.json`) validates it; the same validation runs in the wizard, in `ct check`, and before any template render.
+`armada.toml` lives at `~/.config/armada/armada.toml` on the client and `/etc/armada/armada.toml` on the server. Both are gitignored.
+A JSON Schema (`config/armada.schema.json`) validates it; the same validation runs in the wizard, in `armada check`, and before any template render.
 Every value that reaches a shell, a unit file, a sudoers line or a firewall rule must match a strict pattern from the schema
 (hostnames, usernames, paths, ports, CIDRs); nothing is interpolated unvalidated.
 
 ```toml
-# config/ct.example.toml  (documentation values only)
+# config/armada.example.toml  (documentation values only)
 [identity]
-name        = "ct"                    # prefix for units, users, dirs
+name        = "armada"                    # prefix for units, users, dirs
 [server]
 host        = "worker.example.lan"    # or IP; the client SSHes here
 admin_user  = "ctadmin"               # human admin on the server (needs a password to sudo)
-worker_user = "ctworker"              # unprivileged user that runs jobs
+worker_user = "armworker"              # unprivileged user that runs jobs
 [github]
 owner       = "your-github-handle"
 queue_repo  = "armada-queue"
 results_repo= "armada-results"
 [paths]
-code   = "/opt/ct"
-state  = "/var/lib/ct"
-config = "/etc/ct"
-client_home = "~/.ct"
+code   = "/opt/armada"
+state  = "/var/lib/armada"
+config = "/etc/armada"
+client_home = "~/.armada"
 [hardware]
 profile      = "small-server"         # old-laptop | small-server | workstation | custom
 capacity     = 4
@@ -67,10 +67,10 @@ require_netns = true                  # refuse to run a no-network class if isol
 method        = "systemd-run"         # systemd-run | unshare
 [alerts]
 kind   = "ntfy"                       # none | ntfy | webhook | email
-url    = "https://ntfy.example.com/ct-alerts"
+url    = "https://ntfy.example.com/arm-alerts"
 remind_hours = [1, 6, 24]             # reminders while locked; then every `remind_repeat_h`
 remind_repeat_h = 24
-# the access token, if any, lives in secrets.env (CT_ALERT_TOKEN), never here
+# the access token, if any, lives in secrets.env (ARM_ALERT_TOKEN), never here
 [policy]
 packs  = ["core"]                     # off-limits rule packs, see below
 [registry]
@@ -95,13 +95,13 @@ Search path: built-in `packs/`, then `~/.config/armada/packs/` (client side draf
 
 Rules that keep extensibility from becoming a hole:
 
-1. **Applying a pack is an admin action** with a diff and a digest, exactly like `ct-admin apply` is today. Packs can contain code (hardening
+1. **Applying a pack is an admin action** with a diff and a digest, exactly like `arm-admin apply` is today. Packs can contain code (hardening
    modules run as root), so third-party packs are shown in full, pinned by commit, and optionally require a signed tag.
 2. **Policy can only tighten.** Merge order is core, then packs; for any key a `deny` wins over an `allow`, ceilings take the minimum,
    `locked = true` entries in core cannot be overridden. A pack cannot remove a core off-limits rule or a canary rule.
 3. **Classes are declarative.** argv + typed params only; no shell strings, no inline scripts. A class declares `network`, `cost`, limits,
    `output_keys`, `output_allow`, `packages` (pinned). Classes whose risk is `high` (network, sudo, files in) default to `tier: approve`.
-4. **Every pack has tests**: a `tests/` folder run by `ct pack test <name>` with a fake runner, so contributors can check a class without a server.
+4. **Every pack has tests**: a `tests/` folder run by `armada pack test <name>` with a fake runner, so contributors can check a class without a server.
 
 ### Off-limits parameters and consideration requirements (`policy/*.toml`)
 
@@ -119,7 +119,7 @@ reason = "path traversal"
 when   = { network = true }
 reason = "job can reach the network"
 
-[[require.consideration]]   # prompts the admin must answer in `ct-admin approve` (recorded in the security log)
+[[require.consideration]]   # prompts the admin must answer in `arm-admin approve` (recorded in the security log)
 when   = { class_kind = "profile" }
 ask    = "Is the command you are about to approve the one you meant?"
 
@@ -130,28 +130,28 @@ max_files_kb  = 2000
 
 ## Hardening modules
 
-Each module is a small Python class in `src/ct/setup/hardening.py` (id, title, plain-words explanation, risk of lockout), with `check` (read-only: is it already true, and if not why),
+Each module is a small Python class in `src/armada/setup/hardening.py` (id, title, plain-words explanation, risk of lockout), with `check` (read-only: is it already true, and if not why),
 `preflight` (a reason not to apply it now, such as no SSH key installed), `plan` (the exact steps, as data) and `revert`. This replaced the earlier idea of
 per-module scripts: steps as data can be shown before they run, run against a fake machine in tests, and never go through a shell. The wizard runs `check` for every module,
 explains the ones that fail, asks one question each, shows the exact commands, applies, re-runs `check`, and records the result in
-`/etc/<name>/hardening.json`. `ct-setup audit` re-runs all checks any time and reports drift.
+`/etc/<name>/hardening.json`. `arm-setup audit` re-runs all checks any time and reports drift.
 
 Initial set, from the review: `ssh-keys-only`, `no-root-equivalent-groups`, `ufw-lan-egress` (generated from config, IPv4 and IPv6),
 `netns-required`, `auditd-canaries`, `unattended-upgrades`, `state-permissions`, `unit-sandboxing`, `tcp-listeners-audit`.
 
-## The wizard (`ct-setup`)
+## The wizard (`arm-setup`)
 
 Two halves; the second runs on the server (over SSH from the first, or directly on the box). Every step prints the commands before it runs them,
-supports `--dry-run`, can be resumed (state in `ct-setup.state`), and is idempotent.
+supports `--dry-run`, can be resumed (state in `arm-setup.state`), and is idempotent.
 
-**Client half** (`ct-setup client`)
+**Client half** (`arm-setup client`)
 1. Check prerequisites: Python 3.9+, git, ssh, optional `gh`.
 2. Ask: server address, admin username, GitHub account, names for the two private repos. Default every answer to a safe, generic value.
 3. Create an SSH key if none exists; test login; offer `ssh-copy-id`.
 4. Create the two private repos (`gh repo create --private`, or print the instructions), add deploy keys when the server half has produced them.
-5. Write `ct.toml`, install the `ct-*` commands, offer the offload skill.
+5. Write `armada.toml`, install the `arm-*` commands, offer the offload skill.
 
-**Server half** (`ct-setup server`)
+**Server half** (`arm-setup server`)
 1. Detect OS and version, RAM, cores, disk, sensors, sudo flavour, systemd, existing groups and listeners. Refuse unsupported OSes with a clear message.
 2. Suggest a hardware profile from what was found; show every threshold it implies and let the user change them.
 3. Create the two users and directories with correct modes; install the code from a pinned release; render and validate units.
@@ -162,18 +162,18 @@ supports `--dry-run`, can be resumed (state in `ct-setup.state`), and is idempot
 
 ## Sudo ergonomics (replaces `sudoers-session`)
 
-*Decided and built: option 2 (read-only commands without a password, everything else asks), `access.sudo = "readonly-nopasswd"`. `ct-admin` shares one SSH connection for at most a minute so a single command asks once. Options 1 and 3 remain ideas.*
+*Decided and built: option 2 (read-only commands without a password, everything else asks), `access.sudo = "readonly-nopasswd"`. `arm-admin` shares one SSH connection for at most a minute so a single command asks once. Options 1 and 3 remain ideas.*
 
 Problem: many back-to-back admin commands each prompt for the sudo password. The current fix does not work on sudo-rs and, where it does,
 gives root to every process of the admin user for 15 minutes. Options, in order of preference:
 
 1. **One session, many commands (an idea, not built).** A `session` command would open a single `ssh -t` with one shell on the server; sudo then caches the
-   password for that terminal using its normal timeout, and `ct-admin` runs its batch inside it. Works on sudo and sudo-rs, no sudoers change.
-2. **Narrow NOPASSWD for read-only wrappers.** `ct-status`, `ct-show`, `ct-review` run as the worker user and change nothing; allow exactly those
+   password for that terminal using its normal timeout, and `arm-admin` runs its batch inside it. Works on sudo and sudo-rs, no sudoers change.
+2. **Narrow NOPASSWD for read-only wrappers.** `arm-status`, `arm-show`, `arm-review` run as the worker user and change nothing; allow exactly those
    (full path, no wildcard arguments) without a password. State-changing commands (`apply`, `approve`, `unlock`, `kill`) keep the password.
 3. **No caching** for people who prefer it.
 
-Whichever is chosen is recorded in `ct.toml` and verified by `ct-setup audit`. No `!tty_tickets`, no long timestamps.
+Whichever is chosen is recorded in `armada.toml` and verified by `arm-setup audit`. No `!tty_tickets`, no long timestamps.
 
 ## Privacy guard (what keeps the public repo clean)
 
@@ -182,7 +182,7 @@ Whichever is chosen is recorded in `ct.toml` and verified by `ct-setup audit`. N
   (`~/.config/armada-dev/denylist`) catches your own handle, names and hostnames without publishing them.
 - It also refuses to commit unless the git author is a `users.noreply.github.com` address.
 - Documentation and tests use reserved example values only (`192.0.2.0/24`, `example.com`).
-- `.gitignore` excludes `ct.toml`, `secrets.env`, state, results, jobs and keys.
+- `.gitignore` excludes `armada.toml`, `secrets.env`, state, results, jobs and keys.
 - The old private repos are never pushed here; code is brought across by hand, parameterized, with a fresh history.
 
 ## Roadmap (order of work; the live install keeps running throughout)
@@ -191,7 +191,7 @@ Whichever is chosen is recorded in `ct.toml` and verified by `ct-setup audit`. N
 2. Fix the H and M review items in the ported code (S1-S10) behind tests.
 3. Pack loader, policy merge, hardening module runner; migrate `registry.yaml` into `packs/core` and personal classes into a user-private pack.
 4. Wizard, server half then client half; clean-VM end-to-end test in CI.
-5. Docs generated from schema and modules; signed releases; `ct-setup audit`.
+5. Docs generated from schema and modules; signed releases; `arm-setup audit`.
 6. Migrate the original live install to the packaged build as the first real user.
 
 ## Open questions

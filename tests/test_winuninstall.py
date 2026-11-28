@@ -1,4 +1,4 @@
-"""Removing a Windows worker (src/ct/setup/winremove.py, winuninstall.py, and the route in cli.py; scope: docs/design/WINDOWS-UNINSTALL.md). The PowerShell cannot run here, so its text is checked for the decisions
+"""Removing a Windows worker (src/armada/setup/winremove.py, winuninstall.py, and the route in cli.py; scope: docs/design/WINDOWS-UNINSTALL.md). The PowerShell cannot run here, so its text is checked for the decisions
 that matter; the order, what is written on THIS computer, and the failure messages run through a runner that answers each script by what it contains."""
 import json
 import tempfile
@@ -8,10 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import support  # noqa: F401
-from ct import config
-from ct.admin import workers as workers_mod
-from ct.setup import cli, winremove, winuninstall, wintools
-from ct.setup.server import SetupError
+from armada import config
+from armada.admin import workers as workers_mod
+from armada.setup import cli, winremove, winuninstall, wintools
+from armada.setup.server import SetupError
 
 ANSWERS = [("Unregister-ScheduledTask", {"task": "armada-worker", "removed": True}), ("sshd -t", {"user": "win-mail", "removed": True, "mailbox_kept": True}),
            ("$keepData", {"python": "uninstalled (exit 0)", "rights": 2, "profile": True, "account": True, "folders": ["tools", "release", "config", "mail"], "kept": []})]
@@ -74,10 +74,10 @@ class Script(unittest.TestCase):
 def fixture(tmp, home=None):
     conf = tmp / "cfg" / "win.toml"
     conf.parent.mkdir(parents=True)
-    home = home or tmp / "ct" / "workers" / "win"
+    home = home or tmp / "armada" / "workers" / "win"
     (home / "mailbox").mkdir(parents=True)
     (home / "mailbox" / "key").write_text("k")
-    from ct.setup import winfiles
+    from armada.setup import winfiles
     conf.write_text(winfiles.windows_config("win", "192.0.2.50", "me", client_home=str(home)))
     wfile = tmp / "cfg" / "workers.toml"
     workers_mod.save_list(wfile, {"win": str(conf), "other": str(tmp / "cfg" / "other.toml")})
@@ -115,7 +115,7 @@ class Run(unittest.TestCase):
         self.assertEqual(r.run_all()[-1][1], "planned")
         self.assertEqual(self.sent, [])
         self.assertTrue(self.home.exists() and Path(self.cfg.source).exists())
-        self.assertIn(("Remove account", "ctworker"), r.rows())
+        self.assertIn(("Remove account", "armworker"), r.rows())
         self.assertIn(("Remove task", "armada-worker"), r.rows())
 
     def test_the_steps_run_in_order_task_then_mailbox_then_the_worker(self):
@@ -149,7 +149,7 @@ class Run(unittest.TestCase):
         self.assertTrue((shared / "x").exists())
 
     def test_a_profile_left_in_use_keeps_this_computers_side_so_the_same_command_can_finish(self):
-        answers = [(m, dict(a, profile_left="C:\\Users\\ctworker") if m == "$keepData" else a) for m, a in ANSWERS]
+        answers = [(m, dict(a, profile_left="C:\\Users\\armworker") if m == "$keepData" else a) for m, a in ANSWERS]
 
         def run(argv, text):
             if "'CT-RESULT ' + '{}'" in text:
@@ -195,17 +195,17 @@ class Route(unittest.TestCase):
         a = SimpleNamespace(here=False, remove_account=False, yes=False, apply=False, keep_data=False, source=None, client=False)
         def linux_route(*x):
             raise AssertionError("the Linux route was used for a Windows worker")
-        old = os.environ.get("CT_CONFIG")
-        os.environ["CT_CONFIG"] = cfg.source
+        old = os.environ.get("ARM_CONFIG")
+        os.environ["ARM_CONFIG"] = cfg.source
         try:
             rc = cli.uninstall_command(a, None, None, linux_route, lambda m: None)
         finally:
-            os.environ.pop("CT_CONFIG") if old is None else os.environ.__setitem__("CT_CONFIG", old)
+            os.environ.pop("ARM_CONFIG") if old is None else os.environ.__setitem__("ARM_CONFIG", old)
         self.assertEqual(rc, 0)
         self.assertTrue(home.exists())
 
     def test_the_windows_check_in_the_route_matches_the_installers_own(self):
-        from ct.setup import addworker
+        from armada.setup import addworker
         tmp = Path(tempfile.mkdtemp())
         cfg, _, _ = fixture(tmp)
         import tomllib

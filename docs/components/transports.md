@@ -17,18 +17,18 @@ Neither is marked "recommended": Direct is faster and keeps everything on your n
 
 ### Direct
 
-- The worker has a mailbox account (`<name>-mail`) with no password. Its one SSH key (yours, made on your computer, no passphrase) is restricted to a forced command: git reading the queue and results, git writing the queue. It cannot get a shell, forward a port or write the results, and a hostile client cannot change what the worker publishes (`src/ct/mailshell.py`, `tests/test_mailshell.py`).
+- The worker has a mailbox account (`<name>-mail`) with no password. Its one SSH key (yours, made on your computer, no passphrase) is restricted to a forced command: git reading the queue and results, git writing the queue. It cannot get a shell, forward a port or write the results, and a hostile client cannot change what the worker publishes (`src/armada/mailshell.py`, `tests/test_mailshell.py`).
 - The worker never connects out. It reads its queue and writes its results as local repositories (`<state>-mail/queue.git`, `results.git`).
-- Alerts: a worker with no outbound access cannot post to a phone. `ct-admin watch` runs on your computer, reads what each worker published (`security.json`, `worker-state.json`) and alerts on changes: locked, reminders while locked, unlocked, gone quiet, unreachable, recovered. Each worker has its own schedule; one that does not answer is asked less often each time (up to every 15 minutes) so many workers cost little. Run it from an orchestrator of your own, or `ct-admin watch --loop`.
+- Alerts: a worker with no outbound access cannot post to a phone. `arm-admin watch` runs on your computer, reads what each worker published (`security.json`, `worker-state.json`) and alerts on changes: locked, reminders while locked, unlocked, gone quiet, unreachable, recovered. Each worker has its own schedule; one that does not answer is asked less often each time (up to every 15 minutes) so many workers cost little. Run it from an orchestrator of your own, or `arm-admin watch --loop`.
 
 ### Moving an installed worker
 
 ```bash
-ct-setup transport direct            # preview: nothing changes
-ct-setup transport direct --apply    # do it
+arm-setup transport direct            # preview: nothing changes
+arm-setup transport direct --apply    # do it
 ```
 
-It makes the mailbox, copies the history into it (`git push --mirror`), points the worker's clones and yours at it and pauses the job loop only while it does so. Your GitHub repositories and the worker's deploy keys are not touched: they are your way back. Approvals stay valid (they are signed over the job file, not over where the repositories live). Going back to GitHub is `ct-setup install`, answering GitHub; `ct-setup transport github` says so and changes nothing.
+It makes the mailbox, copies the history into it (`git push --mirror`), points the worker's clones and yours at it and pauses the job loop only while it does so. Your GitHub repositories and the worker's deploy keys are not touched: they are your way back. Approvals stay valid (they are signed over the job file, not over where the repositories live). Going back to GitHub is `arm-setup install`, answering GitHub; `arm-setup transport github` says so and changes nothing.
 
 ### What running it for real found
 

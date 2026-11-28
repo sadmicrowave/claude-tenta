@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winrelease, wintools  # noqa: E402
+from armada.setup import winrelease, wintools  # noqa: E402
 
 URL = "https://github.com/example/project.git"
 SHA = "a" * 40

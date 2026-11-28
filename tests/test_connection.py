@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import config, transport
-from ct.admin.ssh import Ssh, family_for
-from ct.client import view
+from armada import config, transport
+from armada.admin.ssh import Ssh, family_for
+from armada.client import view
 
 
 def cfg(ipv6=None, kind="direct"):
@@ -39,7 +39,7 @@ class Family(unittest.TestCase):
 
     def test_this_computers_own_configuration_for_a_worker_records_the_setting(self):
         """The IPv6 question is the server's, so it used to be missing from this computer's file and the default (enabled) applied: the fix did nothing."""
-        from ct.setup import client as client_setup
+        from armada.setup import client as client_setup
         self.assertIn("network.ipv6", client_setup.ALSO_FOR_THE_CLIENT)
 
 
@@ -48,7 +48,7 @@ class WordsFollowTheConnection(unittest.TestCase):
     TRIP = (7, 5, 1, 2, 4)
 
     def rows(self, direct):
-        from ct.client import view
+        from armada.client import view
         schedule = cfg(kind="direct" if direct else "github").schedule
         view.set_pace(schedule, direct=direct, store=transport.store_for(cfg(kind="direct" if direct else "github")))
         try:
@@ -66,7 +66,7 @@ class WordsFollowTheConnection(unittest.TestCase):
 
     def test_the_worker_status_words_follow_the_connection_too(self):
         import inspect
-        from ct import cli
+        from armada import cli
         src = inspect.getsource(cli)
         for fixed in ("pulling new jobs from GitHub", "waiting to be published to GitHub", "(GitHub or the network", "it asks GitHub every"):
             self.assertNotIn(fixed, src, fixed)                                                  # no sentence of the worker's status names GitHub as a literal: it uses what the install uses
@@ -76,14 +76,14 @@ class WordsFollowTheConnection(unittest.TestCase):
 
 class TheAdminAndSandboxWordsFollowTheConnection(unittest.TestCase):
     def test_the_sandbox_check_does_not_say_github_for_a_direct_worker(self):
-        from ct import sandboxtest
+        from armada import sandboxtest
         for store, want in (("GitHub", "GitHub can be reached over SSH"), ("the mailbox", "the mailbox can be reached")):
             names = [c[0] for c in sandboxtest.checks("/home/w", "/var/lib/x", "/var/lib/x/queue", have=lambda p: True, store=store)]
             self.assertIn(want, names)
         self.assertFalse([n for n in [c[0] for c in sandboxtest.checks("/home/w", "/var/lib/x", "/var/lib/x/queue", have=lambda p: True, store="the mailbox")] if "GitHub" in n])
 
     def test_the_admin_context_carries_the_words_of_its_connection(self):
-        from ct.admin import cli as admin_cli
+        from armada.admin import cli as admin_cli
         ctx = admin_cli.Context.from_config(cfg(kind="direct"))
         self.assertEqual(ctx.store, "the mailbox")
         self.assertEqual(admin_cli.Context.from_config(cfg(kind="github")).store, "GitHub")

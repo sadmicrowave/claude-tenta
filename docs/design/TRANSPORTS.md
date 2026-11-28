@@ -15,7 +15,7 @@ The administrator can pick any of them. GitHub stays supported because "nothing 
 ## Decisions for 0.2 (2026-11-17)
 
 1. **Finding a worker:** a name or address in the configuration (`server.host`), as today. mDNS discovery for a computer that moves between networks is a **later enhancement**, not part of 0.2.
-2. **A worker that is off or unreachable:** `ct-run submit` fails with a clear message. No outbox in 0.2 (store and forward stays an open question).
+2. **A worker that is off or unreachable:** `arm-run submit` fails with a clear message. No outbox in 0.2 (store and forward stays an open question).
 3. **State and alerts:** the worker never needs to reach your LAN for them. Each worker writes its own state (`worker-state.json`, `security.json`) into its results repository, and the computer collects it; the computer raises the alerts it sees. This is the state-polling the several-workers orchestrator needs, so it is built once and shared. Who moves the state depends on the transport, so the strain on the host does not grow with the number of workers:
    - **GitHub and LAN git server:** workers already push to a shared place, so state check-ins flow *to* the host's reading point, and the host reads them with one cheap fetch (device to host, no per-device connection from the host).
    - **Direct:** the worker makes no connection to anything, which is the point of Direct. The host reads each worker's state over the SSH it already opens for jobs, with a per-worker schedule and a back-off for quiet workers, in parallel. Letting a worker connect out to the host would give up Direct's isolation, so it is not done.
@@ -30,7 +30,7 @@ When more than one transport exists, the wizard asks for the connection method w
 | **LAN git server** | Fast, and the right shape for several workers: one place for all the jobs. | A compromised worker can reach that one server's SSH port, and you keep one more service patched. |
 | **GitHub** | Most isolated: nothing on your network listens, and the worker only connects out, to two private repositories only you and the worker can read. Needs no always-on machine of yours. | Slower: a job waits for the worker's next look (every 5 s while busy, up to 90 s idle and 5 min asleep), and jobs and results pass through GitHub, a third party. |
 
-The same words are used in `ct-setup transport` and in `ct-admin workers`, and a test fails if a transport has no description for each of gain and cost.
+The same words are used in `arm-setup transport` and in `arm-admin workers`, and a test fails if a transport has no description for each of gain and cost.
 
 ## Why git stays the data model
 
@@ -62,8 +62,8 @@ A different port number is not a defence: what matters is the protocol and the d
 
 Each worker owns two bare repositories, `<state>/queue.git` and `<state>/results.git`, kept by a small dedicated account (`<name>-mail`) that has no shell. The worker's own account reads the queue and writes results through the filesystem.
 
-- **Submit.** `ct-run submit` pushes the job to `queue.git` on the worker over SSH. The worker's fetch pass is a local read of its own repository: no network, so it can run every second or be triggered by a systemd path unit on the repository's refs, giving near-instant pickup.
-- **Result.** The worker commits to `results.git` locally. Your computer fetches it over SSH (a short-lived connection, only while you are waiting or running `ct-run jobs`).
+- **Submit.** `arm-run submit` pushes the job to `queue.git` on the worker over SSH. The worker's fetch pass is a local read of its own repository: no network, so it can run every second or be triggered by a systemd path unit on the repository's refs, giving near-instant pickup.
+- **Result.** The worker commits to `results.git` locally. Your computer fetches it over SSH (a short-lived connection, only while you are waiting or running `arm-run jobs`).
 - **Approvals, orders and the registry** are pushed to `queue.git` the same way and verified by the worker exactly as today.
 - **The release source** (`updates.source`) stays GitHub: it is how you get new versions, a separate thing from the mailbox.
 
@@ -77,11 +77,11 @@ Each worker owns two bare repositories, `<state>/queue.git` and `<state>/results
 ### Behaviour when something is offline
 
 - **Your computer is off:** the worker runs what it has and keeps results. They are collected when your computer next reaches it.
-- **The worker is off or unreachable:** `ct-run submit` says so plainly. A later step is an outbox on your computer (store and forward): the job is kept and delivered when the worker returns. Open question below.
+- **The worker is off or unreachable:** `arm-run submit` says so plainly. A later step is an outbox on your computer (store and forward): the job is kept and delivered when the worker returns. Open question below.
 
 ### Several workers
 
-Each worker is its own mailbox, so routing is your computer's job, which is where the scheduling logic lives anyway (`SEVERAL-WORKERS.md`): a batch is delivered to one worker, preferences and candidate locks decide which, and `ct-admin workers` reads each worker's `worker-state.json` over the same connection.
+Each worker is its own mailbox, so routing is your computer's job, which is where the scheduling logic lives anyway (`SEVERAL-WORKERS.md`): a batch is delivered to one worker, preferences and candidate locks decide which, and `arm-admin workers` reads each worker's `worker-state.json` over the same connection.
 
 ## Transport 2: LAN git server
 
@@ -97,7 +97,7 @@ A hardened Gitea, shipped as a compose file and a setup step, for people who wan
 
 - **Runtime prerequisite.** The server machine needs a container runtime (Docker Desktop, OrbStack, Podman) or a runner app. The wizard checks for one and says what is missing; it never installs one.
 - **Hardening shipped as defaults.** Rootless container; image pinned by digest (never `latest`); registration disabled; the web UI off or bound to the LAN address; the HTTP port bound to a LAN address, not `0.0.0.0`; SSH on its own port; per-repository **deploy keys** (Gitea supports read-only and read-write keys, which is exactly the model GitHub gives us); firewall allow-list of the workers' addresses.
-- **Setup.** `ct-setup transport lan` creates the repositories and keys through Gitea's API, the same way the wizard uses `gh` for GitHub.
+- **Setup.** `arm-setup transport lan` creates the repositories and keys through Gitea's API, the same way the wizard uses `gh` for GitHub.
 - **Cost, honestly.** It is a large service to keep patched. An image digest is pinned for each release and updating it is a deliberate step, never automatic. If that is more than a person wants to own, 2a or Direct is the better choice.
 
 ## Transport 3: GitHub
@@ -113,9 +113,9 @@ A setting, asked once by the wizard with its risks in plain words:
 kind = "direct"        # direct | lan | github
 ```
 
-`ct-setup transport <kind>` moves an existing install: it shows a preview, copies the repositories with their history (`git push --mirror`), rewrites the remotes on the worker and your computer, and starts the timers again. Approvals stay valid because they are signed and bound to job files, not to where the repositories live. A fleet may mix transports per worker.
+`arm-setup transport <kind>` moves an existing install: it shows a preview, copies the repositories with their history (`git push --mirror`), rewrites the remotes on the worker and your computer, and starts the timers again. Approvals stay valid because they are signed and bound to job files, not to where the repositories live. A fleet may mix transports per worker.
 
-**As built (0.2.4):** GitHub to Direct only. The GitHub repositories and the worker's deploy keys are left untouched as the way back; going back is `ct-setup install` answering GitHub, because the worker's GitHub SSH aliases are not written for a Direct install. The key for the mailbox is made on your computer and delivered by the command, and the real-machine run in OrbStack is 0.2.5.
+**As built (0.2.4):** GitHub to Direct only. The GitHub repositories and the worker's deploy keys are left untouched as the way back; going back is `arm-setup install` answering GitHub, because the worker's GitHub SSH aliases are not written for a Direct install. The key for the mailbox is made on your computer and delivered by the command, and the real-machine run in OrbStack is 0.2.5.
 
 ## What has to change in the code
 
@@ -123,7 +123,7 @@ kind = "direct"        # direct | lan | github
 - Setup: repository creation (`gh`) becomes a transport step: create over SSH, via Gitea's API, or via `gh`. The deploy-key flow becomes the per-transport key flow.
 - Alerts, `worker-state` and the registry publish: every place that assumes "push to GitHub" asks the transport.
 - Audit and the sandbox test: "GitHub can be reached over SSH" becomes "the mailbox is reachable" and checks the chosen path.
-- `ct-setup rename`: repository names are per transport.
+- `arm-setup rename`: repository names are per transport.
 - The end-to-end test already stands in a local `git` user with bare repositories for GitHub; that is the seed of the LAN and Direct scenarios.
 
 ## Alternatives we rejected
@@ -137,7 +137,7 @@ kind = "direct"        # direct | lan | github
 1. **Store and forward:** an outbox on your computer for jobs sent while a worker is unreachable, and what "submitted" means then. (0.2 fails clearly instead; see Decisions.)
 2. **Discovery:** a name or an address in your configuration, or mDNS. A laptop that moves between networks needs the second. (0.2 uses the configured name; mDNS is a later enhancement.)
 3. **Notifications without egress** (above): decided: the computer collects state and raises the alerts (see Decisions).
-4. **A mixed fleet:** whether one install may have workers on different transports, and how `ct-admin workers` shows it.
+4. **A mixed fleet:** whether one install may have workers on different transports, and how `arm-admin workers` shows it.
 5. **Windows hosts** for the administrator's computer: out of scope until asked.
 
 ## Lessons carried over from building the first transport
@@ -147,5 +147,5 @@ kind = "direct"        # direct | lan | github
 
 ## Phasing
 
-1. **0.2.** Introduce the transport interface; GitHub implements it unchanged; add Direct; add the `ct-setup transport` command; extend the end-to-end test with a Direct scenario.
+1. **0.2.** Introduce the transport interface; GitHub implements it unchanged; add Direct; add the `arm-setup transport` command; extend the end-to-end test with a Direct scenario.
 2. **0.3.** LAN git server 2a, then the packaged Gitea (2b). The several-workers orchestrator lands on top of Direct.

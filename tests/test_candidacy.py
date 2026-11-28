@@ -5,8 +5,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import config  # noqa: E402
-from ct.client import candidacy  # noqa: E402
+from armada import config  # noqa: E402
+from armada.client import candidacy  # noqa: E402
 
 F = dict(runs=1, median_s=2.0, pinned=False, class_bound=False, batchable=False, splittable=False)
 

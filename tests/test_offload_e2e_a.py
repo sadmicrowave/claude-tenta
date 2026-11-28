@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct import registry  # noqa: E402
-from ct.client import cli  # noqa: E402
-from ct.client import offload as off  # noqa: E402
-from ct.client.cli import adopt_tier as cli_tier  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada import registry  # noqa: E402
+from armada.client import cli  # noqa: E402
+from armada.client import offload as off  # noqa: E402
+from armada.client.cli import adopt_tier as cli_tier  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 from offload_support import OffloadFixture  # noqa: E402
 from support import sh  # noqa: E402
 
@@ -34,7 +34,7 @@ class EndToEnd(OffloadFixture):
         self.w.fetch()                                                                              # publishes the registry (classes and RAM)
         code, out, err = self.run_cli("offload", "fit", "--", "/bin/echo", "hello")
         self.assertEqual(code, 0)
-        self.assertIn("REGISTERED as class echo (light, tier auto): ct-run submit echo --wait", out)
+        self.assertIn("REGISTERED as class echo (light, tier auto): arm-run submit echo --wait", out)
         self.assertEqual(self.run_cli("offload", "fit", "--", "nosuchtool")[0], 4)
         req = self.tmp / "requester"
         sh("git", "checkout", "-q", "--orphan", "data", cwd=req)

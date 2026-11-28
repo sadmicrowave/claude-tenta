@@ -1,7 +1,7 @@
-"""The pinned check, through the real `ct-run submit` and real git queues of two workers, with the orchestrator really choosing: the route a `ct-admin apply` check takes.
+"""The pinned check, through the real `arm-run submit` and real git queues of two workers, with the orchestrator really choosing: the route a `arm-admin apply` check takes.
 
 Unpinned, a job goes to the freer worker (what the orchestrator is for). With --here it goes to the worker being checked, even when the other one is freer (what a check about one worker needs).
-Found in the first real `ct-admin apply` on two workers, where the check on one worker ran on the other."""
+Found in the first real `arm-admin apply` on two workers, where the check on one worker ran on the other."""
 import io
 import json
 import unittest
@@ -13,7 +13,7 @@ import support  # noqa: F401
 from support import RepoFixture
 from test_place import cfg_file
 
-from ct.client import cli, place
+from armada.client import cli, place
 
 
 def worker_fixture(testcase, name, running):
@@ -32,9 +32,9 @@ class ThePinnedCheckOnRealQueuesFixture(unittest.TestCase):
         self.second = worker_fixture(self, "secondw", running=3)                # the one being checked
         cfgs = {"secondw": cfg_file(self.first.tmp, "secondw"), "firstw": cfg_file(self.first.tmp, "firstw")}
         by_name = {"firstw": self.first.repos, "secondw": self.second.repos}
-        self.patches = [mock.patch("ct.client.place.entries", lambda cfg: [("secondw", cfgs["secondw"], None), ("firstw", cfgs["firstw"], None)]),
-                        mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: by_name[c.identity.name]),
-                        mock.patch("ct.client.cli.Context.from_config", side_effect=lambda c: (self.second if c.identity.name == "secondw" else self.first).ctx)]
+        self.patches = [mock.patch("armada.client.place.entries", lambda cfg: [("secondw", cfgs["secondw"], None), ("firstw", cfgs["firstw"], None)]),
+                        mock.patch("armada.client.cli.ClientRepos.from_config", side_effect=lambda c: by_name[c.identity.name]),
+                        mock.patch("armada.client.cli.Context.from_config", side_effect=lambda c: (self.second if c.identity.name == "secondw" else self.first).ctx)]
         [p.start() for p in self.patches]
         self.addCleanup(lambda: [p.stop() for p in self.patches])
         self.cfg = cfgs["secondw"]

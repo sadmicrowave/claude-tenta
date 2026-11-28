@@ -3,10 +3,10 @@
 
 # Command reference
 
-Each command also describes itself: `ct-run help`, `ct-admin help`, `ct-setup help`, and `<command> help <subcommand>` for the options of one.
+Each command also describes itself: `arm-run help`, `arm-admin help`, `arm-setup help`, and `<command> help <subcommand>` for the options of one.
 
 
-## ct-admin
+## arm-admin
 
 Run on your computer. Everything that changes the worker asks first and shows what it will do.
 
@@ -15,93 +15,93 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 
 | Command | What it does |
 |---|---|
-| `ct-admin status` | health, what the worker is doing, recent use, and its safety checks |
-| `ct-admin check` | check the connection to the worker |
-| `ct-admin wake` | end idle or sleep now: every worker, or one, looks for jobs right away |
-| `ct-admin audit` | check that each worker still matches its configuration (read-only; asks for the worker's sudo password) |
-| `ct-admin tripwire-test` | prove the worker locks itself down when a job reads a decoy credential, then unlock it (needs the worker's sudo password) |
-| `ct-admin workers` | compare the workers you administer: hardware and state, side by side |
-| `ct-admin locate` | find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address |
-| `ct-admin watch` | read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself) |
+| `arm-admin status` | health, what the worker is doing, recent use, and its safety checks |
+| `arm-admin check` | check the connection to the worker |
+| `arm-admin wake` | end idle or sleep now: every worker, or one, looks for jobs right away |
+| `arm-admin audit` | check that each worker still matches its configuration (read-only; asks for the worker's sudo password) |
+| `arm-admin tripwire-test` | prove the worker locks itself down when a job reads a decoy credential, then unlock it (needs the worker's sudo password) |
+| `arm-admin workers` | compare the workers you administer: hardware and state, side by side |
+| `arm-admin locate` | find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address |
+| `arm-admin watch` | read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself) |
 
 ### Jobs
 
 | Command | What it does |
 |---|---|
-| `ct-admin review` | show waiting jobs and note you viewed them (asks nothing) |
-| `ct-admin approve` | approve a job exactly as you saw it, then watch it |
-| `ct-admin cancel` | stop a job that has not started yet |
-| `ct-admin kill` | stop a running job |
+| `arm-admin review` | show waiting jobs and note you viewed them (asks nothing) |
+| `arm-admin approve` | approve a job exactly as you saw it, then watch it |
+| `arm-admin cancel` | stop a job that has not started yet |
+| `arm-admin kill` | stop a running job |
 
 ### Security
 
 | Command | What it does |
 |---|---|
-| `ct-admin quarantine` | list results held back by the output guard, or read one |
-| `ct-admin unlock` | clear a security lockdown after you have looked at it |
-| `ct-admin output` | the full output of a failed command (only its error lines are ever published) |
+| `arm-admin quarantine` | list results held back by the output guard, or read one |
+| `arm-admin unlock` | clear a security lockdown after you have looked at it |
+| `arm-admin output` | the full output of a failed command (only its error lines are ever published) |
 
 ### Registry
 
 | Command | What it does |
 |---|---|
-| `ct-admin adopt` | turn a finished profile run into a class and install it |
-| `ct-admin retire` | remove a class from the registry and install that |
-| `ct-admin class` | see or change what a class may do: its approval tier, network access and tool folders |
-| `ct-admin action` | register, list or remove commands that must run as root |
-| `ct-admin proposals` | list, merge or tidy the changes waiting on branches |
-| `ct-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
+| `arm-admin adopt` | turn a finished profile run into a class and install it |
+| `arm-admin retire` | remove a class from the registry and install that |
+| `arm-admin class` | see or change what a class may do: its approval tier, network access and tool folders |
+| `arm-admin action` | register, list or remove commands that must run as root |
+| `arm-admin proposals` | list, merge or tidy the changes waiting on branches |
+| `arm-admin action-hash` | print the SHA-256 to pin for a root-level action's program, and check it could be one |
 
 ### Release
 
 | Command | What it does |
 |---|---|
-| `ct-admin diff` | show what installing a version would change |
-| `ct-admin apply` | install a version on the worker, check it, offer to roll back |
-| `ct-admin update` | is there a newer release? show what changed, then update this computer and every worker if you agree (each asks its own question) |
-| `ct-admin clean` | remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox) |
+| `arm-admin diff` | show what installing a version would change |
+| `arm-admin apply` | install a version on the worker, check it, offer to roll back |
+| `arm-admin update` | is there a newer release? show what changed, then update this computer and every worker if you agree (each asks its own question) |
+| `arm-admin clean` | remove signed approvals and orders that are finished or stale from where they are passed (GitHub or the mailbox) |
 
 ### Look
 
 | Command | What it does |
 |---|---|
-| `ct-admin theme` | show the colour roles, what they look like and where the theme came from |
+| `arm-admin theme` | show the colour roles, what they look like and where the theme came from |
 
-## ct-run
+## arm-run
 
 Run on your computer. Sends work to the worker and reads the results.
 
 | Command | What it does |
 |---|---|
-| `ct-run setup` | clone the two private repos on this computer |
-| `ct-run submit` | queue a job |
-| `ct-run result` | read a job's result |
-| `ct-run jobs` | your most recent jobs, and the ones waiting for your approval |
-| `ct-run offload` | find out what is worth running on the worker |
-| `ct-run audit` | where jobs ran, why, and what happened (kept for audit.keep_days) |
-| `ct-run queue` | the jobs waiting on this computer for a worker with room |
-| `ct-run classes` | every class your workers can run, and which workers offer each |
-| `ct-run where` | which of your workers a job of this class would go to, and why each of the others would not (nothing is sent) |
-| `ct-run use` | send this folder's jobs to one worker (or just one command), remembered in a .tenta.toml file you can edit |
-| `ct-run patch` | show the patch a write-capable job returned, and apply it here after a look |
-| `ct-run prune` | squash old job files out of the jobs branch |
+| `arm-run setup` | clone the two private repos on this computer |
+| `arm-run submit` | queue a job |
+| `arm-run result` | read a job's result |
+| `arm-run jobs` | your most recent jobs, and the ones waiting for your approval |
+| `arm-run offload` | find out what is worth running on the worker |
+| `arm-run audit` | where jobs ran, why, and what happened (kept for audit.keep_days) |
+| `arm-run queue` | the jobs waiting on this computer for a worker with room |
+| `arm-run classes` | every class your workers can run, and which workers offer each |
+| `arm-run where` | which of your workers a job of this class would go to, and why each of the others would not (nothing is sent) |
+| `arm-run use` | send this folder's jobs to one worker (or just one command), remembered in a .armada.toml file you can edit |
+| `arm-run patch` | show the patch a write-capable job returned, and apply it here after a look |
+| `arm-run prune` | squash old job files out of the jobs branch |
 
-## ct-setup
+## arm-setup
 
 ```
-ct-setup add-worker | audit | client | demo | install | rename | rotate-key | server | transport | tripwire-test | uninstall
+arm-setup add-worker | audit | client | demo | install | rename | rotate-key | server | transport | tripwire-test | uninstall
 
   add-worker      find another computer on your network, check it, and set it up as one more worker (your other installs are not touched)
   audit           read-only: check a server against its configuration and report anything that drifted
   client          set up your own computer: your config, SSH key login, the two private repositories, the registry
   demo            try the question and protection screens with sample questions; nothing is saved or changed
-  install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (ct-setup install --worker NAME or ct-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
+  install         everything, from your own computer, in one command. It starts by scanning your network and asking which computer: a new one, or a worker you already have to set up again (arm-setup install --worker NAME or arm-setup install ADDRESS skips the scan). Then it asks the questions, sets up both sides, sends the release to the server, runs the server half there, adds the deploy keys to GitHub for you, and sends a first job
   rename          give the install a new name everywhere: the server, GitHub and this computer (preview first; job history, secrets and keys are kept)
   rotate-key      replace a Direct worker's mailbox key (the only key that lets this computer queue jobs on it): a new key, the worker trusts only it, then the old one is deleted (preview first)
   server          turn a clean Ubuntu or Debian machine into a worker (run as root on it)
   transport       move an existing install between GitHub and Direct, either way (preview first; history is copied across, nothing is deleted)
   tripwire-test   on the worker, as root: read a decoy credential and prove the worker locks itself down, then unlock it (needs a full machine with a kernel audit)
-  uninstall       remove an install, completely and on purpose (preview first): a Linux worker, a Windows worker (--worker NAME), or the ct commands on this computer (--client); your GitHub repositories stay
+  uninstall       remove an install, completely and on purpose (preview first): a Linux worker, a Windows worker (--worker NAME), or the armada commands on this computer (--client); your GitHub repositories stay
 
 Which computer a command acts on:  install picks from the scan or --worker NAME;  uninstall, rename, transport: your first install, or --worker NAME;  add-worker: a new computer by address; client, server, audit, tripwire-test, demo: the computer they run on.
 

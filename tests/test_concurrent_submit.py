@@ -1,4 +1,4 @@
-"""Several ct-run submits at once against the same queue (a script in a loop, two sessions, a load test): every job must arrive, or the send must fail loudly. Never "sent" and gone.
+"""Several arm-run submits at once against the same queue (a script in a loop, two sessions, a load test): every job must arrive, or the send must fail loudly. Never "sent" and gone.
 
 Found by the first real load test: 8 simultaneous submits left 2 jobs reported as sent that were not in the queue, and 2 more failed with a git lock message. Every process built its commit in
 the same temporary index file."""
@@ -8,7 +8,7 @@ import unittest
 
 from support import RepoFixture  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from ct.client import submit as sub
+from armada.client import submit as sub
 
 
 class ManyAtOnce(RepoFixture):
@@ -39,7 +39,7 @@ class ManyAtOnce(RepoFixture):
     def test_a_job_pushed_by_someone_else_between_reading_the_branch_and_committing_is_not_dropped(self):
         """The root cause, made deterministic: the branch name was read twice (once for the file tree, once for the commit's parent). If it moved in between, the new commit had the NEWER parent
         and the OLDER tree: a valid fast-forward that silently deleted what had just been added. Found on a Linux runner, where the race was lost about one run in ten."""
-        from ct.client.repo import ClientRepos
+        from armada.client.repo import ClientRepos
         other = ClientRepos(self.tmp / "other-queue", self.tmp / "other-results", str(self.tmp / "queue.git"), str(self.tmp / "results.git"), sleep=lambda s: None)
         other.clone_all(self.tmp / "other-home")
         sub.push_job(self.repos, "sys-status-000001", {"class": "sys-status", "params": {}})                 # so the branch exists and has a first job
@@ -133,7 +133,7 @@ class NoRepeatedNetworkTrips(RepoFixture):
         self.assertEqual(len(self.fetches(lambda: self.repos.fetch_queue(max_age=30))), 1)
 
     def test_the_cap_check_reuses_a_look_made_moments_ago(self):
-        from ct.client import cap
+        from armada.client import cap
         self.repos.fetch_queue()
         self.repos.pull_results()
         self.assertEqual(len(self.fetches(lambda: cap.in_flight(self.repos))), 0)
@@ -142,7 +142,7 @@ class NoRepeatedNetworkTrips(RepoFixture):
 class PruningIsNotDoneOnEverySend(unittest.TestCase):
     def test_it_is_due_once_an_hour(self):
         import tempfile
-        from ct.client import place
+        from armada.client import place
         home = tempfile.mkdtemp()
         self.assertTrue(place.prune_due(home, now=1000))
         place.prune_done(home, now=1000)

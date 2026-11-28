@@ -21,9 +21,9 @@ export PYTHONPATH=/src/src PYTHONDONTWRITEBYTECODE=1
 echo "1. packages"
 PKGS=$(python3 - <<'PY'
 import re
-from ct.setup import server
+from armada.setup import server
 names = [p for p, _ in server.PREREQUISITES]
-names += re.findall(r'"apt-get", "install", "-y", "([a-z0-9+.-]+)"', open("/src/src/ct/setup/hardening.py").read())
+names += re.findall(r'"apt-get", "install", "-y", "([a-z0-9+.-]+)"', open("/src/src/armada/setup/hardening.py").read())
 print(" ".join(dict.fromkeys(names)))
 PY
 )
@@ -32,21 +32,21 @@ check "every one of them can be installed here (simulated; dependencies resolve)
 
 echo "2. python"
 check "Python is 3.11 or newer" python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'
-check "the project's modules import (tomllib, yaml, every command)" python3 -c 'import tomllib, yaml, ct.cli, ct.worker, ct.setup.cli, ct.admin.cli, ct.client.cli'
+check "the project's modules import (tomllib, yaml, every command)" python3 -c 'import tomllib, yaml, armada.cli, armada.worker, armada.setup.cli, armada.admin.cli, armada.client.cli'
 
 echo "3. git"
 check "git is 2.32 or newer (GIT_CONFIG_GLOBAL, which the project's history copy relies on)" bash -c 'v=$(git --version | cut -d" " -f3); [ "$(printf "%s\n2.32\n" "$v" | sort -V | head -1)" = "2.32" ]'
 check "git honours GIT_CONFIG_GLOBAL as the project uses it" bash -c 'f=$(mktemp); printf "[safe]\n\tdirectory = *\n" > $f; GIT_CONFIG_GLOBAL=$f git config --global --get safe.directory | grep -qx "\*"'
 
 CFG=$(cat <<'PY'
-from ct import config
+from armada import config
 cfg = config.Config(config.validate({"server": {"admin_user": "me", "host": "h.example"}, "github": {"owner": "o"}, "access": {"sudo": "readonly-nopasswd"}, "transport": {"kind": "direct"}})[0])
 PY
 )
 echo "4. sudoers"
 check "the sudoers file the project writes passes visudo -c" bash -c "python3 - <<'PY'
 $CFG
-from ct import render
+from armada import render
 text = render.sudoers_text(cfg, '/src/templates')
 assert text, 'no sudoers text'
 open('/tmp/sudoers.test', 'w').write(text)
@@ -56,13 +56,13 @@ chmod 440 /tmp/sudoers.test && visudo -c -f /tmp/sudoers.test"
 echo "5. systemd units"
 python3 - <<PY
 $CFG
-from ct import render
+from armada import render
 import pathlib
 d = pathlib.Path("/tmp/units"); d.mkdir(exist_ok=True)
 for name, text in render.unit_files(cfg, "/src/templates").items():
     (d / name).write_text(text)
 PY
-useradd -r -M -s /usr/sbin/nologin ctworker 2>/dev/null; mkdir -p /opt/armada/lib /etc/armada /var/lib/armada
+useradd -r -M -s /usr/sbin/nologin armworker 2>/dev/null; mkdir -p /opt/armada/lib /etc/armada /var/lib/armada
 check "every unit the project writes parses (only accounts and programs a container lacks are ignored)" bash -c '
   cd /tmp/units; out=$(systemd-analyze verify --man=no ./*.service ./*.timer ./*.socket 2>&1 | grep -viE "is not executable|No such file or directory|Failed to (create|connect|open)|Cannot find unit|org.freedesktop|bus|/proc|cgroup|Unit .* not found|not found|Failed to determine user|transient|Unknown user|Failed to look up|aliased" | grep -E "[A-Za-z]" || true)
   [ -z "$out" ] || { echo "$out"; exit 1; }'
@@ -71,24 +71,24 @@ echo "6. sshd"
 ssh-keygen -A >/dev/null 2>&1; mkdir -p /run/sshd
 python3 - <<PY
 $CFG
-from ct.setup import hardening
+from armada.setup import hardening
 cfg_ = cfg
 print(hardening.MODULES["ssh-keys-only"].text(cfg_), end="")
 PY
 python3 - > /tmp/sshd_dropin.conf <<PY
 $CFG
-from ct.setup import hardening
+from armada.setup import hardening
 print(hardening.MODULES["ssh-keys-only"].text(cfg), end="")
 PY
 check "the SSH drop-in the project writes is accepted by sshd -t" bash -c 'cp /etc/ssh/sshd_config /tmp/sshd_probe && printf "Include /tmp/sshd_dropin.conf\n" | cat - /tmp/sshd_probe > /tmp/sshd_probe2 && sshd -t -f /tmp/sshd_probe2'
 
 echo "7. apparmor"
 if [ -f /etc/apparmor.d/abi/4.0 ] && command -v apparmor_parser >/dev/null; then
-  python3 - > /tmp/ct-bwrap.profile <<PY
-from ct.setup import hardening
+  python3 - > /tmp/arm-bwrap.profile <<PY
+from armada.setup import hardening
 print(hardening.JobIsolation.PROFILE_TEXT.format(bwrap="/usr/bin/bwrap"), end="")
 PY
-  check "the AppArmor profile the project writes for bubblewrap compiles" bash -c 'apparmor_parser -Q -K /tmp/ct-bwrap.profile'
+  check "the AppArmor profile the project writes for bubblewrap compiles" bash -c 'apparmor_parser -Q -K /tmp/arm-bwrap.profile'
 else
   note "this release has no AppArmor 4 ABI file, so the project writes no profile here (the job-isolation module only plans one where /etc/apparmor.d/abi/4.0 exists)"
 fi

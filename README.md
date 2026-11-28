@@ -12,8 +12,8 @@ Offload slow or heavy jobs from your laptop to a spare Linux machine on your hom
 
 ```bash
 git clone https://github.com/<project>/armada.git && cd armada
-python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e .
-~/.ct-venv/bin/ct-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job, and puts ct-run, ct-admin... on your PATH (open a new terminal tab)
+python3 -m venv ~/.arm-venv && ~/.arm-venv/bin/pip install -e .
+~/.arm-venv/bin/arm-setup install        # asks its questions, sets up both computers, adds the deploy keys to GitHub for you, runs a first job, and puts arm-run, arm-admin... on your PATH (open a new terminal tab)
 ```
 
 Start with [Getting started](docs/getting-started.md). The [documentation index](docs/README.md) explains how each part works, with a plain summary and a technical specification for each.
@@ -23,14 +23,14 @@ two parts of the design are still open (a `systemd-run` isolation method and a p
 
 Requires Python 3.11+ on both computers, and Ubuntu 24.04+ or Debian 12+ on the worker. Standard library only on the server, plus PyYAML (`python3-yaml`) for the registry.
 
-No migration is supported before the first release: uninstall a previous install with its own version (`ct-setup uninstall --apply`), then install.
+No migration is supported before the first release: uninstall a previous install with its own version (`arm-setup uninstall --apply`), then install.
 
 Licensed under the Apache License 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## The offload skill
 
-`skills/tenta-offload/SKILL.md` teaches a coding assistant when to send work to the worker and how (check what is registered, profile an unknown command, attach only the files a job needs, never approve anything itself). Install it by linking the folder into the assistant's skills folder (the path below is the one the common assistants read):
+`skills/armada-offload/SKILL.md` teaches a coding assistant when to send work to the worker and how (check what is registered, profile an unknown command, attach only the files a job needs, never approve anything itself). Install it by linking the folder into the assistant's skills folder (the path below is the one the common assistants read):
 
 ```bash
-mkdir -p ~/.claude/skills && ln -s "$PWD/skills/tenta-offload" ~/.claude/skills/tenta-offload
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/armada-offload" ~/.claude/skills/armada-offload
 ```

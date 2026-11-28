@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct.admin import watch
-from ct.util import iso
+from armada.admin import watch
+from armada.util import iso
 
 NOW = 1_800_000_000.0
 FRESH = {"updated": iso(__import__("datetime").datetime.fromtimestamp(NOW - 600, __import__("datetime").timezone.utc))}

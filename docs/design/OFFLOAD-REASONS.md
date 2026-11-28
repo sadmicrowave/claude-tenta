@@ -17,10 +17,10 @@ The tool is a command-line application. Nothing here is specific to one AI model
 
 | # | Rung | Plain-language value | Signal the tool has today | Weight |
 | - | ---- | -------------------- | ------------------------- | --------------- |
-| 1 | **Worker-specific work**: the job must run on one particular worker | It could not run on your own computer at all, or should not | the person pins it (`ct-run use`, `.tenta.toml`); the class belongs to one worker | 100 |
+| 1 | **Worker-specific work**: the job must run on one particular worker | It could not run on your own computer at all, or should not | the person pins it (`arm-run use`, `.armada.toml`); the class belongs to one worker | 100 |
 | 2 | **Fewer AI tokens**: work taken away from the model | The model reads a short result instead of doing or waiting on the long work | none yet (needs the AI layer; see the token-saving foundation, list item 5) | 80 |
 | 3 | **Faster**: parallel work across devices | Many pieces at once finish sooner than one after another | batchable classes, files split into independent jobs | 60 |
-| 4 | **Free your own computer**: long or repeated work leaves your CPU alone | Your computer stays quick while the work runs elsewhere | the command log: seconds and how often (`ct-run offload log top`) | 40 |
+| 4 | **Free your own computer**: long or repeated work leaves your CPU alone | Your computer stays quick while the work runs elsewhere | the command log: seconds and how often (`arm-run offload log top`) | 40 |
 | 5 | **More to find** | | | |
 
 ### 1. Worker-specific work (three kinds)
@@ -46,7 +46,7 @@ what happens when one fails, how far more workers keep paying off (the measureme
 ### 4. Free your own computer
 
 Long runs, and short runs that repeat, take your computer's CPU. **"Repeatable"** needs a definition; Agreed: a command shape the person has run **at least 3 times in 14 days**.
-The two numbers are settings (`offload.repeat_runs`, `offload.repeat_days` in `ct.toml`, overridable in a folder's `.tenta.toml`), not constants in code. The measurement utility
+The two numbers are settings (`offload.repeat_runs`, `offload.repeat_days` in `armada.toml`, overridable in a folder's `.armada.toml`), not constants in code. The measurement utility
 later suggests `repeat_days` as the typical time the person's repeated commands took to reach `repeat_runs` runs (`repeat_runs` itself is only shown as a grid: the log cannot say what it should be) instead of a guess.
 
 ### 5. More to find
@@ -59,7 +59,7 @@ cloud service), energy or heat (work that should not warm your laptop), network 
 1. Describe the job: its class or command shape, how long it takes, how often it runs, whether it is pinned, whether it can be split.
 2. Check every rung. Record, for each, met or not met and why (never stop at the first miss).
 3. The headline reason is the highest-weighted rung met; the other met rungs are listed beneath it.
-4. Show it where a person decides: `ct-run offload log top`, a profile result, and the placement explanation.
+4. Show it where a person decides: `arm-run offload log top`, a profile result, and the placement explanation.
 
 Candidacy today looks at rung 4 only (seconds and count). Evaluating all rungs is list item 8.
 
@@ -73,21 +73,21 @@ Branch `feat/candidacy-measurement` (and the slice branches `feat/candidacy-show
 
 **Goal.** Judge a command against every rung of the ladder (never stopping at the first miss), name the headline reason, and give the person a measurement utility that suggests `offload.repeat_runs` / `offload.repeat_days` from their own command log.
 **Done when.**
-- `offload.repeat_runs` (default 3) and `offload.repeat_days` (default 14) exist in `ct.toml`, validated (a folder override in `.tenta.toml` is a later slice: that file holds only worker pins today), and the "repeatable" test in `cmdlog` reads them instead of constants.
+- `offload.repeat_runs` (default 3) and `offload.repeat_days` (default 14) exist in `armada.toml`, validated (a folder override in `.armada.toml` is a later slice: that file holds only worker pins today), and the "repeatable" test in `cmdlog` reads them instead of constants.
 - One pure function takes a command's facts (shape, median seconds, run count in the window, pinned or class-bound, batchable, split-able) and returns, for every rung, `met | not met | cannot be judged yet` with a reason; the headline is the highest-weighted rung met, the rest listed beneath it. Rung 2 (fewer AI tokens) returns "cannot be judged yet: needs the AI layer", never a guess. The weights are read from one table.
-- `ct-run offload log top` and the placement explanation show the headline and the other met rungs; `--all` shows each rung's verdict.
-- `ct-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing itself: it prints the one `ct-setup install --set` command that applies a suggestion (the person's run of it is the confirmation); nothing is invented when the log is too short (it says how much more is needed).
+- `arm-run offload log top` and the placement explanation show the headline and the other met rungs; `--all` shows each rung's verdict.
+- `arm-run offload measure` reads the command log and prints suggested values with the data behind them (how many shapes would qualify at 2, 3, 4 runs and at 7, 14, 30 days), and changes nothing itself: it prints the one `arm-setup install --set` command that applies a suggestion (the person's run of it is the confirmation); nothing is invented when the log is too short (it says how much more is needed).
 - Tests first, failing on the old code; real output of each card at the narrow and wide widths; the refusal catalog and generated reference updated if any refusal is added.
 **Not in scope.** The AI layer and token measurement; sharding jobs (rung 3 signal only reads existing `batchable`); any change to where a job is placed; new rungs; the GitHub or transport code.
-**Slices.** (1) settings + the pure rung evaluator with tests (`src/ct/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
+**Slices.** (1) settings + the pure rung evaluator with tests (`src/armada/client/candidacy.py`; rung 4 counts short runs that repeat only when their total is at least the long-run limit, so a trivial command run often does not qualify: my proposal, not yet confirmed); (2) show it in `log top` (a "why it pays" column, and under `--all` a table of every rung; the placement explanation is a later slice: it needs a worker pick, not a command shape); (3) `offload measure`.
 
 ## Recommending a better worker for a pinned command (list item 8b; design 2026-11-24)
 
 Branch `feat/worker-recommend` (slice 1), a feature of `theme/orchestrator`. The user's words (2026-11-22, [[project-orchestrator-direction]]): a light, default-on (configurable) utility that measures all or specific jobs, watches existing job runs, and RECOMMENDS a better worker when a pinned command fits another worker better.
 
-**Goal.** From the person's own finished jobs, say which worker ran a pinned command faster, and offer the one `ct-run use --command ... <worker>` line that would move the pin. It never moves a pin itself.
+**Goal.** From the person's own finished jobs, say which worker ran a pinned command faster, and offer the one `arm-run use --command ... <worker>` line that would move the pin. It never moves a pin itself.
 **Done when (slice 1).**
-- Every finished job this computer sees (`ct-run result`, `ct-run jobs`) is recorded once in `runs.jsonl` (job, class, worker, seconds the worker ran it, status), local, mode 0600, trimmed to 60 days.
+- Every finished job this computer sees (`arm-run result`, `arm-run jobs`) is recorded once in `runs.jsonl` (job, class, worker, seconds the worker ran it, status), local, mode 0600, trimmed to 60 days.
 - One pure function (`recommend.py`) takes those rows and the pins and returns, per pinned command, the worker that is clearly faster, or says why not: too few runs on a worker (`offload.recommend_runs`, default 3), or a gain below `offload.recommend_gain` percent (default 25). Only successful runs count; the median is used, never the mean.
-- `ct-run offload recommend` prints it and the command that applies it, and changes nothing. With no evidence it says what is missing (which worker has too few runs), never a guess from hardware.
-**Not in scope.** Slice 2: the default-on one-line hint at the end of `ct-run` commands and its off switch; trial runs sent to an unmeasured worker; recommending from hardware or load alone; unpinned jobs (the orchestrator already places those); moving a pin automatically.
+- `arm-run offload recommend` prints it and the command that applies it, and changes nothing. With no evidence it says what is missing (which worker has too few runs), never a guess from hardware.
+**Not in scope.** Slice 2: the default-on one-line hint at the end of `arm-run` commands and its off switch; trial runs sent to an unmeasured worker; recommending from hardware or load alone; unpinned jobs (the orchestrator already places those); moving a pin automatically.

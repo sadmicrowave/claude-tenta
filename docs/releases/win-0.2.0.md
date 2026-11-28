@@ -1,12 +1,12 @@
 # Armada for Windows 0.2.0 (preview)
 
-The first Windows release that can be a worker. `ct-setup add-worker <windows address>` sets a Windows computer up over SSH, a job sent from your computer runs there, and its result comes back.
+The first Windows release that can be a worker. `arm-setup add-worker <windows address>` sets a Windows computer up over SSH, a job sent from your computer runs there, and its result comes back.
 
 ## What you get
-- **One command from your computer.** It says what it will and will not touch and asks, then installs git and Python for the worker (existing ones are used; downloads are checked against pinned hashes and, for Python, its signature), creates the worker's folders and accounts, fetches this release, sets up the Direct connection (the mailbox), writes the worker's files, registers a task that starts the worker at boot, and sends a first test job. Every step can be run again; running it again only changes what is not already right (`ct-setup install --worker NAME`).
+- **One command from your computer.** It says what it will and will not touch and asks, then installs git and Python for the worker (existing ones are used; downloads are checked against pinned hashes and, for Python, its signature), creates the worker's folders and accounts, fetches this release, sets up the Direct connection (the mailbox), writes the worker's files, registers a task that starts the worker at boot, and sends a first test job. Every step can be run again; running it again only changes what is not already right (`arm-setup install --worker NAME`).
 - **Two unprivileged accounts, never administrators.** One runs the worker and its jobs; one only receives jobs over SSH and can run nothing but git on the two mailbox repositories (it cannot log on at a desktop). Their passwords are random and are not kept by the setup (Windows' Task Scheduler holds the worker account's, so do not change it).
-- **`ct-run` works as it does for any worker:** `ct-run classes`, `ct-run submit CLASS --wait`, results, the round-trip breakdown.
-- **Job classes** come from the `windows-core` pack (`win-status`, `win-echo`); more are added the way every class is (`ct-admin adopt`).
+- **`arm-run` works as it does for any worker:** `arm-run classes`, `arm-run submit CLASS --wait`, results, the round-trip breakdown.
+- **Job classes** come from the `windows-core` pack (`win-status`, `win-echo`); more are added the way every class is (`arm-admin adopt`).
 - **Each job runs in a Job Object:** its whole process tree is stopped together on a timeout, a limit or when the worker stops.
 
 ## What it changes on the Windows computer
@@ -19,5 +19,5 @@ Everything is under `C:\ProgramData\armada` except: two local accounts, one mark
 ## Limits you should know about
 - **Special Use only.** A Windows worker has no file or network isolation for jobs (there is no equivalent of the Linux jail): a class must say `network: true` to be offered there, and what a job does is limited by what the worker account may do. Use it for tools boxes and trusted work.
 - The Direct connection only (no GitHub connection).
-- `ct-admin apply` does not update a Windows worker yet (it refuses with a clear message): set it up again to move it to a newer release.
-- Not included: removing a Windows worker with `ct-setup uninstall`, approvals and signatures on Windows, load average (reported as 0), a double-click setup tool for a computer without OpenSSH.
+- `arm-admin apply` does not update a Windows worker yet (it refuses with a clear message): set it up again to move it to a newer release.
+- Not included: removing a Windows worker with `arm-setup uninstall`, approvals and signatures on Windows, load average (reported as 0), a double-click setup tool for a computer without OpenSSH.

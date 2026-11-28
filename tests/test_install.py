@@ -1,4 +1,4 @@
-"""ct-setup install: one command from your computer. A fake SSH connection and a fake local machine record everything; real git repositories stand in for GitHub."""
+"""arm-setup install: one command from your computer. A fake SSH connection and a fake local machine record everything; real git repositories stand in for GitHub."""
 import json
 import shlex
 import subprocess
@@ -11,17 +11,17 @@ from pathlib import Path
 from support import RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 from test_setup import OS_RELEASE, FakeHost, cfg_of  # noqa: E402
 
-from ct import config
-from ct.admin.ssh import Ssh
-from ct.client.repo import ClientError
-from ct.setup import cli as setup_cli
-from ct.setup import install, keys, toml_out
-from ct.setup.host import Result
-from ct.setup.server import EXIT_WAITING, SetupError
+from armada import config
+from armada.admin.ssh import Ssh
+from armada.client.repo import ClientError
+from armada.setup import cli as setup_cli
+from armada.setup import install, keys, toml_out
+from armada.setup.host import Result
+from armada.setup.server import EXIT_WAITING, SetupError
 
 QUEUE_PUB = "ssh-ed25519 QQQQQQQQ armada-queue"
 RESULTS_PUB = "ssh-ed25519 RRRRRRRR armada-results"
-REMOTE = "/tmp/ct-install.AbC123"
+REMOTE = "/tmp/arm-install.AbC123"
 GIVEN = {"server.host": "worker.example", "server.admin_user": "admin", "github.owner": "someone"}
 
 
@@ -111,7 +111,7 @@ class HappyPath(InstallBase):
         inst = self.installer()
         inst.run_all()
         # this side
-        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
+        self.assertTrue(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/armada.toml"))
         # the release and the answers went to a private folder on the server, and only there
         sent = dict(self.ssh.sent)
         self.assertEqual(sent[f"tar -xf - -C {REMOTE}"], b"TARDATA")
@@ -121,7 +121,7 @@ class HappyPath(InstallBase):
         self.assertTrue(tty)
         self.assertTrue(remote.startswith("sh -c "))
         self.assertIn("sudo -p", remote)                                    # the password is asked first, with a prompt that says what it is
-        self.assertIn(f"-v; sudo -n true && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m ct.setup server", remote)
+        self.assertIn(f"-v; sudo -n true && touch {REMOTE}/.authenticated && sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={REMOTE}/src python3 -m armada.setup server", remote)
         for piece in ("--apply", "--no-banner", "--wait-for-keys 900", f"--answers {REMOTE}/answers.toml", f"--rev {'a' * 40}", f"--source {REMOTE}"):
             self.assertIn(piece, remote)
         # the keys went to GitHub with the right access, without anyone copying them
@@ -148,7 +148,7 @@ class HappyPath(InstallBase):
     def test_a_direct_setup_whose_clones_fail_stops_the_job_loop_says_the_real_reason_and_sends_no_first_job(self):
         """Seen on a real machine: 'detected dubious ownership' on the mailbox, then eight retries of a first job against a computer that was not set up."""
         class Dead(Exception):
-            why = "fatal: detected dubious ownership in repository at '/var/lib/tenta2-mail/results.git'"
+            why = "fatal: detected dubious ownership in repository at '/var/lib/arm2-mail/results.git'"
             steps = []
         self.repos.clone_all = lambda home: (_ for _ in ()).throw(Dead("clone failed"))
         with self.assertRaises(install.SetupError) as e:
@@ -230,14 +230,14 @@ class HappyPath(InstallBase):
         self.assertIn("may still be running", " ".join(e.steps))
 
     def test_an_install_already_on_the_server_keeps_its_worker_account_even_when_the_saved_answers_do_not_say(self):
-        self.ssh.files["/etc/armada/ct.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
+        self.ssh.files["/etc/armada/armada.toml"] = '[server]\nadmin_user = "me"\nworker_user = "cwworker"\n'
         inst = self.installer()
         inst.run_all()
         self.assertEqual(inst.cfg.server.worker_user, "cwworker")
         self.assertIn(b"cwworker", b"".join(d for _, d in self.ssh.sent))                          # and the answers sent to the server say so
 
     def test_an_explicit_worker_account_answer_beats_the_one_on_the_server(self):
-        self.ssh.files["/etc/armada/ct.toml"] = '[server]\nworker_user = "cwworker"\n'
+        self.ssh.files["/etc/armada/armada.toml"] = '[server]\nworker_user = "cwworker"\n'
         inst = self.installer(given={"server.worker_user": "other"})
         inst.run_all()
         self.assertEqual(inst.cfg.server.worker_user, "other")
@@ -284,8 +284,8 @@ class FirstJobRetries(unittest.TestCase):
 
     def run_verify(self, outcomes):
         """outcomes: one (exit code, LAST_RESULT) per attempt."""
-        from ct.client import cli as client_cli
-        from ct.admin import cli as admin_cli
+        from armada.client import cli as client_cli
+        from armada.admin import cli as admin_cli
         script, said, calls = list(outcomes), [], []
 
         def fake_main(argv):
@@ -327,7 +327,7 @@ class FirstJobRetries(unittest.TestCase):
 
 class ApproverKeyDelivery(InstallBase):
     def test_the_public_key_goes_to_the_server_and_the_command_says_where(self):
-        pub = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAI" + "PUBLICKEY" * 4 + " ct-approval"
+        pub = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAI" + "PUBLICKEY" * 4 + " arm-approval"
         (self.tmp / "client-home" / "approval").mkdir(parents=True)
         self.machine.put(str(self.tmp / "client-home" / "approval" / "key.pub"), pub + "\n")
         inst = self.installer()
@@ -403,7 +403,7 @@ class WithTheScreen(InstallBase):
 
     def test_the_questions_use_the_screen_and_the_facts_wait_until_they_are_done(self):
         from test_tui import typed
-        from ct.setup import questions
+        from armada.setup import questions
         total = questions.count_to_ask(("client", "server"), {})
         self.assertEqual(total, 7)                                   # the server, your account on it, the connection method, GitHub, the machine, what the computer is used for, alerts: everything else has a safe default (IPv6 is asked with --advanced)
         events = typed("worker.example", "admin") + typed("", "someone", "", "", "", "") + ["enter"]       # the connection questions, the rest (Enter on the connection method first), then Enter on the review
@@ -442,7 +442,7 @@ class WithTheScreen(InstallBase):
 
     def test_advanced_settings_are_asked_only_when_asked_for(self):
         from test_tui import typed
-        from ct.setup import questions
+        from armada.setup import questions
         every = questions.count_to_ask(("client", "server"), {}, advanced=True)
         self.assertGreater(every, 15)
         inst, term = self.installer_with_screen(typed("worker.example", "admin", "2222") + typed("", "someone") + typed(*[""] * (every - 5)) + ["enter"])
@@ -462,7 +462,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=ssh).run_all()
         self.assertIn("not supported", e.exception.why)
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/armada.toml"))
         self.assertEqual(ssh.sent, [])
         self.assertEqual(self.ran_local("gh"), [])
 
@@ -470,7 +470,7 @@ class Failures(InstallBase):
         with self.assertRaises(SetupError) as e:
             self.installer(ssh=FakeSsh(connect=False)).run_all()
         self.assertIn("ssh-copy-id admin" + "@" + "worker.example", " ".join(e.exception.steps))
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/armada.toml"))
 
     def test_missing_connection_answers_are_named(self):
         inst = install.Installer(self.tmp, ssh_factory=lambda *a: self.ssh, local=self.machine, say=self.said.append, given={}, use_defaults=True)
@@ -525,7 +525,7 @@ class Preview(InstallBase):
         self.assertEqual(self.ssh.popen_calls, [])
         self.assertEqual(self.ran_local("gh repo create"), [])
         self.assertEqual(self.ran_local("gh repo deploy-key add"), [])
-        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/ct.toml"))
+        self.assertFalse(self.machine.exists(self.machine.env["HOME"] + "/.config/armada/armada.toml"))
         previews = [c for c in self.ssh.calls if c.startswith("env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=")]
         self.assertEqual(len(previews), 1)
         self.assertNotIn("sudo", previews[0])
@@ -620,7 +620,7 @@ class DeployKeyUnits(unittest.TestCase):
         dk = keys.DeployKeys(self.cfg(), run, lambda n: "/usr/bin/gh")
         (which, status), = dk.sync({"results": RESULTS_PUB})
         self.assertIn("TLS handshake timeout", status)
-        self.assertIn("run ct-setup install again", status)
+        self.assertIn("run arm-setup install again", status)
         self.assertFalse([c for c in calls if c[3] == "add"])
         self.assertNotIn("results", dk.done)
 
@@ -675,7 +675,7 @@ class Command(InstallBase):
 
 
 class TheCheckoutIsTheReleaseTheOthersGet(unittest.TestCase):
-    """The step where the workers diverged: ct-setup installs the checkout's HEAD, ct-admin apply installs only published commits. Said before anything is sent."""
+    """The step where the workers diverged: arm-setup installs the checkout's HEAD, arm-admin apply installs only published commits. Said before anything is sent."""
 
     def run_notice(self, rev, tip, has_tip=True, rev_in_tip=False):
         def run(argv, **kw):
@@ -700,13 +700,13 @@ class TheCheckoutIsTheReleaseTheOthersGet(unittest.TestCase):
     def test_a_commit_that_is_not_on_the_release_branch_is_called_unpublished_and_the_fix_is_named(self):
         kind, rows, why, steps = self.run_notice("a" * 40, "b" * 40)
         self.assertEqual(kind, "unpublished")
-        self.assertIn("ct-admin apply cannot compare", why)
-        self.assertTrue(any("ct-admin apply --force" in s for s in steps))
+        self.assertIn("arm-admin apply cannot compare", why)
+        self.assertTrue(any("arm-admin apply --force" in s for s in steps))
 
     def test_deliver_says_so_before_it_sends_anything(self):
         said = []
         ssh = mock.Mock()
-        ssh.capture.return_value = subprocess.CompletedProcess([], 0, "/tmp/ct-install.abc123\n", "")
+        ssh.capture.return_value = subprocess.CompletedProcess([], 0, "/tmp/arm-install.abc123\n", "")
         ssh.send.return_value = subprocess.CompletedProcess([], 0, b"", b"")
         with mock.patch.object(install, "release_notice", return_value=("unpublished", [("This checkout", "aaaaaaaaa")], "why", ["step"])), \
                 mock.patch.object(install.ui_mod, "say", side_effect=lambda *a, **k: said.append(a[0])):

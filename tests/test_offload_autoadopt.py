@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct import registry  # noqa: E402
-from ct.client import cli  # noqa: E402
-from ct.client import offload as off  # noqa: E402
-from ct.client.cli import adopt_tier as cli_tier  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada import registry  # noqa: E402
+from armada.client import cli  # noqa: E402
+from armada.client import offload as off  # noqa: E402
+from armada.client.cli import adopt_tier as cli_tier  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 from offload_support import OffloadFixture  # noqa: E402
 from support import sh  # noqa: E402
 

@@ -30,7 +30,7 @@ install, not to a pack.
 
 Same as the registry: `tier` (`auto`/`approve`), `cost` (`light`/`medium`/`heavy`), `run` (argument list with `{param}` placeholders), `params` (`enum`, `int`,
 `regex`, optional), `timeout_s`, `max_rss_mb`, `max_temp_c`, `max_disk_mb`, `network`, `accepts_files`, `batchable`, `output_keys`, `output_allow`, `packages`
-(pinned), `env` (only `PYTHONPATH` or `NODE_PATH`, only under the tools folder), `kind` (`command`, `profile`). A class that hands its work back as data sets `returns: patch` (needs `accepts_files: true` and `reviewed: true`, optional `patch_max_kb`, default 200): the worker compares the job's folder with the files it was sent and publishes one unified diff inside the result; you read and apply it yourself with `ct-run patch <job>`. See `docs/design/SINGLE-JOB-DEVICES.md`.
+(pinned), `env` (only `PYTHONPATH` or `NODE_PATH`, only under the tools folder), `kind` (`command`, `profile`). A class that hands its work back as data sets `returns: patch` (needs `accepts_files: true` and `reviewed: true`, optional `patch_max_kb`, default 200): the worker compares the job's folder with the files it was sent and publishes one unified diff inside the result; you read and apply it yourself with `arm-run patch <job>`. See `docs/design/SINGLE-JOB-DEVICES.md`.
 
 ### Policy file
 
@@ -53,7 +53,7 @@ A rule needs a `reason`. Unknown keys (including any `allow` or `override`) are 
 
 ### Composition
 
-`ct-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
+`arm-update` installs the packs the configuration names (`registry.packs`, `policy.packs`) root-owned under `<config>/packs/<name>/`, then composes the
 registry the worker will trust:
 
 1. packs' classes, in the order named; a name defined twice is an error naming both packs;
@@ -72,7 +72,7 @@ profile run of a denied program, and reports the policy's own reason.
 ### Checking a pack
 
 ```
-python3 -m ct.packs check <pack folder>...
+python3 -m armada.packs check <pack folder>...
 ```
 
 prints each pack's version, counts and SHA-256 digest, or every problem found. The digest covers every file name and content, so what an administrator approves is exactly this.
@@ -84,4 +84,4 @@ Hardening modules and anything that installs a root-owned unit or script. They r
 ### Actions in a pack
 
 A pack may also carry `actions/*.yaml` (root-level actions, see [Root-level actions](privileged.md)). A pack cannot know the hash of a program on your machine, so the
-install refuses its actions until your own registry pins each one (`action_pins`, from `ct-admin action-hash <path>`). `packs/fan-control` is the worked example.
+install refuses its actions until your own registry pins each one (`action_pins`, from `arm-admin action-hash <path>`). `packs/fan-control` is the worked example.

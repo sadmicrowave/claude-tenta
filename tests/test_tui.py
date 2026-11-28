@@ -6,9 +6,9 @@ import unittest
 
 import support  # noqa: F401  (points HOME at a throwaway folder)
 
-from ct import config
-from ct.setup import hardening, questions, tui
-from ct.setup.hardening import Action, Check
+from armada import config
+from armada.setup import hardening, questions, tui
+from armada.setup.hardening import Action, Check
 from test_setup import FakeHost, cfg_of
 
 
@@ -422,7 +422,7 @@ class Flow(unittest.TestCase):
 
     def test_only_the_last_few_answers_stay_above_the_question_and_the_rest_are_counted(self):
         keys = {"identity.name", "server.host", "server.admin_user", "server.worker_user", "server.ssh_port", "github.owner", "github.queue_repo"}
-        p, out = prompter(typed("h.example", "agent", "someone", "armada", "", "ctworker") + ["x"])           # the order the questions are asked in
+        p, out = prompter(typed("h.example", "agent", "someone", "armada", "", "armworker") + ["x"])           # the order the questions are asked in
         try:
             questions.collect(("client", "server"), ui=p, only=keys, advanced=True)
         except StopIteration:
@@ -502,7 +502,7 @@ class Review(unittest.TestCase):
 class Demo(unittest.TestCase):
     def test_the_demo_shows_the_questions_and_both_kinds_of_protection_and_saves_nothing(self):
         import contextlib
-        from ct.setup import cli
+        from armada.setup import cli
         # profile 3 (workstation), IPv6 Enter, alerts ntfy then a pasted address, updates Enter, the review Enter; then Apply the lock-out one, Skip the other
         events = typed("3", "", "ntfy") + [("paste", "\x1b[200~https://ntfy.example/demo-topic\x1b[201~"), "enter"] + typed("") + ["enter"] + ["enter"] + ["right", "enter"]
         p, out = prompter(events)
@@ -518,7 +518,7 @@ class Demo(unittest.TestCase):
 
     def test_the_demo_command_needs_a_real_terminal(self):
         import contextlib
-        from ct.setup import cli
+        from armada.setup import cli
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             self.assertEqual(cli.main(["demo"]), 2)
@@ -727,8 +727,8 @@ class ShortTerminal(unittest.TestCase):
             "why": "Every job runs with no network, no capabilities, no new privileges, its own process tree, and no view of the worker's home folder (where its repository keys live) or of this install's configuration. "
                    "This installs the tool that does it (bubblewrap) and, on Ubuntu 24.04 and newer, puts the kernel's user-namespace restriction back on for everyone else.",
             "risk": "None for logins. Until it works, jobs are refused rather than run without a jail.", "now": "a test jail could not be created: bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
-            "steps": ["apt-get install -y bubblewrap", "write /etc/apparmor.d/ct-bwrap (mode 644):\n    # Written by ct-setup.\n    # more\n    abi <abi/4.0>,\n    include <tunables/global>\n\n    profile ct-bwrap /usr/bin/bwrap flags=(unconfined) {\n      userns,\n    }",
-                      "apparmor_parser -r /etc/apparmor.d/ct-bwrap", "write /etc/sysctl.d/61-x-userns.conf (mode 644):\n    # x", "sysctl -w kernel.apparmor_restrict_unprivileged_userns=1"]}
+            "steps": ["apt-get install -y bubblewrap", "write /etc/apparmor.d/arm-bwrap (mode 644):\n    # Written by arm-setup.\n    # more\n    abi <abi/4.0>,\n    include <tunables/global>\n\n    profile arm-bwrap /usr/bin/bwrap flags=(unconfined) {\n      userns,\n    }",
+                      "apparmor_parser -r /etc/apparmor.d/arm-bwrap", "write /etc/sysctl.d/61-x-userns.conf (mode 644):\n    # x", "sysctl -w kernel.apparmor_restrict_unprivileged_userns=1"]}
 
     def answered(self, screen_rows, keys=("y",), cols=127):
         p, out = prompter(list(keys), width=cols, rows=screen_rows, cols=cols, screen_rows=screen_rows)
@@ -764,7 +764,7 @@ if __name__ == "__main__":
 class RootCard(unittest.TestCase):
     """The card for something that runs as root is the wizard's own card: every line the same visible width, so the frame is flush at any value length."""
     def test_every_line_is_exactly_as_wide_as_the_frame_even_with_a_long_hash(self):
-        from ct.admin import actionadd
+        from armada.admin import actionadd
         action = {"description": "Hold the fan at a fixed speed", "run": ["/usr/local/sbin/fan-profile", "{mode}"], "params": {"mode": {"enum": ["idle", "load"]}},
                   "writable": ["/sys/devices/platform/applesmc.768"], "timeout_s": 360}
         info = {"path": "/usr/local/sbin/fan-profile", "sha256": "ab" * 32}
@@ -779,7 +779,7 @@ class RootCard(unittest.TestCase):
     def test_the_frame_takes_its_colour_from_the_theme_role(self):
         p = tui.TuiPrompter(out=io.StringIO(), width=80, keys=iter([]), color=True)
         info = {"title": "t", "why": "w", "risk": "r", "now": "n", "steps": [], "code": "root"}
-        from ct import theme
+        from armada import theme
         self.assertIn(theme.code("root"), p.card(info, 0, False)[0])
 
 

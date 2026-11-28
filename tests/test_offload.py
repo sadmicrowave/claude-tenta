@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct import registry  # noqa: E402
-from ct.client import cli  # noqa: E402
-from ct.client import offload as off  # noqa: E402
-from ct.client.cli import adopt_tier as cli_tier  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada import registry  # noqa: E402
+from armada.client import cli  # noqa: E402
+from armada.client import offload as off  # noqa: E402
+from armada.client.cli import adopt_tier as cli_tier  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 
 INFO = {"mem_total_mb": 8000, "classes": {"echo": {"run": ["/bin/echo", "{word}"], "cost": "light", "tier": "auto"},
                                           "lint": {"run": ["/usr/bin/eslint", ".", "--max-warnings", "0"], "cost": "medium", "tier": "approve"}}}
@@ -41,9 +41,9 @@ class Decision(unittest.TestCase):
         self.assertEqual(rc((["/bin/echo", "x"], INFO, [])), 0)
         self.assertEqual(rc((["nope"], INFO, [])), 4)
         msg = off.fit_message(off.fit_lookup(["/bin/echo", "x"], INFO, []), ["/bin/echo", "x"], "homect")
-        self.assertEqual(msg, "REGISTERED as class echo (light, tier auto): ct-run submit echo --wait")
+        self.assertEqual(msg, "REGISTERED as class echo (light, tier auto): arm-run submit echo --wait")
         self.assertIn("propose a profiling run", off.fit_message({"verdict": "unknown"}, ["nope"], "homect"))
-        self.assertIn("ct-run offload profile -- nope", off.fit_message({"verdict": "unknown"}, ["nope"], "homect"))
+        self.assertIn("arm-run offload profile -- nope", off.fit_message({"verdict": "unknown"}, ["nope"], "homect"))
         self.assertIn("when homect had 4000 MB", off.fit_message({"verdict": "retry", "reasons": "r", "then_mb": 4000, "now_mb": 8000}, [], "homect"))
         self.assertIn("Do not offload this", off.fit_message({"verdict": "excluded", "reasons": "r"}, [], "x"))
 
@@ -140,12 +140,12 @@ class Profile(unittest.TestCase):
 
     def test_the_required_details_are_named_and_the_fix_is_a_command_to_copy(self):
         with self.assertRaises(ClientError) as cm:
-            off.build_profile_job(["eslint", "."], None, "fast", {"est_time_s": 5, "est_mem_mb": None}, retry_example=lambda extra: "ct-run offload profile --name lint " + extra)
+            off.build_profile_job(["eslint", "."], None, "fast", {"est_time_s": 5, "est_mem_mb": None}, retry_example=lambda extra: "arm-run offload profile --name lint " + extra)
         e = cm.exception
         self.assertEqual(e.title, "This profiling run is missing required details")
         self.assertEqual([s for s in e.steps if s.startswith("Missing")][0][:28], "Missing: --what  \"what the c")
         self.assertEqual(len([s for s in e.steps if s.startswith("Missing")]), 2)
-        self.assertEqual(e.example, "ct-run offload profile --name lint --what 'what the command does' --est-mem-mb 100")
+        self.assertEqual(e.example, "arm-run offload profile --name lint --what 'what the command does' --est-mem-mb 100")
         with self.assertRaises(ClientError):
             off.build_profile_job([], "w", "e", {"est_time_s": 1, "est_mem_mb": 1})
 
@@ -165,8 +165,8 @@ class Profile(unittest.TestCase):
             off.parse_flags(["nothing"])
 
     def test_the_example_command_keeps_the_double_dash_part_intact(self):
-        self.assertEqual(off.own_command_with(["offload", "profile", "--name", "x", "--", "ssh", "-V", "a b"], "--what 'w'"), "ct-run offload profile --name x --what 'w' -- ssh -V 'a b'")
-        self.assertEqual(off.own_command_with(["offload", "profile"], ""), "ct-run offload profile")
+        self.assertEqual(off.own_command_with(["offload", "profile", "--name", "x", "--", "ssh", "-V", "a b"], "--what 'w'"), "arm-run offload profile --name x --what 'w' -- ssh -V 'a b'")
+        self.assertEqual(off.own_command_with(["offload", "profile"], ""), "arm-run offload profile")
 
 
 class RegistryEditing(unittest.TestCase):
@@ -190,7 +190,7 @@ class RegistryEditing(unittest.TestCase):
 
 
 class PackRecipe(unittest.TestCase):
-    """List item 0b: an adopted class keeps how its files were packaged, so `ct-run submit CLASS` repeats the profiled invocation."""
+    """List item 0b: an adopted class keeps how its files were packaged, so `arm-run submit CLASS` repeats the profiled invocation."""
 
     def test_a_recipe_is_relative_to_where_the_command_was_typed(self):
         cwd = Path(tempfile.mkdtemp()).resolve()
@@ -261,10 +261,10 @@ class NeedsLonger(unittest.TestCase):
         self.assertIn("longer time limit", str(cm.exception))
 
     def test_the_result_card_offers_the_command_or_the_ceiling(self):
-        from ct.client import view
+        from armada.client import view
         res = {"id": "profile-aaa111", "status": "ok", "profile": {"verdict": "needs-longer", "argv": ["x"], "reasons": ["stopped"], "limiting": ["time"], "next_limit_s": 600}}
-        card = view.result_card(res, rerun="ct-run offload profile --timeout-s 600 -- x")
-        self.assertEqual((card["run"], card["run_label"]), ("ct-run offload profile --timeout-s 600 -- x", "Profile it again with a limit of 600 s"))
+        card = view.result_card(res, rerun="arm-run offload profile --timeout-s 600 -- x")
+        self.assertEqual((card["run"], card["run_label"]), ("arm-run offload profile --timeout-s 600 -- x", "Profile it again with a limit of 600 s"))
         res["profile"].update(next_limit_s=None, at_ceiling=True, ceiling_s=600)
         card = view.result_card(res)
         self.assertIsNone(card["run"])

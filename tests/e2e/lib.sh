@@ -4,9 +4,9 @@
 # GitHub is simulated faithfully: github.com resolves to this machine, where an SSH user called git holds the two bare repositories under someone/. Every clone, fetch and push goes over
 # SSH with real keys (the worker's own deploy keys included). Nothing in the project is fake. Exit status of a route is the number of failed checks.
 set -uo pipefail
-SRC=${SRC:-/opt/ct-src}
+SRC=${SRC:-/opt/arm-src}
 rgit() { git -c safe.directory="*" "$@"; }; export -f rgit      # root LOOKING at a repository that belongs to someone else, for that one command; the programs under test get no such trust
-H=/home; NAME=armada; ADMIN=ctadmin; WORKER=ctworker; OWNER=someone
+H=/home; NAME=armada; ADMIN=ctadmin; WORKER=armworker; OWNER=someone
 export DEBIAN_FRONTEND=noninteractive
 SSH_FROM=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 PASS=0; FAIL=0
@@ -78,7 +78,7 @@ GH
 
 # A machine cloned from the shared baseline (scripts/e2e-routes builds it once per run: tests/e2e/baseline.sh) already has the checkout installed and a GitHub baseline that works; the routes that are
 # about something else start from it instead of each repeating a minute of install, measured as 6x slower when six ran at once.
-BASELINE_MARK=${BASELINE_MARK:-/etc/ct-e2e-baseline}
+BASELINE_MARK=${BASELINE_MARK:-/etc/arm-e2e-baseline}
 from_baseline() { [ -f "$BASELINE_MARK" ]; }
 
 prepare_checkout() {
@@ -91,19 +91,19 @@ prepare_checkout() {
   [ -d /opt/ctvenv ] || python3 -m venv --system-site-packages /opt/ctvenv
   /opt/ctvenv/bin/pip install -q -e $SRC
   chmod -R a+rX /opt/ctvenv $SRC
-  check "pip installs the four commands" bash -c 'for c in ct-run ct-admin ct-setup ct-help; do test -x /opt/ctvenv/bin/$c || exit 1; done'
+  check "pip installs the four commands" bash -c 'for c in arm-run arm-admin arm-setup arm-help; do test -x /opt/ctvenv/bin/$c || exit 1; done'
 }
 
 # ---- installs ------------------------------------------------------------------------------------------------------------------------------------------
 install_flags() { echo --yes --source $SRC --set server.host=localhost --set server.admin_user=$ADMIN --set github.owner=$OWNER --set network.ssh_from=$SSH_FROM; }
-install_github() { as_admin ct-setup install $(install_flags) "$@"; }                       # the whole wizard, answered on the command line (GitHub is the default connection)
+install_github() { as_admin arm-setup install $(install_flags) "$@"; }                       # the whole wizard, answered on the command line (GitHub is the default connection)
 
 baseline_github() {
   from_baseline && { printf '  (from the shared baseline machine)\n'; return 0; }
   # the starting point of every route that is about something else: a GitHub install that works. Its own detail is checked by routes/install.sh.
-  step "Baseline: ct-setup install (GitHub) and a first job"
+  step "Baseline: arm-setup install (GitHub) and a first job"
   install_github >/tmp/e2e-install.out 2>&1; local rc=$?
   tail -8 /tmp/e2e-install.out
   check "the baseline install finished successfully" test $rc -eq 0
-  check "the baseline worker runs a job" bash -c "as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job.out 2>&1"
+  check "the baseline worker runs a job" bash -c "as_admin arm-run submit sys-status --wait --timeout 240 >/tmp/e2e-job.out 2>&1"
 }

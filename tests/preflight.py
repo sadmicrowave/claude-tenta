@@ -93,7 +93,7 @@ def require(kind="unit", arg=None):
         raise SystemExit(1)
     if found:
         sys.stderr.write("The tests cannot run here:\n" + "".join(f"  - {p}\n" for p in found)
-                         + "Use the project's own Python (it has the packages): ~/.ct-venv/bin/python, or: python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e .\n")
+                         + "Use the project's own Python (it has the packages): ~/.arm-venv/bin/python, or: python3 -m venv ~/.arm-venv && ~/.arm-venv/bin/pip install -e .\n")
         raise SystemExit(1)
 
 

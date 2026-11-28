@@ -8,7 +8,7 @@ from pathlib import Path
 
 import support  # noqa: F401  (points HOME at a throwaway folder)
 
-from ct import jobs, packs, registry
+from armada import jobs, packs, registry
 
 ROOT = Path(__file__).resolve().parents[1]
 HAVE_YAML = importlib.util.find_spec("yaml") is not None
@@ -16,7 +16,7 @@ CLASS = "classes:\n  {name}:\n    tier: auto\n    cost: light\n    run: [/bin/ec
 
 
 def make_pack(name="mine", kinds=("classes",), classes=("one",), policy=None, extra_manifest="", root=None):
-    root = Path(root or tempfile.mkdtemp(prefix="ct-packs-"))
+    root = Path(root or tempfile.mkdtemp(prefix="arm-packs-"))
     d = root / name
     (d / "classes").mkdir(parents=True)
     (d / "policy").mkdir()
@@ -257,7 +257,7 @@ class FanControlExample(unittest.TestCase):
     """The shipped example of a root-level action: it needs the administrator's pin before it installs."""
 
     def setUp(self):
-        from ct import packs
+        from armada import packs
         self.packs = packs
         root = Path(__file__).resolve().parents[1] / "packs"
         self.loaded = {"core": packs.load_pack(root / "core"), "fan-control": packs.load_pack(root / "fan-control")}
@@ -275,7 +275,7 @@ class FanControlExample(unittest.TestCase):
         self.assertIn("action-hash", " ".join(e.exception.problems))
 
     def test_with_the_pin_it_composes_into_a_valid_registry_and_the_class_cannot_skip_approval(self):
-        from ct import registry
+        from armada import registry
         reg, _ = self.packs.compose(self.loaded, ["core", "fan-control"], ["core"], {"action_pins": {"fan-profile": "9" * 64}})
         self.assertEqual(reg["actions"]["fan-profile"]["sha256"], "9" * 64)
         self.assertNotIn("action_pins", reg)

@@ -7,7 +7,7 @@
 ## What the person sees
 1. The scan finds a computer whose SSH greeting says `OpenSSH_for_Windows`, lists it as `Windows, OpenSSH 9.5 (Special Use only)`, and counts it separately from Linux servers. **Built.**
 2. Picking it runs the candidacy check: for Windows it stops at once, before anything is run on it, with a card that says it can only be a Special Use worker with the separate Windows release, that nothing was changed, and what to do today (a Linux VM or WSL2, added by its own address). **Built.**
-3. When the Windows release exists, the same pick installs it: no purpose question (it is Special Use), the Windows release is fetched from the release source and installed, `ct-admin apply` later brings that worker to the newest Windows release and never the Linux one.
+3. When the Windows release exists, the same pick installs it: no purpose question (it is Special Use), the Windows release is fetched from the release source and installed, `arm-admin apply` later brings that worker to the newest Windows release and never the Linux one.
 
 A Windows computer is only found when its owner has turned on the OpenSSH Server optional feature. A machine without it is not discoverable by this scan; finding it by SMB, RDP or WinRM is a possible later step.
 
@@ -34,7 +34,7 @@ The code that does not change: the class model, the orchestrator, approvals and 
 
 ## Release split
 - A separate release line and artifact for Windows (own version tag and release branch, own CI), so a Windows change can never block or alter a Linux release. The Linux release carries the detection and the hand-off, and nothing else of Windows.
-- The release source names the Windows release; `ct-admin apply` and the install pick it by the worker's platform, published in its state.
+- The release source names the Windows release; `arm-admin apply` and the install pick it by the worker's platform, published in its state.
 
 ## Slices
 1. **Built:** detection in the scan, the separate count, the stop with the explanation, the cards.

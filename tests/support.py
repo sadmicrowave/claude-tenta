@@ -16,16 +16,16 @@ from unittest import mock
 import preflight  # noqa: E402  (before anything else: a missing package or tool is one clear message, not hundreds of errors)
 preflight.require()
 
-# Safety net: no test may ever touch the real home folder (~/.ct, ~/.config, ...). Importing this module points HOME at a throwaway folder.
-os.environ["HOME"] = tempfile.mkdtemp(prefix="ct-test-home-")
-os.chdir(os.environ["HOME"])      # and no test runs from a folder whose parents hold the developer's own .tenta.toml (a folder file is looked for upward from where you are)
+# Safety net: no test may ever touch the real home folder (~/.armada, ~/.config, ...). Importing this module points HOME at a throwaway folder.
+os.environ["HOME"] = tempfile.mkdtemp(prefix="arm-test-home-")
+os.chdir(os.environ["HOME"])      # and no test runs from a folder whose parents hold the developer's own .armada.toml (a folder file is looked for upward from where you are)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from ct import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
-from ct import jail as jail_mod  # noqa: E402
-from ct.client import cli  # noqa: E402
-from ct import ui as _ui  # noqa: E402
+from armada import alerts, gitio, guard, packages, results, util, worker  # noqa: E402
+from armada import jail as jail_mod  # noqa: E402
+from armada.client import cli  # noqa: E402
+from armada import ui as _ui  # noqa: E402
 _ui._run_clipboard_tool = lambda argv, text: False       # a test never touches the real clipboard
-from ct.client.repo import ClientRepos  # noqa: E402
+from armada.client.repo import ClientRepos  # noqa: E402
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
 IP = "192." + "168." + "7.77"
@@ -76,7 +76,7 @@ def ssh_key(path, name="key", comment=""):
     """An ed25519 key pair written to `path` (and `path.pub`); each distinct `name` is generated once per process (one ssh-keygen) and copied for every test."""
     path = Path(path)
     if (name, comment) not in _KEYS:
-        d = Path(tempfile.mkdtemp(prefix="ct-key-"))
+        d = Path(tempfile.mkdtemp(prefix="arm-key-"))
         atexit.register(shutil.rmtree, d, ignore_errors=True)
         sh("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", str(d / "k"))
         _KEYS[(name, comment)] = d
@@ -92,7 +92,7 @@ _TEMPLATES = {}
 def _git_template(kind=""):
     """The queue and results repositories with their three clones, built once per process (eight git calls) and copied for every test. A `kind` adds one more step on top (see _TEMPLATE_STEPS), also built once."""
     if kind not in _TEMPLATES:
-        t = Path(tempfile.mkdtemp(prefix="ct-git-template-"))
+        t = Path(tempfile.mkdtemp(prefix="arm-git-template-"))
         atexit.register(shutil.rmtree, t, ignore_errors=True)
         if kind:
             _copy_into(_git_template(), t)
@@ -112,7 +112,7 @@ def _git_template(kind=""):
 
 
 def _registry_step(t):
-    """What the ct-admin tests start from: registry.yaml already pushed to the queue's main."""
+    """What the arm-admin tests start from: registry.yaml already pushed to the queue's main."""
     (t / "requester" / "registry.yaml").write_text(REGISTRY)
     sh("git", "add", "-A", cwd=t / "requester")
     sh("git", "commit", "-q", "-m", "chore: registry", cwd=t / "requester")
@@ -189,7 +189,7 @@ class Base(unittest.TestCase):
         self.state.mkdir()
         self.registry_path = t / "registry.yaml"
         self.registry_path.write_text(REGISTRY)
-        self.io = gitio.GitIO(t / "w-queue", t / "w-results", self.state, lock_wait=1, committer=("ct-worker", "ct-worker@localhost"))
+        self.io = gitio.GitIO(t / "w-queue", t / "w-results", self.state, lock_wait=1, committer=("arm-worker", "arm-worker@localhost"))
         self.pushes, self.logged = [], []
         self.notifier = alerts.Notifier(url="https://ntfy.example/t", opener=self.pushes.append, syslog=False, product="testct")
         self.seclog = guard.SecurityLog(self.state / "security.log")
@@ -243,7 +243,7 @@ class RepoFixture(Base):
         self.sleeps = []
         self.repos = ClientRepos(self.home / "queue", self.home / "results", str(self.tmp / "queue.git"), str(self.tmp / "results.git"), sleep=self.sleeps.append)
         self.repos.clone_all(self.home)
-        self.said = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
+        self.said = mock.patch.dict(os.environ, {"ARM_COLOR": "never"})
         self.said.start()
         self.addCleanup(self.said.stop)
         self.answers = []

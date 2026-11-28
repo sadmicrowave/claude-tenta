@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import config, refusals
-from ct.admin import workers as workers_mod
+from armada import config, refusals
+from armada.admin import workers as workers_mod
 
 
 def toml(name, owner="someone", queue=None, results=None):
@@ -17,7 +17,7 @@ class Isolation(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.wfile = self.d / "workers.toml"
-        (self.d / "ct.toml").write_text(toml("mainw"))
+        (self.d / "armada.toml").write_text(toml("mainw"))
 
     def conf(self, name, **kw):
         p = self.d / f"{name}.toml"
@@ -51,7 +51,7 @@ class Isolation(unittest.TestCase):
         workers_mod.add(self.wfile, "wk-a", p)
 
     def test_the_install_refuses_before_anything_is_created_when_its_answers_name_a_used_repository(self):
-        cfg = config.load(self.conf("wk-c", queue="wk-a-queue"), env={"CT_CONFIG": ""})
+        cfg = config.load(self.conf("wk-c", queue="wk-a-queue"), env={"ARM_CONFIG": ""})
         workers_mod.add(self.wfile, "wk-a", self.conf("wk-a"))
         self.assertEqual(workers_mod.repo_conflict(cfg, self.d / "wk-c.toml", self.wfile)[0], "someone/wk-a-queue")
 
@@ -60,7 +60,7 @@ class EveryPathChecks(unittest.TestCase):
     """The check is wired into every code path that configures a worker, not only the one that was tried by hand."""
 
     def test_the_commands_that_configure_or_list_a_worker_call_the_one_check(self):
-        root = Path(__file__).resolve().parent.parent / "src" / "ct"
+        root = Path(__file__).resolve().parent.parent / "src" / "armada"
         for rel in ("admin/workers.py", "setup/client.py"):
             self.assertRegex((root / rel).read_text(), r"repo_conflict|require_own_repos", rel)
 
@@ -71,7 +71,7 @@ class GithubWorkerSteps(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.wfile = self.d / "workers.toml"
-        (self.d / "ct.toml").write_text(toml("mainw"))
+        (self.d / "armada.toml").write_text(toml("mainw"))
         self.calls = []
 
     def run_gh(self, missing=()):
@@ -83,10 +83,10 @@ class GithubWorkerSteps(unittest.TestCase):
     def cfg(self, name, **kw):
         p = self.d / f"{name}.toml"
         p.write_text(toml(name, **kw))
-        return config.load(p, env={"CT_CONFIG": ""}), p
+        return config.load(p, env={"ARM_CONFIG": ""}), p
 
     def test_prepare_creates_only_what_is_missing_private_with_the_fleet_topic_and_clones(self):
-        from ct.admin import workerrepos
+        from armada.admin import workerrepos
         cfg, p = self.cfg("wk-a")
         rows = workerrepos.prepare(cfg, p, self.wfile, run=self.run_gh(missing={"wk-a-queue"}), clone=lambda: [("cloned", "/x/queue"), ("cloned", "/x/results")])
         self.assertIn(["repo", "create", "someone/wk-a-queue", "--private", "--description", "armada queue (private)"], self.calls)
@@ -95,26 +95,26 @@ class GithubWorkerSteps(unittest.TestCase):
         self.assertEqual([r[2] for r in rows], ["created, private", "exists", "cloned", "cloned"])
 
     def test_prepare_refuses_a_shared_repository_before_it_calls_gh(self):
-        from ct.admin import workerrepos
+        from armada.admin import workerrepos
         cfg, p = self.cfg("wk-a", queue="mainw-queue")
         with self.assertRaises(refusals.Refused):
             workerrepos.prepare(cfg, p, self.wfile, run=self.run_gh(), clone=lambda: [])
         self.assertEqual(self.calls, [])
 
     def test_a_new_workers_suggested_names_group_with_the_fleet_and_are_its_own(self):
-        from ct.setup import addworker
-        main = config.load(self.d / "ct.toml", env={"CT_CONFIG": ""})
-        self.assertEqual(addworker.fleet_names(main, "tenta2", False), {"github.queue_repo": "mainw-tenta2-queue", "github.results_repo": "mainw-tenta2-results"})
-        self.assertEqual(addworker.fleet_names(main, "tenta2", True), {})
+        from armada.setup import addworker
+        main = config.load(self.d / "armada.toml", env={"ARM_CONFIG": ""})
+        self.assertEqual(addworker.fleet_names(main, "arm2", False), {"github.queue_repo": "mainw-arm2-queue", "github.results_repo": "mainw-arm2-results"})
+        self.assertEqual(addworker.fleet_names(main, "arm2", True), {})
 
     def test_the_names_are_suggested_when_the_first_worker_is_direct_and_has_no_github_account(self):
-        from ct.setup import addworker
+        from armada.setup import addworker
         (self.d / "direct.toml").write_text('[identity]\nname = "mainw"\n[server]\nhost = "m.example"\nadmin_user = "me"\n[transport]\nkind = "direct"\n')
-        main = config.load(self.d / "direct.toml", env={"CT_CONFIG": ""})
+        main = config.load(self.d / "direct.toml", env={"ARM_CONFIG": ""})
         self.assertEqual(addworker.fleet_names(main, "wkb", False)["github.queue_repo"], "mainw-wkb-queue")
 
     def test_removing_a_worker_offers_its_repositories_but_never_one_another_worker_lists(self):
-        from ct.admin import workerrepos
+        from armada.admin import workerrepos
         _, a = self.cfg("wk-a")
         workers_mod.add(self.wfile, "wk-a", a)
         self.assertEqual(workerrepos.removable("wk-a", a, self.wfile), [("queue", "someone/wk-a-queue"), ("results", "someone/wk-a-results")])
@@ -123,7 +123,7 @@ class GithubWorkerSteps(unittest.TestCase):
 
     def test_the_choice_is_never_silent_and_delete_always_asks_in_words(self):
         from types import SimpleNamespace
-        from ct.admin import cli
+        from armada.admin import cli
         mine = [("queue", "someone/wk-a-queue")]
         ctx = SimpleNamespace(is_tty=lambda: False)
         self.assertEqual(cli.repos_choice(ctx, SimpleNamespace(repos=None), mine), "keep")             # no terminal and no flag: kept
@@ -135,8 +135,8 @@ class GithubWorkerSteps(unittest.TestCase):
 
     def test_a_refused_repository_choice_leaves_the_worker_listed_and_yes_confirms_a_delete(self):
         from types import SimpleNamespace
-        from ct.admin import cli
-        from ct.client.repo import ClientError
+        from armada.admin import cli
+        from armada.client.repo import ClientError
         _, a = self.cfg("wk-a")
         workers_mod.add(self.wfile, "wk-a", a)
         ctx = SimpleNamespace(workers_file=self.wfile, is_tty=lambda: False, confirm=lambda q, yes=False: True if yes else (_ for _ in ()).throw(ClientError("no terminal", "", [])))

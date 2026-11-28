@@ -1,0 +1,12 @@
+{
+ "label": "arm3-ubuntu",
+ "reference": true,
+ "phases": {
+  "compile": 0.748,
+  "import": 0.53,
+  "hash": 0.106,
+  "git": 0.238
+ },
+ "os": "Debian GNU/Linux 13 (trixie)",
+ "python": "3.13.5"
+}

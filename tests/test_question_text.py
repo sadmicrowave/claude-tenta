@@ -1,7 +1,7 @@
 import unittest
 
 import support  # noqa: F401
-from ct.setup import questions
+from armada.setup import questions
 
 
 class QuestionText(unittest.TestCase):

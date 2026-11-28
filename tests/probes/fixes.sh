@@ -1,5 +1,5 @@
 #!/bin/bash
-# Probe: the fixes the candidacy check tells a person to type on a machine (ct.setup.assess.fix_*) really work on THIS release, run exactly as printed, as the account that would run them.
+# Probe: the fixes the candidacy check tells a person to type on a machine (armada.setup.assess.fix_*) really work on THIS release, run exactly as printed, as the account that would run them.
 # Found by a person: on Debian 13 `su -c 'usermod ...'` said "usermod: command not found" (su without the dash keeps the account's own PATH, which has no /usr/sbin). Runs in a throwaway container as root
 # (scripts/probe fixes; scripts/probe --releases fixes for every supported release); the checkout is mounted read-only at /src.
 set -uo pipefail
@@ -9,7 +9,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq python3 util-linux passwd >/dev/null 2>&1
 . /etc/os-release; echo "$PRETTY_NAME"
 FAMILY=ubuntu; [ "$ID" = debian ] && FAMILY=debian
-fix() { PYTHONPATH=/src/src python3 -c "from ct.setup import assess; print(assess.$1)" | sed 's/^[^:]*: //'; }    # the command part of the text the person is shown (after the last colon)
+fix() { PYTHONPATH=/src/src python3 -c "from armada.setup import assess; print(assess.$1)" | sed 's/^[^:]*: //'; }    # the command part of the text the person is shown (after the last colon)
 CMD_SUDO_MISSING=$(fix "fix_no_sudo('$FAMILY','agent')"); CMD_GROUP=$(fix "fix_not_in_sudo_group('$FAMILY','agent')"); CMD_PY=$(fix "fix_python('$FAMILY', False)")
 echo "  no sudo:        $CMD_SUDO_MISSING"; echo "  not in group:   $CMD_GROUP"; echo "  no python:      $CMD_PY"
 useradd -m -s /bin/bash agent; passwd -d root >/dev/null 2>&1                                       # root's password is empty here so `su` can be driven without a person

@@ -14,10 +14,10 @@ from pathlib import Path
 from unittest import mock
 
 import support  # noqa: F401
-from ct import cards, theme, ui
-from ct.setup import report, tui
+from armada import cards, theme, ui
+from armada.setup import report, tui
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
+SRC = Path(__file__).resolve().parents[1] / "src" / "armada"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
@@ -41,7 +41,7 @@ class TheDetector(unittest.TestCase):
                            ("Read why with: journalctl -u {} -n 20 --no-pager", "`journalctl -u {} -n 20 --no-pager`"),
                            ("Use curl -fsSL https://example.org/x | sh to install it.", "`curl -fsSL https://example.org/x | sh`"),
                            ("Run: cat /etc/os-release", "`cat /etc/os-release`"),
-                           ("Run ct-admin check and ct-admin status for it.", "`ct-admin check` and `ct-admin status`"),
+                           ("Run arm-admin check and arm-admin status for it.", "`arm-admin check` and `arm-admin status`"),
                            ("Then run: git config --global user.name \"Name\" and retry.", "`git config --global user.name \"Name\"` and retry.")]:
             self.assertIn(chip, cards.code_spans(text), text)
 
@@ -51,7 +51,7 @@ class TheDetector(unittest.TestCase):
             self.assertEqual(cards.code_spans(text), text)
 
     def test_it_is_idempotent_and_leaves_written_backticks_alone(self):
-        for text in ("Run `ct-admin check` now.", "Put the key on it: ssh-copy-id agent@192.0.2.5"):
+        for text in ("Run `arm-admin check` now.", "Put the key on it: ssh-copy-id agent@192.0.2.5"):
             once = cards.code_spans(text)
             self.assertEqual(cards.code_spans(once), once)
 
@@ -60,7 +60,7 @@ class EveryRendererDrawsThemAsChips(unittest.TestCase):
     """One call per place text is drawn; each must show the command in the code colour."""
 
     def setUp(self):
-        self.env = mock.patch.dict(os.environ, {"CT_COLOR": "always", "CW_COLOR": "always"})
+        self.env = mock.patch.dict(os.environ, {"ARM_COLOR": "always", "CW_COLOR": "always"})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.cmd = "ssh-copy-id agent@192.0.2.5"
@@ -116,7 +116,7 @@ class NothingWrapsTextAroundTheDetector(unittest.TestCase):
 
 class EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip(unittest.TestCase):
     """The inventory: all text in the source that reads like a sentence with a command in it. Each must come out of the detector with that command inside a code span."""
-    EXEC = r"(?:ct-(?:setup|admin|run|worker|update)|ssh-copy-id|ssh-keygen|sudo systemctl|systemctl|journalctl|apt-get|usermod|su -c)"
+    EXEC = r"(?:arm-(?:setup|admin|run|worker|update)|ssh-copy-id|ssh-keygen|sudo systemctl|systemctl|journalctl|apt-get|usermod|su -c)"
 
     def messages(self):
         for f in sorted(SRC.rglob("*.py")):
@@ -135,7 +135,7 @@ class EveryMessageInTheSourceThatHoldsACommandComesOutAsAChip(unittest.TestCase)
     def test_each_command_written_after_a_colon_or_run_is_inside_a_code_span(self):
         missed, seen = [], 0
         for f, line, s in self.messages():
-            if len(s.split()) < 4 or s.startswith(("ct-", "env ", "cat ", "sudo ", "ssh ")) or "^" in s or "(?" in s or s.endswith(" "):             # a pattern, not a message; or the front half of a message finished at run time (checked whole, by the renderer tests)
+            if len(s.split()) < 4 or s.startswith(("arm-", "env ", "cat ", "sudo ", "ssh ")) or "^" in s or "(?" in s or s.endswith(" "):             # a pattern, not a message; or the front half of a message finished at run time (checked whole, by the renderer tests)
                 continue
             for m in re.finditer(r"(?:: |[Rr]un |with  ?|\()(" + self.EXEC + r")\b", re.sub(r"`[^`]*`", "", s)):
                 seen += 1
@@ -172,12 +172,12 @@ class ACommandIsNeverCutOverTwoLinesInsideAFrame(unittest.TestCase):
     def test_the_commands_below_join_the_ones_to_run_in_one_block_and_are_what_gets_copied(self):
         out = io.StringIO()
         out.isatty = lambda: True
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always", "CT_COPY": "never"}):
-            ui.say("T", steps=[f"Install sudo and add the account to the sudo group on that machine: {self.LONG}"], run="ct-admin status", tag="ERROR", color=ui.RED, stream=out)
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always", "ARM_COPY": "never"}):
+            ui.say("T", steps=[f"Install sudo and add the account to the sudo group on that machine: {self.LONG}"], run="arm-admin status", tag="ERROR", color=ui.RED, stream=out)
         text = ANSI.sub("", out.getvalue())
         self.assertEqual(text.count("RUN THIS"), 1)
         self.assertIn(self.LONG, text.split("RUN THIS")[1])
-        self.assertIn("ct-admin status", text.split("RUN THIS")[1])
+        self.assertIn("arm-admin status", text.split("RUN THIS")[1])
 
     def test_in_the_setup_output_too_a_long_command_is_alone_without_the_rail(self):
         st = report.Styler(styled=True, stream=Tty())

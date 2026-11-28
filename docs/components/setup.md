@@ -1,17 +1,17 @@
-# The setup wizard (`ct-setup`)
+# The setup wizard (`arm-setup`)
 
 ## In plain words
 
-**`ct-setup install`** does all of it from your own computer in one command: it asks the questions once, sets up both sides, sends the release to the server, runs the server's setup there (you type your sudo password once), adds the server's deploy keys to GitHub for you, and sends a first job. The sections below describe the pieces it is made of, which you can also run one at a time.
+**`arm-setup install`** does all of it from your own computer in one command: it asks the questions once, sets up both sides, sends the release to the server, runs the server's setup there (you type your sudo password once), adds the server's deploy keys to GitHub for you, and sends a first job. The sections below describe the pieces it is made of, which you can also run one at a time.
 
-`ct-setup` does the setup for you by asking plain questions and then doing the work. There are two halves, because there are two computers.
+`arm-setup` does the setup for you by asking plain questions and then doing the work. There are two halves, because there are two computers.
 
-- **On your computer, `ct-setup client`:** asks for the worker's address, your account name on it, and your GitHub name; checks SSH works; creates the two private
+- **On your computer, `arm-setup client`:** asks for the worker's address, your account name on it, and your GitHub name; checks SSH works; creates the two private
   repositories under your GitHub account (using the `gh` command if you have it, otherwise it tells you exactly what to click); and clones them.
-- **On the worker, `ct-setup server`:** shows you everything it is about to do, then (with `--apply`) creates the accounts and folders, installs the software, makes
+- **On the worker, `arm-setup server`:** shows you everything it is about to do, then (with `--apply`) creates the accounts and folders, installs the software, makes
   the worker's two repository keys and **stops** so you can add them to GitHub, then continues: it installs the job list, applies the protections one at a time
   and starts the timers. Run it again any time; it only does what is missing.
-- **`ct-setup audit`:** a read-only check that the worker still matches what you chose.
+- **`arm-setup audit`:** a read-only check that the worker still matches what you chose.
 
 Every answer has a safe default, and nothing is guessed: if a question needs an answer and has none, it tells you which.
 
@@ -20,27 +20,27 @@ Every answer has a safe default, and nothing is guessed: if a question needs an 
 ### Commands
 
 ```
-ct-setup install [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--wait-for-keys SECONDS] [--no-test]
-ct-setup uninstall [--apply] [--yes] [--keep-data] [--remove-account]
-ct-setup client [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--queue-key FILE] [--results-key FILE]
-ct-setup server [--apply] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--rev COMMIT] [--wait-for-keys SECONDS]
-ct-setup audit
+arm-setup install [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--wait-for-keys SECONDS] [--no-test]
+arm-setup uninstall [--apply] [--yes] [--keep-data] [--remove-account]
+arm-setup client [--dry-run] [--yes] [--answers FILE] [--set section.key=value]... [--queue-key FILE] [--results-key FILE]
+arm-setup server [--apply] [--yes] [--answers FILE] [--set section.key=value]... [--source DIR] [--rev COMMIT] [--wait-for-keys SECONDS]
+arm-setup audit
 ```
 
 `server` is a preview unless `--apply`. `--yes` answers every question with its default (and fails, naming them, if a question has none). `--answers` is a TOML file with the
-same tables as `ct.toml`; `--set` overrides it. Any schema setting can be given even if it has no question (for example `hardening.modules`).
+same tables as `armada.toml`; `--set` overrides it. Any schema setting can be given even if it has no question (for example `hardening.modules`).
 
 ### Questions
 
-`src/ct/setup/questions.py` holds the questions. Each maps to one schema setting and is checked with that setting's own check, so the wizard cannot write a value
+`src/armada/setup/questions.py` holds the questions. Each maps to one schema setting and is checked with that setting's own check, so the wizard cannot write a value
 the loader would refuse. A question can depend on an earlier answer (the LAN questions only appear if the LAN is blocked). Suggestions come from the machine
 (`detect.py`): hardware profile from memory, cores and battery. Only values that differ from the defaults are
-written to `ct.toml` (`toml_out.py`).
+written to `armada.toml` (`toml_out.py`).
 
 ### Server half, in order
 
 1. **Check the machine** (Ubuntu 24.04+ or Debian 12+, because the worker needs Python 3.11 or newer; systemd, PyYAML, root for a real run).
-2. **Configuration**: ask, validate (including that named hardening modules exist), write `<config>/ct.toml`.
+2. **Configuration**: ask, validate (including that named hardening modules exist), write `<config>/armada.toml`.
 3. **Accounts and folders**: the admin account must already exist; the worker is created with no shell; folders get their modes; `secrets.env` is created `0640` root:worker.
 4. **Code**: `install_release` from the checkout the wizard is running from (units, wrappers, packs, sudoers rule, IPv6 setting).
 5. **Repository keys**: one ed25519 key per repository for the worker, an SSH config with one host alias per repository, and the exact `gh repo deploy-key add` commands
@@ -52,17 +52,17 @@ written to `ct.toml` (`toml_out.py`).
 
 ### Client half, in order
 
-Tools check (`git`, `ssh`, optional `gh`) → configuration written to `~/.config/armada/ct.toml` → SSH key login test → repositories created private (or the manual steps are
+Tools check (`git`, `ssh`, optional `gh`) → configuration written to `~/.config/armada/armada.toml` → SSH key login test → repositories created private (or the manual steps are
 printed) → deploy keys added if their files were passed → clones → the queue repository's `main` is seeded with an empty `registry.yaml` for **your own** classes (never overwritten if it exists).
 
 ### Everything goes through a `Host`
 
-`src/ct/setup/host.py` is the one place the wizard touches a machine (`run`, `read`, `write`, `exists`, `which`). Tests use a fake that records, which is how the dry run and the unit tests can
+`src/armada/setup/host.py` is the one place the wizard touches a machine (`run`, `read`, `write`, `exists`, `which`). Tests use a fake that records, which is how the dry run and the unit tests can
 show and check every step. The end-to-end test uses the real one ([testing](testing.md)).
 
-### `ct-setup install`, in order
+### `arm-setup install`, in order
 
-`src/ct/setup/install.py`.
+`src/armada/setup/install.py`.
 
 1. **Connect and learn.** Asks for the server's address, the admin account and the SSH port; checks key login (a failure says to run `ssh-copy-id`); reads the server's facts through a read-only SSH view (`remote.py`), which become the suggestions
    (the hardware profile from memory and battery) and refuse an unsupported system before anything changes.
@@ -70,25 +70,25 @@ show and check every step. The end-to-end test uses the real one ([testing](test
 3. **Your side.** The client half ([above](#client-half-in-order)), with the repositories created by `gh` if they are missing.
 4. **Delivery.** The committed files of the checkout (`git archive HEAD`; uncommitted changes are not sent, and it says so) and the answers go through SSH into a private folder made with `mktemp` (mode 0700, name checked against a strict pattern before it is
    used or removed).
-5. **The server half**, run as `sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<folder>/src python3 -m ct.setup server --apply --wait-for-keys N ...` over `ssh -t`, so sudo asks for its password on your terminal and only the server sees it. (No bytecode: root must not leave files in
+5. **The server half**, run as `sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<folder>/src python3 -m armada.setup server --apply --wait-for-keys N ...` over `ssh -t`, so sudo asks for its password on your terminal and only the server sees it. (No bytecode: root must not leave files in
    that folder that the administrator cannot remove.)
 6. **Deploy keys, while it runs.** The server publishes the public halves to `<config>/deploy-keys/{queue,results}.pub` (mode 0644, public keys only). This side reads them over a second SSH connection and adds each with
    `gh repo deploy-key add` (queue read-only, results `--allow-write`, titled `<name>-server`), skipping any that are already on the repository (`keys.py`). Without `gh` it prints each key and the exact settings page. The server's own wait loop notices as soon as the
    repositories become reachable and carries on, so there is one sudo password and no second run.
-7. **Cleanup and a first job.** The working folder is removed. `sys-status` is sent and waited for (the worker needs a minute after its first start to publish its class list, so it retries), then `ct-admin check` runs.
+7. **Cleanup and a first job.** The working folder is removed. `sys-status` is sent and waited for (the worker needs a minute after its first start to publish its class list, so it retries), then `arm-admin check` runs.
 
 A preview (`--dry-run`) does steps 1 to 4 without creating repositories or changing your configuration, and runs the server half as a preview (no sudo, no changes).
 
 ### Exit codes
 
-`ct-setup server` exits **10** when it stopped because the repositories cannot be reached yet (the deploy keys are not added); running it again continues. `ct-setup install` treats that as an error only if the keys were not added within `--wait-for-keys` seconds (default 900).
+`arm-setup server` exits **10** when it stopped because the repositories cannot be reached yet (the deploy keys are not added); running it again continues. `arm-setup install` treats that as an error only if the keys were not added within `--wait-for-keys` seconds (default 900).
 
-### `ct-setup uninstall`
+### `arm-setup uninstall`
 
-`src/ct/setup/uninstall.py`. From your computer: `ct-setup uninstall` shows what it would remove (a preview that needs no password and changes nothing); `ct-setup uninstall --apply` asks once, then runs the removal on the server over `ssh -t` under `sudo`. The removal code comes from your
-checkout (delivered like an install, then removed), never from the install being removed, so it works however old or broken that install is. On the server itself it is `python3 -m ct.setup uninstall --here [--apply]`.
+`src/armada/setup/uninstall.py`. From your computer: `arm-setup uninstall` shows what it would remove (a preview that needs no password and changes nothing); `arm-setup uninstall --apply` asks once, then runs the removal on the server over `ssh -t` under `sudo`. The removal code comes from your
+checkout (delivered like an install, then removed), never from the install being removed, so it works however old or broken that install is. On the server itself it is `python3 -m armada.setup uninstall --here [--apply]`.
 
-It reads the install's own `ct.toml`, so it respects a different name or folders, and lists only what is actually there:
+It reads the install's own `armada.toml`, so it respects a different name or folders, and lists only what is actually there:
 
 1. stops and disables the timers, stops the services, ends any job still running as the worker account;
 2. removes the unit files and reloads systemd;
@@ -97,28 +97,28 @@ It reads the install's own `ct.toml`, so it respects a different name or folders
 5. with `--remove-account`, removes the worker account and its home folder.
 
 **What stays, deliberately:** the protections (key-only SSH, the firewall, automatic security updates, the user-namespace restriction and the packages bubblewrap, auditd and ufw), because removing the worker does not make the machine less safe; the worker account (reinstalling reuses it)
-unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `ct-setup install` afterwards sets everything up again.
+unless you say otherwise; IPv6 stays off until the next restart if it was off (the file that kept it off is removed); your GitHub repositories; and your own computer's configuration. Running `arm-setup install` afterwards sets everything up again.
 
 ### Renaming an install
 
-`ct-setup rename <new-name>` gives the install a new name everywhere it appears, with a preview first (`--apply` does it; `--yes` skips the question). It is meant for the case "I do not like the name": nothing is reinstalled, so the job history, secrets, deploy keys, the approver key and every setting are kept.
+`arm-setup rename <new-name>` gives the install a new name everywhere it appears, with a preview first (`--apply` does it; `--yes` skips the question). It is meant for the case "I do not like the name": nothing is reinstalled, so the job history, secrets, deploy keys, the approver key and every setting are kept.
 
 - **The server** (run over SSH with `sudo`, one password prompt): the services are stopped, the folders (`/opt`, `/etc`, `/var/lib` and their companions) are moved, the new name is written into the configuration, the worker's GitHub aliases and both clone remotes follow the new name, and then the ordinary release installer (the one an update uses) writes every file that is named after the install (services, the sudo rule, the commands). The files the protections wrote (the sysctl files, the audit rule, the SSH drop-in) are renamed with their content, what is named after the old name is removed, and the timers that were running start again. It refuses before changing anything when a job is running, the name is invalid, or something already uses the new name.
 - **GitHub**: the two repositories are renamed first, when they carry the install's name (a custom repository name is left alone; GitHub keeps redirecting the old names), and afterwards the worker's deploy keys are given the new name in their titles (the same key, the same access).
 - **This computer**: your configuration says the new name and the two clones point at the renamed repositories.
 
-If the server half stops partway, nothing on this computer was changed and the repositories are already renamed on GitHub; run the same command again, or rename back with `ct-setup rename <old-name>`. The command names (`ct-run`, `ct-admin`, `ct-setup`, `ct-worker`, `ct-update`) never contain the name, so they are not affected. `--no-sandbox-test` skips the check of the services' sandbox, for a test machine whose systemd cannot enforce one (a container): never on a real worker.
+If the server half stops partway, nothing on this computer was changed and the repositories are already renamed on GitHub; run the same command again, or rename back with `arm-setup rename <old-name>`. The command names (`arm-run`, `arm-admin`, `arm-setup`, `arm-worker`, `arm-update`) never contain the name, so they are not affected. `--no-sandbox-test` skips the check of the services' sandbox, for a test machine whose systemd cannot enforce one (a container): never on a real worker.
 
 ### Approving from this computer
 
-Jobs of a class that needs approval (`tier: approve`, every profile run) used to be approved by logging in to the worker and typing a sudo password, which cannot work for several workers. The client half now makes an **approval key** on this computer (`~/.ct/approval/key`, an ordinary ed25519 key; at a terminal `ssh-keygen` asks for a passphrase, which then protects every approval) and the install gives the worker its **public** half, in a root-owned file of its own (`<config>/approvers`, never the file used for release signatures, so a release key cannot approve jobs and the reverse). After that `ct-admin approve <job>` and `ct-admin approve --all` sign the approval here, pinned to the SHA-256 of the exact job file you reviewed, and publish it to an `approvals` branch of the queue repository; the worker checks the signature, the job id, the file digest and the expiry (a week) before it runs anything, and says in its log when it finds one it will not accept. Pushing to GitHub alone can ask for a job but can never approve it. The worker publishes the fingerprint of the key it trusts, so `ct-admin approve` tells you plainly when the worker was set up with a different key (run `ct-setup install` again), and `--ssh` still approves the old way. To retire a lost key, run the install again from the computer with the new one: it replaces the old key on the worker.
+Jobs of a class that needs approval (`tier: approve`, every profile run) used to be approved by logging in to the worker and typing a sudo password, which cannot work for several workers. The client half now makes an **approval key** on this computer (`~/.armada/approval/key`, an ordinary ed25519 key; at a terminal `ssh-keygen` asks for a passphrase, which then protects every approval) and the install gives the worker its **public** half, in a root-owned file of its own (`<config>/approvers`, never the file used for release signatures, so a release key cannot approve jobs and the reverse). After that `arm-admin approve <job>` and `arm-admin approve --all` sign the approval here, pinned to the SHA-256 of the exact job file you reviewed, and publish it to an `approvals` branch of the queue repository; the worker checks the signature, the job id, the file digest and the expiry (a week) before it runs anything, and says in its log when it finds one it will not accept. Pushing to GitHub alone can ask for a job but can never approve it. The worker publishes the fingerprint of the key it trusts, so `arm-admin approve` tells you plainly when the worker was set up with a different key (run `arm-setup install` again), and `--ssh` still approves the old way. To retire a lost key, run the install again from the computer with the new one: it replaces the old key on the worker.
 
-**The job registry is approved the same way.** Adding a class (`ct-admin adopt`), removing one (`ct-admin retire`), merging a registry proposal, or `ct-admin proposals publish` signs the registry on `main` of the queue repository here, with the same key under a different namespace (so a signature that approves a job is never taken for one that approves a registry), and publishes the signature. The worker's `registry-sync` timer (every `schedule.registry_sync_min` minutes, root, default 5) installs exactly that text, and only that: the text it checked is the text it installs (it is fetched once), the signature must verify against the approver key, and a signed registry older than the one already installed is refused, so nobody can put an old, looser registry back. A refusal makes the unit fail visibly; "nothing signed yet" is not an alarm. Without a trusted key here, `adopt` and `retire` install over SSH as before.
+**The job registry is approved the same way.** Adding a class (`arm-admin adopt`), removing one (`arm-admin retire`), merging a registry proposal, or `arm-admin proposals publish` signs the registry on `main` of the queue repository here, with the same key under a different namespace (so a signature that approves a job is never taken for one that approves a registry), and publishes the signature. The worker's `registry-sync` timer (every `schedule.registry_sync_min` minutes, root, default 5) installs exactly that text, and only that: the text it checked is the text it installs (it is fetched once), the signature must verify against the approver key, and a signed registry older than the one already installed is refused, so nobody can put an old, looser registry back. A refusal makes the unit fail visibly; "nothing signed yet" is not an alarm. Without a trusted key here, `adopt` and `retire` install over SSH as before.
 
-**Unlock, cancel and kill are signed here too.** `ct-admin unlock`, `cancel` and `kill` publish a signed order (namespace `ct-control`) to `control/` on the `approvals` branch, and the worker's fetch pass carries it out. An order is carried out at most once (it is marked done before it is acted on, whatever the outcome), is stale after an hour, and does nothing if it is unsigned, signed by another key, or for the wrong thing: an unlock names the exact lockdown it clears (its `since` time), so an old signed unlock can never clear a later lockdown, and it is checked before the "locked, doing nothing" early exit so unlocking works while locked. `unlock` first shows what happened and asks. `quarantine` and `output` stay on the worker on purpose: what the guard withheld may contain exactly what it withheld it for, so it is never published to GitHub; reading it needs only your SSH key (no sudo password). Installing a new release of the worker's own code also stays on the SSH route, because it runs as root on that machine. Every one of these has `--ssh` to use the old way.
+**Unlock, cancel and kill are signed here too.** `arm-admin unlock`, `cancel` and `kill` publish a signed order (namespace `arm-control`) to `control/` on the `approvals` branch, and the worker's fetch pass carries it out. An order is carried out at most once (it is marked done before it is acted on, whatever the outcome), is stale after an hour, and does nothing if it is unsigned, signed by another key, or for the wrong thing: an unlock names the exact lockdown it clears (its `since` time), so an old signed unlock can never clear a later lockdown, and it is checked before the "locked, doing nothing" early exit so unlocking works while locked. `unlock` first shows what happened and asks. `quarantine` and `output` stay on the worker on purpose: what the guard withheld may contain exactly what it withheld it for, so it is never published to GitHub; reading it needs only your SSH key (no sudo password). Installing a new release of the worker's own code also stays on the SSH route, because it runs as root on that machine. Every one of these has `--ssh` to use the old way.
 
 
-**Clearing old signed files.** Signed approvals and orders pile up on the `approvals` branch of the queue repository. They are harmless, but `ct-admin clean` removes the ones for finished jobs and the expired orders (after listing them and asking); the current signed registry is always kept.
+**Clearing old signed files.** Signed approvals and orders pile up on the `approvals` branch of the queue repository. They are harmless, but `arm-admin clean` removes the ones for finished jobs and the expired orders (after listing them and asking); the current signed registry is always kept.
 
 ### What the setup prints
 
@@ -126,23 +126,23 @@ On a terminal each line is a STATUS in capitals and a colour (green done, yellow
 
 ### Commands on your PATH
 
-The client half links the four commands (`ct-run`, `ct-admin`, `ct-setup`, `ct-help`) into `~/.local/bin`, so they work from any new terminal without typing where they live. A file already in that folder with one of those names is never overwritten (the step says which and how to remove it). If `~/.local/bin` is not on your `PATH`, a card asks permission to add two lines (a comment saying where they came from, and the `export`) to the end of your shell's startup file (`.zshrc`, `.bashrc`, or fish's config; an unknown shell is only told what to add); nothing is changed without a yes, and running the install again adds nothing twice. Nothing happens when the commands are already reachable, in a preview, or when this Python has no `ct-*` commands next to it. (When the project is published to PyPI, `pipx install armada` will do the same job and this step will find the commands already on the PATH.)
+The client half links the four commands (`arm-run`, `arm-admin`, `arm-setup`, `arm-help`) into `~/.local/bin`, so they work from any new terminal without typing where they live. A file already in that folder with one of those names is never overwritten (the step says which and how to remove it). If `~/.local/bin` is not on your `PATH`, a card asks permission to add two lines (a comment saying where they came from, and the `export`) to the end of your shell's startup file (`.zshrc`, `.bashrc`, or fish's config; an unknown shell is only told what to add); nothing is changed without a yes, and running the install again adds nothing twice. Nothing happens when the commands are already reachable, in a preview, or when this Python has no `arm-*` commands next to it. (When the project is published to PyPI, `pipx install armada` will do the same job and this step will find the commands already on the PATH.)
 
 ### Running install again
 
 Stopping an install, or running it again without uninstalling, never starts from a blank page:
 
-- **Earlier answers are the defaults.** The configuration the first run wrote (`~/.config/armada/ct.toml`) is read back, so every question already shows your previous answer; press Enter to keep it. (Secrets such as the alert address are not in that file, so that one is asked again.)
-- **A finished server setup is not repeated.** After the server half completes, the install records it (`~/.ct/install-state.json`, with the release it installed). If a later run finds the server done but the first job unfinished, and the release is unchanged, it offers to carry on with just the first job: no questions, no sudo password. Say `n` to start over instead. A different release, a modified checkout or a preview never resumes.
-- `ct-setup uninstall` is still how you remove an install; it does not touch your repositories.
+- **Earlier answers are the defaults.** The configuration the first run wrote (`~/.config/armada/armada.toml`) is read back, so every question already shows your previous answer; press Enter to keep it. (Secrets such as the alert address are not in that file, so that one is asked again.)
+- **A finished server setup is not repeated.** After the server half completes, the install records it (`~/.armada/install-state.json`, with the release it installed). If a later run finds the server done but the first job unfinished, and the release is unchanged, it offers to carry on with just the first job: no questions, no sudo password. Say `n` to start over instead. A different release, a modified checkout or a preview never resumes.
+- `arm-setup uninstall` is still how you remove an install; it does not touch your repositories.
 
 ### What the questions and protections look like
 
-`src/ct/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected. `ct-setup demo` shows every screen on sample content and saves nothing.
+`src/armada/setup/tui.py`. On a real terminal (colour on, not `--yes`, not piped) the wizard draws its own screens; anywhere else it prints plain text as it always did, so logs, tests and `NO_COLOR` are unaffected. `arm-setup demo` shows every screen on sample content and saves nothing.
 
-- **Banner.** `ct-setup install`, `server`, `client` and `demo` open with an ASCII banner (`brand.py`: the mark, the name, the version); `--no-banner` hides it, and a narrow terminal gets a smaller one. A one-line `@armada` header stays on top of the progress bar.
+- **Banner.** `arm-setup install`, `server`, `client` and `demo` open with a short text banner (`brand.py`: the name, the job, the version); `--no-banner` hides it. A one-line `@armada` header stays on top of the progress bar.
 - **Short first pass.** Only the few questions without a safe default are asked (server address, your account, GitHub name, machine strength, IPv6, alerts). The rest are *advanced* and keep their defaults: press `A` on the review screen, or run with `--advanced`, to answer them too.
-- **Questions.** A progress bar on top (`ct-setup install  ━━━━╸────  8 of 19 done`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
+- **Questions.** A progress bar on top (`arm-setup install  ━━━━╸────  8 of 19 done`), then up to four answered questions collapsed to one line each (`✓ Server address  worker.example`; older ones are counted: `… 6 earlier answers`), then the active
   question on a purple rail with a chip naming its section and its position, the plain-words reason, a `RISK` row saying what a wrong answer costs, a `CHOICES` list or `EXAMPLES` row, the input line, a hint, and **the keys, always listed underneath**.
 - **Choices.** A question with a fixed set of answers lists each one with its number and what it means, the current one marked `▸`. Type the name, its number, or part of the name and press Tab.
 - **Keys.** Enter or ↓ accepts and goes on. **↑ goes back to the previous question** with your earlier answer ready to change (what you had typed is kept even if you leave without pressing Enter). Tab completes a choice. ←/→, Home/End, Backspace, Delete, Ctrl-U (clear)
@@ -157,20 +157,20 @@ Stopping an install, or running it again without uninstalling, never starts from
 - **Tested** with a small virtual terminal that obeys the same sequences, so the tests check what is actually on screen after each key, and by driving the real thing through a pseudo-terminal with typed answers, arrow keys, Tab and a bracketed paste.
 
 
-### Adding another worker: `ct-setup add-worker`
+### Adding another worker: `arm-setup add-worker`
 
-`ct-setup add-worker [address] [--user U] [--worker-name N] [--yes] [--dry-run]` (`src/ct/setup/addworker.py`, `discover.py`, `assess.py`). It does not reinstall anything you have.
+`arm-setup add-worker [address] [--user U] [--worker-name N] [--yes] [--dry-run]` (`src/armada/setup/addworker.py`, `discover.py`, `assess.py`). It does not reinstall anything you have.
 
 1. **Scan.** Without an address it looks at this computer's own private networks (at most a /22 each) for machines that answer on the SSH port, and says how many it found and what the network alone shows: address, name (from Bonjour when the machine announces one), what its SSH greeting says it runs, its network card's maker, the delay. Nothing is logged in to.
 2. **Pick.** A numbered choice in the wizard's style; machines you already have are left out; "none of these" lets you type an address.
 3. **Check.** A card lists exactly what the check will look at and says it only reads; you answer yes or no. Then one SSH login with your key runs a fixed read-only script and a verdict card says whether the machine meets the requirements (Ubuntu 24.04 or newer, Debian 12 or newer, x86-64 or ARM64, Python 3.11, systemd, 1 GB of memory, 2 GB of disk, sudo for the account) and, for each failure, why and how to fix it. `--dry-run` stops here.
 4. **Set up.** If it meets them and you say yes, the ordinary install wizard runs for that one machine with its address filled in, and the worker is added to `workers.toml`.
 
-Targeted by construction: the worker gets its own configuration file (`<name>.toml` beside your main one) and its own folder (`~/.ct/workers/<name>`); the approval key is shared through a link, so one signature works for every worker; the commands on your PATH and your shell startup files are not touched; the first install's configuration, answers, clones and key are fingerprinted before and after, and any change is shown as a warning (`tests/test_addworker.py` runs the real installer and checks the same). Without a terminal, give the address and `--yes`.
+Targeted by construction: the worker gets its own configuration file (`<name>.toml` beside your main one) and its own folder (`~/.armada/workers/<name>`); the approval key is shared through a link, so one signature works for every worker; the commands on your PATH and your shell startup files are not touched; the first install's configuration, answers, clones and key are fingerprinted before and after, and any change is shown as a warning (`tests/test_addworker.py` runs the real installer and checks the same). Without a terminal, give the address and `--yes`.
 
 
 ### Known problems, and what a failed setup does
 
-- **A failed protection stops the setup.** If any hardening step reports FAILED (it was applied, or there was nothing to apply, and its check still fails), the worker is not started: its job timers are turned off, nothing is sent to it, and the machine's own error text is shown with the steps. A protection that cannot work on this kind of machine at all (the tripwire on a container) is BLOCKED and only a warning. On Ubuntu 24.04 and newer with the user-namespace restriction on, job isolation gets a small AppArmor profile (`/etc/apparmor.d/ct-bwrap`) that lets bubblewrap, and only it, use user namespaces; without it no job can run (`loopback: Failed RTM_NEWADDR`).
+- **A failed protection stops the setup.** If any hardening step reports FAILED (it was applied, or there was nothing to apply, and its check still fails), the worker is not started: its job timers are turned off, nothing is sent to it, and the machine's own error text is shown with the steps. A protection that cannot work on this kind of machine at all (the tripwire on a container) is BLOCKED and only a warning. On Ubuntu 24.04 and newer with the user-namespace restriction on, job isolation gets a small AppArmor profile (`/etc/apparmor.d/arm-bwrap`) that lets bubblewrap, and only it, use user namespaces; without it no job can run (`loopback: Failed RTM_NEWADDR`).
 - **A Direct setup whose clones fail stops the job loop** (it asks for the sudo password again if the worker needs one, or prints the one command) and sends no first job.
-- **Each failure to clone from the worker is explained by its own cause** (`src/ct/clonediag.py`): git's "dubious ownership" (with the one command that fixes it), a refused key, a changed host key, an unreachable worker, a missing mailbox, an older mailbox shell. An unrecognised error gets the general list. The machine's real error text is always kept.
+- **Each failure to clone from the worker is explained by its own cause** (`src/armada/clonediag.py`): git's "dubious ownership" (with the one command that fixes it), a refused key, a changed host key, an unreachable worker, a missing mailbox, an older mailbox shell. An unrecognised error gets the general list. The machine's real error text is always kept.

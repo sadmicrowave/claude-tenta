@@ -1,4 +1,4 @@
-"""ct-admin: the workers command, locating a worker, and the commands that act on the whole fleet."""
+"""arm-admin: the workers command, locating a worker, and the commands that act on the whole fleet."""
 import io
 import re
 import json
@@ -9,9 +9,9 @@ from unittest import mock
 
 from admin_support import AdminBase  # noqa: F401  (also points HOME at a throwaway folder)
 
-from ct.admin import cli, release
-from ct.admin import workers as workers_mod
-from ct.client.repo import ClientError
+from armada.admin import cli, release
+from armada.admin import workers as workers_mod
+from armada.client.repo import ClientError
 
 
 class WakeAndAudit(AdminBase):
@@ -22,7 +22,7 @@ class WakeAndAudit(AdminBase):
         self.assertEqual(self.admin("wake")[0], 0)
         self.assertEqual(self.admin("audit")[0], 0)
         self.assertEqual(self.admin("tripwire-test")[0], 0)
-        self.assertEqual(self.ssh.calls, ["ct-worker wake", "sudo ct-update --audit", "sudo ct-update --tripwire-test"])
+        self.assertEqual(self.ssh.calls, ["arm-worker wake", "sudo arm-update --audit", "sudo arm-update --tripwire-test"])
 
     def test_a_worker_is_named_once_and_found_by_that_name(self):
         self.ctx.workers_file = self.tmp / "workers.toml"
@@ -127,7 +127,7 @@ class WorkersCommand(AdminBase):
 
 
 class LocateFixture(AdminBase):
-    """ct-admin locate: the worker's address changed; it is found by the SSH host key this computer recorded for it, and a name is never proof."""
+    """arm-admin locate: the worker's address changed; it is found by the SSH host key this computer recorded for it, and a name is never proof."""
 
     KEY = {("ssh-ed25519", "AAAA-the-worker")}
 
@@ -137,7 +137,7 @@ class LocateFixture(AdminBase):
         self.conf.write_text('[identity]\nname = "testct"\n[server]\nhost = "worker.example"\nadmin_user = "admin"\n')
         self.ctx.cfg = mock.Mock(source=str(self.conf))
         self.ctx.ssh.port = 22
-        from ct.setup import discover
+        from armada.setup import discover
         self.discover = discover
         self.devs = [discover.Device("192.0.2.31", name="worker.example"), discover.Device("192.0.2.32", name="another.example")]
 
@@ -145,9 +145,9 @@ class LocateFixture(AdminBase):
         self.answers = list(answers)
         self.tty = True
         keys = shown or {"192.0.2.31": {("ssh-ed25519", "IMPOSTOR")}, "192.0.2.32": self.KEY}            # the machine with the worker's NAME shows another key
-        with mock.patch("ct.rediscover.recorded_keys", return_value=self.KEY if recorded is None else recorded), \
-             mock.patch("ct.rediscover.shown_keys", side_effect=lambda ip, port=22, run=None: keys.get(ip, set())), \
-             mock.patch("ct.rediscover.resolve_mdns", return_value=None), mock.patch("ct.rediscover._arp", return_value={}), \
+        with mock.patch("armada.rediscover.recorded_keys", return_value=self.KEY if recorded is None else recorded), \
+             mock.patch("armada.rediscover.shown_keys", side_effect=lambda ip, port=22, run=None: keys.get(ip, set())), \
+             mock.patch("armada.rediscover.resolve_mdns", return_value=None), mock.patch("armada.rediscover._arp", return_value={}), \
              mock.patch.object(self.discover, "local_networks", return_value=[("en0", __import__("ipaddress").IPv4Interface("192.0.2.5/24"))]), mock.patch.object(self.discover, "scan", return_value=(self.devs, [])):
             return self.admin("locate", *args)
 
@@ -183,8 +183,8 @@ class RememberingWhereTheWorkerAnswered(AdminBase):
     """Found testing on a real machine: the last address that worked was only written by `watch` and `locate`, so a user who never ran them had nothing for that rung."""
 
     def test_an_ordinary_successful_command_notes_the_address_and_a_failed_one_does_not(self):
-        from ct import rediscover
-        with mock.patch("socket.gethostbyname", return_value="192.0.2.44"), mock.patch("ct.rediscover._arp", return_value={}):
+        from armada import rediscover
+        with mock.patch("socket.gethostbyname", return_value="192.0.2.44"), mock.patch("armada.rediscover._arp", return_value={}):
             self.ssh._run = lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "no route")
             self.admin("check")
             self.assertEqual(rediscover.last_seen(self.home, "testct"), {})
@@ -205,7 +205,7 @@ class ACommandOnAJobSentToAnotherWorker(AdminBase):
     """A job the orchestrator placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
 
     def test_the_context_of_the_worker_it_was_sent_to_is_used(self):
-        from ct.client import place
+        from armada.client import place
         place.record(self.ctx.home, ["j-elsewhere"], "other")
         seen = []
         other = mock.Mock(name="other-ctx")
@@ -222,7 +222,7 @@ class ACommandOnAJobSentToAnotherWorker(AdminBase):
 
 
 class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
-    """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
+    """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every arm-admin command is classified here,
     so a new command cannot be added without saying which it is."""
     FLEET = {"update", "apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
     PICK = {"clean", "adopt", "retire", "class", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
@@ -245,7 +245,7 @@ class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
     def test_no_internal_send_is_left_to_the_orchestrator(self):
         """The checks that are ABOUT a worker (the install check, the wizard's first job) must say so: --here."""
         import re
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         for f in root.rglob("*.py"):
             for n, line in enumerate(f.read_text().splitlines(), 1):
                 if re.search(r'\.main\(\["submit"', line):
@@ -274,18 +274,18 @@ class FleetWideCommands(AdminBase):
         self.assertIn("second", out + err)
 
     def test_the_next_steps_footer_is_said_once_after_the_last_worker_not_under_every_card(self):
-        """Seen on `ct-admin status` with three workers: 'From here you can' and its three commands under every card."""
-        from ct import ui as _ui
+        """Seen on `arm-admin status` with three workers: 'From here you can' and its three commands under every card."""
+        from armada import ui as _ui
 
         def inner(c, args):
             print(f"card for {c.name}")
-            _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), force=True)
+            _ui.related(("Jobs waiting for you", "arm-admin review"), ("Compare every worker you run", "arm-admin workers"), force=True)
             return 0
         (code, out, err), calls, seen = self.run_diff(inner=inner)
         text = out + err
         self.assertEqual(code, 0)
         self.assertEqual(text.count("From here you can"), 1, text)
-        self.assertEqual(text.count("ct-admin review"), 1, text)
+        self.assertEqual(text.count("arm-admin review"), 1, text)
         self.assertEqual(text.count("card for"), 2)                                     # the content is still repeated for every worker
         self.assertGreater(text.index("From here you can"), text.rindex("card for"))              # and the footer comes after the last of them
 
@@ -309,9 +309,9 @@ class FleetWideCommands(AdminBase):
         self.assertEqual((code, len(shown)), (0, 2))
 
     def test_a_single_worker_still_gets_its_footer_straight_after_its_card(self):
-        from ct import ui as _ui
+        from armada import ui as _ui
         a, b = self.two()
-        (code, out, err), calls, seen = self.run_diff(targets=[("first", a)], inner=lambda c, args: _ui.related(("Jobs waiting for you", "ct-admin review"), force=True) and 0)
+        (code, out, err), calls, seen = self.run_diff(targets=[("first", a)], inner=lambda c, args: _ui.related(("Jobs waiting for you", "arm-admin review"), force=True) and 0)
         self.assertEqual((out + err).count("From here you can"), 1)
 
     def test_worker_narrows_it_to_the_one_named(self):
@@ -339,7 +339,7 @@ class FleetWideCommands(AdminBase):
 
 
 class ApplyOnAnAlreadyCurrentWorker(AdminBase):
-    """Seen on a real `ct-admin apply`: an up-to-date worker got two 'Nothing to change' cards, and a hint (--force) that would have forced every worker."""
+    """Seen on a real `arm-admin apply`: an up-to-date worker got two 'Nothing to change' cards, and a hint (--force) that would have forced every worker."""
 
     def run_apply(self, *extra, targets=1):
         sha = self.rel[0]
@@ -369,7 +369,7 @@ class ApplyOnAnAlreadyCurrentWorker(AdminBase):
 
     def test_the_force_hint_names_the_worker_so_it_does_not_force_them_all(self):
         code, text = self.run_apply()
-        self.assertIn(f"ct-admin apply --force --worker {self.ctx.name}", text)
+        self.assertIn(f"arm-admin apply --force --worker {self.ctx.name}", text)
 
 
 if __name__ == "__main__":

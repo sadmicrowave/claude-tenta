@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import wintools  # noqa: E402
+from armada.setup import wintools  # noqa: E402
 
 
 class Pins(unittest.TestCase):

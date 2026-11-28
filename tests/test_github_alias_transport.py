@@ -3,7 +3,7 @@ seen on a real second worker, whose published state said direct, so this compute
 import unittest
 
 import support  # noqa: F401
-from ct import config, transport, workerstate
+from armada import config, transport, workerstate
 
 
 def cfg(kind="github"):

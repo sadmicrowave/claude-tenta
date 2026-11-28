@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import support  # noqa: F401
-from ct.client import audit, cli, place, queue, retry
+from armada.client import audit, cli, place, queue, retry
 from test_health import LostBase
 from test_retry import INFO, iso
 

@@ -17,7 +17,7 @@ root can change.
 ### The pieces
 
 ```
-job (class kind: privileged)  ->  worker  ->  unix socket  ->  ct.helper (root)  ->  systemd-run (sandboxed unit)  ->  your program
+job (class kind: privileged)  ->  worker  ->  unix socket  ->  armada.helper (root)  ->  systemd-run (sandboxed unit)  ->  your program
                                     |                              ^
                           the exact job file + your signed approval, and nothing else is believed
 ```
@@ -28,15 +28,15 @@ job (class kind: privileged)  ->  worker  ->  unix socket  ->  ct.helper (root) 
   the like) and the privilege tools are refused.
 - **Class** `kind: privileged`, `action: <name>`: it takes its program, parameters and limits from the action and cannot set its own `run`, `params`, `network`,
   `packages` or `tier`. It always needs approval.
-- **A pack's action** cannot know the hash of a program on your machine. `ct-admin action add` pins it for you; a pack enabled on the server instead needs `action_pins: {name: "<sha256>"}`
-  in your registry (`ct-admin action-hash <path>` prints the value). Without the pin it does not install.
-- **Registry install** (`ct-update`, `registry-sync`): the root-owned registry is only written if every action's program passes `actions.check_executable` (a regular file
+- **A pack's action** cannot know the hash of a program on your machine. `arm-admin action add` pins it for you; a pack enabled on the server instead needs `action_pins: {name: "<sha256>"}`
+  in your registry (`arm-admin action-hash <path>` prints the value). Without the pin it does not install.
+- **Registry install** (`arm-update`, `registry-sync`): the root-owned registry is only written if every action's program passes `actions.check_executable` (a regular file
   owned by root and writable by nobody else, in folders that are the same, with the pinned SHA-256), and the policy's refused programs apply to actions too. The helper's socket
   (`<name>-helper.socket`) runs only while the installed registry has an action.
 
 ### What the helper checks, every time
 
-`ct.helper` runs as root, one process per connection, and the worker is a stranger to it:
+`armada.helper` runs as root, one process per connection, and the worker is a stranger to it:
 
 1. The caller must be the worker account (`SO_PEERCRED`), and the socket (`/run/<name>-helper.sock`) is mode 0660 root:worker.
 2. The request is the exact job file and the signed approval. The approval must verify against the root-owned `approvers` file (the same key that approves jobs from your
@@ -45,7 +45,7 @@ job (class kind: privileged)  ->  worker  ->  unix socket  ->  ct.helper (root) 
    the argument list is built from the template (no shell).
 4. The program on disk is checked again against the pin and its ownership and mode.
 5. This machine's systemd must really enforce the sandbox: the helper probes it, and refuses when it does not (a container's systemd often accepts the settings and ignores
-   them). `ct-setup audit` shows the same check.
+   them). `arm-setup audit` shows the same check.
 6. A job runs **at most once**: its id is recorded before it runs.
 7. It runs in a transient unit: `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, `NoNewPrivileges=yes`, `PrivateNetwork=yes` unless `network: true`, a memory cap, a
    runtime limit, and `ReadWritePaths` only for `writable`.
@@ -55,13 +55,13 @@ in the journal.
 
 ### Approving
 
-`ct-admin review` and `ct-admin approve` show a banner for such a job: **RUNS AS ROOT**, the exact program and arguments with the job's values substituted, what it may write,
-its network and its time limit. Approval must be signed (`ct-admin approve` from your computer); `ct-worker approve` on the worker refuses it, and a job waiting for approval says so.
+`arm-admin review` and `arm-admin approve` show a banner for such a job: **RUNS AS ROOT**, the exact program and arguments with the job's values substituted, what it may write,
+its network and its time limit. Approval must be signed (`arm-admin approve` from your computer); `arm-worker approve` on the worker refuses it, and a job waiting for approval says so.
 
 ### Registering one: the same shape as adopting a class
 
 ```
-ct-admin action add packs/fan-control
+arm-admin action add packs/fan-control
 ```
 
 One command, one question, like `adopt`:
@@ -73,8 +73,8 @@ One command, one question, like `adopt`:
 4. You say yes once. It writes the registry change on a branch, merges it, signs it with your approval key and the worker installs it. No login to the worker.
 
 Why the program is pinned at all: the worker will run a root program only if its fingerprint is the one you saw in step 3. If the program is edited later, it refuses to run
-it until you look again, which is what `ct-admin action add` does when you run it a second time (it shows the new fingerprint and only moves the pin).
-`ct-admin action-hash <path>` still prints the fingerprint by itself, for the curious.
+it until you look again, which is what `arm-admin action add` does when you run it a second time (it shows the new fingerprint and only moves the pin).
+`arm-admin action-hash <path>` still prints the fingerprint by itself, for the curious.
 
 Running it again is safe. If the action is already registered and the program has not changed it says so and changes nothing; if the program has changed it offers to pin the new
 fingerprint; and a program that is already registered under another name is refused (two names for one root program would be two ways to run it).
@@ -82,8 +82,8 @@ fingerprint; and a program that is already registered under another name is refu
 To see or take one away:
 
 ```
-ct-admin action list
-ct-admin action remove fan-profile
+arm-admin action list
+arm-admin action remove fan-profile
 ```
 
 `remove` takes the action's name, or the pack folder it came from, shows what goes (the action and the class that runs it; the program itself is never touched), asks once, then merges, signs
@@ -92,8 +92,8 @@ and installs the change. Queued jobs of that class are rejected. A misspelt name
 After that a fan job is an ordinary job with a louder warning:
 
 ```
-ct-run submit fan-profile -p mode=fixed -p rpm=3000
-ct-admin approve <job>
+arm-run submit fan-profile -p mode=fixed -p rpm=3000
+arm-admin approve <job>
 ```
 
 The approval screen starts with **RUNS AS ROOT** in its own colour (the `root` role in the theme: no other warning looks like it).
@@ -102,7 +102,7 @@ The approval screen starts with **RUNS AS ROOT** in its own colour (the `root` r
 temperatures, runs a CPU load, or holds the fan at a fixed speed, and puts the fan daemon back afterwards). Its action writes only `/sys/devices/platform/applesmc.768`, has no
 network, and may run for six minutes.
 
-Packs that the server enables itself (`registry.packs` in ct.toml) can carry actions too; those need the admin's `action_pins` (see Packs). `action add` is the simpler road and
+Packs that the server enables itself (`registry.packs` in armada.toml) can carry actions too; those need the admin's `action_pins` (see Packs). `action add` is the simpler road and
 does not need the pack to be enabled on the server.
 
 ### Limits and honest notes
@@ -111,4 +111,4 @@ does not need the pack to be enabled on the server.
 - An action needing more than the sandbox gives (the network, other paths) has to say so, in the definition you signed.
 - Only the worker account can open the socket, so this protects against a taken-over *job*; an attacker who is already root on the worker has no need of it.
 - A machine whose systemd cannot enforce the sandbox (some containers) will refuse every action; on a real machine this is not an issue. Test machines can set
-  `CT_HELPER_ALLOW_UNENFORCED_SANDBOX=1` for the helper, never a real worker.
+  `ARM_HELPER_ALLOW_UNENFORCED_SANDBOX=1` for the helper, never a real worker.

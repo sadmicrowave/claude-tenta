@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import alerts, guard, util  # noqa: E402
+from armada import alerts, guard, util  # noqa: E402
 
 
 class Fixture(unittest.TestCase):
@@ -71,7 +71,7 @@ class Engage(Fixture):
         self.assertLessEqual(len(quarantine.splitlines()), 4)
         self.assertIn("State: LOCKED DOWN", lockdown)
         self.assertIn("no new jobs will start", lockdown)
-        self.assertIn("ct-admin unlock", lockdown)
+        self.assertIn("arm-admin unlock", lockdown)
         self.assertEqual(self.sent[1].get_header("Tags"), "lock")
         self.assertEqual(ev, {"kind": "quarantine", "job": "job-0001", "class": "leaky", "rules": ["private_ip"]})
         self.assertEqual(self.lock.locked()["job"], "job-0001")

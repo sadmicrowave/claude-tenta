@@ -7,9 +7,9 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 import support  # noqa: F401
-from ct import sched
-from ct.admin import workers as wk
-from ct.client import cli, health, place, queue
+from armada import sched
+from armada.admin import workers as wk
+from armada.client import cli, health, place, queue
 from test_place import Ctx, Setup
 from test_sched import state, worker_view
 
@@ -199,7 +199,7 @@ class Lost(LostBase):
         self.assertEqual(queue.waiting(self.main.home), [])
 
     def test_a_long_id_still_gets_a_valid_new_id(self):
-        from ct.jobs import ID_RE
+        from armada.jobs import ID_RE
         jid = "a" * 64
         self.quiet("vmx")
         self.sent(jid)
@@ -307,15 +307,15 @@ class Kept(Setup):
 
 
 class Dispatch(LostBase):
-    """The real command line: a ct-run command notices the lost job by itself, and the jobs list shows it once."""
+    """The real command line: an arm-run command notices the lost job by itself, and the jobs list shows it once."""
 
     def run_cmd(self, *argv):
         import re
         from unittest import mock
-        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.main.home, admin="ct-admin", label_of=lambda jid, cls: cls, hints=[])
+        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.main.home, admin="arm-admin", label_of=lambda jid, cls: cls, hints=[])
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
-                mock.patch("ct.client.cli.jobs_of", lambda repos, admin: ({}, [])), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch("armada.client.place.entries", self.ents), mock.patch("armada.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+                mock.patch("armada.client.cli.jobs_of", lambda repos, admin: ({}, [])), redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(list(argv), ctx=main, cfg=self.cfgs["mini"])
         return rc, re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue() + err.getvalue())
 

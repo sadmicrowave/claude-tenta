@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import rediscover
-from ct.setup import discover
+from armada import rediscover
+from armada.setup import discover
 
 MAC = "aa:bb:cc:" + "00:00:01"                                        # privacy-ok: an invented address
 BOX = "box.lo" + "cal"

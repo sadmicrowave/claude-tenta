@@ -15,8 +15,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402
-from ct import jobs, refusals  # noqa: E402
-from ct.client import cli, submit, view  # noqa: E402
+from armada import jobs, refusals  # noqa: E402
+from armada.client import cli, submit, view  # noqa: E402
 
 FILES = {"a.txt": "alpha\n" * 50, "sub/b.txt": "beta\n" * 50}
 UNPACK = ("files.unpack.too_big", "files.unpack.no_room", "files.unpack.unreadable")
@@ -112,7 +112,7 @@ class WorkerSide(support.Base):
         super().setUp()
         self.registry_path.write_text(support.REGISTRY)
         self.w.load_registry()
-        p = mock.patch("ct.plat.disk_free_gb", return_value=5000)          # the free-disk check must not depend on how full the machine running the tests is
+        p = mock.patch("armada.plat.disk_free_gb", return_value=5000)          # the free-disk check must not depend on how full the machine running the tests is
         p.start()
         self.addCleanup(p.stop)
 
@@ -214,7 +214,7 @@ class ClientSide(support.RepoFixture):
         self.assertNotEqual(code, 0)
         self.assertIn("files.compress.worker_cannot", text)
         self.assertIn("--no-compress", text)
-        self.assertIn(f"ct-run submit files --dir {self.dir} --no-wait --no-compress", text.replace("'", ""))      # the exact command, as typed, plus the flag
+        self.assertIn(f"arm-run submit files --dir {self.dir} --no-wait --no-compress", text.replace("'", ""))      # the exact command, as typed, plus the flag
 
     def test_a_set_that_would_unpack_to_more_than_the_worker_allows_is_refused_here_first(self):
         self.tell(codec=submit.CODEC, max_unpacked_mb=0.0001)
@@ -231,13 +231,13 @@ class ClientSide(support.RepoFixture):
 
     def test_a_worker_refusal_to_unpack_shows_the_command_that_sends_it_again_uncompressed(self):
         res = {"id": "files-abc123", "status": "rejected", "refusal": "files.unpack.too_big", "note": "too big", "output": ""}
-        cmd = "ct-run submit files --dir . --no-compress"
+        cmd = "arm-run submit files --dir . --no-compress"
         self.assertEqual(view.result_card(res, rerun=cmd)["run"], cmd)
         head, _, tail = view.format_result(res, rerun=cmd)
         self.assertIn(cmd, "\n".join(tail))
         self.assertEqual(cli.rerun_for(self.ctx, {**res, "id": "nope"}), None)
         self.ctx.commands.remember("files-abc123", ["submit", "files", "--dir", ".", "--no-wait"])
-        self.assertEqual(cli.rerun_for(self.ctx, res), "ct-run submit files --dir . --no-wait --no-compress")
+        self.assertEqual(cli.rerun_for(self.ctx, res), "arm-run submit files --dir . --no-wait --no-compress")
 
 
 if __name__ == "__main__":

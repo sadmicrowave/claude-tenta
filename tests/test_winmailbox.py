@@ -7,7 +7,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import winmailbox, wintools  # noqa: E402
+from armada.setup import winmailbox, wintools  # noqa: E402
 
 KEY = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAIHydw7kP9aelENfu8kRyX7cP0ynpRXnqVcLiyRjZ75AD" + " mailbox-check"          # built in pieces: this file must not itself look like a leak
 
@@ -22,7 +22,7 @@ class Script(unittest.TestCase):
         self.assertIn("'restrict,command=\"' + $launcher + '\" ' + $key", self.s)
 
     def test_the_launcher_puts_the_tools_git_on_a_path_of_its_own_and_starts_the_mail_shell_with_the_mailbox_named(self):
-        for needle in (r"tools\git\cmd", "%SystemRoot%\\system32", "PYTHONPATH", "CT_MAILBOX", "-m ct.mailshell"):
+        for needle in (r"tools\git\cmd", "%SystemRoot%\\system32", "PYTHONPATH", "ARM_MAILBOX", "-m armada.mailshell"):
             self.assertIn(needle, self.s)
 
     def test_the_mail_account_is_standard_cannot_log_on_at_a_desktop_and_is_never_an_administrator(self):
@@ -41,7 +41,7 @@ class Script(unittest.TestCase):
         self.assertNotIn("state')", self.s.replace("state-mail", ""))
 
     def test_sshd_config_is_edited_between_markers_backed_up_checked_with_sshd_t_and_put_back_when_it_fails(self):
-        for needle in (winmailbox.BEGIN, winmailbox.END, ".ct-backup", "sshd.exe') -t", "put back", "Restart-Service sshd", "AuthorizedKeysFile"):
+        for needle in (winmailbox.BEGIN, winmailbox.END, ".arm-backup", "sshd.exe') -t", "put back", "Restart-Service sshd", "AuthorizedKeysFile"):
             self.assertIn(needle, self.s)
         self.assertLess(self.s.index("sshd.exe') -t"), self.s.index("Restart-Service sshd"))
 

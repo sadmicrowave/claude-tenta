@@ -2,8 +2,8 @@
 import unittest
 from datetime import timedelta
 from admin_support import AdminBase, REGISTRY, sh  # noqa: F401  (also points HOME at a throwaway folder)
-from ct import util
-from ct.admin import jobs
+from armada import util
+from armada.admin import jobs
 
 
 class JobTests(AdminBase):
@@ -19,7 +19,7 @@ class JobTests(AdminBase):
         self.tty = True
         code, _, _ = self.admin("approve", "--all")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"ct-worker approve --many job-a:{digest}"])
+        self.assertEqual(self.ssh.calls, [f"arm-worker approve --many job-a:{digest}"])
 
     def test_a_job_that_changed_after_you_viewed_it_is_not_approved_in_bulk(self):
         self.put_job("job-a")
@@ -47,7 +47,7 @@ class JobTests(AdminBase):
         self.answers.append("y")
         code, out, _ = self.admin("approve", "job-b")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, [f"ct-worker approve job-b --sha256 {digest}"])
+        self.assertEqual(self.ssh.calls, [f"arm-worker approve job-b --sha256 {digest}"])
         self.assertEqual(self.results_followed, ["job-b"])
         self.assertIn(digest[:12], out)
 
@@ -97,7 +97,7 @@ class JobTests(AdminBase):
         self.put_result("old-job", status="awaiting_approval")
         code, _, _ = self.admin("approve", "old-job", "--yes", "--no-follow")
         self.assertEqual(code, 0)
-        self.assertEqual(self.ssh.calls, ["ct-worker approve old-job --yes"])
+        self.assertEqual(self.ssh.calls, ["arm-worker approve old-job --yes"])
         self.assertEqual(jobs.Viewed(self.home).load()["old-job"], "")
 
     def test_a_job_that_is_nowhere_is_an_error(self):
@@ -113,9 +113,9 @@ class JobTests(AdminBase):
         self.assertEqual(self.ssh.calls, [])
 
     def test_passthrough_commands_call_the_workers_own_commands(self):
-        for args, expect in ((["status", "--hours", "48"], "ct-worker status --hours 48"), (["unlock"], "ct-worker unlock"), (["quarantine"], "ct-worker quarantine"),
-                             (["quarantine", "job-x"], "ct-worker quarantine job-x"), (["output", "job-x"], "ct-worker output job-x"), (["cancel", "job-x"], "ct-worker cancel job-x"),
-                             (["kill", "job-x", "--hard"], "ct-worker kill job-x --hard")):
+        for args, expect in ((["status", "--hours", "48"], "arm-worker status --hours 48"), (["unlock"], "arm-worker unlock"), (["quarantine"], "arm-worker quarantine"),
+                             (["quarantine", "job-x"], "arm-worker quarantine job-x"), (["output", "job-x"], "arm-worker output job-x"), (["cancel", "job-x"], "arm-worker cancel job-x"),
+                             (["kill", "job-x", "--hard"], "arm-worker kill job-x --hard")):
             self.ssh.calls.clear()
             self.assertEqual(self.admin(*args)[0], 0)
             self.assertEqual(self.ssh.calls, [expect])

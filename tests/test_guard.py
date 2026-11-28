@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import guard, util  # noqa: E402
+from armada import guard, util  # noqa: E402
 
 # Fixtures are assembled from pieces so this file itself never contains a real-looking address, key or token.
 IP = "192." + "168." + "7.77"

@@ -15,18 +15,18 @@ Nothing needs to be reachable from the internet. With the GitHub connection the 
 ```bash
 git clone https://github.com/<project>/armada.git
 cd armada
-python3 -m venv ~/.ct-venv && ~/.ct-venv/bin/pip install -e .
-~/.ct-venv/bin/ct-setup install
+python3 -m venv ~/.arm-venv && ~/.arm-venv/bin/pip install -e .
+~/.arm-venv/bin/arm-setup install
 ```
 
-(`-e` keeps the commands tied to the checkout, which is where the worker's release comes from.) That one command is the only time you type a path: the install links `ct-run`, `ct-admin`, `ct-setup` and `ct-help` into `~/.local/bin` (never over a file already there) and, if that folder is not on your PATH, offers to add one marked line to your shell's startup file. Open a new terminal tab afterwards and the commands work from anywhere. (A terminal that was already open does not see the change; `source ~/.zshrc` or a new tab does.)
+(`-e` keeps the commands tied to the checkout, which is where the worker's release comes from.) That one command is the only time you type a path: the install links `arm-run`, `arm-admin`, `arm-setup` and `arm-help` into `~/.local/bin` (never over a file already there) and, if that folder is not on your PATH, offers to add one marked line to your shell's startup file. Open a new terminal tab afterwards and the commands work from anywhere. (A terminal that was already open does not see the change; `source ~/.zshrc` or a new tab does.)
 
 ## 2. Set everything up, from your computer
 
 ```bash
-ct-setup demo                  # optional: see the question and protection screens on sample content; nothing is saved
-ct-setup install --dry-run     # optional: see everything it would do; nothing on the server changes
-ct-setup install
+arm-setup demo                  # optional: see the question and protection screens on sample content; nothing is saved
+arm-setup install --dry-run     # optional: see everything it would do; nothing on the server changes
+arm-setup install
 ```
 
 It will:
@@ -41,47 +41,47 @@ It will:
 
 It is safe to run again: each step only does what is missing. The folder it used on the server (which held your answers) is removed when it finishes.
 
-If something stops it, it says what and how to fix it, and running `ct-setup install` again continues from there.
+If something stops it, it says what and how to fix it, and running `arm-setup install` again continues from there.
 
 ### Doing it step by step instead
 
-`ct-setup client` sets up your side only. On the server, from a copy of the checkout, `sudo env PYTHONPATH=src python3 -m ct.setup server --apply --wait-for-keys 900` does the server's side and waits for the deploy keys; `ct-setup client`
+`arm-setup client` sets up your side only. On the server, from a copy of the checkout, `sudo env PYTHONPATH=src python3 -m armada.setup server --apply --wait-for-keys 900` does the server's side and waits for the deploy keys; `arm-setup client`
 (run again once the server has published its keys) adds them. See the [setup wizard](components/setup.md).
 
 ## 3. Send a first job
 
 ```bash
-ct-run classes
-ct-run submit sys-status --wait
-ct-admin check
-ct-admin status
+arm-run classes
+arm-run submit sys-status --wait
+arm-admin check
+arm-admin status
 ```
 
 ## Day to day
 
 | I want to | Command |
 |---|---|
-| send a job | `ct-run submit <class> --wait` |
-| see my jobs and anything waiting for me | `ct-run jobs` |
-| approve a waiting job | `ct-admin approve <job>` |
-| see how the worker is doing | `ct-admin status` |
-| find out whether a slow command is worth sending | `ct-run offload fit -- <command>` |
-| install a new release | `ct-admin diff`, then `ct-admin apply` |
-| the worker locked itself | `ct-admin quarantine`, then `ct-admin unlock` |
-| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/armada/lib python3 -m ct.setup audit` |
+| send a job | `arm-run submit <class> --wait` |
+| see my jobs and anything waiting for me | `arm-run jobs` |
+| approve a waiting job | `arm-admin approve <job>` |
+| see how the worker is doing | `arm-admin status` |
+| find out whether a slow command is worth sending | `arm-run offload fit -- <command>` |
+| install a new release | `arm-admin diff`, then `arm-admin apply` |
+| the worker locked itself | `arm-admin quarantine`, then `arm-admin unlock` |
+| check the worker still matches what I chose | on the worker: `sudo env PYTHONPATH=/opt/armada/lib python3 -m armada.setup audit` |
 
 ## Removing it
 
 ```bash
-ct-setup uninstall             # a preview: lists exactly what would be removed, changes nothing
-ct-setup uninstall --apply     # asks once, then removes it (your sudo password, on the server)
+arm-setup uninstall             # a preview: lists exactly what would be removed, changes nothing
+arm-setup uninstall --apply     # asks once, then removes it (your sudo password, on the server)
 ```
 
-The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `ct-setup install` sets it all up again. No migration is supported before the first release: uninstall a previous install with its own version, then install.
-See [the setup wizard](components/setup.md#ct-setup-uninstall) for the options (`--keep-data`, `--remove-account`).
+The protections stay (key-only SSH, the firewall, automatic security updates), and so do your GitHub repositories and your computer's configuration. `arm-setup install` sets it all up again. No migration is supported before the first release: uninstall a previous install with its own version, then install.
+See [the setup wizard](components/setup.md#arm-setup-uninstall) for the options (`--keep-data`, `--remove-account`).
 
-To remove a Windows worker, name it: `ct-setup uninstall --worker NAME` (preview first, `--apply` to remove; `--keep-data` keeps its state folders). To take the ct commands off your own computer: `ct-setup uninstall --client` (it never touches your GitHub repositories or a worker computer, so remove the workers first).
+To remove a Windows worker, name it: `arm-setup uninstall --worker NAME` (preview first, `--apply` to remove; `--keep-data` keeps its state folders). To take the armada commands off your own computer: `arm-setup uninstall --client` (it never touches your GitHub repositories or a worker computer, so remove the workers first).
 
 ## If something goes wrong
 
-Every command explains itself: what went wrong, why, how to fix it, and a command to copy. `ct-help` lists everything. The [components](components/overview.md) pages explain how each part works.
+Every command explains itself: what went wrong, why, how to fix it, and a command to copy. `arm-help` lists everything. The [components](components/overview.md) pages explain how each part works.

@@ -13,8 +13,8 @@ from pathlib import Path
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct.client import cli, submit, view  # noqa: E402
-from ct.client.repo import ClientError, ClientRepos  # noqa: E402
+from armada.client import cli, submit, view  # noqa: E402
+from armada.client.repo import ClientError, ClientRepos  # noqa: E402
 from support import RepoFixture, sh  # noqa: E402
 
 
@@ -49,12 +49,12 @@ class Repo(RepoFixture):
         c1 = self.repos.push_files("jobs", {"jobs/a.json": "{}\n"}, "job: a")
         c2 = self.repos.push_files("jobs", {"jobs/b.json": "{}\n"}, "job: b")
         log = sh("git", "log", "--format=%h|%an|%s", "jobs", cwd=self.tmp / "queue.git").splitlines()
-        self.assertEqual([l.split("|")[1:] for l in log], [["ct-client", "job: b"], ["ct-client", "job: a"]])
+        self.assertEqual([l.split("|")[1:] for l in log], [["arm-client", "job: b"], ["arm-client", "job: a"]])
         self.assertEqual(sh("git", "ls-tree", "--name-only", "-r", "jobs", cwd=self.tmp / "queue.git").splitlines(), ["jobs/a.json", "jobs/b.json"])
         self.assertEqual(sh("git", "rev-parse", "origin/jobs", cwd=self.repos.queue), c2)
         self.assertNotIn("scratch.txt", sh("git", "ls-tree", "--name-only", "-r", "jobs", cwd=self.tmp / "queue.git"))     # the working tree is never read
         self.assertNotEqual(c1, c2)
-        self.assertFalse((self.repos.queue / ".git" / "ct-client.index").exists())
+        self.assertFalse((self.repos.queue / ".git" / "arm-client.index").exists())
 
     def test_a_push_that_loses_a_race_is_fetched_and_retried_never_forced(self):
         self.repos.push_files("jobs", {"jobs/a.json": "{}\n"}, "job: a")
@@ -235,7 +235,7 @@ class EndToEnd(RepoFixture):
         code, out, err = self.run_cli("submit", "echo", "-p", "word=hi", "--no-wait")
         self.assertEqual(code, 2)
         self.assertIn("The worker is locked", out + err)
-        self.assertIn("ct-admin unlock", out + err)
+        self.assertIn("arm-admin unlock", out + err)
         self.repos.fetch_queue()
         self.assertFalse(self.repos.remote_branch_exists("jobs"))
 
@@ -309,7 +309,7 @@ class EndToEnd(RepoFixture):
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(cli.main(["jobs"], ctx=lonely), 2)
         self.assertIn("not set up yet", out.getvalue() + err.getvalue())
-        self.assertIn("ct-run setup", out.getvalue() + err.getvalue())
+        self.assertIn("arm-run setup", out.getvalue() + err.getvalue())
 
 
 class Waiting(RepoFixture):
@@ -374,21 +374,21 @@ class Waiting(RepoFixture):
 
 class Config(unittest.TestCase):
     def test_the_context_is_built_from_the_configuration(self):
-        from ct import config
-        cfg = config.load(None, env={"CT_CONFIG": "", "CT_IDENTITY_NAME": "homect", "CT_GITHUB_OWNER": "alice", "CT_PATHS_CLIENT_HOME": "~/.homect"})
+        from armada import config
+        cfg = config.load(None, env={"ARM_CONFIG": "", "ARM_IDENTITY_NAME": "homect", "ARM_GITHUB_OWNER": "alice", "ARM_PATHS_CLIENT_HOME": "~/.homect"})
         ctx = cli.Context.from_config(cfg)
-        self.assertEqual((ctx.product, ctx.admin), ("homect", "ct-admin"))
+        self.assertEqual((ctx.product, ctx.admin), ("homect", "arm-admin"))
         self.assertEqual((ctx.repos.queue_url, ctx.repos.results_url), ("git@github.com:alice/homect-queue.git", "git@github.com:alice/homect-results.git"))          # derived from the install name
         self.assertEqual(str(ctx.repos.queue), str(Path("~/.homect/queue").expanduser()))
-        self.assertEqual(ctx.hints, [("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")])
-        self.assertIn("ct-worker", ctx.own_tools)
-        self.assertIn("ct-admin", ctx.own_tools)
+        self.assertEqual(ctx.hints, [("on your computer", "arm-admin approve {}"), ("on the worker", "arm-worker approve {}")])
+        self.assertIn("arm-worker", ctx.own_tools)
+        self.assertIn("arm-admin", ctx.own_tools)
         self.assertNotIn("example-owner", json.dumps([ctx.repos.queue_url, ctx.repos.results_url]))
 
 
 class WaitingChip(unittest.TestCase):
     def test_every_live_line_starts_with_its_status_as_a_capitals_chip_in_the_colour_of_that_status(self):
-        from ct import theme
+        from armada import theme
         class Tty(io.StringIO):
             def isatty(self):
                 return True
@@ -397,7 +397,7 @@ class WaitingChip(unittest.TestCase):
         for colour, role, text, word in ((view.YELLOW, "wait_chip", "sent: waiting for the worker to notice it", " SENT "), (view.CYAN, "primary_chip", "running on the worker", " RUNNING "),
                                           (view.RED, "bad_chip", "approved, but it was not picked up", " APPROVED, ")):
             out = Tty()
-            with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+            with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
                 view.Progress(stream=out, clock=lambda: 0).draw(text, colour)
             line = out.getvalue()
             self.assertIn(theme.code(role), line, text)

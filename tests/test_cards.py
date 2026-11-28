@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import cards, theme, ui  # noqa: E402
+from armada import cards, theme, ui  # noqa: E402
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 
@@ -21,7 +21,7 @@ class Tty(io.StringIO):
 
 def shown(*a, **k):
     out = Tty()
-    with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+    with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
         ui.say(*a, stream=out, **k)
     return out.getvalue()
 
@@ -57,9 +57,9 @@ class WizardCards(unittest.TestCase):
             self.assertEqual(text.replace("\n", "").replace("│", "").replace("┃", "").replace(" ", "").count("ab" * 40), 1)
 
     def test_commands_sit_beneath_the_card_alone_on_their_line(self):
-        raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["ct-run submit fan-profile"])
+        raw = shown("Ready", tag="DONE", color=ui.GREEN, run_label="Try one", run=["arm-run submit fan-profile"])
         lines = ANSI.sub("", raw).split("\n")
-        self.assertIn(" ct-run submit fan-profile ", lines)                     # no rail, no frame beside it
+        self.assertIn(" arm-run submit fan-profile ", lines)                     # no rail, no frame beside it
         self.assertIn(" TRY ONE ", lines)
 
     def test_a_plain_log_keeps_the_old_one_line_shape(self):
@@ -74,9 +74,9 @@ class ResultCard(unittest.TestCase):
            "finished": "2026-11-17T05:36:13Z", "metrics": {"wall_s": 0.02, "cpu_s": 0.01, "peak_rss_mb": 0, "mem_total_mb": 15219, "peak_temp_c": 50, "disk_mb": 0.0}}
 
     def printed(self, res=None):
-        from ct.client import view
+        from armada.client import view
         out = Tty()
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
             view.print_result(res or self.RES, out=out, err=io.StringIO())
         return out.getvalue()
 
@@ -114,7 +114,7 @@ class ResultCard(unittest.TestCase):
         self.assertNotIn(theme.sgr("MEASURED", "label"), raw)
 
     def test_a_script_still_gets_the_output_alone_on_stdout(self):
-        from ct.client import view
+        from armada.client import view
         out, err = io.StringIO(), io.StringIO()
         view.print_result(self.RES, out=out, err=err)
         self.assertEqual(out.getvalue().strip(), "up 10:58,  0 users")
@@ -122,40 +122,40 @@ class ResultCard(unittest.TestCase):
 
 class Breakout(unittest.TestCase):
     def test_the_commands_to_copy_are_their_own_breakout_with_a_chip_and_clear_space_above(self):
-        raw = shown("Set up", tag="DONE", color=ui.GREEN, run_label="Try it", run=["ct-run classes", "ct-admin status"])
+        raw = shown("Set up", tag="DONE", color=ui.GREEN, run_label="Try it", run=["arm-run classes", "arm-admin status"])
         lines = ANSI.sub("", raw).split("\n")
         at = lines.index(" TRY IT ")
         self.assertEqual(lines[at - 2:at], ["", ""])
-        self.assertEqual(lines[at + 1:at + 4], ["", " ct-run classes ", " ct-admin status "])
+        self.assertEqual(lines[at + 1:at + 4], ["", " arm-run classes ", " arm-admin status "])
         self.assertIn(theme.sgr(" TRY IT ", "primary_chip"), raw)
 
 
 class YesNoPrompt(unittest.TestCase):
     def test_the_question_line_is_always_in_the_prompt_colour_with_the_hint_last(self):
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
             text = ui.confirm_prompt("Remove it?")
         self.assertIn(theme.code("prompt"), text)
         self.assertTrue(ANSI.sub("", text).endswith("Remove it?  [y/N] "))
 
     def test_long_questions_wrap_at_words(self):
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always"}), mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always"}), mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
             text = ANSI.sub("", ui.confirm_prompt("Remove fan-profile and install the new registry on server.example now?"))
         self.assertTrue(all(len(x) <= 60 for x in text.split("\n")))
 
     def test_no_prompt_in_the_package_is_written_by_hand(self):
-        for f in (Path(__file__).resolve().parents[1] / "src" / "ct").rglob("*.py"):
+        for f in (Path(__file__).resolve().parents[1] / "src" / "armada").rglob("*.py"):
             if f.name not in ("ui.py", "theme.py"):
                 self.assertNotIn("[y/N]", f.read_text(), f"{f.name}: use ui.confirm_prompt")
 
 
 class InlineCode(unittest.TestCase):
-    """A command written inside a sentence is not lost in the text around it: it gets its own background. (Asked for after a card said 'run `ct-setup install` again' and it read as plain prose.)"""
+    """A command written inside a sentence is not lost in the text around it: it gets its own background. (Asked for after a card said 'run `arm-setup install` again' and it read as plain prose.)"""
     CODE = theme.code("code")
 
     def test_only_the_span_between_backticks_is_in_the_code_colour(self):
-        (line,) = cards.inline(["Run `ct-setup install` now"], "muted")
-        self.assertEqual(ANSI.sub("", line), "Run `ct-setup install` now")                       # the same words, backticks kept, so colour-off output still shows what is code
-        self.assertIn(theme.sgr("`ct-setup install`", "code"), line)
+        (line,) = cards.inline(["Run `arm-setup install` now"], "muted")
+        self.assertEqual(ANSI.sub("", line), "Run `arm-setup install` now")                       # the same words, backticks kept, so colour-off output still shows what is code
+        self.assertIn(theme.sgr("`arm-setup install`", "code"), line)
         self.assertIn(theme.sgr("Run ", "muted"), line)                                       # the words around it keep the text colour
         self.assertIn(theme.sgr(" now", "muted"), line)
         self.assertEqual(line.count(self.CODE), 1)
@@ -172,9 +172,9 @@ class InlineCode(unittest.TestCase):
         self.assertEqual(ANSI.sub("", line), "a stray ` backtick")
 
     def test_cards_style_code_in_notes_facts_and_steps(self):
-        lines = cards.card("Stopped", ["Run `ct-setup install` again", ("Why", "Use `git config` here")], tag="ERROR", color="bad", steps=["Then `ct-admin status`"], cols=100)
+        lines = cards.card("Stopped", ["Run `arm-setup install` again", ("Why", "Use `git config` here")], tag="ERROR", color="bad", steps=["Then `arm-admin status`"], cols=100)
         text = "\n".join(lines)
-        for span in ("`ct-setup install`", "`git config`", "`ct-admin status`"):
+        for span in ("`arm-setup install`", "`git config`", "`arm-admin status`"):
             self.assertIn(theme.sgr(span, "code"), text, span)
 
     def test_every_theme_gives_code_a_background(self):
@@ -187,24 +187,24 @@ class CommandsInSentencesAreCodeChips(unittest.TestCase):
     """The standing rule: a command is a code chip wherever it is drawn. A command written in a sentence is found by the card itself, so no message has to remember the backticks."""
 
     def test_a_command_in_a_sentence_becomes_a_code_span_and_ordinary_words_around_it_do_not(self):
-        for text, want in [("Run ct-setup install again once fixed.", "Run `ct-setup install` again once fixed."),
+        for text, want in [("Run arm-setup install again once fixed.", "Run `arm-setup install` again once fixed."),
                            ("Put it on it: ssh-copy-id agent@192.0.2.5 (it asks once)", "Put it on it: `ssh-copy-id agent@192.0.2.5` (it asks once)"),
-                           ("ct-admin workers lists them.", "`ct-admin workers` lists them."),
-                           ("Give it: ct-setup install box.example", "Give it: `ct-setup install box.example`"),
-                           ("Run ct-admin check and ct-admin status for it.", "Run `ct-admin check` and `ct-admin status` for it."),
-                           ("Fix: ct-setup install --set server.worker_user=abc.", "Fix: `ct-setup install --set server.worker_user=abc`."),
-                           ("Replace it: ct-admin apply --force --worker tenta3", "Replace it: `ct-admin apply --force --worker tenta3`"),
-                           ("Replace it: ct-admin apply --force --worker <its name>", "Replace it: `ct-admin apply --force --worker <its name>`"),         # a placeholder may hold a space
-                           ("Read it: ct-run result <job> and ct-admin status", "Read it: `ct-run result <job>` and `ct-admin status`"),
-                           ("Already `ct-run x` here", "Already `ct-run x` here"),
+                           ("arm-admin workers lists them.", "`arm-admin workers` lists them."),
+                           ("Give it: arm-setup install box.example", "Give it: `arm-setup install box.example`"),
+                           ("Run arm-admin check and arm-admin status for it.", "Run `arm-admin check` and `arm-admin status` for it."),
+                           ("Fix: arm-setup install --set server.worker_user=abc.", "Fix: `arm-setup install --set server.worker_user=abc`."),
+                           ("Replace it: arm-admin apply --force --worker arm3", "Replace it: `arm-admin apply --force --worker arm3`"),
+                           ("Replace it: arm-admin apply --force --worker <its name>", "Replace it: `arm-admin apply --force --worker <its name>`"),         # a placeholder may hold a space
+                           ("Read it: arm-run result <job> and arm-admin status", "Read it: `arm-run result <job>` and `arm-admin status`"),
+                           ("Already `arm-run x` here", "Already `arm-run x` here"),
                            ("No command in this sentence.", "No command in this sentence.")]:
             self.assertEqual(cards.code_spans(text), want)
 
     def test_every_place_a_card_shows_text_turns_them_into_chips(self):
         code = theme.sgr("x", "code").split("x")[0]
-        lines = cards.card("T", ["see ct-admin status now", ("Fix", "run ct-setup install again")], tag="ERROR", color=ui.RED, steps=["Then run ct-admin check."], framed=True)
+        lines = cards.card("T", ["see arm-admin status now", ("Fix", "run arm-setup install again")], tag="ERROR", color=ui.RED, steps=["Then run arm-admin check."], framed=True)
         text = "\n".join(lines)
-        for cmd in ("`ct-admin status`", "`ct-setup install`", "`ct-admin check`"):
+        for cmd in ("`arm-admin status`", "`arm-setup install`", "`arm-admin check`"):
             self.assertIn(cmd, re.sub(r"\x1b\[[0-9;]*m", "", text))
         self.assertGreaterEqual(text.count(code), 3)
 
@@ -244,7 +244,7 @@ class TheReasonOfAnErrorIsAWhyBlock(unittest.TestCase):
     def test_no_error_call_in_the_source_passes_a_why_any_other_way(self):
         """Every emit/say/stop/fail/notice that is handed a variable called why (or an exception's .why) must wrap it in cards.Why, so no error card shows its reason another way."""
         import ast
-        root = Path(__file__).resolve().parents[1] / "src" / "ct"
+        root = Path(__file__).resolve().parents[1] / "src" / "armada"
         bad = []
         for f in sorted(root.rglob("*.py")):
             tree = ast.parse(f.read_text())
@@ -278,7 +278,7 @@ if __name__ == "__main__":
 
 class StyledValues(unittest.TestCase):
     def test_a_long_explanation_wraps_under_itself_and_nothing_is_cut_off(self):
-        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((70, 24))), mock.patch.dict(os.environ, {"CT_COLOR": "always"}):
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((70, 24))), mock.patch.dict(os.environ, {"ARM_COLOR": "always"}):
             raw = shown("status", ("Fetch", cards.Styled([("OK", "ok"), ("  last pass 1 s ago, took 0 s (pulling new jobs from GitHub; asleep, so it asks GitHub every 300 s)", "muted")])), tag="STATUS")
         text = ANSI.sub("", raw)
         self.assertTrue(all(len(x) <= 70 for x in text.split("\n")))

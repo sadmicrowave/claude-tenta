@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import clonediag
-from ct.setup import assess, detect
-from ct.setup.host import Result
+from armada import clonediag
+from armada.setup import assess, detect
+from armada.setup.host import Result
 from test_setup import FakeHost
 
 REAL = Path(__file__).resolve().parent / "fixtures" / "real"

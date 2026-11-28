@@ -1,5 +1,5 @@
 #!/bin/bash
-# Delete the OrbStack machines THIS RUN ID made (see scripts/e2e-names.sh: the id is printed first; CT_E2E_RUN or the checkout path decides it). Never another run's: whoever made a machine deletes it.
+# Delete the OrbStack machines THIS RUN ID made (see scripts/e2e-names.sh: the id is printed first; ARM_E2E_RUN or the checkout path decides it). Never another run's: whoever made a machine deletes it.
 #   scripts/e2e-clean               delete this run id's machines
 #   scripts/e2e-clean --list        list every test machine with its owner (this run's marked), and the caches; delete nothing
 #   scripts/e2e-clean --all         this run id's machines AND the shared cached base machines (the next scripts/e2e-routes builds them again; do not do it while another run is using them)
@@ -12,7 +12,7 @@ command -v orb >/dev/null || { echo "OrbStack's 'orb' command was not found." >&
 ID=$(e2e_id) || exit 2
 MODE=mine; WITH_CACHE=0
 case "${1:-}" in --all) WITH_CACHE=1;; --all-runs) MODE=everyone;; --list) MODE=list;; "") ;; *) echo "usage: scripts/e2e-clean [--list|--all|--all-runs]" >&2; exit 2;; esac
-caches=$(orb list 2>/dev/null | awk '{print $1}' | grep -E '^ct-cache' || true)
+caches=$(orb list 2>/dev/null | awk '{print $1}' | grep -E '^arm-cache' || true)
 if [ "$MODE" = list ]; then
   echo "run id $ID (this checkout)"
   for m in $(e2e_all_machines); do o=$(e2e_owner "$m"); printf '%-40s %s\n' "$m" "$([ "$o" = "$ID" ] && echo "owner $o (this run)" || echo "owner $o")"; done

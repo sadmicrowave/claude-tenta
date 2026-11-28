@@ -1,4 +1,4 @@
-"""Replacing a Direct worker's mailbox key (src/ct/setup/rotate.py; security spot-check F4). The key is the only thing that lets a computer queue jobs on a Direct worker, so it can be replaced: a new key is made, the worker is told to trust only it,
+"""Replacing a Direct worker's mailbox key (src/armada/setup/rotate.py; security spot-check F4). The key is the only thing that lets a computer queue jobs on a Direct worker, so it can be replaced: a new key is made, the worker is told to trust only it,
 the local key file is swapped, and the new key is checked. The order is what keeps the person from being locked out."""
 import subprocess
 import sys
@@ -9,17 +9,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import config  # noqa: E402
-from ct.setup import rotate  # noqa: E402
-from ct.setup.server import SetupError  # noqa: E402
+from armada import config  # noqa: E402
+from armada.setup import rotate  # noqa: E402
+from armada.setup.server import SetupError  # noqa: E402
 
 
 def make(kind="direct"):
     d = Path(tempfile.mkdtemp())
-    conf = d / "ct.toml"
-    conf.write_text(f'[identity]\nname = "box"\n[server]\nhost = "192.0.2.50"\nadmin_user = "me"\n[transport]\nkind = "{kind}"\n[paths]\nclient_home = "{d}/ct"\n')
-    cfg = config.load(str(conf), env={"CT_CONFIG": ""})
-    key = d / "ct" / "mailbox" / "key"
+    conf = d / "armada.toml"
+    conf.write_text(f'[identity]\nname = "box"\n[server]\nhost = "192.0.2.50"\nadmin_user = "me"\n[transport]\nkind = "{kind}"\n[paths]\nclient_home = "{d}/armada"\n')
+    cfg = config.load(str(conf), env={"ARM_CONFIG": ""})
+    key = d / "armada" / "mailbox" / "key"
     key.parent.mkdir(parents=True, mode=0o700)
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "old", "-f", str(key)], check=True)
     return cfg, key
@@ -103,7 +103,7 @@ class Rotate(unittest.TestCase):
 
 class Strategies(unittest.TestCase):
     def test_the_check_uses_the_new_key_file_with_the_same_ssh_options_as_every_other_connection(self):
-        from ct import transport
+        from armada import transport
         cfg, key = make()
         cmd = transport.for_config(cfg).client_ssh_command(cfg, key=Path("/x/other key"))
         self.assertIn("-i '/x/other key'", cmd)
@@ -115,15 +115,15 @@ class Strategies(unittest.TestCase):
         def runner(argv, text):
             scripts.append(text)
             return 0, 'CT-RESULT {"user": "box-mail", "changed": true}'
-        pub = "ssh-" + "ed25519 " + "AAAAC3" + "NzaC1lZDI1NTE5AAAAIOnewkeyonlyfortestsnewkeyonlyfortest ct-mailbox"        # (built in pieces: the privacy check refuses a literal key)
-        rotate.windows_install(runner, "C:\\ProgramData\\armada", "box", "ctworker", pub)
+        pub = "ssh-" + "ed25519 " + "AAAAC3" + "NzaC1lZDI1NTE5AAAAIOnewkeyonlyfortestsnewkeyonlyfortest arm-mailbox"        # (built in pieces: the privacy check refuses a literal key)
+        rotate.windows_install(runner, "C:\\ProgramData\\armada", "box", "armworker", pub)
         self.assertEqual(len(scripts), 1)
         self.assertIn(pub, scripts[0])
         self.assertIn("restrict,command=", scripts[0])
 
 
 class Command(unittest.TestCase):
-    """The ct-setup rotate-key command: preview by default, the Linux worker half over ssh, the Windows worker through its mailbox script, and the worker half on the worker itself."""
+    """The arm-setup rotate-key command: preview by default, the Linux worker half over ssh, the Windows worker through its mailbox script, and the worker half on the worker itself."""
 
     class Ssh:
         def __init__(self):
@@ -141,9 +141,9 @@ class Command(unittest.TestCase):
         import os
         from contextlib import redirect_stderr, redirect_stdout
         from unittest import mock
-        from ct.setup import cli
+        from armada.setup import cli
         err, out = io.StringIO(), io.StringIO()
-        with mock.patch.dict(os.environ, {"CT_CONFIG": str(cfg_path)}), redirect_stderr(err), redirect_stdout(out):
+        with mock.patch.dict(os.environ, {"ARM_CONFIG": str(cfg_path)}), redirect_stderr(err), redirect_stdout(out):
             rc = cli.main(list(argv), **kw)
         return rc, out.getvalue() + err.getvalue()
 
@@ -164,14 +164,14 @@ class Command(unittest.TestCase):
         cfg, key = make()
         ssh = self.Ssh()
         old = key.read_text()
-        with mock.patch("ct.setup.cli.deliver_source", return_value=("/tmp/ctd", "abc123", None)), mock.patch("ct.setup.cli.remove_remote_dir"):
+        with mock.patch("armada.setup.cli.deliver_source", return_value=("/tmp/ctd", "abc123", None)), mock.patch("armada.setup.cli.remove_remote_dir"):
             rc, text = self.run_cli(self.conf(cfg), "rotate-key", "--apply", "--yes", ssh_factory=lambda h, u, p: ssh, verify=lambda k: (True, ""))
         self.assertEqual(rc, 0, text)
         self.assertIn("The mailbox key was replaced", text)
         self.assertEqual(len(ssh.sent), 1)
         self.assertTrue(ssh.sent[0][1].decode().startswith("ssh-ed25519 "))
         self.assertIn("sudo env", ssh.ran[0])
-        self.assertIn("ct.setup rotate-key --here --apply --yes", ssh.ran[0])
+        self.assertIn("armada.setup rotate-key --here --apply --yes", ssh.ran[0])
         self.assertIn("--mailbox-key-file /tmp/ctd/mailbox-client.pub", ssh.ran[0])
         self.assertNotEqual(key.read_text(), old)
 
@@ -181,7 +181,7 @@ class Command(unittest.TestCase):
         ssh = self.Ssh()
         ssh.interactive = lambda command: 3
         old = key.read_text()
-        with mock.patch("ct.setup.cli.deliver_source", return_value=("/tmp/ctd", "abc123", None)), mock.patch("ct.setup.cli.remove_remote_dir"):
+        with mock.patch("armada.setup.cli.deliver_source", return_value=("/tmp/ctd", "abc123", None)), mock.patch("armada.setup.cli.remove_remote_dir"):
             rc, text = self.run_cli(self.conf(cfg), "rotate-key", "--apply", "--yes", ssh_factory=lambda h, u, p: ssh, verify=lambda k: (True, ""))
         self.assertNotEqual(rc, 0)
         self.assertIn("rotate.install_failed", text)
@@ -194,7 +194,7 @@ class Command(unittest.TestCase):
         self.conf(cfg).write_text(text)
         scripts = []
         runner = lambda argv, script: scripts.append(script) or (0, 'CT-RESULT {"user": "box-mail", "changed": true}')      # noqa: E731
-        with mock.patch("ct.setup.wintools.ssh_runner", return_value=runner):
+        with mock.patch("armada.setup.wintools.ssh_runner", return_value=runner):
             rc, out = self.run_cli(self.conf(cfg), "rotate-key", "--apply", "--yes", verify=lambda k: (True, ""))
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(scripts), 1)
@@ -211,11 +211,11 @@ class Command(unittest.TestCase):
             def mailbox(self):
                 seen["ran"] = True
         pubfile = key.parent / "new.pub"
-        pubfile.write_text("ssh-ed25519 AAAATESTNEWKEY ct-mailbox\n")
-        with mock.patch("ct.setup.cli.ServerSetup", Setup):
+        pubfile.write_text("ssh-ed25519 AAAATESTNEWKEY arm-mailbox\n")
+        with mock.patch("armada.setup.cli.ServerSetup", Setup):
             rc, text = self.run_cli(self.conf(cfg), "rotate-key", "--here", "--mailbox-key-file", str(pubfile))
         self.assertEqual(rc, 0, text)
-        self.assertEqual((seen["pub"].strip(), seen["dry"], seen["ran"]), ("ssh-ed25519 AAAATESTNEWKEY ct-mailbox", False, True))
+        self.assertEqual((seen["pub"].strip(), seen["dry"], seen["ran"]), ("ssh-ed25519 AAAATESTNEWKEY arm-mailbox", False, True))
         rc, text = self.run_cli(self.conf(cfg), "rotate-key", "--here")
         self.assertEqual(rc, 2)                                                                 # no public key given: it changes nothing
 

@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime, timezone
 
 import support  # noqa: F401
-from ct.client import cap
-from ct.client.repo import ClientError
+from armada.client import cap
+from armada.client.repo import ClientError
 
 NOW = 1_800_000_000.0
 

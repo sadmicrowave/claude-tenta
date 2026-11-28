@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import config  # noqa: E402
+from armada import config  # noqa: E402
 
 
 def load_text(text, env=None):
     with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "ct.toml"
+        p = Path(d) / "armada.toml"
         p.write_text(text)
         return config.load(p, env=env or {})
 
@@ -30,7 +30,7 @@ def problems(text, env=None):
 
 class ProfileApproval(unittest.TestCase):
     def test_on_github_a_profile_run_needs_approval_unless_said_otherwise(self):
-        c = config.load(None, env={"CT_CONFIG": ""})
+        c = config.load(None, env={"ARM_CONFIG": ""})
         self.assertEqual(c.transport.profile_approval, "required")
 
     def test_on_direct_a_profile_run_starts_without_approval_unless_the_owner_said_required(self):
@@ -54,8 +54,8 @@ class ProfileApproval(unittest.TestCase):
 
 class Defaults(unittest.TestCase):
     def test_built_in_defaults_are_valid_and_complete(self):
-        c = config.load(None, env={"CT_CONFIG": ""})
-        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("armada", "ctworker", True))
+        c = config.load(None, env={"ARM_CONFIG": ""})
+        self.assertEqual((c.identity.name, c.server.worker_user, c.isolation.require_netns), ("armada", "armworker", True))
         self.assertEqual((c.hardware.capacity, c.hardware.max_load, c.hardware.max_temp_c), (4, 3.0, 75))
         self.assertEqual(c.alerts.remind_hours, [1, 6, 24])
 
@@ -124,7 +124,7 @@ class Strictness(unittest.TestCase):
         clean, errs = config.validate({"alerts": {"kind": "ntfy"}})                       # but the wizard's own check still insists on one
         self.assertIn("alerts.url is required", " ".join(errs))
         self.assertIn("three different folders", " ".join(problems('[paths]\ncode = "/opt/x"\nconfig = "/opt/x"\n')))
-        self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/ct"\nstate_root = "/srv/ct/state"\n')))
+        self.assertIn("is inside", " ".join(problems('[paths]\ncode = "/srv/armada"\nstate_root = "/srv/armada/state"\n')))
 
     def test_isolation_mode_defaults_to_full_and_tool_roots_need_relaxed_and_a_plain_absolute_folder(self):
         self.assertEqual(problems(""), [])
@@ -147,11 +147,11 @@ class Strictness(unittest.TestCase):
     def test_unsafe_isolation_is_refused_unless_explicitly_overridden(self):
         text = "[isolation]\nrequire_netns = false\n"
         self.assertIn("require_netns = false", " ".join(problems(text)))
-        os.environ["CT_ALLOW_UNSAFE"] = "1"
+        os.environ["ARM_ALLOW_UNSAFE"] = "1"
         try:
             self.assertEqual(problems(text), [])
         finally:
-            del os.environ["CT_ALLOW_UNSAFE"]
+            del os.environ["ARM_ALLOW_UNSAFE"]
 
     def test_every_problem_is_reported_at_once(self):
         self.assertGreaterEqual(len(problems('[server]\nhost = "a b"\nssh_port = 0\n[github]\nowner = "x/y"\n')), 3)
@@ -159,17 +159,17 @@ class Strictness(unittest.TestCase):
     def test_bad_toml_and_missing_file(self):
         self.assertIn("not valid TOML", " ".join(problems("[server\nhost = 1")))
         with self.assertRaises(config.ConfigError):
-            config.load("/nonexistent/ct.toml", env={})
+            config.load("/nonexistent/armada.toml", env={})
 
 
 class Environment(unittest.TestCase):
     def test_environment_overrides_the_file_and_is_validated(self):
         c = load_text('[server]\nhost = "from-file.example.com"\nssh_port = 22\n',
-                      env={"CT_SERVER_HOST": "from-env.example.com", "CT_SERVER_SSH_PORT": "2222", "CT_HARDWARE_MAX_LOAD": "2.5",
-                           "CT_ALERTS_REMIND_HOURS": "2,12", "CT_NETWORK_LAN_DENY_OUT": "false"})
+                      env={"ARM_SERVER_HOST": "from-env.example.com", "ARM_SERVER_SSH_PORT": "2222", "ARM_HARDWARE_MAX_LOAD": "2.5",
+                           "ARM_ALERTS_REMIND_HOURS": "2,12", "ARM_NETWORK_LAN_DENY_OUT": "false"})
         self.assertEqual((c.server.host, c.server.ssh_port, c.hardware.max_load, c.alerts.remind_hours, c.network.lan_deny_out),
                          ("from-env.example.com", 2222, 2.5, [2.0, 12.0], False))
-        self.assertIn("server.host", " ".join(problems("", env={"CT_SERVER_HOST": "bad host!"})))
+        self.assertIn("server.host", " ".join(problems("", env={"ARM_SERVER_HOST": "bad host!"})))
 
 
 class Requirements(unittest.TestCase):
@@ -186,7 +186,7 @@ class Requirements(unittest.TestCase):
 
 
 class ExampleFile(unittest.TestCase):
-    path = ROOT / "config" / "ct.example.toml"
+    path = ROOT / "config" / "armada.example.toml"
 
     def test_the_example_loads_cleanly(self):
         c = config.load(self.path, env={})
@@ -211,8 +211,8 @@ class Secrets(unittest.TestCase):
     def test_env_file_parsing(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "secrets.env"
-            p.write_text('# comment\nCT_ALERT_TOKEN="tk_x"\n\nEXAMPLE_API_KEY=abc=def\nnot a pair\n')
-            self.assertEqual(config.read_env_file(p), {"CT_ALERT_TOKEN": "tk_x", "EXAMPLE_API_KEY": "abc=def"})
+            p.write_text('# comment\nARM_ALERT_TOKEN="tk_x"\n\nEXAMPLE_API_KEY=abc=def\nnot a pair\n')
+            self.assertEqual(config.read_env_file(p), {"ARM_ALERT_TOKEN": "tk_x", "EXAMPLE_API_KEY": "abc=def"})
             self.assertEqual(config.read_env_file(Path(d) / "missing"), {})
 
     def test_a_world_readable_secrets_file_is_a_problem(self):
@@ -236,7 +236,7 @@ class Cli(unittest.TestCase):
         self.assertIn("OK", out.getvalue())
         self.assertIn("[server]", out.getvalue())
         with tempfile.TemporaryDirectory() as d, redirect_stderr(err):
-            bad = Path(d) / "ct.toml"
+            bad = Path(d) / "armada.toml"
             bad.write_text('[server]\nhost = "a b"\n')
             self.assertEqual(config.main(["check", str(bad)]), 1)
         self.assertIn("server.host", err.getvalue())

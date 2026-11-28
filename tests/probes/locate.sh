@@ -23,8 +23,8 @@ check "the recorded entry is hashed (the old address is not readable in the file
 ladder() {   # $1 configured host, $2 name of the case; prints "<kind> <rung> <addresses>"
 python3 - "$1" <<'PY'
 import sys
-from ct import rediscover
-from ct.setup import discover
+from armada import rediscover
+from armada.setup import discover
 host = sys.argv[1]
 m, rung, _ = rediscover.ladder(host, 22, "w", "/tmp/home", scan_real=lambda until=None: ([discover.Device("127.0.0.1")], []), scan_virtual=lambda until=None: ([], []), mdns=lambda h: None, arp=lambda: {})
 print(m.kind, "|", rung, "|", " ".join(m.addresses))

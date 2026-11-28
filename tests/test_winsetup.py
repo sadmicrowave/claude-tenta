@@ -1,4 +1,4 @@
-"""Setting a Windows computer up as a worker (src/ct/setup/winsetup.py). The steps on the Windows computer are the modules' own (each tested with its own file); here the order, what is written on THIS computer, the failure
+"""Setting a Windows computer up as a worker (src/armada/setup/winsetup.py). The steps on the Windows computer are the modules' own (each tested with its own file); here the order, what is written on THIS computer, the failure
 messages and the first job are tested, with a runner that answers each step's script by what it contains."""
 import json
 import sys
@@ -8,11 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import support  # noqa: F401
-from ct.setup import winsetup, wintools
-from ct.setup.server import SetupError
+from armada.setup import winsetup, wintools
+from armada.setup.server import SetupError
 
 TOOLS = {"git": "git version 2.56.1.windows.1", "python": "Python 3.13.17", "changed": False}
-ANSWERS = [("requirements.txt", TOOLS), ("armada worker (standard account)", {"user": "ctworker", "changed": True}), ("robocopy", {"commit": "a" * 40, "changed": True}), ("armada mailbox account", {"user": "armada-mail", "changed": True}),
+ANSWERS = [("requirements.txt", TOOLS), ("armada worker (standard account)", {"user": "armworker", "changed": True}), ("robocopy", {"commit": "a" * 40, "changed": True}), ("armada mailbox account", {"user": "armada-mail", "changed": True}),
            ("$cfgB64", {"changed": True}), ("started = $true", {"started": True}), ("Register-ScheduledTask -TaskName $tn -Action $action -Trigger", {"changed": True})]
 
 
@@ -89,7 +89,7 @@ class Whole(Fixture):
         self.assertNotIn("mailbox\n", sent)                                                  # and neither is the key's comment
         self.assertNotIn(before.splitlines()[1], sent)                                        # the private half never leaves this computer
 
-    def test_the_first_job_is_the_packs_test_job_pushed_to_the_jobs_branch_like_ct_run_does(self):
+    def test_the_first_job_is_the_packs_test_job_pushed_to_the_jobs_branch_like_arm_run_does(self):
         self.installer().run_all()
         (branch, files, msg), = self.repos.pushed
         self.assertEqual(branch, "jobs")

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import support  # noqa: F401
-from ct import patch
+from armada import patch
 
 
 def tree(files):

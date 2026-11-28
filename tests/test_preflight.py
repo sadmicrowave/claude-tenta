@@ -57,7 +57,7 @@ class Kinds(unittest.TestCase):
 
     def test_e2e_needs_orbstack_running_and_room(self):
         with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=2), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("ct-e2e\n")):
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("arm-e2e\n")):
             found = " ".join(preflight.problems("e2e"))
         self.assertIn("free disk", found)
 
@@ -81,7 +81,7 @@ class Kinds(unittest.TestCase):
 
     def test_a_healthy_environment_has_no_problems(self):
         with mock.patch.object(preflight.shutil, "which", return_value="/bin/x"), mock.patch.object(preflight, "free_gb", return_value=99), \
-                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("ct-e2e\n")):
+                mock.patch.object(preflight.subprocess, "run", return_value=self.ok("arm-e2e\n")):
             for kind, arg in (("probe", None), ("e2e", None), ("real", "h")):
                 self.assertEqual(preflight.problems(kind, arg), [], kind)
 

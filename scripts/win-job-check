@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BY HAND, on a real Windows computer: send a job to a Windows worker the way ct-run does, from this computer over SSH, let the worker (running as its own account through the start task) run it, and read the
+"""BY HAND, on a real Windows computer: send a job to a Windows worker the way arm-run does, from this computer over SSH, let the worker (running as its own account through the start task) run it, and read the
 result back. Sets up everything it needs first (all idempotent): the layout, the tools, the release (the commit of origin/main here), the mailbox with a throwaway client key, and the worker's files.
   scripts/win-job-check USER@HOST [--keep] [--dev]          (--dev overlays this working tree's src on the fetched release, to test unmerged code; --keep leaves the worker task, the mailbox and the files in place)
 Prints each step; exits 1 if the job did not come back as expected."""
@@ -11,9 +11,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct import config   # noqa: E402
-from ct.client import repo as client_repo, submit   # noqa: E402
-from ct.setup import winfiles, winlayout, winmailbox, winrelease, wintask, wintools   # noqa: E402
+from armada import config   # noqa: E402
+from armada.client import repo as client_repo, submit   # noqa: E402
+from armada.setup import winfiles, winlayout, winmailbox, winrelease, wintask, wintools   # noqa: E402
 
 NAME = "armada"
 
@@ -47,8 +47,8 @@ def main(argv):
         root = Path(__file__).resolve().parent.parent
         tar = home / "src.tar"
         subprocess.run(["tar", "-C", str(root), "-cf", str(tar), "src"], check=True, env={"COPYFILE_DISABLE": "1", "PATH": "/usr/bin:/bin"})
-        subprocess.run(["scp", "-q", str(tar), f"{user}@{host}:ct-dev.tar"], check=True)
-        step("overlay this tree (--dev)", lambda: run(["powershell", "-NoProfile", "-Command", "-"], "tar.exe -xf \"$env:USERPROFILE\\ct-dev.tar\" -C \"$env:ProgramData\\armada\\release\"\n\n")[0])
+        subprocess.run(["scp", "-q", str(tar), f"{user}@{host}:arm-dev.tar"], check=True)
+        step("overlay this tree (--dev)", lambda: run(["powershell", "-NoProfile", "-Command", "-"], "tar.exe -xf \"$env:USERPROFILE\\arm-dev.tar\" -C \"$env:ProgramData\\armada\\release\"\n\n")[0])
     step("mailbox", lambda: winmailbox.ensure(run, key=pub)["changed"])
     step("worker files", lambda: winfiles.ensure(run, winfiles.windows_config(NAME, host, user), winfiles.pack_text())["changed"])
     clean, problems = config.validate({"identity": {"name": NAME}, "server": {"host": host, "admin_user": user}, "transport": {"kind": "direct"},

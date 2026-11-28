@@ -6,8 +6,8 @@ from contextlib import redirect_stderr, redirect_stdout
 
 from support import REGISTRY, RepoFixture, sh, ssh_key  # noqa: F401
 
-from ct.admin import cli, release
-from ct.admin.ssh import Ssh
+from armada.admin import cli, release
+from armada.admin.ssh import Ssh
 
 
 INSTALLED = "cat /etc/testct/installed-rev 2>/dev/null"
@@ -49,7 +49,7 @@ class AdminBase(RepoFixture):
         src = self.tmp / "release-src"
         sh("git", "init", "-q", "-b", "main", str(src))
         self.src_dir = src
-        self.rel = [self.release_commit({"src/ct/a.py": "a=1\n", "README.md": "x\n"}, "first")]
+        self.rel = [self.release_commit({"src/armada/a.py": "a=1\n", "README.md": "x\n"}, "first")]
         self.source = release.Source(self.tmp / "source.git", str(src), "main")
         self.tty = False
         self.ctx = cli.Context(self.repos, self.ssh, self.source, name="testct", config_dir="/etc/testct", code_dir="/opt/testct", home=self.home,

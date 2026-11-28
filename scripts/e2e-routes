@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run the end-to-end ROUTES (tests/e2e/routes/*.sh) in parallel, each in its own machine cloned from the cached base machine, and print one line per route. Each machine is deleted when its
-# route ends; the logs are kept in /tmp/ct-e2e-logs/<run id>/<machine>/ (the run id is printed first; see scripts/e2e-names.sh).
-#   scripts/e2e-routes                      every route, on $CT_E2E_IMAGE (default ubuntu:26.04)
+# route ends; the logs are kept in /tmp/arm-e2e-logs/<run id>/<machine>/ (the run id is printed first; see scripts/e2e-names.sh).
+#   scripts/e2e-routes                      every route, on $ARM_E2E_IMAGE (default ubuntu:26.04)
 #   scripts/e2e-routes rename move          only these
 #   scripts/e2e-routes --image debian:trixie [routes]
 # Routes: install rename uninstall move switch direct locate. They are independent (each does its own baseline install), so they run side by side: the wall time is the slowest route, not their sum.
@@ -9,8 +9,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . scripts/e2e-names.sh; e2e_banner
-"${CT_PY:-$HOME/.ct-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
-IMAGE=${CT_E2E_IMAGE:-ubuntu:26.04}
+"${ARM_PY:-$HOME/.arm-venv/bin/python}" tests/preflight.py --for e2e || exit 1                      # the environment is checked first: one message with the fix, not a long run that fails late
+IMAGE=${ARM_E2E_IMAGE:-ubuntu:26.04}
 [ "${1:-}" = "--image" ] && { IMAGE=$2; shift 2; }
 ROUTES=${*:-"install rename uninstall move switch direct locate"}
 TAG=$(echo "$IMAGE" | tr ':.' '--'); CACHE=$(e2e_cache_name "$TAG")
@@ -22,10 +22,10 @@ one() {  # one route: clone (from the cache, or from the shared baseline), copy 
   orb delete -f "$M" >/dev/null 2>&1 || true
   if [ "$FROM" = "$CACHE" ]; then e2e_locked "cache-$TAG" orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }      # the cache is shared: no run rebuilds it while another clones from it
   else orbctl clone "$FROM" "$M" >/dev/null 2>&1 || { echo "clone failed" ; return 2; }; fi
-  [ "$FROM" = "$CACHE" ] && { git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-src && mkdir -p /opt/ct-src && tar -xf - -C /opt/ct-src' 2>&1 | grep -v "^tar:"; } || true
-  [ "$route" = upgrade ] && git archive "${E2E_FROM_REV:-f4c9ae706}" | orb -m "$M" -u root bash -c 'rm -rf /opt/ct-old && mkdir -p /opt/ct-old && tar -xf - -C /opt/ct-old'       # the OLDER release the upgrade route installs first
+  [ "$FROM" = "$CACHE" ] && { git ls-files -z --cached --others --exclude-standard | COPYFILE_DISABLE=1 tar --null -T - -cf - | orb -m "$M" -u root bash -c 'rm -rf /opt/arm-src && mkdir -p /opt/arm-src && tar -xf - -C /opt/arm-src' 2>&1 | grep -v "^tar:"; } || true
+  [ "$route" = upgrade ] && git archive "${E2E_FROM_REV:-f4c9ae706}" | orb -m "$M" -u root bash -c 'rm -rf /opt/arm-old && mkdir -p /opt/arm-old && tar -xf - -C /opt/arm-old'       # the OLDER release the upgrade route installs first
   local sub=routes/$script.sh; [ "$script" = baseline ] && sub=baseline.sh
-  orb -m "$M" -u root bash /opt/ct-src/tests/e2e/$sub >"$OUT/$route.out" 2>&1
+  orb -m "$M" -u root bash /opt/arm-src/tests/e2e/$sub >"$OUT/$route.out" 2>&1
   local rc=$?
   mkdir -p "$logs"
   orb -m "$M" -u root bash -c 'journalctl --no-pager -o cat 2>/dev/null | tail -600 > /tmp/e2e-journal.out; tar -cf - /tmp/e2e-*.out 2>/dev/null' 2>/dev/null | tar -xf - -C "$logs" 2>/dev/null || true

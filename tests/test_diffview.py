@@ -4,7 +4,7 @@ import unittest
 
 import support  # noqa: F401
 
-from ct import diffview, ui
+from armada import diffview, ui
 
 DIFF = "diff --git a/x.py b/x.py\nindex 1..2 100644\n--- a/x.py\n+++ b/x.py\n@@ -1,2 +1,2 @@ def f():\n context\n-old line\n+new line\n"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -38,7 +38,7 @@ class Colours(unittest.TestCase):
 class EveryPlace(unittest.TestCase):
     def test_every_place_that_shows_a_diff_or_line_counts_uses_the_colours(self):
         from pathlib import Path
-        src = Path(__file__).resolve().parents[1] / "src" / "ct"
+        src = Path(__file__).resolve().parents[1] / "src" / "armada"
         shown = [f for f in src.rglob("*.py") if f.name != "diffview.py" and "diff_text(" in f.read_text().replace("def diff_text(", "")]
         self.assertTrue(shown)
         self.assertEqual([f.name for f in shown if "as_diff=True" not in f.read_text()], [], "a diff shown to a person must go through ui.document(..., as_diff=True)")

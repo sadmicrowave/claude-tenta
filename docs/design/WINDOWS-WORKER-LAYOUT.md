@@ -1,7 +1,7 @@
 # Windows worker layout (slice 4b of WINDOWS-SPECIAL-USE.md)
 
 **Goal.** A Windows computer gets the folders and the unprivileged local account a worker needs, set up over SSH with PowerShell, so that the account running jobs can read the release and its tools, write only its own state, and can change nothing else.
-**Done when.** On the real Windows 11 VM: `winlayout.ensure` creates `%ProgramData%\armada\{tools,release,config,state,state\jobs}` and the standard local account `ctworker`; a second run changes nothing; `winlayout.check` reports the layout healthy; and a LIVE probe, run as that account, shows it can read `tools` and `release`, write in `state\jobs`, and cannot write in `release`, `config` or `tools` nor be a member of Administrators. The Linux suite is unchanged.
+**Done when.** On the real Windows 11 VM: `winlayout.ensure` creates `%ProgramData%\armada\{tools,release,config,state,state\jobs}` and the standard local account `armworker`; a second run changes nothing; `winlayout.check` reports the layout healthy; and a LIVE probe, run as that account, shows it can read `tools` and `release`, write in `state\jobs`, and cannot write in `release`, `config` or `tools` nor be a member of Administrators. The Linux suite is unchanged.
 **Not in scope.** Starting the worker (a scheduled task or service, which needs the account's password and is its own slice), denying interactive logon, the firewall, the transport and its keys, writing the worker's configuration, the registry, Windows 10 testing.
 
 ## Decisions

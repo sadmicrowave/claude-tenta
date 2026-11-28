@@ -1,4 +1,4 @@
-"""ct-setup: the questions, the config writer, hardening modules, and the client, server and audit halves, all against a fake machine."""
+"""arm-setup: the questions, the config writer, hardening modules, and the client, server and audit halves, all against a fake machine."""
 import io
 import json
 import os
@@ -11,10 +11,10 @@ from pathlib import Path
 
 from support import REGISTRY, RepoFixture, sh  # noqa: F401  (support sets HOME to a throwaway folder)
 
-from ct import config, registry
-from ct.setup import audit, cli, detect, hardening, questions, server, toml_out
-from ct.setup.client import ClientSetup
-from ct.setup.host import Host, Result
+from armada import config, registry
+from armada.setup import audit, cli, detect, hardening, questions, server, toml_out
+from armada.setup.client import ClientSetup
+from armada.setup.host import Host, Result
 
 H = "/" + "home"      # a home-folder prefix, spelled in two parts so the privacy guard does not mistake it for a real path
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +25,7 @@ class FakeHost(Host):
     """A folder standing in for / plus scripted command results. `replies` maps a command prefix (joined) to a Result; the default is success."""
 
     def __init__(self, env=None):
-        super().__init__(tempfile.mkdtemp(prefix="ct-fakehost-"), env={"HOME": H + "/me", "PATH": "/bin", **(env or {})})
+        super().__init__(tempfile.mkdtemp(prefix="arm-fakehost-"), env={"HOME": H + "/me", "PATH": "/bin", **(env or {})})
         self.calls, self.replies = [], {}
         self.put("/etc/os-release", OS_RELEASE)
         self.put("/proc/meminfo", "MemTotal:        8000000 kB\n")
@@ -106,7 +106,7 @@ class QuestionTests(unittest.TestCase):
         nested, missing = questions.collect("server", ask=lambda p: next(answers, ""), say=said.append)
         self.assertEqual(missing, [])
         self.assertEqual(nested["server"]["admin_user"], "me")
-        self.assertEqual(nested["server"]["worker_user"], "ctworker")
+        self.assertEqual(nested["server"]["worker_user"], "armworker")
         self.assertTrue(any("old-laptop" in s and "workstation" not in s for s in said))          # a choice is listed with its number and meaning
 
     def test_a_bad_typed_answer_is_asked_again_with_the_reason(self):
@@ -222,17 +222,17 @@ class HardeningTests(unittest.TestCase):
     def test_root_equivalent_groups_are_found_and_removed(self):
         mod, h = hardening.MODULES["no-root-equivalent-groups"], self.h
         h.replies["id -nG me"] = Result(0, "me sudo lxd\n")
-        h.replies["id -nG ctworker"] = Result(0, "ctworker sudo\n")
+        h.replies["id -nG armworker"] = Result(0, "armworker sudo\n")
         c = mod.check(h, self.cfg)
         self.assertFalse(c.ok)
         self.assertIn("me is in lxd", c.detail)
-        self.assertIn("ctworker is in sudo", c.detail)
-        self.assertEqual([" ".join(a.argv) for a in mod.plan(h, self.cfg)], ["gpasswd -d me lxd", "gpasswd -d ctworker sudo"])
+        self.assertIn("armworker is in sudo", c.detail)
+        self.assertEqual([" ".join(a.argv) for a in mod.plan(h, self.cfg)], ["gpasswd -d me lxd", "gpasswd -d armworker sudo"])
 
     def test_the_admin_may_keep_sudo_but_not_lxd(self):
         h = self.h
         h.replies["id -nG me"] = Result(0, "me sudo\n")
-        h.replies["id -nG ctworker"] = Result(0, "ctworker\n")
+        h.replies["id -nG armworker"] = Result(0, "armworker\n")
         self.assertTrue(hardening.MODULES["no-root-equivalent-groups"].check(h, self.cfg).ok)
 
     def test_the_firewall_refuses_when_it_would_lock_you_out(self):
@@ -330,12 +330,12 @@ class HardeningTests(unittest.TestCase):
         self.assertFalse(c.ok)
         acts = mod.plan(h, self.cfg)
         writes = [a for a in acts if a.kind == "write"]
-        self.assertEqual([a.path for a in writes], ["/etc/apparmor.d/ct-bwrap"])
-        for needle in ("profile ct-bwrap /bin/bwrap flags=(unconfined)", "userns,", "abi <abi/4.0>"):
+        self.assertEqual([a.path for a in writes], ["/etc/apparmor.d/arm-bwrap"])
+        for needle in ("profile arm-bwrap /bin/bwrap flags=(unconfined)", "userns,", "abi <abi/4.0>"):
             self.assertIn(needle, writes[0].text)
-        self.assertIn("apparmor_parser -r /etc/apparmor.d/ct-bwrap", [a.show() for a in acts])
-        h.put("/etc/apparmor.d/ct-bwrap", "# there")
-        self.assertTrue(any(a.kind == "remove" and a.path == "/etc/apparmor.d/ct-bwrap" for a in mod.revert(h, self.cfg)))
+        self.assertIn("apparmor_parser -r /etc/apparmor.d/arm-bwrap", [a.show() for a in acts])
+        h.put("/etc/apparmor.d/arm-bwrap", "# there")
+        self.assertTrue(any(a.kind == "remove" and a.path == "/etc/apparmor.d/arm-bwrap" for a in mod.revert(h, self.cfg)))
 
     def test_where_the_profile_is_already_there_or_apparmor_is_absent_nothing_is_written(self):
         mod, h = hardening.MODULES["job-isolation"], self.h
@@ -345,7 +345,7 @@ class HardeningTests(unittest.TestCase):
         h.replies["stat -c %a"] = Result(0, "755\n")
         self.assertEqual([a for a in mod.plan(h, self.cfg) if a.kind == "write"], [])          # Debian, or a system without AppArmor 4: no abi file, no parser
         h.put("/etc/apparmor.d/abi/4.0", "")
-        h.put("/etc/apparmor.d/ct-bwrap", "# there")
+        h.put("/etc/apparmor.d/arm-bwrap", "# there")
         h.env["TOOLS"] = "git ssh gh bwrap apparmor_parser"
         self.assertEqual([a for a in mod.plan(h, self.cfg) if a.kind == "write"], [])
 
@@ -376,13 +376,13 @@ class ServerTestsFixture(unittest.TestCase):
     def setUp(self):
         self.h = FakeHost()
         self.h.replies["id me"] = Result(0)
-        self.h.replies["id ctworker"] = Result(1)
+        self.h.replies["id armworker"] = Result(1)
         self.said = []
         self.src = self.make_source()
         self.registry_calls = []
 
     def make_source(self):
-        src = Path(tempfile.mkdtemp(prefix="ct-src-"))
+        src = Path(tempfile.mkdtemp(prefix="arm-src-"))
         import shutil
         shutil.copytree(ROOT / "src", src / "src", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / "templates", src / "templates")
@@ -415,19 +415,19 @@ class ServerTests(ServerTestsFixture):
         broken.run_all()
         self.assertTrue(any(step == "speed measurement" and status == "skipped" and "boom" in detail for step, status, detail in broken.report))
 
-    def test_the_private_alert_address_goes_to_the_secrets_file_and_never_into_ct_toml(self):
+    def test_the_private_alert_address_goes_to_the_secrets_file_and_never_into_arm_toml(self):
         topic = "https://ntfy.example/very-private-topic-name"
         s = self.setup_obj(dry_run=False, given={"alerts.kind": "ntfy", "alerts.url": topic})
         s.run_all()
-        toml = self.h.read("/etc/armada/ct.toml")
+        toml = self.h.read("/etc/armada/armada.toml")
         self.assertNotIn("very-private-topic-name", toml)
         self.assertIn('kind = "ntfy"', toml)
         secrets = config.read_env_file(self.h.path("/etc/armada/secrets.env"))
-        self.assertEqual(secrets["CT_ALERT_URL"], topic)
+        self.assertEqual(secrets["ARM_ALERT_URL"], topic)
         self.assertEqual(self.h.path("/etc/armada/secrets.env").stat().st_mode & 0o777, 0o640)
-        self.assertEqual(self.h.path("/etc/armada/ct.toml").stat().st_mode & 0o777, 0o644)        # nothing private in it, so the admin can read it
+        self.assertEqual(self.h.path("/etc/armada/armada.toml").stat().st_mode & 0o777, 0o644)        # nothing private in it, so the admin can read it
         self.assertNotIn("very-private-topic-name", "\n".join(self.said))
-        config.load(self.h.path("/etc/armada/ct.toml"), env={"CT_CONFIG": ""})                    # and the worker can still load it without the address
+        config.load(self.h.path("/etc/armada/armada.toml"), env={"ARM_CONFIG": ""})                    # and the worker can still load it without the address
 
     def test_commands_named_after_an_earlier_install_are_removed(self):
         for p in ("/usr/local/bin/armada", "/usr/local/sbin/armada-update"):
@@ -436,8 +436,8 @@ class ServerTests(ServerTestsFixture):
         s.run_all()
         self.assertFalse(self.h.exists("/usr/local/bin/armada"))
         self.assertFalse(self.h.exists("/usr/local/sbin/armada-update"))
-        self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
-        self.assertTrue(self.h.exists("/usr/local/sbin/ct-update"))
+        self.assertTrue(self.h.exists("/usr/local/bin/arm-worker"))
+        self.assertTrue(self.h.exists("/usr/local/sbin/arm-update"))
 
     def test_an_install_that_belongs_to_another_account_stops_before_making_a_second_one(self):
         self.h.replies["stat -c %U"] = Result(0, "cwworker\n")
@@ -448,7 +448,7 @@ class ServerTests(ServerTestsFixture):
         self.assertIn(("Existing", "cwworker"), e.exception.facts)                                # (the account is a labelled row, not part of the title)
         self.assertIn("--set server.worker_user=cwworker", " ".join(e.exception.steps))
         self.assertFalse(self.h.ran("useradd"))
-        self.h.replies["stat -c %U"] = Result(0, "ctworker\n")                          # the account this install means: nothing to say
+        self.h.replies["stat -c %U"] = Result(0, "armworker\n")                          # the account this install means: nothing to say
         self.setup_obj(dry_run=False).run_all()
 
     def test_a_direct_install_makes_the_mailbox_and_asks_nothing_of_github(self):
@@ -458,20 +458,20 @@ class ServerTests(ServerTestsFixture):
         s.run_all()
         ran = lambda prefix: self.h.ran(prefix)      # noqa: E731
         self.assertTrue(ran("useradd --system --user-group --home-dir /var/lib/armada-mail --no-create-home --shell /bin/sh armada-mail"))
-        self.assertTrue(ran("usermod -aG armada-mail ctworker"))
+        self.assertTrue(ran("usermod -aG armada-mail armworker"))
         self.assertTrue(ran("git init --bare --quiet -b main /var/lib/armada-mail/queue.git"))
         self.assertTrue(ran("git init --bare --quiet -b main /var/lib/armada-mail/results.git"))
         self.assertTrue(ran("chown -R armada-mail:armada-mail /var/lib/armada-mail/queue.git"))
-        self.assertTrue(ran("chown -R ctworker:armada-mail /var/lib/armada-mail/results.git"))      # the worker writes results; the mailbox account only reads them
+        self.assertTrue(ran("chown -R armworker:armada-mail /var/lib/armada-mail/results.git"))      # the worker writes results; the mailbox account only reads them
         self.assertTrue(ran("git -C /var/lib/armada-mail/queue.git config core.sharedRepository group"))
         self.assertFalse(ran("git -C /var/lib/armada-mail/results.git config core.sharedRepository"))     # found on a real machine: group-shared (setgid) object files are refused by the worker's services (RestrictSUIDSGID)
         self.assertTrue(ran("find /var/lib/armada-mail/results.git -type d -exec chmod g+s"))     # real machine: the worker's umask is 027 and its group is its own, so without inheritance the mailbox account could not read a new result
         keys = self.h.read("/var/lib/armada-mail/.ssh/authorized_keys")
-        self.assertEqual(keys, 'restrict,command="/usr/local/sbin/ct-mail-shell" ssh-ed25519 AAAATESTKEY client@example\n')
+        self.assertEqual(keys, 'restrict,command="/usr/local/sbin/arm-mail-shell" ssh-ed25519 AAAATESTKEY client@example\n')
         self.assertFalse(ran("ssh-keygen"))                                           # no deploy keys: nothing is registered anywhere
-        self.assertFalse(self.h.exists("/var/lib/ctworker/.ssh/config") and False)
-        self.assertTrue(self.h.exists("/usr/local/sbin/ct-mail-shell"))
-        self.assertTrue(ran("runuser -u ctworker -- git clone --quiet /var/lib/armada-mail/queue.git"))                  # the worker clones from the local path
+        self.assertFalse(self.h.exists("/var/lib/armworker/.ssh/config") and False)
+        self.assertTrue(self.h.exists("/usr/local/sbin/arm-mail-shell"))
+        self.assertTrue(ran("runuser -u armworker -- git clone --quiet /var/lib/armada-mail/queue.git"))                  # the worker clones from the local path
 
     def test_setting_up_again_for_direct_points_an_existing_github_clone_at_the_mailbox_after_filling_it(self):
         """Seen on a real machine: the worker's clones said EXISTS and kept fetching from GitHub, so a job sent through the mailbox never arrived."""
@@ -487,8 +487,8 @@ class ServerTests(ServerTestsFixture):
         ran = self.h.ran
         self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/armada/queue push --quiet --force /var/lib/armada-mail/queue.git refs/remotes/origin/*:refs/heads/*")])
         self.assertTrue([c for c in self.h.calls if c[:2] == ["sh", "-c"] and " ".join(c[4:]).startswith("git -C /var/lib/armada/queue push --quiet --force /var/lib/armada-mail/queue.git refs/heads/*:refs/heads/*")])
-        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/armada/queue remote set-url origin /var/lib/armada-mail/queue.git"))
-        self.assertTrue(ran("runuser -u ctworker -- git -C /var/lib/armada/results remote set-url origin /var/lib/armada-mail/results.git"))
+        self.assertTrue(ran("runuser -u armworker -- git -C /var/lib/armada/queue remote set-url origin /var/lib/armada-mail/queue.git"))
+        self.assertTrue(ran("runuser -u armworker -- git -C /var/lib/armada/results remote set-url origin /var/lib/armada-mail/results.git"))
         self.assertFalse(ran("git clone"))                                                                            # nothing is cloned again
 
     def test_an_existing_clone_that_already_points_the_right_way_is_left_alone(self):
@@ -498,19 +498,19 @@ class ServerTests(ServerTestsFixture):
         self.h.replies["git -C /var/lib/armada/queue remote get-url origin"] = Result(0, "/var/lib/armada-mail/queue.git\n")
         self.h.replies["git -C /var/lib/armada/results remote get-url origin"] = Result(0, "/var/lib/armada-mail/results.git\n")
         self.setup_obj(dry_run=False, given={"transport.kind": "direct"}).run_all()
-        self.assertFalse(self.h.ran("runuser -u ctworker -- git -C /var/lib/armada/queue remote set-url"))
+        self.assertFalse(self.h.ran("runuser -u armworker -- git -C /var/lib/armada/queue remote set-url"))
         self.assertFalse([c for c in self.h.calls if c[:2] == ["sh", "-c"] and "GIT_CONFIG_GLOBAL" in " ".join(c)])
 
     def test_a_github_install_has_no_mailbox_and_no_mail_shell(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()
         self.assertFalse(self.h.ran("useradd --system --user-group"))
-        self.assertFalse(self.h.exists("/usr/local/sbin/ct-mail-shell"))
+        self.assertFalse(self.h.exists("/usr/local/sbin/arm-mail-shell"))
 
     def test_a_dry_run_changes_nothing_and_shows_every_step(self):
         s = self.setup_obj(dry_run=True)
         s.run_all()
-        self.assertFalse(self.h.exists("/etc/armada/ct.toml"))
+        self.assertFalse(self.h.exists("/etc/armada/armada.toml"))
         self.assertEqual([c for c in self.h.calls if c[0] in ("useradd", "install", "ssh-keygen", "apt-get") or c[:2] == ["systemctl", "enable"]], [])
         text = "\n".join(self.said)
         for needle in ("useradd --system", "ssh-keygen", "systemctl enable --now armada-fetch.timer", "[github]"):
@@ -519,16 +519,16 @@ class ServerTests(ServerTestsFixture):
     def test_apply_creates_accounts_installs_the_code_and_writes_the_config(self):
         s = self.setup_obj(dry_run=False)
         s.run_all()
-        self.assertTrue(self.h.ran("useradd --system --create-home --home-dir " + H + "/ctworker --shell /usr/sbin/nologin ctworker"))
-        self.assertEqual(config.load(self.h.path("/etc/armada/ct.toml")).github.owner, "someone")
-        self.assertTrue(self.h.exists("/opt/armada/lib/ct/cli.py"))
-        self.assertTrue(self.h.exists("/usr/local/bin/ct-worker"))
+        self.assertTrue(self.h.ran("useradd --system --create-home --home-dir " + H + "/armworker --shell /usr/sbin/nologin armworker"))
+        self.assertEqual(config.load(self.h.path("/etc/armada/armada.toml")).github.owner, "someone")
+        self.assertTrue(self.h.exists("/opt/armada/lib/armada/cli.py"))
+        self.assertTrue(self.h.exists("/usr/local/bin/arm-worker"))
         self.assertEqual(self.h.read("/etc/armada/installed-rev").strip(), "a" * 40)
-        self.assertIn("Host github-armada-queue", self.h.read(H + "/ctworker/.ssh/config"))
-        self.assertNotIn("ControlMaster", self.h.read(H + "/ctworker/.ssh/config"))                # a background ssh master would hold a pass's output pipes open
+        self.assertIn("Host github-armada-queue", self.h.read(H + "/armworker/.ssh/config"))
+        self.assertNotIn("ControlMaster", self.h.read(H + "/armworker/.ssh/config"))                # a background ssh master would hold a pass's output pipes open
 
     def test_it_waits_for_deploy_keys_before_cloning_and_hardening(self):
-        self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied (publickey)")
+        self.h.replies["runuser -u armworker -- git ls-remote"] = Result(128, "Permission denied (publickey)")
         s = self.setup_obj(dry_run=False)
         report = s.run_all()
         self.assertTrue(any(r[1] == "waiting" for r in report))
@@ -539,8 +539,8 @@ class ServerTests(ServerTestsFixture):
     def test_with_keys_in_place_it_clones_hardens_and_starts_the_timers(self):
         s = self.setup_obj(dry_run=False, confirm=lambda p: True)
         s.run_all()
-        self.assertEqual(len(self.h.ran("runuser -u ctworker -- git clone")), 2)
-        self.assertIn("git@github-armada-queue:someone/armada-queue.git", " ".join(self.h.ran("runuser -u ctworker -- git clone")[0]))
+        self.assertEqual(len(self.h.ran("runuser -u armworker -- git clone")), 2)
+        self.assertIn("git@github-armada-queue:someone/armada-queue.git", " ".join(self.h.ran("runuser -u armworker -- git clone")[0]))
         self.assertTrue(self.h.ran("systemctl enable --now armada-fetch.timer"))
         self.assertTrue(self.h.ran("systemctl enable --now armada-step.timer"))
         self.assertTrue(self.h.exists("/etc/armada/hardening.json"))
@@ -596,12 +596,12 @@ class ServerTests(ServerTestsFixture):
             s.run_all()
         self.assertIn("could not read the queue repository", e.exception.title)
         steps = " ".join(e.exception.steps)
-        self.assertIn("sudo -u ctworker git -C /var/lib/armada/queue fetch origin", steps)      # the command that shows git's real reason
+        self.assertIn("sudo -u armworker git -C /var/lib/armada/queue fetch origin", steps)      # the command that shows git's real reason
         self.assertIn("--set server.worker_user=", steps)
         self.assertNotIn("registry.yaml", steps)
 
     def test_the_registry_is_not_installed_while_waiting_for_deploy_keys(self):
-        self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied")
+        self.h.replies["runuser -u armworker -- git ls-remote"] = Result(128, "Permission denied")
         self.setup_obj(dry_run=False).run_all()
         self.assertEqual(self.registry_calls, [])
 
@@ -620,8 +620,8 @@ class ServerTests(ServerTestsFixture):
         self.assertTrue(any(r[0] == "prerequisites" and r[1] == "planned" for r in s.report))
 
     def test_the_public_deploy_keys_are_published_for_the_administrator(self):
-        self.h.put(H + "/ctworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ armada-queue\n")
-        self.h.put((H + "/ctworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR armada-results\n")
+        self.h.put(H + "/armworker/.ssh/id_queue.pub", "ssh-ed25519 QQQQ armada-queue\n")
+        self.h.put((H + "/armworker/.ssh/id_results.pub"), "ssh-ed25519 RRRR armada-results\n")
         self.setup_obj(dry_run=False, confirm=lambda p: True).run_all()
         self.assertEqual(self.h.read("/etc/armada/deploy-keys/queue.pub").strip(), "ssh-ed25519 QQQQ armada-queue")
         self.assertEqual(self.h.read("/etc/armada/deploy-keys/results.pub").strip(), "ssh-ed25519 RRRR armada-results")
@@ -633,18 +633,18 @@ class ServerTests(ServerTestsFixture):
         def ls_remote(argv):
             calls["n"] += 1
             return Result(0) if calls["n"] > 4 else Result(128, "Permission denied (publickey)")
-        self.h.replies["runuser -u ctworker -- git ls-remote"] = ls_remote
+        self.h.replies["runuser -u armworker -- git ls-remote"] = ls_remote
         clock = {"t": 0}
         s = self.setup_obj(dry_run=False, confirm=lambda p: True, wait_for_keys=600, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
         s.run_all()
         self.assertFalse(s.waiting)
-        self.assertEqual(len(self.h.ran("runuser -u ctworker -- git clone")), 2)
+        self.assertEqual(len(self.h.ran("runuser -u armworker -- git clone")), 2)
         self.assertTrue(any("Waiting for the deploy keys" in line for line in self.said))
         self.assertTrue(self.h.ran("systemctl enable --now armada-fetch.timer"))
 
     def test_an_existing_clone_moved_to_github_also_waits_for_the_keys_before_the_registry_fetch(self):
         """Found by a real run (scripts/real-github-check): an install moved from Direct to GitHub already had its clones, so the server pointed them at GitHub and fetched the registry at once,
-        before ct-setup on the person's computer had added the deploy keys ('Permission denied (publickey)'). Only a fresh install waited."""
+        before arm-setup on the person's computer had added the deploy keys ('Permission denied (publickey)'). Only a fresh install waited."""
         for which in ("queue", "results"):
             self.h.path(f"/var/lib/armada/{which}/.git").mkdir(parents=True)
         self.h.replies["git -C /var/lib/armada/queue remote get-url origin"] = Result(0, "/var/lib/armada-mail/queue.git\n")
@@ -654,7 +654,7 @@ class ServerTests(ServerTestsFixture):
         def ls_remote(argv):
             calls["n"] += 1
             return Result(0) if calls["n"] > 4 else Result(128, "Permission denied (publickey)")
-        self.h.replies["runuser -u ctworker -- git ls-remote"] = ls_remote
+        self.h.replies["runuser -u armworker -- git ls-remote"] = ls_remote
         clock = {"t": 0}
         s = self.setup_obj(dry_run=False, confirm=lambda p: True, wait_for_keys=600, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
         s.run_all()
@@ -662,7 +662,7 @@ class ServerTests(ServerTestsFixture):
         self.assertFalse(s.waiting)
 
     def test_it_gives_up_waiting_after_the_time_and_says_so(self):
-        self.h.replies["runuser -u ctworker -- git ls-remote"] = Result(128, "Permission denied")
+        self.h.replies["runuser -u armworker -- git ls-remote"] = Result(128, "Permission denied")
         clock = {"t": 0}
         s = self.setup_obj(dry_run=False, wait_for_keys=20, sleep=lambda x: clock.update(t=clock["t"] + x), clock=lambda: clock["t"])
         s.run_all()
@@ -714,7 +714,7 @@ class ServerTests(ServerTestsFixture):
         done = json.loads(self.h.read("/etc/armada/hardening.json"))
         self.assertIn(done["unattended-upgrades"]["status"], ("applied", "satisfied"))
         self.assertNotIn(done["ssh-keys-only"]["status"], ("applied", "satisfied"))      # said no (or the fake machine blocks it): not applied
-        from ct.setup import audit
+        from armada.setup import audit
         self.assertIn("unattended-upgrades", audit.audited_modules(self.h, s.cfg))
         self.assertNotIn("ssh-keys-only", audit.audited_modules(self.h, s.cfg))            # declined is not drift
 
@@ -782,7 +782,7 @@ class ClientTests(RepoFixture):
         c.run_all()
         self.assertEqual(len(h.ran("gh repo create")), 2)
         self.assertTrue(all("--private" in " ".join(x) for x in h.ran("gh repo create")))
-        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/armada/ct.toml")).github.owner, "someone")
+        self.assertEqual(config.load(h.path(h.env["HOME"] + "/.config/armada/armada.toml")).github.owner, "someone")
         self.repos.fetch_queue()
         reg = self.repos.show_file("origin/main", "registry.yaml")
         self.assertIn("classes:", reg)
@@ -827,7 +827,7 @@ class CorePackTests(unittest.TestCase):
             import yaml  # noqa: F401
         except ImportError:
             self.skipTest("PyYAML is not installed")
-        from ct import packs
+        from armada import packs
         pack = packs.load_pack(ROOT / "packs" / "core")
         reg, _ = packs.compose({"core": pack}, ["core"], ["core"], {})
         self.assertEqual(registry.validate(reg, "/opt/x/tools"), [])
@@ -915,7 +915,7 @@ class CliTests(unittest.TestCase):
         code, err = self.run_cli("server", "--yes", "--set", "server.admin_user=me", "--set", "github.owner=someone", "--rev", "a" * 40, host=h)
         self.assertEqual(code, 0)
         self.assertIn("Nothing was changed", err)
-        self.assertFalse(h.exists("/etc/armada/ct.toml"))
+        self.assertFalse(h.exists("/etc/armada/armada.toml"))
 
     def test_an_answers_file_and_set_are_combined_and_checked(self):
         f = Path(tempfile.mkdtemp()) / "a.toml"
@@ -942,13 +942,13 @@ class CliTests(unittest.TestCase):
 class WhatTheComputerIsUsedFor(unittest.TestCase):
     """Special Use and shared computers: one question chooses which protections are the default, each protection says who it affects, and tool folders are asked only for Special Use."""
 
-    def test_a_computer_only_for_tenta_changes_nothing(self):
-        from ct.setup import questions
-        flat = questions.derive({"isolation.purpose": "tenta-only"})
-        self.assertEqual(flat, {"isolation.purpose": "tenta-only"})
+    def test_a_computer_only_for_armada_changes_nothing(self):
+        from armada.setup import questions
+        flat = questions.derive({"isolation.purpose": "armada-only"})
+        self.assertEqual(flat, {"isolation.purpose": "armada-only"})
 
-    def test_shared_and_special_use_default_to_the_protections_that_affect_only_tenta(self):
-        from ct.setup import hardening, questions
+    def test_shared_and_special_use_default_to_the_protections_that_affect_only_armada(self):
+        from armada.setup import hardening, questions
         shared = questions.derive({"isolation.purpose": "shared"})
         self.assertEqual(shared["hardening.modules"], ["job-isolation", "auditd-canaries"])
         self.assertEqual(shared["hardening.offered"], ["ssh-keys-only", "ufw-lan-egress", "no-root-equivalent-groups", "unattended-upgrades"])
@@ -957,22 +957,22 @@ class WhatTheComputerIsUsedFor(unittest.TestCase):
         self.assertEqual((special["hardening.modules"], special["isolation.mode"]), (["job-isolation", "auditd-canaries"], "relaxed"))
         mine = questions.derive({"isolation.purpose": "shared", "hardening.modules": ["job-isolation", "ssh-keys-only"]})
         self.assertEqual(mine["hardening.modules"], ["job-isolation", "ssh-keys-only"])  # what the person chose is never replaced
-        for mid in questions.TENTA_ONLY_MODULES:                                         # the list in the questions is exactly the modules that say so
-            self.assertEqual(hardening.MODULES[mid].affects, hardening.TENTA_ONLY, mid)
-        self.assertEqual(sorted(mid for mid, m in hardening.MODULES.items() if m.affects == hardening.TENTA_ONLY and mid in config.SCHEMA["hardening"]["modules"][0]), sorted(questions.TENTA_ONLY_MODULES))
+        for mid in questions.ARMADA_ONLY_MODULES:                                         # the list in the questions is exactly the modules that say so
+            self.assertEqual(hardening.MODULES[mid].affects, hardening.ARMADA_ONLY, mid)
+        self.assertEqual(sorted(mid for mid, m in hardening.MODULES.items() if m.affects == hardening.ARMADA_ONLY and mid in config.SCHEMA["hardening"]["modules"][0]), sorted(questions.ARMADA_ONLY_MODULES))
 
     def test_every_protection_says_who_it_affects_in_the_text_and_on_the_screen(self):
-        from ct.setup import hardening
+        from armada.setup import hardening
         for mid, mod in hardening.MODULES.items():
-            self.assertIn(mod.affects, (hardening.TENTA_ONLY, hardening.EVERYONE), mid)
+            self.assertIn(mod.affects, (hardening.ARMADA_ONLY, hardening.EVERYONE), mid)
         self.assertEqual(hardening.MODULES["ssh-keys-only"].affects, hardening.EVERYONE)
         self.assertEqual(hardening.MODULES["ufw-lan-egress"].affects, hardening.EVERYONE)
 
     def test_the_purpose_is_asked_and_tool_folders_only_for_special_use(self):
-        from ct.setup import questions
+        from armada.setup import questions
         by = questions.BY_KEY
         self.assertIn("isolation.purpose", by)
-        self.assertEqual([c[0] for c in questions.CHOICES["isolation.purpose"]], ["tenta-only", "shared", "special-use"])
+        self.assertEqual([c[0] for c in questions.CHOICES["isolation.purpose"]], ["armada-only", "shared", "special-use"])
         self.assertIn("Special Use", questions.CHOICES["isolation.purpose"][2][1])
         when = by["isolation.tool_roots"]["when"]
         self.assertTrue(when({"isolation.purpose": "special-use"}))

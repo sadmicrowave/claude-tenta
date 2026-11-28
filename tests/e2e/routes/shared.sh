@@ -26,13 +26,13 @@ fp() {
 }
 fp > /tmp/e2e-fp-before.out 2>&1
 
-step "ct-setup install on a shared computer: only the protections that affect tenta's own jobs"
+step "arm-setup install on a shared computer: only the protections that affect armada's own jobs"
 chmod -R a+rX $SRC
 install_github --set isolation.purpose=shared >/tmp/e2e-install.out 2>&1; rc=$?
 tail -30 /tmp/e2e-install.out
 check "the install finished successfully" test $rc -eq 0
 fp > /tmp/e2e-fp-after.out 2>&1
-check "every machine-wide setting is exactly as it was (sshd, firewall, sudoers other than tenta's own file, groups, IPv6, automatic updates)" bash -c "diff /tmp/e2e-fp-before.out /tmp/e2e-fp-after.out"
+check "every machine-wide setting is exactly as it was (sshd, firewall, sudoers other than armada's own file, groups, IPv6, automatic updates)" bash -c "diff /tmp/e2e-fp-before.out /tmp/e2e-fp-after.out"
 check "the second user still logs in by password" guest_login true
 check "password SSH is still on" bash -c "sshd -T | grep -qx 'passwordauthentication yes'"
 check "the four whole-machine protections were offered and declined, none applied (--yes takes none)" bash -c "python3 - <<'PY'
@@ -42,13 +42,13 @@ for m in ('ssh-keys-only', 'ufw-lan-egress', 'no-root-equivalent-groups', 'unatt
     assert d[m]['status'] == 'declined', (m, d.get(m))
 assert d['job-isolation']['status'] in ('applied', 'satisfied'), d['job-isolation']
 PY"
-check "the configuration says what the computer is used for and offers, not applies, the whole-machine ones" bash -c "grep -q 'purpose = \"shared\"' /etc/$NAME/ct.toml && grep -q 'offered' /etc/$NAME/ct.toml"
+check "the configuration says what the computer is used for and offers, not applies, the whole-machine ones" bash -c "grep -q 'purpose = \"shared\"' /etc/$NAME/armada.toml && grep -q 'offered' /etc/$NAME/armada.toml"
 
 step "The worker still works, and the audit does not call the declined protections drift"
-as_admin ct-run setup >/dev/null 2>&1
-as_admin ct-run submit sys-status --wait --timeout 240 >/tmp/e2e-job.out 2>&1; rc=$?
+as_admin arm-run setup >/dev/null 2>&1
+as_admin arm-run submit sys-status --wait --timeout 240 >/tmp/e2e-job.out 2>&1; rc=$?
 check "a job came back with a result" test $rc -eq 0
-audit_run() { (cd $SRC && PYTHONPATH=$SRC/src CT_CONFIG=/etc/$NAME/ct.toml python3 -m ct.setup audit 2>&1); }
+audit_run() { (cd $SRC && PYTHONPATH=$SRC/src ARM_CONFIG=/etc/$NAME/armada.toml python3 -m armada.setup audit 2>&1); }
 AUDIT_OK=1; case "$(systemctl is-enabled auditd 2>/dev/null)" in masked*) AUDIT_OK="allow-auditd";; esac
 if [ "$AUDIT_OK" = "allow-auditd" ]; then
   check "the audit agrees (the missing kernel audit on this machine is the one allowed failure)" bash -c "$(declare -f audit_run); export SRC NAME; ! audit_run | grep -E '^ +FAIL' | grep -v auditd"
@@ -59,6 +59,6 @@ fi
 step "The worker account can see who is logged in (what pause_when_logged_in reads)"
 sshpass -p guestpw ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no guest@localhost 'sleep 40' &
 sleep 6
-check "the worker account sees the second user's session" bash -c "runuser -u $WORKER -- env PYTHONPATH=/opt/$NAME/lib python3 -c 'from ct.runner import LinuxSensors; import sys; sys.exit(0 if \"guest\" in LinuxSensors().logged_in() else 1)'"
+check "the worker account sees the second user's session" bash -c "runuser -u $WORKER -- env PYTHONPATH=/opt/$NAME/lib python3 -c 'from armada.runner import LinuxSensors; import sys; sys.exit(0 if \"guest\" in LinuxSensors().logged_in() else 1)'"
 wait
 finish

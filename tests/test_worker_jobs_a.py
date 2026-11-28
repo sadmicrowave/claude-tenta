@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import guard  # noqa: E402
+from armada import guard  # noqa: E402
 from support import REGISTRY, IP, Base, sh  # noqa: E402
 
 

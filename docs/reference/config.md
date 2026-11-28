@@ -3,7 +3,7 @@
 
 # Configuration reference
 
-Every setting of `ct.toml`, with its default. The file is read from `~/.config/armada/ct.toml` on your computer and `/etc/<name>/ct.toml` on the server (or the path in `CT_CONFIG`). Any setting can also be set by an environment variable named `CT_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
+Every setting of `armada.toml`, with its default. The file is read from `~/.config/armada/armada.toml` on your computer and `/etc/<name>/armada.toml` on the server (or the path in `ARM_CONFIG`). Any setting can also be set by an environment variable named `ARM_<SECTION>_<KEY>` (lists are comma-separated), which wins over the file. Unknown sections and keys are errors, so a typo never silently falls back to a default. Secrets (API keys, alert tokens) never go in this file; they go in `secrets.env`.
 
 `{name}` and `{worker_user}` in a default are filled in from the settings of the same name.
 
@@ -20,7 +20,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 |---|---|---|---|
 | `host` | *(not set)* | text | name or address the client connects to over SSH |
 | `admin_user` | *(not set)* | text | the human account on the server; it needs a password to use sudo |
-| `worker_user` | `ctworker` | text | the unprivileged account that runs jobs |
+| `worker_user` | `armworker` | text | the unprivileged account that runs jobs |
 | `ssh_port` | `22` | int | SSH port on the server |
 
 ## [github]
@@ -49,7 +49,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 | `state_root` | `/var/lib/{name}` | text | state, the two git clones and job working folders (server) |
 | `config` | `/etc/{name}` | text | this config, the registry and secrets (server) |
 | `worker_home` | `/home/{worker_user}` | text | home folder of the worker account (server) |
-| `client_home` | `~/.ct` | text | where the client keeps its clone and notes (your computer) |
+| `client_home` | `~/.armada` | text | where the client keeps its clone and notes (your computer) |
 
 ## [hardware]
 
@@ -66,7 +66,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `require_netns` | `true` | bool | refuse to run a no-network job if the machine cannot isolate it (leave on) |
-| `purpose` | `tenta-only` | `tenta-only` , `shared` , `special-use` | what this computer is used for. tenta-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect tenta's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed) |
+| `purpose` | `armada-only` | `armada-only` , `shared` , `special-use` | what this computer is used for. armada-only: a computer only for this (every protection is offered). shared: other people or services use it too, so only protections that affect armada's own jobs are the default. special-use: for example a tools box, with tool folders (isolation.mode becomes relaxed) |
 | `mode` | `full` | `full` , `relaxed` | full: jobs see only the system folders and the tools this install fetched for them. relaxed: the computer is for special use, so the folders in tool_roots may be shown to jobs (read-only) for the classes that name them; the worker says so openly in its status and is still scheduled |
 | `tool_roots` | `[]` | list | folders of tools that already exist on this computer that a class may use (needs mode = relaxed). A class names the folders it needs under `tools:` in the registry, each inside one of these |
 | `method` | `bwrap` | `bwrap` , `unshare` | how jobs are jailed: bwrap (no network, no view of the worker's home or configuration; needs the bubblewrap package) or unshare (the older, network-only method) |
@@ -88,7 +88,7 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `kind` | `none` | `none` , `ntfy` , `webhook` | where security alerts are sent |
-| `url` | *(not set)* | text | https address to post alerts to. A private topic address is kept in secrets.env as CT_ALERT_URL (the installer does this), not here; this setting is the fallback |
+| `url` | *(not set)* | text | https address to post alerts to. A private topic address is kept in secrets.env as ARM_ALERT_URL (the installer does this), not here; this setting is the fallback |
 | `remind_hours` | `[1, 6, 24]` | floatlist | hours after a lockdown starts at which a reminder is sent |
 | `remind_repeat_h` | `24` | float | then repeat the reminder this often |
 
@@ -112,26 +112,26 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `keep_days` | `90` | int | days the audit trail (ct-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour) |
+| `keep_days` | `90` | int | days the audit trail (arm-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour) |
 
 ## [offload]
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with ct-admin adopt |
+| `auto_adopt` | `true` | bool | on: a profile result that fits is adopted and installed right away, at a terminal, signed with your own approval key (a heavy class is adopted so it waits for your OK each time it runs); off: you adopt each one yourself with arm-admin adopt |
 | `repeat_runs` | `3` | int | a command you run this many times within repeat_days counts as repeated work worth offloading |
 | `repeat_days` | `14` | int | the number of days repeat_runs is counted over |
-| `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker |
-| `recommend_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see ct-run offload recommend); off: never |
+| `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before arm-run offload recommend compares it with the pinned worker |
+| `recommend_hint` | `true` | bool | on: after arm-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see arm-run offload recommend); off: never |
 | `recommend_hint_hours` | `24` | int | the least hours between two of those hint lines; a hint is also shown only once for the same suggestion |
-| `recommend_gain` | `25` | int | ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
+| `recommend_gain` | `25` | int | arm-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
 
 ## [limits]
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
-| `max_in_flight` | `8` | float | the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap |
-| `max_per_worker` | `0` | float | the most jobs this computer will have queued or running on ONE worker; a job over it waits on this computer (ct-run jobs shows it) and is sent when one finishes. 0 means no limit |
+| `max_in_flight` | `8` | float | the most jobs this computer will have queued or running at once across every worker it administers; arm-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap |
+| `max_per_worker` | `0` | float | the most jobs this computer will have queued or running on ONE worker; a job over it waits on this computer (arm-run jobs shows it) and is sent when one finishes. 0 means no limit |
 | `max_per_class` | `0` | float | the most jobs of ONE command this computer will have queued or running at once, so a big batch of one command cannot use every place; the rest wait their turn behind other jobs. 0 means no limit |
 
 ## [access]
@@ -180,4 +180,4 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/a
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `modules` | `["job-isolation", "ssh-keys-only", "ufw-lan-egress", "auditd-canaries", "no-root-equivalent-groups", "unattended-upgrades"]` | list | hardening modules the wizard applies |
-| `offered` | `[]` | list | hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by ct-setup audit like the others |
+| `offered` | `[]` | list | hardening modules the wizard only OFFERS, one by one, each skipped unless you say yes (for a shared or special-use computer: the protections that change the whole machine for every user). --yes takes none of them. Those you accept are checked by arm-setup audit like the others |

@@ -9,14 +9,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . scripts/e2e-names.sh
-PYX="${CT_PY:-$HOME/.ct-venv/bin/python}"
+PYX="${ARM_PY:-$HOME/.arm-venv/bin/python}"
 if [ "${1:-}" = "--on" ]; then "$PYX" tests/preflight.py --for real "${2:-}" || exit 1       # a real machine needs no Docker, but it must answer
 else "$PYX" tests/preflight.py --for probe || exit 1; fi                                    # the environment is checked first: one message with the fix, not a long run that fails late
-IMAGE=${CT_PROBE_IMAGE:-ubuntu:24.04}
+IMAGE=${ARM_PROBE_IMAGE:-ubuntu:24.04}
 RELEASES="ubuntu:24.04 ubuntu:26.04 debian:12 debian:13"
 if [ "${1:-}" = "--releases" ]; then
-  shift; names=${*:-release}; PROBES=/tmp/ct-probes/$(e2e_id); mkdir -p "$PROBES"; pids=""
-  for img in $RELEASES; do for n in $names; do ( CT_PROBE_IMAGE=$img scripts/probe "$n" > "$PROBES/$n-$(echo $img | tr ':' '-').out" 2>&1; echo "probe-ended $?" >> "$PROBES/$n-$(echo $img | tr ':' '-').out" ) & done; done
+  shift; names=${*:-release}; PROBES=/tmp/arm-probes/$(e2e_id); mkdir -p "$PROBES"; pids=""
+  for img in $RELEASES; do for n in $names; do ( ARM_PROBE_IMAGE=$img scripts/probe "$n" > "$PROBES/$n-$(echo $img | tr ':' '-').out" 2>&1; echo "probe-ended $?" >> "$PROBES/$n-$(echo $img | tr ':' '-').out" ) & done; done
   wait; bad=0
   for img in $RELEASES; do for n in $names; do f="$PROBES/$n-$(echo $img | tr ':' '-').out"; summary=$(grep -E "^=== [0-9]+ passed" "$f" | tail -1)
     if echo "$summary" | grep -q " 0 failed"; then printf 'PASS  %-8s %-14s %s\n' "$n" "$img" "$summary"; else printf 'FAIL  %-8s %-14s %s (see %s)\n' "$n" "$img" "${summary:-no summary}" "$f"; bad=$((bad+1)); fi; done; done
@@ -24,7 +24,7 @@ if [ "${1:-}" = "--releases" ]; then
 fi
 if [ "${1:-}" = "--on" ]; then                          # a probe on a real machine: copy the probe and the project's source over SSH, run it there, leave nothing behind
   host=$2; n=$3; shift 3
-  tar -cf - tests/probes/$n.sh src templates 2>/dev/null | COPYFILE_DISABLE=1 ssh -o BatchMode=yes -o AddressFamily=inet "$host" 'd=$(mktemp -d /tmp/ct-probe.XXXXXX) && tar -xf - -C "$d" 2>/dev/null && echo "=== probe: '$n' on '$host'" && CT_PROBE_ROOT="$d" bash "$d/tests/probes/'$n'.sh"; rc=$?; rm -rf "$d"; exit $rc'
+  tar -cf - tests/probes/$n.sh src templates 2>/dev/null | COPYFILE_DISABLE=1 ssh -o BatchMode=yes -o AddressFamily=inet "$host" 'd=$(mktemp -d /tmp/arm-probe.XXXXXX) && tar -xf - -C "$d" 2>/dev/null && echo "=== probe: '$n' on '$host'" && ARM_PROBE_ROOT="$d" bash "$d/tests/probes/'$n'.sh"; rc=$?; rm -rf "$d"; exit $rc'
   exit $?
 fi
 names=${*:-$(ls tests/probes/*.sh | xargs -n1 basename | sed 's/\.sh$//')}

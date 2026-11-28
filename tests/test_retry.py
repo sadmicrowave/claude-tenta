@@ -4,8 +4,8 @@ import time
 import unittest
 
 import support  # noqa: F401
-from ct import registry
-from ct.client import health, queue, retry, view
+from armada import registry
+from armada.client import health, queue, retry, view
 from test_health import LostBase
 
 NOW = 1_800_000_000

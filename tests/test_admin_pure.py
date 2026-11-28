@@ -1,4 +1,4 @@
-"""ct-admin: SSH wrapper, worker cards, registry text edits and help text (no git, no keys)."""
+"""arm-admin: SSH wrapper, worker cards, registry text edits and help text (no git, no keys)."""
 import io
 from types import SimpleNamespace
 import tempfile
@@ -10,16 +10,16 @@ from pathlib import Path
 
 import admin_support  # noqa: F401  (points HOME at a throwaway folder)
 
-from ct import approvals, theme
-from ct.admin import cli, regedit
-from ct.admin import workers as workers_mod
-from ct.admin.ssh import Ssh
-from ct.client.repo import ClientError
+from armada import approvals, theme
+from armada.admin import cli, regedit
+from armada.admin import workers as workers_mod
+from armada.admin.ssh import Ssh
+from armada.client.repo import ClientError
 
 
 class SshTests(unittest.TestCase):
     def test_argv_is_key_only_and_short_lived(self):
-        a = Ssh("server.example", "admin", 2222, control_dir="/tmp/ct-test-ctl").argv("true", batch=True, tty=False)
+        a = Ssh("server.example", "admin", 2222, control_dir="/tmp/arm-test-ctl").argv("true", batch=True, tty=False)
         self.assertEqual(a[0], "ssh")
         self.assertIn("BatchMode=yes", a)
         self.assertIn("ControlPersist=60", a)
@@ -27,10 +27,10 @@ class SshTests(unittest.TestCase):
         self.assertEqual(a[a.index("-p") + 1], "2222")
         self.assertEqual(a[-1], "true")
         self.assertNotIn("-t", a)
-        self.assertIn("-t", Ssh("h", control_dir="/tmp/ct-test-ctl").argv("x", tty=True))
+        self.assertIn("-t", Ssh("h", control_dir="/tmp/arm-test-ctl").argv("x", tty=True))
 
     def test_a_session_sends_keep_alives_so_a_stalled_path_is_noticed_or_woken(self):
-        a = Ssh("h", control_dir="/tmp/ct-test-ctl").argv("x", tty=True)
+        a = Ssh("h", control_dir="/tmp/arm-test-ctl").argv("x", tty=True)
         self.assertIn("ServerAliveInterval=10", a)
         self.assertIn("ServerAliveCountMax=6", a)
 
@@ -48,7 +48,7 @@ class SshTests(unittest.TestCase):
             Ssh("-oProxyCommand=evil")
 
     def test_a_failed_connection_is_explained(self):
-        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "Permission denied (publickey)"), control_dir="/tmp/ct-test-ctl")
+        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "Permission denied (publickey)"), control_dir="/tmp/arm-test-ctl")
         with self.assertRaises(ClientError) as c:
             s.capture("true")
         self.assertIn("Permission denied", c.exception.why)
@@ -57,21 +57,21 @@ class SshTests(unittest.TestCase):
         self.assertEqual(Ssh.quote(["approve", "a b", "x;y"]), "approve 'a b' 'x;y'")
 
     def test_a_connection_that_fails_under_a_terminal_command_is_a_card_not_raw_ssh_text(self):
-        """Found by the output audit: `ct-admin status` and `quarantine` printed ssh's own line ("Could not resolve hostname ...") bare, where `check` drew an error card."""
+        """Found by the output audit: `arm-admin status` and `quarantine` printed ssh's own line ("Could not resolve hostname ...") bare, where `check` drew an error card."""
         said = "ssh: Could not resolve hostname worker2.example: nodename nor servname provided, or not known"
         seen = {}
-        s = Ssh("h", run=lambda argv, **k: seen.update(k) or subprocess.CompletedProcess(argv, 255, "", said + "\n"), control_dir="/tmp/ct-test-ctl")
+        s = Ssh("h", run=lambda argv, **k: seen.update(k) or subprocess.CompletedProcess(argv, 255, "", said + "\n"), control_dir="/tmp/arm-test-ctl")
         with redirect_stderr(io.StringIO()) as err, self.assertRaises(ClientError) as c:
-            s.interactive("ct-worker status")
+            s.interactive("arm-worker status")
         self.assertIn("Could not resolve", c.exception.why)
         self.assertEqual(err.getvalue(), "")                                                   # nothing printed bare
         self.assertEqual(seen.get("stderr"), subprocess.PIPE)
 
     def test_the_remote_commands_own_failure_and_text_are_passed_through(self):
-        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 2, "", "usage: ct-worker x\n"), control_dir="/tmp/ct-test-ctl")
+        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 2, "", "usage: arm-worker x\n"), control_dir="/tmp/arm-test-ctl")
         with redirect_stderr(io.StringIO()) as err:
-            self.assertEqual(s.interactive("ct-worker x"), 2)
-        self.assertIn("usage: ct-worker x", err.getvalue())
+            self.assertEqual(s.interactive("arm-worker x"), 2)
+        self.assertIn("usage: arm-worker x", err.getvalue())
 
     def test_status_for_a_name_that_is_not_a_worker_draws_nothing_before_refusing(self):
         drawn = []
@@ -144,7 +144,7 @@ class WorkerCards(unittest.TestCase):
 
 class RegistryTextEdits(unittest.TestCase):
     def test_entries_go_into_an_existing_section_or_make_one(self):
-        from ct.admin import regedit
+        from armada.admin import regedit
         text = "classes:\n  a:\n    kind: command\n"
         out = regedit.add_entries(text, "actions", ["  x:", "    run: []"])
         self.assertTrue(out.endswith("actions:\n  x:\n    run: []\n"))
@@ -153,7 +153,7 @@ class RegistryTextEdits(unittest.TestCase):
         self.assertEqual(regedit.add_entries("actions: {}\nclasses:\n", "actions", ["  x:"]).splitlines()[:2], ["actions:", "  x:"])
 
     def test_a_pin_is_replaced_in_the_right_action_only(self):
-        from ct.admin import regedit
+        from armada.admin import regedit
         text = 'actions:\n  x:\n    sha256: "' + "1" * 64 + '"\n  y:\n    sha256: "' + "2" * 64 + '"\nclasses:\n'
         out = regedit.set_action_pin(text, "y", "3" * 64)
         self.assertIn("1" * 64, out)
@@ -162,9 +162,9 @@ class RegistryTextEdits(unittest.TestCase):
 
 
 class FollowAfterApproving(unittest.TestCase):
-    def test_the_command_ct_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
-        """ct-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""
-        from ct.client import cli as client_cli
+    def test_the_command_arm_admin_runs_to_follow_a_job_is_one_the_client_accepts(self):
+        """arm-admin follows an approved job with `result <id> --wait --approved`; the client's parser once refused that flag and the person saw a usage error."""
+        from armada.client import cli as client_cli
         ap, _ = client_cli.build_parser()
         a = ap.parse_args(["result", "job-1", "--wait", "--approved"])
         self.assertTrue(a.approved and a.wait)
@@ -177,8 +177,8 @@ class SystemBranchesAreNotProposals(unittest.TestCase):
     """Seen on the real fleet: the branch that holds the signed approvals was listed as '9 to review', and `merge --all` or `tidy` would have treated it as a change."""
 
     def test_the_approvals_branch_is_reserved_like_main_and_jobs(self):
-        from ct import approvals
-        from ct.admin import proposals
+        from armada import approvals
+        from armada.admin import proposals
         self.assertIn(approvals.BRANCH, proposals.RESERVED)
         p = proposals.Proposals(SimpleNamespace(git=lambda repo, *a, **k: SimpleNamespace(stdout="main jobs approvals feature-x registry/ssh-version\n")))
         p.repos.queue = "q"

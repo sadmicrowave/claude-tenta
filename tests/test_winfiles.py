@@ -8,8 +8,8 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct import config, registry  # noqa: E402
-from ct.setup import winfiles, wintools  # noqa: E402
+from armada import config, registry  # noqa: E402
+from armada.setup import winfiles, wintools  # noqa: E402
 
 
 class Config(unittest.TestCase):
@@ -22,8 +22,8 @@ class Config(unittest.TestCase):
     def test_it_round_trips_through_the_loader(self):
         import tempfile
         d = Path(tempfile.mkdtemp())
-        (d / "ct.toml").write_text(winfiles.windows_config("armada", "192.0.2.10", "me", ssh_port=2222))
-        c = config.load(d / "ct.toml")
+        (d / "armada.toml").write_text(winfiles.windows_config("armada", "192.0.2.10", "me", ssh_port=2222))
+        c = config.load(d / "armada.toml")
         self.assertEqual((c.server.ssh_port, c.path("queue_clone")), (2222, "C:/ProgramData/armada/state/queue"))
 
     def test_a_bad_value_is_refused_before_anything_is_sent(self):

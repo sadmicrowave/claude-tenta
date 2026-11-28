@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct.client import submit, view  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada.client import submit, view  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 
 
 NOW = datetime(2026, 1, 2, 3, 0, 0, tzinfo=timezone.utc)
@@ -51,30 +51,30 @@ class FilesAndBatches(unittest.TestCase):
         import subprocess
         d = Path(tempfile.mkdtemp())
         subprocess.run(["git", "init", "-q"], cwd=d, check=True)
-        for rel, text in {"a.py": "x", ".gitignore": "dist/\n*.log\n", ".tenta.toml": "t", "dist/out.js": "no", "x.log": "no", "new.py": "n", "sub/c.py": "c"}.items():
+        for rel, text in {"a.py": "x", ".gitignore": "dist/\n*.log\n", ".armada.toml": "t", "dist/out.js": "no", "x.log": "no", "new.py": "n", "sub/c.py": "c"}.items():
             f = d / rel
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(text)
-        subprocess.run(["git", "add", "a.py", ".gitignore", ".tenta.toml", "sub/c.py"], cwd=d, check=True)
+        subprocess.run(["git", "add", "a.py", ".gitignore", ".armada.toml", "sub/c.py"], cwd=d, check=True)
         return d
 
     def test_in_a_git_folder_the_projects_own_ignore_rules_decide_what_is_sent(self):
         d = self.repo()
         left = submit.LeftOut()
         files = submit.collect_dir(d, LIMITS, left=left)
-        self.assertEqual(sorted(files), [".gitignore", ".tenta.toml", "a.py", "new.py", "sub/c.py"])         # tracked, and untracked but not ignored; a tracked dotfile is the project's own
+        self.assertEqual(sorted(files), [".armada.toml", ".gitignore", "a.py", "new.py", "sub/c.py"])         # tracked, and untracked but not ignored; a tracked dotfile is the project's own
         self.assertEqual(sorted(left.excluded), ["dist", "x.log"])                                           # what the project's own rules ignore is named, never silent
         self.assertNotIn(".git", left.excluded)                                                              # git's own folder is never part of the project
 
     def test_a_project_that_is_not_a_git_folder_is_cut_by_its_languages_ignore_template(self):
         d = Path(tempfile.mkdtemp())
-        for rel in ("pyproject.toml", "app.py", "__pycache__/x.pyc", ".venv/lib/z.py", "build/out.txt", ".DS_Store", ".gitignore", ".tenta.toml", "docs/readme.md", ".idea/workspace.xml"):
+        for rel in ("pyproject.toml", "app.py", "__pycache__/x.pyc", ".venv/lib/z.py", "build/out.txt", ".DS_Store", ".gitignore", ".armada.toml", "docs/readme.md", ".idea/workspace.xml"):
             f = d / rel
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text("x")
         left = submit.LeftOut()
         files = submit.collect_dir(d, LIMITS, left=left)
-        self.assertEqual(sorted(files), [".gitignore", ".tenta.toml", "app.py", "docs/readme.md", "pyproject.toml"])          # dotfiles the template does not ignore are the project's own
+        self.assertEqual(sorted(files), [".armada.toml", ".gitignore", "app.py", "docs/readme.md", "pyproject.toml"])          # dotfiles the template does not ignore are the project's own
         self.assertEqual(sorted(left.excluded), [".DS_Store", ".idea", ".venv", "__pycache__", "build"])
         self.assertIn("Python", left.source)
         self.assertIn("not a git repository", left.source)
@@ -275,9 +275,9 @@ class Human(unittest.TestCase):
         self.assertEqual(status, {"w": "expired", "f": "awaiting_approval"})
         self.assertIn("send it again", [r for r in rows if r[2] == "w"][0][3])
         out = io.StringIO()
-        view.render_status(rows, results, lambda jid, cls: cls, [], "ct-admin", out=out, now=NOW)
-        self.assertIn("ct-admin approve f", out.getvalue())                              # the fresh one is still offered
-        self.assertNotIn("ct-admin approve w", out.getvalue())                            # no command offered for a job that can no longer be approved
+        view.render_status(rows, results, lambda jid, cls: cls, [], "arm-admin", out=out, now=NOW)
+        self.assertIn("arm-admin approve f", out.getvalue())                              # the fresh one is still offered
+        self.assertNotIn("arm-admin approve w", out.getvalue())                            # no command offered for a job that can no longer be approved
 
     def test_a_job_the_worker_has_not_picked_up_is_a_queued_row_with_a_nudge_after_five_minutes(self):
         listing = [("new", {"created": "2026-01-02T02:58:00Z", "class": "echo"}), ("stuck", {"created": "2026-01-02T02:00:00Z", "class": "echo"}),
@@ -292,7 +292,7 @@ class Human(unittest.TestCase):
         out = io.StringIO()
         results = {"w": {"id": "w", "status": "awaiting_approval", "class": "careful"}, "a": {"id": "a", "status": "ok", "class": "echo", "finished": "2026-01-01T00:00:00Z"}}
         rows = view.status_rows(results, lambda jid: NOW, None, now=NOW)
-        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "never"}):
             view.render_status(rows, results, lambda jid, cls: cls or "-", [("on your computer", "tct-admin approve {}"), ("on tct", "tct approve {}")], "tct-admin", out=out, now=NOW)
         text = out.getvalue()
         for needle in ("Your most recent jobs, newest first", "Waiting for you", "tct-admin approve w", "echo"):
@@ -302,7 +302,7 @@ class Human(unittest.TestCase):
         info = {"updated": "2026-01-02T00:00:00Z", "mem_total_mb": 8000, "capacity": 4,
                 "classes": {"echo": {"kind": "command", "cost": "light", "tier": "auto", "run": ["/bin/echo", "{word}"], "params": ["word"]},
                             "profile-run": {"kind": "profile", "cost": "heavy", "tier": "approve"}}}
-        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "never"}):
             view.render_classes(info, pending=["newclass"], excluded=2, out=out, product="tct")
         text = out.getvalue()
         for needle in ("What this worker can run for you today", "tct", "echo", "/bin/echo {word}", "word", "profile one exact command", "Proposed, NOT installed yet", "newclass", "Excluded after profiling: 2"):
@@ -311,7 +311,7 @@ class Human(unittest.TestCase):
     def test_result_formatting_for_a_profile_run_shows_verdict_and_estimate_comparison(self):
         res = {"id": "profile-abc123", "status": "ok", "output": "done", "note": "", "metrics": {"wall_s": 3.0, "cpu_s": 2.5, "peak_rss_mb": 300, "mem_total_mb": 8000, "peak_temp_c": 60, "disk_mb": 1},
                "profile": {"argv": ["ls", "-l"], "what": "lists", "verdict": "fits", "cost": "light", "reasons": ["3.0s, 300 MB"], "estimates": {"time_s": 1, "mem_mb": 100}}}
-        with mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "never"}):
             head, output, tail = view.format_result(res, admin="tct-admin", suggest_name="ls-long")
         text = "\n".join(head + tail)
         for needle in ("JOB     profile-abc123", "STATUS  ok", "Command", "ls -l", "MEASURED", "VERDICT  fits   cost light", "x3.0 over the estimate",
@@ -322,7 +322,7 @@ class Human(unittest.TestCase):
 
 class DirectPace(unittest.TestCase):
     def test_what_a_person_is_told_to_expect_matches_the_pace_of_the_connection(self):
-        from ct import config
+        from armada import config
         cfg = config.Config(config.validate({"server": {"admin_user": "me", "host": "h"}, "github": {"owner": "o"}, "transport": {"kind": "direct"}})[0])
         try:
             view.set_pace(cfg.schedule, direct=True)
@@ -382,7 +382,7 @@ class ProgressLine(unittest.TestCase):
             def fileno(self):
                 raise OSError
         out = Tty()
-        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))), mock.patch.dict(os.environ, {"CT_COLOR": "never"}) if False else mock.patch.dict(os.environ, {}):
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))), mock.patch.dict(os.environ, {"ARM_COLOR": "never"}) if False else mock.patch.dict(os.environ, {}):
             p = view.Progress(stream=out, clock=lambda: 0)
             p.draw("sent: waiting for a worker to notice it " * 4, view.YELLOW)
         line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|\r", "", out.getvalue())
@@ -395,7 +395,7 @@ class NoBackgroundSsh(unittest.TestCase):
     """A shared ssh connection (ControlMaster) leaves a background process holding the captured output pipes of the git command, so every pass or fetch hangs until it exits.
     The end-to-end test found this on a real machine; keep it out."""
     def test_nothing_in_the_package_starts_a_background_ssh_master_for_git(self):
-        src = Path(__file__).resolve().parents[1] / "src" / "ct"
+        src = Path(__file__).resolve().parents[1] / "src" / "armada"
         for f in src.rglob("*.py"):
             text = f.read_text()
             if ("ControlMaster auto" in text or "ControlMaster=auto" in text) and f.name != "ssh.py":                                  # admin/ssh.py's own use is for interactive commands, not captured git output

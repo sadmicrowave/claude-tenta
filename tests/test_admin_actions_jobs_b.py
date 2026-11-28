@@ -4,7 +4,7 @@ import re
 import json
 from pathlib import Path
 from admin_support import AdminBase, INSTALLED, REGISTRY  # noqa: F401  (also points HOME at a throwaway folder)
-from ct import registry
+from armada import registry
 
 
 class ActionBase(AdminBase):
@@ -27,7 +27,7 @@ class ActionBase(AdminBase):
 
 
 class ActionAdd(ActionBase):
-    """`ct-admin action add`: registering a root-level action is one command with one question, like adopt."""
+    """`arm-admin action add`: registering a root-level action is one command with one question, like adopt."""
     def test_one_command_adds_the_action_and_its_class_pinned_to_what_the_worker_reported(self):
         code, out, err = self.admin("action", "add", str(self.pack), "--yes")
         self.assertEqual(code, 0, err)
@@ -37,7 +37,7 @@ class ActionAdd(ActionBase):
         self.assertEqual(reg["classes"]["fan-profile"], {"kind": "privileged", "action": "fan-profile", "cost": "heavy"})
         self.assertIn("careful", reg["classes"])                                                     # what was there is still there
         self.assertEqual(registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) and [x for x in registry.validate(reg, "/nonexistent-tools-root", allow_empty=True) if "tools" not in x], [])
-        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))        # installed, like adopt
+        self.assertTrue(any(c.startswith("sudo arm-update --rev ") for c in self.ssh.calls))        # installed, like adopt
 
     def test_the_preview_says_it_runs_as_root_and_what_it_may_touch_before_anything_is_asked(self):
         self.tty, self.answers = True, ["n"]
@@ -96,7 +96,7 @@ class ActionRemoveAndList(ActionBase):
         code, _, err = self.admin("action", "remove", "fan-profil", "--yes")
         self.assertEqual(code, 2)
         self.assertIn("Registered: fan-profile", err)
-        self.assertIn("ct-admin action remove fan-profile", err)
+        self.assertIn("arm-admin action remove fan-profile", err)
 
     def test_the_same_action_twice_changes_nothing_and_says_so(self):
         before = self.main_registry()
@@ -129,16 +129,16 @@ class ActionRemoveAndList(ActionBase):
         self.assertNotIn("usage:", err)
         self.assertIn("The choices are: add, list, remove", err)
         self.assertIn("lst", err)
-        self.assertIn("ct-admin action list", err)
+        self.assertIn("arm-admin action list", err)
         code, _, err = self.admin("statu")
-        self.assertIn("ct-admin status", err)
+        self.assertIn("arm-admin status", err)
         self.assertNotIn("usage:", err)
         code, _, err = self.admin("action", "add")
         self.assertNotIn("usage:", err)
 
 
 class ClassSetTests(AdminBase):
-    """ct-admin class set / show: change a class's tier, network access and tool folders without editing registry.yaml by hand."""
+    """arm-admin class set / show: change a class's tier, network access and tool folders without editing registry.yaml by hand."""
 
     def setUp(self):
         super().setUp()
@@ -155,7 +155,7 @@ class ClassSetTests(AdminBase):
         self.assertEqual(code, 0, err)
         self.assertIn("approve  ->  auto", out + err)
         self.assertRegex(self.registry(), r"(?m)^  careful:\n(?:    .*\n)*?    tier: auto\n")
-        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo arm-update --rev ") for c in self.ssh.calls))
 
     def test_a_class_is_marked_safe_to_repeat_and_class_show_says_so(self):
         self.assertIn("no: if a worker goes silent", "".join(self.admin("class", "show", "echo")[1:]))

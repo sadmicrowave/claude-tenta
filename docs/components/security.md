@@ -63,7 +63,7 @@ reminders go out at `alerts.remind_hours` (default 1, 6, 24 hours) and then ever
 names, paths or addresses; those stay in the log. Channels: the log, syslog, and an https endpoint (`ntfy`-style or a webhook) with an optional token read from
 `secrets.env`. The channel cannot be used to trigger anything.
 
-`ct-admin quarantine` lists and reads withheld results, and `ct-admin unlock` clears the lock after you have looked.
+`arm-admin quarantine` lists and reads withheld results, and `arm-admin unlock` clears the lock after you have looked.
 
 ### Accounts and files
 

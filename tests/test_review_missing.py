@@ -1,4 +1,4 @@
-"""A job that cannot be shown is never noted as viewed (found by the output audit: `ct-admin review no-such-job` printed MISSING, then "1 job noted as viewed" and offered `approve --all`)."""
+"""A job that cannot be shown is never noted as viewed (found by the output audit: `arm-admin review no-such-job` printed MISSING, then "1 job noted as viewed" and offered `approve --all`)."""
 import io
 import sys
 import unittest
@@ -10,9 +10,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import admin_support  # noqa: E402,F401
-from ct import cli as worker_cli  # noqa: E402
-from ct.admin import cli as admin_cli  # noqa: E402
-from ct.client.repo import ClientError  # noqa: E402
+from armada import cli as worker_cli  # noqa: E402
+from armada.admin import cli as admin_cli  # noqa: E402
+from armada.client.repo import ClientError  # noqa: E402
 
 
 class MissingJobs(unittest.TestCase):

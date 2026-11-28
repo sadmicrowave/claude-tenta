@@ -16,7 +16,7 @@ KEY = "ssh-" + "ed25519 " + "AAAAC3NzaC1lZDI1NTE5AAAAIHydw7kP9aelENfu8kRyX7cP0yn
 
 def repo_with(path):
     d = Path(tempfile.mkdtemp())
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@users.noreply.github.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@users.noreply.github.com", "CT_PRIVACY_DENYLIST": str(d / "none")}
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@users.noreply.github.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@users.noreply.github.com", "ARM_PRIVACY_DENYLIST": str(d / "none")}
     for argv in (["init", "-q"], ["config", "commit.gpgsign", "false"]):
         subprocess.run(["git", "-C", str(d), *argv], check=True, env=env)
     (d / path).parent.mkdir(parents=True, exist_ok=True)
@@ -55,14 +55,14 @@ class History(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_the_vendored_third_party_ignore_templates_are_not_scanned(self):
-        d, env = repo_with("src/ct/client/ignore_templates/lang/Python.gitignore")
+        d, env = repo_with("src/armada/client/ignore_templates/lang/Python.gitignore")
         self.assertEqual(history(d, env).returncode, 0)
 
     def _with_message(self, message):
         d, env = repo_with("tests/fixtures/ok.txt")
         deny = Path(tempfile.mkdtemp()) / "deny.txt"                                       # outside the repository: inside, its own patch would match
         deny.write_text("acctname\n")
-        env = {**env, "CT_PRIVACY_DENYLIST": str(deny)}
+        env = {**env, "ARM_PRIVACY_DENYLIST": str(deny)}
         (d / "more.txt").write_text("more\n")
         subprocess.run(["git", "-C", str(d), "add", "-A"], check=True, env=env)
         subprocess.run(["git", "-C", str(d), "commit", "-q", "-m", message], check=True, env=env)

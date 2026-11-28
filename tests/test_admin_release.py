@@ -1,4 +1,4 @@
-"""ct-admin: update, release, release mismatch, root-level review, retire and adopt."""
+"""arm-admin: update, release, release mismatch, root-level review, retire and adopt."""
 import argparse
 import io
 import json
@@ -8,19 +8,19 @@ from unittest import mock
 
 from admin_support import AdminBase, INSTALLED, sh  # noqa: F401  (also points HOME at a throwaway folder)
 
-from ct.admin import cli, jobs, release
-from ct.client.repo import ClientError
+from armada.admin import cli, jobs, release
+from armada.client.repo import ClientError
 
 
 class UpdateEveryWorker(AdminBase):
-    """`ct-admin update` with several workers: one lookup, one notes card, this computer once, a roster before anything is asked, each worker in turn, one summary, the worst exit code."""
+    """`arm-admin update` with several workers: one lookup, one notes card, this computer once, a roster before anything is asked, each worker in turn, one summary, the worst exit code."""
 
     def setUp(self):
         super().setUp()
         self.ctx.sleep = lambda s: None
         self.ctx.home.mkdir(parents=True, exist_ok=True)
         self.old = self.rel[0]
-        self.new = self.release_commit({"src/ct/a.py": "a=2\n"}, "the next release")
+        self.new = self.release_commit({"src/armada/a.py": "a=2\n"}, "the next release")
         sh("git", "tag", "-a", "release-9.9.9", "-m", "Adds things\nFixes others", "HEAD", cwd=self.src_dir)
         self.visited, self.lookups, self.local_updates = [], [], []
         self.tty = True
@@ -107,7 +107,7 @@ class UpdateCommand(AdminBase):
         self.ctx.home.mkdir(parents=True, exist_ok=True)
         self.tty = True
         self.old = self.rel[0]
-        self.new = self.release_commit({"src/ct/a.py": "a=2\n"}, "the next release")
+        self.new = self.release_commit({"src/armada/a.py": "a=2\n"}, "the next release")
 
     def tag(self, name="release-9.9.9", notes="Adds things\nFixes others"):
         sh("git", "tag", "-a", name, "-m", notes, "HEAD", cwd=self.src_dir)
@@ -244,7 +244,7 @@ class RootLevelReview(AdminBase):
 
     def test_pinning_a_program_asks_the_worker_read_only(self):
         self.admin("action-hash", "/usr/local/sbin/fan-profile")
-        self.assertEqual(self.ssh.calls, ["ct-worker action-hash /usr/local/sbin/fan-profile"])
+        self.assertEqual(self.ssh.calls, ["arm-worker action-hash /usr/local/sbin/fan-profile"])
 
 
 class RetireAdoptTests(AdminBase):
@@ -263,7 +263,7 @@ class RetireAdoptTests(AdminBase):
         self.assertEqual(code, 0, err)
         self.repos.fetch_queue()
         self.assertNotIn("  careful:", self.repos.show_file("origin/main", "registry.yaml"))
-        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo arm-update --rev ") for c in self.ssh.calls))
 
     def test_the_profile_class_cannot_be_retired(self):
         code, _, err = self.admin("retire", "profile-run", "--yes")
@@ -286,7 +286,7 @@ class ReleaseTests(AdminBase):
 
     def setUp(self):
         super().setUp()
-        self.new = self.release_commit({"src/ct/a.py": "a=2\n", "src/ct/update.py": "u=1\n"}, "second")
+        self.new = self.release_commit({"src/armada/a.py": "a=2\n", "src/armada/update.py": "u=1\n"}, "second")
 
     def installed(self, rev):
         self.ssh.answers[INSTALLED] = rev + "\n"
@@ -309,7 +309,7 @@ class ReleaseTests(AdminBase):
         self.installed(self.rel[0])
         code, out, _ = self.admin("diff")
         self.assertEqual(code, 0)
-        self.assertLess(out.index("src/ct/update.py"), out.index("src/ct/a.py"))
+        self.assertLess(out.index("src/armada/update.py"), out.index("src/armada/a.py"))
         self.assertIn("1 of them run as root", out)
 
     def test_a_diff_with_no_root_run_change_shows_no_empty_box(self):
@@ -323,7 +323,7 @@ class ReleaseTests(AdminBase):
         self.health(self.new)
         code, out, err = self.admin("apply", "--yes", "--no-verify")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.ssh.calls, [f"sudo ct-update --rev {self.new}"])
+        self.assertEqual(self.ssh.calls, [f"sudo arm-update --rev {self.new}"])
         self.ssh.calls.clear()
         code, out, _ = self.admin("apply", "--yes", "--force")
         self.assertEqual(code, 0)
@@ -342,7 +342,7 @@ class ReleaseTests(AdminBase):
         runs = []
         self.ssh._run = lambda argv, **k: runs.append(argv) or subprocess.CompletedProcess(argv, 0, "", "")
         self.assertEqual(cli.cmd_check(self.ctx, None), 0)
-        self.assertEqual(runs[-1][-1], "ct-worker status")                    # `<install name> status` was an old install's command and could still exist and pass
+        self.assertEqual(runs[-1][-1], "arm-worker status")                    # `<install name> status` was an old install's command and could still exist and pass
 
     def test_a_failed_check_offers_the_rollback_and_does_it_on_yes(self):
         self.installed(self.rel[0])
@@ -358,7 +358,7 @@ class ReleaseTests(AdminBase):
         with mock.patch.object(release, "health_checks", flaky):
             code, out, err = self.admin("apply")
         self.assertEqual(code, 1)
-        self.assertIn(f"sudo ct-update --rev {self.rel[0]}", self.ssh.calls)
+        self.assertIn(f"sudo arm-update --rev {self.rel[0]}", self.ssh.calls)
         self.assertIn("Rolled back", err)
 
     def test_a_failed_check_without_a_terminal_tells_you_how_to_roll_back(self):
@@ -366,12 +366,12 @@ class ReleaseTests(AdminBase):
         self.health(self.new, failed=1)
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 1)
-        self.assertIn(f"ct-admin apply {self.rel[0][:9]} --no-verify", err)
-        self.assertEqual(self.ssh.calls, [f"sudo ct-update --rev {self.new}"])
+        self.assertIn(f"arm-admin apply {self.rel[0][:9]} --no-verify", err)
+        self.assertEqual(self.ssh.calls, [f"sudo arm-update --rev {self.new}"])
 
     def test_a_failing_install_stops_and_does_not_check(self):
         self.installed(self.rel[0])
-        self.ssh.rc["ct-update"] = 1
+        self.ssh.rc["arm-update"] = 1
         code, _, err = self.admin("apply", "--yes")
         self.assertEqual(code, 2)
         self.assertIn("install failed", err)
@@ -391,7 +391,7 @@ class ReleaseTests(AdminBase):
 
 
 class ReleaseMismatch(AdminBase):
-    """Workers that run different releases are a fleet fact: said by `ct-admin workers`, `status` and `check`, by the watch, and apply never silently replaces a commit the release source does not have."""
+    """Workers that run different releases are a fleet fact: said by `arm-admin workers`, `status` and `check`, by the watch, and apply never silently replaces a commit the release source does not have."""
 
     def rows(self, **revs):
         return [(n, r, rel) for n, (r, rel) in revs.items()]
@@ -407,18 +407,18 @@ class ReleaseMismatch(AdminBase):
         self.assertFalse(self.card(self.rows(a=("f4c9ae7aa", "unknown")))[0])
 
     def test_workers_on_different_releases_get_one_card_naming_who_runs_what_and_the_command(self):
-        shown, text = self.card(self.rows(main=("f4c9ae7aa", "behind"), tenta2=("f4c9ae7aa", "behind"), tenta3=("13a3aa960", "unpublished")))
+        shown, text = self.card(self.rows(main=("f4c9ae7aa", "behind"), arm2=("f4c9ae7aa", "behind"), arm3=("13a3aa960", "unpublished")))
         self.assertTrue(shown)
-        for needle in ("do not all run the same release", "f4c9ae7", "13a3aa9", "behind the release apply would install", "not in the release source", "ct-admin apply"):
+        for needle in ("do not all run the same release", "f4c9ae7", "13a3aa9", "behind the release apply would install", "not in the release source", "arm-admin apply"):
             self.assertIn(needle, text)
-        self.assertIn("ct-admin apply --force --worker tenta3", text)
+        self.assertIn("arm-admin apply --force --worker arm3", text)
 
     def test_a_worker_behind_on_its_own_is_still_said(self):
         shown, text = self.card(self.rows(a=("aaa1111aa", "behind")))
         self.assertTrue(shown)
 
     def test_the_watch_says_it_once_and_again_only_when_it_changes(self):
-        from ct.admin import watch
+        from armada.admin import watch
         mem, sent, calls = {}, [], []
 
         class Mem:
@@ -444,7 +444,7 @@ class ReleaseMismatch(AdminBase):
 
     def test_apply_does_not_silently_replace_a_commit_the_release_source_does_not_have(self):
         ctx = mock.Mock()
-        ctx.name, ctx.ssh.host = "tenta3", "h"
+        ctx.name, ctx.ssh.host = "arm3", "h"
         ctx.source.resolve.return_value = "f" * 40
         ctx.source.relation.return_value = "unpublished"
         ctx.repos.results = tempfile.mkdtemp()

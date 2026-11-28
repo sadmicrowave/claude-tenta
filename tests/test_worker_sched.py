@@ -1,4 +1,4 @@
-"""ct-worker: smart sleep, capacity, the watchdog, shared computers and housekeeping."""
+"""arm-worker: smart sleep, capacity, the watchdog, shared computers and housekeeping."""
 import unittest
 import json
 import os
@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import gitio, util  # noqa: E402
+from armada import gitio, util  # noqa: E402
 from support import Base, sh  # noqa: E402
 
 

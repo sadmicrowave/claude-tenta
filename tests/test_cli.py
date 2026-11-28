@@ -12,8 +12,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ct import publishdiag
-from ct import cli, config, guard, perms  # noqa: E402
+from armada import publishdiag
+from armada import cli, config, guard, perms  # noqa: E402
 from support import IP, REGISTRY, Base  # noqa: E402
 
 
@@ -21,10 +21,10 @@ class CliBase(Base):
     def setUp(self):
         super().setUp()
         self.answers = []
-        self.ctx = cli.Context(self.w, product="testct", admin="ct-admin", installed_rev=self.tmp / "installed-rev", notifier=self.notifier,
+        self.ctx = cli.Context(self.w, product="testct", admin="arm-admin", installed_rev=self.tmp / "installed-rev", notifier=self.notifier,
                                canary_status=self.tmp / "canary.json", ask=lambda prompt: self.answers.pop(0), uptime=lambda: 4000.0)
         (self.tmp / "installed-rev").write_text("abcdef1234567890\n")
-        self.env = mock.patch.dict(os.environ, {"CT_COLOR": "never"})
+        self.env = mock.patch.dict(os.environ, {"ARM_COLOR": "never"})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -107,7 +107,7 @@ class Approving(CliBase):
         code, out = self.run_cli("approve", "job-0001")
         self.assertEqual(code, 0)
         self.assertIn("APPROVED", out)
-        self.assertIn("ct-run result job-0001", out)
+        self.assertIn("arm-run result job-0001", out)
         self.assertEqual((self.state / "approved" / "job-0001").read_text(), self.digest("job-0001"))
 
     def test_interactive_no_leaves_it_waiting(self):
@@ -166,7 +166,7 @@ class Stopping(CliBase):
         code, out = self.run_cli("cancel", "job-0001")
         self.assertEqual(code, 1)
         self.assertIn("already running, finished, or unknown", out)
-        self.assertIn("ct-kill", out)
+        self.assertIn("arm-kill", out)
 
     def test_kill_says_when_nothing_is_running(self):
         code, out = self.run_cli("kill", "job-0001")
@@ -242,7 +242,7 @@ class Security(CliBase):
         self.keeper.keep("job-0001", "full trace here")
         code, out = self.run_cli("output")
         self.assertIn("job-0001", out)
-        self.assertIn("ct-output <job>", out)
+        self.assertIn("arm-output <job>", out)
         self.assertEqual(self.run_cli("output", "job-0001")[1].strip(), "full trace here")
         kept = self.run_cli("output", "job-0002")[1]
         self.assertIn("No kept output", kept)
@@ -341,7 +341,7 @@ class Status(CliBase):
         code, out = self.run_cli("status")
         self.assertRegex(out, r"running\s+job-0001\s+pid 4242 PROCESS GONE")
         self.assertIn("WAITING FOR YOU", out.upper())
-        self.assertIn("ct-admin approve job-0002", out)                                    # the client's command name is configurable
+        self.assertIn("arm-admin approve job-0002", out)                                    # the client's command name is configurable
         self.assertIn("job-0002", out)
 
     def test_recent_results_are_summarised(self):
@@ -360,7 +360,7 @@ class Status(CliBase):
         code, out = self.run_cli("status")
         self.assertIn("LOCKED", out)
         self.assertIn("SECURITY LOCKDOWN", out)
-        self.assertIn("ct-worker quarantine", out)
+        self.assertIn("arm-worker quarantine", out)
         self.assertNotIn("NOT LOCKED", out)
 
     def test_the_canary_check_reads_the_watchers_status_file(self):
@@ -390,7 +390,7 @@ class Status(CliBase):
         publishdiag.record(self.state, False, "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.")
         out = self.run_cli("status")[1]
         self.assertRegex(out, r"Publish\s+FAILING")
-        self.assertIn("ct-setup install", out)
+        self.assertIn("arm-setup install", out)
         self.assertIn("not picked up although it ran", out)
         publishdiag.record(self.state, True)
         self.assertIsNone(publishdiag.load(self.state))
@@ -404,10 +404,10 @@ class Status(CliBase):
 
     def test_status_shows_a_refused_registry_sync_with_its_fix(self):
         (Path(self.w.s.registry_path).parent / "registry-sync.json").write_text(json.dumps({"ts": int(__import__("time").time()), "ok": False,
-                                                                                         "status": "refused: signature does not match. On your computer, sign the registry again: ct-admin proposals publish"}))
+                                                                                         "status": "refused: signature does not match. On your computer, sign the registry again: arm-admin proposals publish"}))
         out = self.run_cli("status")[1]
         self.assertRegex(out, r"Registry sync\s+REFUSED")
-        self.assertIn("ct-admin proposals publish", out)
+        self.assertIn("arm-admin proposals publish", out)
         (Path(self.w.s.registry_path).parent / "registry-sync.json").write_text(json.dumps({"ts": int(__import__("time").time()), "ok": True, "status": "up to date"}))
         self.assertRegex(self.run_cli("status")[1], r"Registry sync\s+OK")
 
@@ -418,7 +418,7 @@ class Status(CliBase):
         self.assertIn("AWAKE", out)
         self.assertIn("Looked for jobs now", out)
         self.assertTrue((self.state / "activity.stamp").exists())
-        self.assertIn("wake", [c for c, _ in cli.CT_HELP] + [c.split()[0] for c, _ in cli.CT_HELP])
+        self.assertIn("wake", [c for c, _ in cli.ARM_HELP] + [c.split()[0] for c, _ in cli.ARM_HELP])
 
     def test_action_hash_refuses_places_a_program_cannot_be_and_prints_the_pin_for_one_that_can(self):
         code, out = self.run_cli("action-hash", "/tmp/evil")[:2]
@@ -428,7 +428,7 @@ class Status(CliBase):
         self.assertEqual(self.run_cli("action-hash", "relative")[0], 2)
         code, out = self.run_cli("action-hash", PROGRAM)[:2]
         self.assertRegex(out, r"sha256\s+[0-9a-f]{64}")
-        self.assertIn("ct-admin action add", out)
+        self.assertIn("arm-admin action add", out)
         info = json.loads(self.run_cli("action-hash", "--json", PROGRAM)[1])
         self.assertEqual(sorted(info), ["ok", "path", "problem", "sha256"])
 
@@ -441,16 +441,16 @@ class FromConfig(unittest.TestCase):
     def cfg(self, extra=""):
         d = Path(tempfile.mkdtemp())
         self.root = d
-        toml = d / "ct.toml"
+        toml = d / "armada.toml"
         toml.write_text(f'[identity]\nname = "homect"\n[paths]\ncode = "{d}/code"\nstate_root = "{d}/var"\nconfig = "{d}/etc"\nworker_home = "{d}/home"\n'
                         f'[github]\nowner = "alice"\n[hardware]\nprofile = "old-laptop"\n{extra}')
-        return config.load(toml, env={"CT_CONFIG": ""})
+        return config.load(toml, env={"ARM_CONFIG": ""})
 
     def test_everything_is_built_from_the_configuration(self):
         cfg = self.cfg()
         (self.root / "etc").mkdir()
         sec = self.root / "etc" / "secrets.env"
-        sec.write_text("CT_ALERT_TOKEN=tk_1\n")
+        sec.write_text("ARM_ALERT_TOKEN=tk_1\n")
         sec.chmod(0o640)
         ctx = cli.Context.from_config(cfg, env={})
         w = ctx.w
@@ -467,26 +467,26 @@ class FromConfig(unittest.TestCase):
         self.assertEqual((direct.idle_fetch_s, direct.sleep_fetch_s), (0, 0))
 
     def test_the_alert_address_comes_from_the_secrets_file(self):
-        cfg = self.cfg(extra='[alerts]\nkind = "ntfy"\n')                    # no address in ct.toml: it loads, and the notifier gets it from secrets.env
+        cfg = self.cfg(extra='[alerts]\nkind = "ntfy"\n')                    # no address in armada.toml: it loads, and the notifier gets it from secrets.env
         (self.root / "etc").mkdir(exist_ok=True)
         sec = self.root / "etc" / "secrets.env"
-        sec.write_text("CT_ALERT_URL=https://ntfy.example/from-secrets\n")
+        sec.write_text("ARM_ALERT_URL=https://ntfy.example/from-secrets\n")
         sec.chmod(0o640)
         ctx = cli.Context.from_config(cfg, env={})
         self.assertEqual(ctx.notifier.url, "https://ntfy.example/from-secrets")
 
     def test_the_worker_runs_its_jobs_through_exec_and_keeps_a_private_quarantine(self):
         w = cli.Context.from_config(self.cfg(), env={}).w
-        self.assertEqual(w.s.exec_argv[1:], ["-m", "ct.cli", "exec"])
+        self.assertEqual(w.s.exec_argv[1:], ["-m", "armada.cli", "exec"])
         self.assertTrue((w.state / "quarantine").is_dir())
         self.assertEqual(oct((w.state / "quarantine").stat().st_mode & 0o777), "0o700")
 
     def test_alerts_come_from_the_configuration_and_the_token_from_secrets_only(self):
-        cfg = self.cfg('[alerts]\nkind = "ntfy"\nurl = "https://ntfy.example.com/ct"\nremind_hours = [2, 4]\n')
+        cfg = self.cfg('[alerts]\nkind = "ntfy"\nurl = "https://ntfy.example.com/armada"\nremind_hours = [2, 4]\n')
         (self.root / "etc").mkdir()
-        (self.root / "etc" / "secrets.env").write_text("CT_ALERT_TOKEN=tk_9\n")
+        (self.root / "etc" / "secrets.env").write_text("ARM_ALERT_TOKEN=tk_9\n")
         ctx = cli.Context.from_config(cfg, env={})
-        self.assertEqual((ctx.notifier.url, ctx.notifier.token), ("https://ntfy.example.com/ct", "tk_9"))
+        self.assertEqual((ctx.notifier.url, ctx.notifier.token), ("https://ntfy.example.com/armada", "tk_9"))
         self.assertEqual(ctx.w.lock.remind_at, [2.0, 4.0])
         self.assertEqual(cli.Context.from_config(self.cfg(), env={}).notifier.url, "")
 
@@ -505,7 +505,7 @@ class FromConfig(unittest.TestCase):
         cfg = self.cfg()
         old = os.umask(0o022)
         try:
-            with redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, {"CT_COLOR": "never"}):
+            with redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, {"ARM_COLOR": "never"}):
                 (self.root / "var" / "state").mkdir(parents=True)
                 (self.root / "var" / "state" / "old.txt").write_text("x")
                 os.chmod(self.root / "var" / "state" / "old.txt", 0o644)
@@ -517,10 +517,10 @@ class FromConfig(unittest.TestCase):
         self.assertTrue((self.root / "var" / "state" / perms.MODES_MARKER).exists())
 
     def test_a_bad_configuration_is_explained_not_a_traceback(self):
-        bad = Path(tempfile.mkdtemp()) / "ct.toml"
+        bad = Path(tempfile.mkdtemp()) / "armada.toml"
         bad.write_text('[server]\nhost = "a b"\n')
         out = io.StringIO()
-        with redirect_stdout(out), mock.patch.dict(os.environ, {"CT_CONFIG": str(bad), "CT_COLOR": "never"}):
+        with redirect_stdout(out), mock.patch.dict(os.environ, {"ARM_CONFIG": str(bad), "ARM_COLOR": "never"}):
             self.assertEqual(cli.main(["status"]), 1)
         self.assertIn("The configuration has problems", out.getvalue())
         self.assertIn("server.host", out.getvalue())
@@ -532,7 +532,7 @@ class RootRunCommands(unittest.TestCase):
         good, bad = d / "good.yaml", d / "bad.yaml"
         good.write_text("classes:\n  ok-one:\n    run: [/bin/true]\n    env: {PYTHONPATH: /opt/x/tools/pip}\n    packages: ['pip:a==1']\n")
         bad.write_text("classes:\n  ok-one:\n    run: [/bin/true]\n    env: {PYTHONPATH: /opt/elsewhere}\n")
-        cfg = config.load(None, env={"CT_PATHS_CODE": "/opt/x"})
+        cfg = config.load(None, env={"ARM_PATHS_CODE": "/opt/x"})
         err = io.StringIO()
         self.assertEqual(cli.cmd_check_registry(good, cfg.path("tools")), 0)
         with redirect_stderr(err):

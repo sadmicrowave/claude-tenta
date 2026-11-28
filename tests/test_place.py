@@ -1,4 +1,4 @@
-"""Placing a job on one of several workers: the wiring around ct.sched (reading each worker over its own connection, explaining, remembering where a job went)."""
+"""Placing a job on one of several workers: the wiring around armada.sched (reading each worker over its own connection, explaining, remembering where a job went)."""
 import io
 import json
 import re
@@ -9,15 +9,15 @@ from pathlib import Path
 from unittest import mock
 
 import support  # noqa: F401
-from ct import config, sched
-from ct.client import cli, place
-from ct.client.repo import ClientError
+from armada import config, sched
+from armada.client import cli, place
+from armada.client.repo import ClientError
 
 
 def cfg_file(d, name, kind="direct"):
     p = Path(d) / f"{name}.toml"
     p.write_text(f'[identity]\nname = "{name}"\n[server]\nhost = "{name}.example"\nadmin_user = "agent"\n[transport]\nkind = "{kind}"\n')
-    return config.load(str(p), env={"CT_CONFIG": ""})
+    return config.load(str(p), env={"ARM_CONFIG": ""})
 
 
 class FakeRepos:
@@ -73,14 +73,14 @@ class Setup(unittest.TestCase):
 
 
 class Dedicated(Setup):
-    """A command dedicated to a worker in ~/.tenta.toml goes only there. The worker is NOT reserved: it stays in the running for every other command."""
+    """A command dedicated to a worker in ~/.armada.toml goes only there. The worker is NOT reserved: it stays in the running for every other command."""
 
     def tearDown(self):
-        from ct.client import here
+        from armada.client import here
         here.global_path().unlink(missing_ok=True)
 
     def test_the_dedicated_command_goes_there_and_the_worker_still_takes_other_work(self):
-        from ct.client import here
+        from armada.client import here
         for n in ("vmx", "ghx"):
             self.add(n, classes=("sys-status", "nmap"))
         self.add("mini", classes=("sys-status", "nmap"), running=3)                      # the dedicated worker is the busiest: it is still not left out
@@ -168,7 +168,7 @@ class TheWhereCommand(Setup):
         self.add("ghx", fail="down")
         main = mock.Mock(repos=self.repos["mini"], product="mini")
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+        with mock.patch("armada.client.place.entries", self.ents), mock.patch("armada.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
                 redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(["where", "sys-status"], ctx=main, cfg=self.cfgs["mini"])
         text = out.getvalue() + err.getvalue()
@@ -182,9 +182,9 @@ class TheClassesCommand(Setup):
         self.add("mini", classes=("sys-status", "nmap"))
         self.add("vmx", classes=("sys-status",))
         self.add("ghx", fail="down")
-        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="ct-admin")
+        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="arm-admin")
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+        with mock.patch("armada.client.place.entries", self.ents), mock.patch("armada.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
                 redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(["classes"], ctx=main, cfg=self.cfgs["mini"])
         text = out.getvalue() + err.getvalue()
@@ -201,7 +201,7 @@ class TheClassesCommand(Setup):
         self.add("mini")
         main = mock.Mock(repos=self.repos["mini"], product="mini")
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch("ct.client.place.entries", self.ents), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch("armada.client.place.entries", self.ents), redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(["classes", "--worker", "nope"], ctx=main, cfg=self.cfgs["mini"])
         self.assertEqual(rc, 2)
         text = out.getvalue() + err.getvalue()
@@ -210,14 +210,14 @@ class TheClassesCommand(Setup):
 
 
 class TheJobsList(Setup):
-    """ct-run jobs with several workers: every worker's jobs together, newest first, each with its worker; one that cannot be read is named."""
+    """arm-run jobs with several workers: every worker's jobs together, newest first, each with its worker; one that cannot be read is named."""
 
     def rows(self, when, jid):
         from datetime import datetime, timezone
         return {jid: {"id": jid, "status": "ok", "class": "sys-status"}}, [(datetime(2026, 11, 19, 12, when, tzinfo=timezone.utc), "ok", jid, "", "sys-status")]
 
     def run_jobs(self, by_repo):
-        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="ct-admin", label_of=lambda jid, cls: cls, hints=[])
+        main = mock.Mock(repos=self.repos["mini"], product="mini", home=self.tmp / "home", admin="arm-admin", label_of=lambda jid, cls: cls, hints=[])
         out, err = io.StringIO(), io.StringIO()
 
         def jobs_of(repos, admin):
@@ -225,8 +225,8 @@ class TheJobsList(Setup):
             if isinstance(r, Exception):
                 raise r
             return r
-        with mock.patch("ct.client.place.entries", self.ents), mock.patch("ct.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
-                mock.patch("ct.client.cli.jobs_of", jobs_of), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch("armada.client.place.entries", self.ents), mock.patch("armada.client.cli.ClientRepos.from_config", side_effect=lambda c: self.repos[c.identity.name]), \
+                mock.patch("armada.client.cli.jobs_of", jobs_of), redirect_stdout(out), redirect_stderr(err):
             rc = cli.main(["jobs"], ctx=main, cfg=self.cfgs["mini"])
         return rc, re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue() + err.getvalue())
 
@@ -253,7 +253,7 @@ class TheJobsList(Setup):
 
 class ForcedChannel(unittest.TestCase):
     def test_naming_a_worker_does_not_send_a_job_down_a_channel_it_does_not_listen_on(self):
-        from ct.client.repo import ClientError
+        from armada.client.repo import ClientError
         class Repos:
             pass
         d = Path(tempfile.mkdtemp())
@@ -269,15 +269,15 @@ class ForcedChannel(unittest.TestCase):
             main = type("Ctx", (), {"home": d, "repos": repos})()
             place.route(main, cfg, "sys-status", "box", entries_fn=lambda c: [("box", cfg, None)], repos_of=lambda e: repos, make_ctx=lambda e: main)
         self.assertEqual(e.exception.facts[-1], ("Code", "placement.transport.mismatch"))
-        self.assertIn("ct-setup", " ".join(e.exception.steps))
+        self.assertIn("arm-setup", " ".join(e.exception.steps))
 
 
 class EveryReasonShown(unittest.TestCase):
-    """What the person reads when no worker can take a job, or asks ct-run where: every worker, every reason, and the codes."""
+    """What the person reads when no worker can take a job, or asks arm-run where: every worker, every reason, and the codes."""
 
     def choice(self):
         from test_sched import pick, w
-        return pick([w("bad", locked=True, jail=False), w("tenta2", jail=False), w("gone", classes=("other",))])
+        return pick([w("bad", locked=True, jail=False), w("arm2", jail=False), w("gone", classes=("other",))])
 
     def test_the_rows_give_each_reason_its_own_line_and_the_codes_last(self):
         ch = self.choice()
@@ -293,9 +293,9 @@ class EveryReasonShown(unittest.TestCase):
         ch = self.choice()
         e = place.none_error("sys-status", ch)
         self.assertEqual(e.title, "No worker can take this job right now")
-        for needle in ("bad: is LOCKED", "bad: has its job isolation OFF", "tenta2: has its job isolation OFF", "gone: does not offer the class sys-status"):
+        for needle in ("bad: is LOCKED", "bad: has its job isolation OFF", "arm2: has its job isolation OFF", "gone: does not offer the class sys-status"):
             self.assertIn(needle, " | ".join(e.steps), needle)
-        self.assertIn("ct-run where sys-status", " | ".join(e.steps))
+        self.assertIn("arm-run where sys-status", " | ".join(e.steps))
         self.assertEqual(e.facts[-1], ("Code", "placement.none_available"))
 
 
@@ -318,7 +318,7 @@ class TheConnectionReallyUsed(Setup):
             queue = self.repo_with_origin("git@github.com:someone/q.git")
         self.assertEqual(place.actual_connection(R, "direct"), "github")
         import subprocess
-        subprocess.run(["git", "-C", str(R.queue), "remote", "set-url", "origin", "ssh://" + "tenta-mail" + "@" + "box.example/var/lib/x/queue.git"], check=True)
+        subprocess.run(["git", "-C", str(R.queue), "remote", "set-url", "origin", "ssh://" + "armada-mail" + "@" + "box.example/var/lib/x/queue.git"], check=True)
         self.assertEqual(place.actual_connection(R, "github"), "direct")
 
     def test_with_no_copy_to_look_at_the_configuration_is_used(self):
@@ -452,7 +452,7 @@ class ABurstReadsEachWorkerOnce(Setup):
             self.add(n)
         looks = []
         self.route_n(1, lambda repos: looks.append(1))
-        with mock.patch("ct.client.place.time.time", return_value=__import__("time").time() + 60):
+        with mock.patch("armada.client.place.time.time", return_value=__import__("time").time() + 60):
             self.route_n(1, lambda repos: looks.append(1))
         self.assertEqual(len(looks), 6)
 

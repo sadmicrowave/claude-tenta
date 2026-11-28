@@ -6,5 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 Environment=PYTHONPATH={{lib}}
-Environment=CT_CONFIG={{config}}/ct.toml
-ExecStart=/usr/bin/python3 -m ct.update --verified
+Environment=ARM_CONFIG={{config}}/armada.toml
+ExecStart=/usr/bin/python3 -m armada.update --verified

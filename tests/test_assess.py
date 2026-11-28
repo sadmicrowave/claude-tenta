@@ -4,7 +4,7 @@ import unittest
 import support  # noqa: F401
 
 USER_AT_HOST = "agent" + "@" + "h.example"
-from ct.setup import assess
+from armada.setup import assess
 
 GOOD = {"OS_ID": "ubuntu", "OS_LIKE": "debian", "OS_VERSION": "24.04", "OS_NAME": "Ubuntu 24.04.3 LTS", "ARCH": "x86_64", "CORES": "2", "MEM_MB": "2924", "DISK_MB": "20000",
         "PYTHON": "3.12", "SYSTEMD": "yes", "SUDO": "yes", "SUDO_GROUP": "yes", "GIT": "yes", "VIRT": "vmware", "INSTALLS": "", "WHO": "agent"}
@@ -135,7 +135,7 @@ class FixesAreExactForTheSystem(unittest.TestCase):
     def test_no_instruction_in_the_source_uses_su_without_the_dash(self):
         from pathlib import Path
         import re
-        bad = [str(f) for f in (Path(__file__).resolve().parents[1] / "src" / "ct").rglob("*.py") if f.name != "cards.py" and re.search(r"\bsu -c ", f.read_text())]
+        bad = [str(f) for f in (Path(__file__).resolve().parents[1] / "src" / "armada").rglob("*.py") if f.name != "cards.py" and re.search(r"\bsu -c ", f.read_text())]
         self.assertEqual(bad, [], "use assess.as_admin")
 
 
@@ -143,7 +143,7 @@ class WindowsComputers(unittest.TestCase):
     """A computer that greets as Windows is a Special Use worker with the separate Windows release (not available yet): it is recognised before anything is run on it, and nothing is changed."""
 
     def test_the_windows_ssh_greeting_is_recognised_and_sorted_after_linux(self):
-        from ct.setup import discover
+        from armada.setup import discover
         hint, kind = discover.os_hint("SSH-2.0-OpenSSH_for_Windows_9.5")
         self.assertEqual(kind, "windows")
         self.assertIn("Windows", hint)

@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 import support  # noqa: F401
-from ct.setup import cli
+from armada.setup import cli
 
 
 def commands():
@@ -13,7 +13,7 @@ def commands():
 
 
 class EverySetupCommandKnowsWhichComputerItActsOn(unittest.TestCase):
-    """The standing rule: a ct-setup command that acts on a machine never assumes which one. Every command is classified here, so a new one cannot be added without saying."""
+    """The standing rule: an arm-setup command that acts on a machine never assumes which one. Every command is classified here, so a new one cannot be added without saying."""
 
     def test_every_command_is_in_exactly_one_class(self):
         classes = [set(cli.PICKS), set(cli.PICK_COMMANDS), set(cli.NEW_COMMANDS), set(cli.LOCAL_COMMANDS)]
@@ -27,12 +27,12 @@ class EverySetupCommandKnowsWhichComputerItActsOn(unittest.TestCase):
 
     def test_a_command_about_the_computer_it_runs_on_refuses_a_worker_name(self):
         for n in cli.LOCAL_COMMANDS + cli.NEW_COMMANDS:
-            with mock.patch("ct.setup.cli.emit") as e:
+            with mock.patch("armada.setup.cli.emit") as e:
                 self.assertEqual(cli.main([n, "--worker", "x"]), 2, n)
             self.assertIn("has no --worker", e.call_args[0][0])
 
     def test_a_worker_name_that_is_nobodys_stops_uninstall_rename_and_transport_before_anything_runs(self):
-        with mock.patch("ct.setup.cli.aim_at_worker", return_value=2) as aim:
+        with mock.patch("armada.setup.cli.aim_at_worker", return_value=2) as aim:
             for n in cli.PICK_COMMANDS:
                 self.assertEqual(cli.main([n, "--worker", "x"]), 2, n)
             self.assertEqual(aim.call_count, len(cli.PICK_COMMANDS))
@@ -43,9 +43,9 @@ class InstallGivesTheInstallerTheComputerYouMeantFixture(unittest.TestCase):
 
     def setUp(self):
         d = Path(tempfile.mkdtemp())
-        self.conf = d / "ct.toml"
-        self.conf.write_text('[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[paths]\nclient_home = "%s"\n' % (d / ".ct"))
-        env = mock.patch.dict(os.environ, {"CT_CONFIG": str(self.conf), "HOME": str(d)})
+        self.conf = d / "armada.toml"
+        self.conf.write_text('[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[paths]\nclient_home = "%s"\n' % (d / ".armada"))
+        env = mock.patch.dict(os.environ, {"ARM_CONFIG": str(self.conf), "HOME": str(d)})
         env.start()
         self.addCleanup(env.stop)
 
@@ -58,7 +58,7 @@ class InstallGivesTheInstallerTheComputerYouMeantFixture(unittest.TestCase):
 
             def run_all(inner):
                 return [("a job went through the whole loop", "ok", "")]
-        with mock.patch("ct.setup.cli.Installer", Fake), mock.patch("ct.setup.cli.emit"):
+        with mock.patch("armada.setup.cli.Installer", Fake), mock.patch("armada.setup.cli.emit"):
             rc = cli.main(argv)
         return rc, seen
 
@@ -85,7 +85,7 @@ class ANewComputerIsAskedHowItPassesJobs(InstallGivesTheInstallerTheComputerYouM
 
     def test_the_new_computers_installer_is_not_given_the_transport_it_is_only_suggested_the_first_ones(self):
         import sys as _sys
-        from ct.setup import addworker, assess
+        from armada.setup import addworker, assess
         seen = {}
 
         class Fake:
@@ -98,8 +98,8 @@ class ANewComputerIsAskedHowItPassesJobs(InstallGivesTheInstallerTheComputerYouM
         good = assess.verdict({"OS_ID": "debian", "OS_LIKE": "", "OS_VERSION": "13", "OS_NAME": "Debian 13", "ARCH": "x86_64", "CORES": "2", "MEM_MB": "4000", "DISK_MB": "20000", "PYTHON": "3.13", "SYSTEMD": "yes",
                                "SUDO": "yes", "SUDO_GROUP": "yes", "VIRT": "vmware", "INSTALLS": "", "WHO": "agent", "HOSTNAME": "box"}, "agent")
         self.conf.write_text(self.conf.read_text() + '[transport]\nkind = "github"\n')
-        with mock.patch("ct.setup.cli.Installer", Fake), mock.patch("ct.setup.cli.emit"), mock.patch.object(addworker.assess_mod, "assess", lambda h, u, p=22: good), \
-                mock.patch("ct.setup.addworker.notice", create=True):
+        with mock.patch("armada.setup.cli.Installer", Fake), mock.patch("armada.setup.cli.emit"), mock.patch.object(addworker.assess_mod, "assess", lambda h, u, p=22: good), \
+                mock.patch("armada.setup.addworker.notice", create=True):
             cli.main(["add-worker", "192.0.2.77", "--yes"])
         self.assertNotIn("transport.kind", seen["given"])                         # so the wizard asks (or, with --yes, takes the default)
         self.assertEqual(seen["suggest"]["transport.kind"], "github")             # and the first install's is what it offers

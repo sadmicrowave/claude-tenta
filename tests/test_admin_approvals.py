@@ -1,12 +1,12 @@
-"""ct-admin: approving with a signed key, signed orders, clean, and the signed registry."""
+"""arm-admin: approving with a signed key, signed orders, clean, and the signed registry."""
 import re
 import json
 import subprocess
 
 from admin_support import AdminBase, REGISTRY, ssh_key  # noqa: F401  (also points HOME at a throwaway folder)
 
-from ct import approvals
-from ct.admin import jobs
+from armada import approvals
+from armada.admin import jobs
 
 
 class SignedApprovalsFixture(AdminBase):
@@ -67,7 +67,7 @@ class SignedApprovals(SignedApprovalsFixture):
         self.worker_publishes(approvers=approvals.fingerprints(self.signers.read_text()))
         self.answers.append("y")
         self.admin("approve", "job-b", "--ssh")
-        self.assertEqual(self.ssh.calls, [f"ct-worker approve job-b --sha256 {self.digest}"])
+        self.assertEqual(self.ssh.calls, [f"arm-worker approve job-b --sha256 {self.digest}"])
         self.assertIsNone(self.published("job-b"))
 
     def test_a_worker_that_does_not_say_which_keys_it_trusts_gets_the_old_way(self):
@@ -85,7 +85,7 @@ class SignedApprovals(SignedApprovalsFixture):
 
 
 class SignedOrders(SignedApprovalsFixture):
-    """ct-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
+    """arm-admin unlock, cancel and kill: signed here and published; the worker carries them out, no login."""
 
     def setUp(self):
         super().setUp()
@@ -130,10 +130,10 @@ class SignedOrders(SignedApprovalsFixture):
 
     def test_ssh_forces_the_old_way_and_an_older_worker_gets_it_automatically(self):
         self.admin("cancel", "job-b", "--ssh")
-        self.assertEqual(self.ssh.calls, ["ct-worker cancel job-b"])
+        self.assertEqual(self.ssh.calls, ["arm-worker cancel job-b"])
         self.worker_publishes(capacity=4)
         self.admin("unlock")
-        self.assertEqual(self.ssh.calls[-1], "ct-worker unlock")
+        self.assertEqual(self.ssh.calls[-1], "arm-worker unlock")
 
 
 class CleanCommand(SignedApprovalsFixture):
@@ -202,7 +202,7 @@ class SignedRegistry(SignedApprovalsFixture):
         self.trusted()
         code, out, err = self.admin("retire", "careful", "--yes")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.ssh.calls, [])                                           # no sudo ct-update, no login
+        self.assertEqual(self.ssh.calls, [])                                           # no sudo arm-update, no login
         self.repos.fetch_queue()
         text = self.repos.show_file("origin/main", "registry.yaml")
         self.assertNotIn("  careful:", text)
@@ -244,7 +244,7 @@ class SignedRegistry(SignedApprovalsFixture):
         self.worker_publishes(capacity=4)
         self.health(self.rel[0])
         self.admin("retire", "careful", "--yes")
-        self.assertTrue(any(c.startswith("sudo ct-update --rev ") for c in self.ssh.calls))
+        self.assertTrue(any(c.startswith("sudo arm-update --rev ") for c in self.ssh.calls))
 
     def health(self, rev):
         self.ssh.answers["systemctl"] = f"timer-fetch=active\ntimer-step=active\ntimer-canary=active\nfailed=0\nregistry=0\nrev={rev}\n"
@@ -261,14 +261,14 @@ class BeforeApprovingAToolClass(AdminBase):
         return re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(" ".join(str(x) for x in d) if isinstance(d, tuple) else str(d) for d in card["details"]))
 
     def test_the_review_card_names_the_folders_the_program_found_and_each_folders_state(self):
-        from ct.admin import jobs
+        from armada.admin import jobs
         card = jobs.review_card({"id": "scan-abc123", "class": "scan"}, None, "lab", info={**self.INFO, "tool_check": self.CHECK}, digest="a" * 64)
         text = self.text_of(card)
         for needle in ("Tool folders /opt/tools/a", "/opt/tools/b", "Found /opt/tools/a/scan  (in a tool folder)", "/opt/tools/b  missing on the worker"):
             self.assertIn(needle, text)
 
     def test_a_program_that_is_found_nowhere_is_said_loudly_and_an_unknown_state_is_not_invented(self):
-        from ct.admin import jobs
+        from armada.admin import jobs
         none = jobs.tool_check_rows({**self.CHECK, "found": None, "where": None}, ["/opt/tools/a"])
         self.assertTrue(any("NOT FOUND" in str(v) for _, v in none))
         unknown = jobs.tool_check_rows(None, ["/opt/tools/a"])

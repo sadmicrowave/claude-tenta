@@ -1,7 +1,7 @@
 #!/bin/bash
-# BY HAND, against REAL GitHub and TWO throwaway OrbStack machines: the first worker (Direct) is installed, then `ct-setup add-worker` adds a SECOND worker over GitHub, and the repository rules are checked for real:
+# BY HAND, against REAL GitHub and TWO throwaway OrbStack machines: the first worker (Direct) is installed, then `arm-setup add-worker` adds a SECOND worker over GitHub, and the repository rules are checked for real:
 #   scripts/real-github-addworker [NAME]      NAME (default ctaw): the first worker's install name; the second worker's repositories are <you>/NAME-wkb-queue and -results
-# What it does to your GitHub account: creates those two PRIVATE repositories, adds the second worker's deploy keys, and DELETES the repositories again at the end (through `ct-admin workers remove --repos delete`, answered at a pseudo terminal;
+# What it does to your GitHub account: creates those two PRIVATE repositories, adds the second worker's deploy keys, and DELETES the repositories again at the end (through `arm-admin workers remove --repos delete`, answered at a pseudo terminal;
 # the trap deletes them with gh if that did not happen). Needs the delete_repo scope. Your own configuration is not touched (throwaway HOME); both machines are deleted when the run ends. The code under test is THIS checkout (PYTHONPATH), not the installed copy.
 set -u
 cd "$(dirname "$0")/.."; REPO=$PWD; . scripts/e2e-names.sh
@@ -11,7 +11,7 @@ Q=$NAME-$WN-queue; R=$NAME-$WN-results   # the names add-worker suggests: <first
 for r in $Q $R $NAME-other; do gh repo view "$OWNER/$r" >/dev/null 2>&1 && { echo "$OWNER/$r already exists: choose another NAME"; exit 3; }; done
 gh auth status 2>&1 | grep -q delete_repo || { echo "gh has no delete_repo scope: gh auth refresh -s delete_repo"; exit 2; }
 orb delete -f $M1 >/dev/null 2>&1; orb delete -f $M2 >/dev/null 2>&1
-H=$(mktemp -d /tmp/ct-awreal.XXXXXX); mkdir -p "$H/.local/bin"; IP1=""; IP2=""
+H=$(mktemp -d /tmp/arm-awreal.XXXXXX); mkdir -p "$H/.local/bin"; IP1=""; IP2=""
 cleanup() { for r in $Q $R $NAME-other; do gh repo view "$OWNER/$r" >/dev/null 2>&1 && gh repo delete "$OWNER/$r" --yes >/dev/null 2>&1 && echo "(deleted $OWNER/$r)"; done
   for n in 1 2 3; do for m in $M1 $M2; do orb delete -f $m >/dev/null 2>&1; done; sleep 4; done
   for ip in $IP1 $IP2; do [ -n "$ip" ] && ssh-keygen -R "$ip" >/dev/null 2>&1; done; rm -rf "$H"; echo "(machines deleted, throwaway home removed)"; }
@@ -29,28 +29,28 @@ export GH_TOKEN=$(gh auth token) HOME=$H PYTHONPATH=$REPO/src PYTHONDONTWRITEBYT
 CT=(perl -e 'alarm 900; exec @ARGV' env)
 SET=(--set hardening.modules=job-isolation --set network.ssh_from=192.168.0.0/16 --set server.admin_user=$ADMIN)
 echo "== 1. the first worker (Direct)"
-"${CT[@]}" $REAL_HOME/.local/bin/ct-setup install --yes --source "$REPO" --set server.host=$IP1 --set identity.name=$NAME --set transport.kind=direct --set github.owner=$OWNER "${SET[@]}" > /tmp/ct-aw-1.out 2>&1; rc=$?
-tail -6 /tmp/ct-aw-1.out | sed 's/\x1b\[[0-9;]*m//g'; check "the first install finished" test $rc -eq 0
-echo "== 2. ct-setup add-worker over GitHub"
-"${CT[@]}" $REAL_HOME/.local/bin/ct-setup add-worker $IP2 --user $ADMIN --worker-name $WN --yes --source "$REPO" --set transport.kind=github --set github.owner=$OWNER --set hardening.modules=job-isolation --set network.ssh_from=192.168.0.0/16 > /tmp/ct-aw-2.out 2>&1; rc=$?
-tail -14 /tmp/ct-aw-2.out | sed 's/\x1b\[[0-9;]*m//g'; check "add-worker finished" test $rc -eq 0
+"${CT[@]}" $REAL_HOME/.local/bin/arm-setup install --yes --source "$REPO" --set server.host=$IP1 --set identity.name=$NAME --set transport.kind=direct --set github.owner=$OWNER "${SET[@]}" > /tmp/arm-aw-1.out 2>&1; rc=$?
+tail -6 /tmp/arm-aw-1.out | sed 's/\x1b\[[0-9;]*m//g'; check "the first install finished" test $rc -eq 0
+echo "== 2. arm-setup add-worker over GitHub"
+"${CT[@]}" $REAL_HOME/.local/bin/arm-setup add-worker $IP2 --user $ADMIN --worker-name $WN --yes --source "$REPO" --set transport.kind=github --set github.owner=$OWNER --set hardening.modules=job-isolation --set network.ssh_from=192.168.0.0/16 > /tmp/arm-aw-2.out 2>&1; rc=$?
+tail -14 /tmp/arm-aw-2.out | sed 's/\x1b\[[0-9;]*m//g'; check "add-worker finished" test $rc -eq 0
 for r in $Q $R; do
   check "$r exists, is private, and is named for the fleet" bash -c "[ \"\$(gh repo view $OWNER/$r --json isPrivate --jq .isPrivate)\" = true ]"
   check "$r carries the fleet topic" bash -c "gh api repos/$OWNER/$r --jq '.topics[]' | grep -qx armada"
   check "$r has the worker's deploy key" bash -c "[ \$(gh repo deploy-key list -R $OWNER/$r --json id --jq length) -eq 1 ]"
 done
-"$REAL_HOME/.local/bin/ct-run" setup >/dev/null 2>&1
-"$REAL_HOME/.local/bin/ct-run" submit sys-status --worker $WN --wait --timeout 600 > /tmp/ct-aw-job.out 2>&1; rc=$?
-tail -5 /tmp/ct-aw-job.out | sed 's/\x1b\[[0-9;]*m//g'; check "a job sent to the new worker came back over GitHub" test $rc -eq 0
-check "the worker is listed" bash -c "$REAL_HOME/.local/bin/ct-admin workers --no-refresh --json | grep -q '\"$WN\"'"
+"$REAL_HOME/.local/bin/arm-run" setup >/dev/null 2>&1
+"$REAL_HOME/.local/bin/arm-run" submit sys-status --worker $WN --wait --timeout 600 > /tmp/arm-aw-job.out 2>&1; rc=$?
+tail -5 /tmp/arm-aw-job.out | sed 's/\x1b\[[0-9;]*m//g'; check "a job sent to the new worker came back over GitHub" test $rc -eq 0
+check "the worker is listed" bash -c "$REAL_HOME/.local/bin/arm-admin workers --no-refresh --json | grep -q '\"$WN\"'"
 echo "== 3. the isolation rule, for real"
 printf '[identity]\nname = "dupw"\n[server]\nhost = "%s"\nadmin_user = "%s"\n[github]\nowner = "%s"\nqueue_repo = "%s"\nresults_repo = "%s-other"\n[transport]\nkind = "github"\n' $IP2 $ADMIN $OWNER $Q $NAME > $H/.config/armada/dupw.toml
-"$REAL_HOME/.local/bin/ct-admin" workers add dupw --config $H/.config/armada/dupw.toml --github > /tmp/ct-aw-dup.out 2>&1; rc=$?
-sed 's/\x1b\[[0-9;]*m//g' /tmp/ct-aw-dup.out | head -12
-check "a second worker on the same queue repository is refused" bash -c "[ $rc -ne 0 ] && grep -q worker.repo.shared /tmp/ct-aw-dup.out"
-check "nothing was created or listed for it" bash -c "! gh repo view $OWNER/$NAME-other >/dev/null 2>&1 && ! $REAL_HOME/.local/bin/ct-admin workers --no-refresh --json | grep -q dupw"
+"$REAL_HOME/.local/bin/arm-admin" workers add dupw --config $H/.config/armada/dupw.toml --github > /tmp/arm-aw-dup.out 2>&1; rc=$?
+sed 's/\x1b\[[0-9;]*m//g' /tmp/arm-aw-dup.out | head -12
+check "a second worker on the same queue repository is refused" bash -c "[ $rc -ne 0 ] && grep -q worker.repo.shared /tmp/arm-aw-dup.out"
+check "nothing was created or listed for it" bash -c "! gh repo view $OWNER/$NAME-other >/dev/null 2>&1 && ! $REAL_HOME/.local/bin/arm-admin workers --no-refresh --json | grep -q dupw"
 echo "== 4. remove the worker; delete its repositories, answered at a terminal"
-python3 - "$REAL_HOME/.local/bin/ct-admin" $WN > /tmp/ct-aw-rm.out 2>&1 <<'PY'
+python3 - "$REAL_HOME/.local/bin/arm-admin" $WN > /tmp/arm-aw-rm.out 2>&1 <<'PY'
 import pty, os, sys, struct, fcntl, termios, re
 exe, wn = sys.argv[1], sys.argv[2]
 pid, fd = pty.fork()
@@ -67,7 +67,7 @@ while True:
     elif step == 1 and b"[y/N]" in out: os.write(fd, b"y\n"); step = 2
 os.waitpid(pid, 0); print(re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", out.decode().replace("\r", "")))
 PY
-cat /tmp/ct-aw-rm.out
+cat /tmp/arm-aw-rm.out
 for r in $Q $R; do check "$r is gone from GitHub" bash -c "! gh repo view $OWNER/$r >/dev/null 2>&1"; done
-check "the worker is no longer listed" bash -c "! $REAL_HOME/.local/bin/ct-admin workers --no-refresh --json | grep -q '\"$WN\"'"
+check "the worker is no longer listed" bash -c "! $REAL_HOME/.local/bin/arm-admin workers --no-refresh --json | grep -q '\"$WN\"'"
 echo; echo "=== $PASS passed, $FAIL failed"; exit $FAIL

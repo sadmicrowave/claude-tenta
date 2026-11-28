@@ -43,14 +43,14 @@ class Docs(unittest.TestCase):
         self.assertNotIn("Nothing here installs yet", (ROOT / "README.md").read_text())
 
     def test_documented_commands_exist(self):
-        from ct.admin import cli as admin
-        from ct.client import cli as client
-        current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md", "SPECIAL-USE-DEVICES.md")]      # the design papers describe commands that were renamed or removed, or are not built yet (ct-admin class set: slice 2 of special-use devices)
+        from armada.admin import cli as admin
+        from armada.client import cli as client
+        current = [p for p in DOCS if p.name not in ("DESIGN.md", "REVIEW.md", "COMMANDS.md", "SPECIAL-USE-DEVICES.md")]      # the design papers describe commands that were renamed or removed, or are not built yet (arm-admin class set: slice 2 of special-use devices)
         text = "\n".join(p.read_text() for p in current)
-        for name in re.findall(r"ct-admin ([a-z][a-z-]*)", text):
-            self.assertTrue(name in admin.HELP or name in ("help",), f"ct-admin {name}")
-        for name in re.findall(r"ct-run ([a-z][a-z-]*)", text):
-            self.assertTrue(name in client.HELP or name in ("help",), f"ct-run {name}")
+        for name in re.findall(r"arm-admin ([a-z][a-z-]*)", text):
+            self.assertTrue(name in admin.HELP or name in ("help",), f"arm-admin {name}")
+        for name in re.findall(r"arm-run ([a-z][a-z-]*)", text):
+            self.assertTrue(name in client.HELP or name in ("help",), f"arm-run {name}")
 
 
 if __name__ == "__main__":

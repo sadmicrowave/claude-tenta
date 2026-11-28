@@ -11,12 +11,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401  (points HOME at a throwaway folder)
-from ct import runner  # noqa: E402
-from ct.util import SAFE_PATH  # noqa: E402
+from armada import runner  # noqa: E402
+from armada.util import SAFE_PATH  # noqa: E402
 
 PY = sys.executable
 NO_NETNS, NETNS = False, ["--user", "--net"]          # flag lists for the legacy isolate() function
-from ct import jail as jail_mod  # noqa: E402
+from armada import jail as jail_mod  # noqa: E402
 
 
 class FakeSensors:
@@ -86,13 +86,13 @@ class Environment(unittest.TestCase):
         self.assertEqual(runner.build_env("/h", extra_env={"HOME": "/evil"})["HOME"], "/evil")        # a class may set its own variables
 
     def test_a_job_sees_nothing_of_the_workers_environment(self):
-        os.environ["CT_TEST_SECRET"] = "leak"
+        os.environ["ARM_TEST_SECRET"] = "leak"
         try:
             (status, rc, out, *_), _ = run("import os, json; print(json.dumps(dict(os.environ)))", extra_env={"X": "1"})
         finally:
-            del os.environ["CT_TEST_SECRET"]
+            del os.environ["ARM_TEST_SECRET"]
         env = json.loads(out)
-        self.assertNotIn("CT_TEST_SECRET", env)
+        self.assertNotIn("ARM_TEST_SECRET", env)
         self.assertEqual(env["PATH"], SAFE_PATH)
         self.assertEqual(env["X"], "1")
 

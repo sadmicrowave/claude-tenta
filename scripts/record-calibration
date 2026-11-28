@@ -4,7 +4,7 @@
   scripts/record-calibration LABEL                 measure this computer
   scripts/record-calibration LABEL --ssh USER@HOST measure another computer over SSH (key login; the code is copied to a throwaway folder there and removed)
   scripts/record-calibration LABEL --reference     the same, and count this computer in the reference (workers over SSH always count)
-  scripts/record-calibration --rebuild             only rebuild src/ct/calibration_reference.py from the recordings
+  scripts/record-calibration --rebuild             only rebuild src/armada/calibration_reference.py from the recordings
 
 LABEL is a short generic name (for example mac-dev or mini-ubuntu-26.04), never a host name. Each recording is tests/fixtures/calibration/LABEL.json; the
 reference is the median over all of them. Run it a second time to see the spread: the numbers vary, which is why the factor is only a starting estimate."""
@@ -16,14 +16,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from ct import calibration  # noqa: E402
+from armada import calibration  # noqa: E402
 
 DIR = ROOT / "tests" / "fixtures" / "calibration"
-OUT = ROOT / "src" / "ct" / "calibration_reference.py"
+OUT = ROOT / "src" / "armada" / "calibration_reference.py"
 REMOTE = """set -e; d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; tar -x -C "$d"; cd "$d"; python3 -c "
 import json, sys; sys.path.insert(0, 'src')
-from ct import calibration
-print(json.dumps({'phases': calibration.measure('src/ct'), 'os': open('/etc/os-release').read().split('PRETTY_NAME=')[1].split(chr(10))[0].strip(chr(34)), 'python': sys.version.split()[0]}))"
+from armada import calibration
+print(json.dumps({'phases': calibration.measure('src/armada'), 'os': open('/etc/os-release').read().split('PRETTY_NAME=')[1].split(chr(10))[0].strip(chr(34)), 'python': sys.version.split()[0]}))"
 """
 
 
@@ -42,13 +42,13 @@ def main(argv):
         sys.exit(__doc__)
     label, host = argv[0], (argv[argv.index("--ssh") + 1] if "--ssh" in argv else None)
     if host:
-        tar = subprocess.run(["tar", "-c", "-C", str(ROOT), "src/ct"], capture_output=True, check=True, env={"COPYFILE_DISABLE": "1", "PATH": "/usr/bin:/bin"}).stdout
+        tar = subprocess.run(["tar", "-c", "-C", str(ROOT), "src/armada"], capture_output=True, check=True, env={"COPYFILE_DISABLE": "1", "PATH": "/usr/bin:/bin"}).stdout
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", host, REMOTE], input=tar, capture_output=True, timeout=600)
         if r.returncode:
             sys.exit(f"measuring over ssh failed: {r.stderr.decode()[-300:]}")
         rec = json.loads(r.stdout.decode().strip().splitlines()[-1])
     else:
-        rec = {"phases": calibration.measure(ROOT / "src" / "ct"), "os": platform.platform(), "python": platform.python_version()}
+        rec = {"phases": calibration.measure(ROOT / "src" / "armada"), "os": platform.platform(), "python": platform.python_version()}
     DIR.mkdir(parents=True, exist_ok=True)
     (DIR / f"{label}.json").write_text(json.dumps({"label": label, "reference": bool(host) or "--reference" in argv, **rec}, indent=1) + "\n")
     print(f"{label}: {rec['phases']}")

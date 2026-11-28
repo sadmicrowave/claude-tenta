@@ -8,7 +8,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import calibration, calibration_reference  # noqa: E402
+from armada import calibration, calibration_reference  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = sorted((ROOT / "tests" / "fixtures" / "calibration").glob("*.json"))
@@ -62,13 +62,13 @@ class Evidence(unittest.TestCase):
 
 class Measure(unittest.TestCase):
     def test_the_real_steps_run_here_and_each_takes_a_measurable_time(self):
-        got = calibration.measure(ROOT / "src" / "ct")                  # the real thing once, so the fakes elsewhere are trusted
+        got = calibration.measure(ROOT / "src" / "armada")                  # the real thing once, so the fakes elsewhere are trusted
         self.assertEqual(sorted(got), sorted(calibration.PHASES), got)
         self.assertTrue(all(v > 0 for v in got.values()), got)
 
     def test_a_step_that_fails_is_left_out_never_guessed(self):
         with mock.patch.object(calibration, "_git", side_effect=OSError("no git")):
-            got = calibration.measure(ROOT / "src" / "ct")
+            got = calibration.measure(ROOT / "src" / "armada")
         self.assertNotIn("git", got)
         self.assertIn("hash", got)
 

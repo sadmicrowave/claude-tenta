@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # shared fixtures, however the tests are started
-from ct import runner  # noqa: E402
-from ct import jail as jail_mod  # noqa: E402
+from armada import runner  # noqa: E402
+from armada import jail as jail_mod  # noqa: E402
 from support import REGISTRY, Base, sh  # noqa: E402
 
 

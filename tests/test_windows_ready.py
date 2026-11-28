@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-ROOT = Path(__file__).resolve().parents[1] / "src" / "ct"
+ROOT = Path(__file__).resolve().parents[1] / "src" / "armada"
 POSIX_ONLY = {"fcntl", "pwd", "grp", "resource", "termios", "tty", "pty", "syslog"}
 NOT_THE_WORKER = {"jail", "sandboxtest", "canarywatch", "helper", "privileged", "update", "firewall", "mailshell", "clonediag", "rediscover", "__main__"}      # Linux by nature (see test_platform_seam)
 
@@ -23,22 +23,22 @@ class Refuse(importlib.abc.MetaPathFinder):
 class WorkerModulesImportWithoutPosix(unittest.TestCase):
     def test_every_module_of_the_workers_runtime_imports(self):
         names = [f.stem for f in sorted(ROOT.glob("*.py")) if f.stem not in NOT_THE_WORKER]
-        saved = {k: sys.modules.pop(k) for k in list(sys.modules) if k in POSIX_ONLY or k.split(".")[0] == "ct"}
+        saved = {k: sys.modules.pop(k) for k in list(sys.modules) if k in POSIX_ONLY or k.split(".")[0] == "armada"}
         finder = Refuse()
         sys.meta_path.insert(0, finder)
         failed = []
         try:
             for n in names:
                 try:
-                    importlib.import_module(f"ct.{n}")
+                    importlib.import_module(f"armada.{n}")
                 except ImportError as e:
-                    failed.append(f"ct.{n}: {e}")
+                    failed.append(f"armada.{n}: {e}")
         finally:
             sys.meta_path.remove(finder)
-            for k in [k for k in sys.modules if k.split(".")[0] == "ct"]:
+            for k in [k for k in sys.modules if k.split(".")[0] == "armada"]:
                 del sys.modules[k]
             sys.modules.update(saved)
-        self.assertEqual(failed, [], "these modules need a POSIX-only Python module at import time: call ct.plat from inside a function instead")
+        self.assertEqual(failed, [], "these modules need a POSIX-only Python module at import time: call armada.plat from inside a function instead")
 
 
 if __name__ == "__main__":

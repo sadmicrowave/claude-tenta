@@ -22,10 +22,10 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import cards, theme, ui  # noqa: E402
-from ct.setup import report  # noqa: E402
+from armada import cards, theme, ui  # noqa: E402
+from armada.setup import report  # noqa: E402
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "ct"
+SRC = Path(__file__).resolve().parents[1] / "src" / "armada"
 RENDERERS = {"ui.py", "cards.py", "theme.py", "brand.py", "tui.py"}         # these ARE the drawing code
 STREAMS = {"sys.stdout", "sys.stderr", "self.stream", "stream", "out", "self.out", "err"}
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
@@ -34,7 +34,7 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]")
 class WaitingFramesSayHowToCheckAndStop(unittest.TestCase):
     """A frame that says Ctrl-C stops waiting, not the job, must also show below it the commands to check on the job and (where it can be stopped) to stop it."""
     def test_every_such_frame_carries_its_commands(self):
-        src, found = Path(__file__).resolve().parents[1] / "src" / "ct", []
+        src, found = Path(__file__).resolve().parents[1] / "src" / "armada", []
         for f in src.rglob("*.py"):
             lines = f.read_text().splitlines()
             for i, line in enumerate(lines):
@@ -68,7 +68,7 @@ class NothingPrintsOnItsOwn(unittest.TestCase):
 
     def test_every_print_and_stream_write_is_marked_with_what_it_is(self):
         loose = [f"{f}:{n}" for f, n, marked in self.sites() if not marked]
-        self.assertEqual(loose, [], "these print without going through the card style (use ct.ui.say / ui.table / ui.document, or mark a data or log line `# output: <kind>`)")
+        self.assertEqual(loose, [], "these print without going through the card style (use armada.ui.say / ui.table / ui.document, or mark a data or log line `# output: <kind>`)")
 
     def test_nothing_defaults_to_the_builtin_print(self):
         bad = []
@@ -84,7 +84,7 @@ class NothingPrintsOnItsOwn(unittest.TestCase):
 class TheSetupPrinter(unittest.TestCase):
     def lines(self, *texts):
         out = Tty()
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always", "CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always", "CW_COLOR": "always"}):
             say = report.sink(out)
             for t in texts:
                 say(t)
@@ -102,7 +102,7 @@ class TheSetupPrinter(unittest.TestCase):
 
     def test_a_line_already_styled_passes_through_and_plain_mode_is_untouched(self):
         st = report.Styler(styled=True, stream=Tty())
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always", "CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always", "CW_COLOR": "always"}):
             row = st.note("done", "step", "detail")
             self.assertEqual(st.line(row), row)
         plain = report.Styler(styled=False)
@@ -112,7 +112,7 @@ class TheSetupPrinter(unittest.TestCase):
 class Primitives(unittest.TestCase):
     def shown(self, fn, *a, **k):
         out = Tty()
-        with mock.patch.dict(os.environ, {"CT_COLOR": "always", "CW_COLOR": "always"}):
+        with mock.patch.dict(os.environ, {"ARM_COLOR": "always", "CW_COLOR": "always"}):
             fn(*a, stream=out, **k)
         return ANSI.sub("", out.getvalue())
 
@@ -135,8 +135,8 @@ class Primitives(unittest.TestCase):
         self.assertEqual(out.getvalue(), "line one\nline two\n")
 
     def test_a_command_label_is_shown_as_typed_not_in_capitals(self):
-        text = self.shown(ui.say, "Help", (cards.Cmd("ct-run classes"), "what it can run"), tag="HELP")
-        self.assertIn("ct-run classes", text)
+        text = self.shown(ui.say, "Help", (cards.Cmd("arm-run classes"), "what it can run"), tag="HELP")
+        self.assertIn("arm-run classes", text)
         self.assertNotIn("CT-RUN CLASSES", text)
 
 

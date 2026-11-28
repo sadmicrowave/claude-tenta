@@ -26,16 +26,16 @@ class MixedBurst(unittest.TestCase):
 
     def test_the_verdict_counts_pinned_jobs_that_landed_on_the_worker_and_names_each_stray(self):
         lt = load()
-        rows = [{"group": "pinned", "id": "a", "worker": "tenta3"}, {"group": "pinned", "id": "b", "worker": "tenta2"},
-                {"group": "pinned", "id": None, "worker": "-"}, {"group": "scheduled", "id": "c", "worker": "tenta2"}]
-        self.assertEqual(lt.pin_verdict(rows, "tenta3"), (1, 2, [("b", "tenta2")]))               # a refused send is not counted; a scheduled job is not judged
-        self.assertEqual(lt.pin_verdict(rows[:1], "tenta3"), (1, 1, []))
+        rows = [{"group": "pinned", "id": "a", "worker": "arm3"}, {"group": "pinned", "id": "b", "worker": "arm2"},
+                {"group": "pinned", "id": None, "worker": "-"}, {"group": "scheduled", "id": "c", "worker": "arm2"}]
+        self.assertEqual(lt.pin_verdict(rows, "arm3"), (1, 2, [("b", "arm2")]))               # a refused send is not counted; a scheduled job is not judged
+        self.assertEqual(lt.pin_verdict(rows[:1], "arm3"), (1, 1, []))
 
 
     def test_a_global_dedication_of_the_class_is_noticed_because_it_hides_the_orchestrator(self):
         lt = load()
-        self.assertIn("tenta3", lt.global_note("sys-status", {"sys-status": "tenta3"}))
-        self.assertIsNone(lt.global_note("sys-status", {"nmap": "tenta3"}))
+        self.assertIn("arm3", lt.global_note("sys-status", {"sys-status": "arm3"}))
+        self.assertIsNone(lt.global_note("sys-status", {"nmap": "arm3"}))
         self.assertIsNone(lt.global_note("sys-status", {}))
 
 

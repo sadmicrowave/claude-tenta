@@ -1,4 +1,4 @@
-"""Taking the ct commands off your own computer (src/ct/setup/uninstall_client.py and the --client route in cli.py; scope: docs/design/WINDOWS-UNINSTALL.md), against a throwaway home folder."""
+"""Taking the armada commands off your own computer (src/armada/setup/uninstall_client.py and the --client route in cli.py; scope: docs/design/WINDOWS-UNINSTALL.md), against a throwaway home folder."""
 import os
 import tempfile
 import unittest
@@ -6,11 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import support  # noqa: F401
-from ct import config
-from ct.admin import workers as workers_mod
-from ct.setup import cli
-from ct.setup.client import COMMANDS
-from ct.setup.uninstall_client import MARKER, ClientUninstall
+from armada import config
+from armada.admin import workers as workers_mod
+from armada.setup import cli
+from armada.setup.client import COMMANDS
+from armada.setup.uninstall_client import MARKER, ClientUninstall
 
 
 class Home(unittest.TestCase):
@@ -26,9 +26,9 @@ class Home(unittest.TestCase):
         self.rc = self.home / ".zshrc"
         self.rc.write_text(f"alias a=b\n{MARKER}\nexport PATH=\"{self.home}/.local/bin:$PATH\"\nalias c=d\n")
         os.chmod(self.rc, 0o600)
-        self.conf = self.tmp / "cfg" / "ct.toml"
+        self.conf = self.tmp / "cfg" / "armada.toml"
         self.conf.parent.mkdir()
-        self.clients = self.home / ".ct"
+        self.clients = self.home / ".armada"
         (self.clients / "approval").mkdir(parents=True)
         (self.clients / "approval" / "key").write_text("k")
         self.conf.write_text(f'[identity]\nname = "armada"\n[server]\nhost = "mini.example"\nadmin_user = "me"\n[github]\nowner = "someone"\n[paths]\nclient_home = "{self.clients}"\n')
@@ -61,20 +61,20 @@ class Remove(Home):
 
     def test_keep_data_keeps_the_configuration_and_the_keys_but_still_removes_the_commands(self):
         self.go(keep_data=True, confirm=lambda p: True).run_all()
-        self.assertFalse((self.home / ".local" / "bin" / "ct-run").is_symlink())
+        self.assertFalse((self.home / ".local" / "bin" / "arm-run").is_symlink())
         self.assertTrue(self.conf.exists() and self.wconf.exists() and (self.clients / "approval" / "key").exists())
 
     def test_a_link_or_file_that_is_something_else_is_never_removed(self):
-        other = self.tmp / "other-ct-run"
+        other = self.tmp / "other-arm-run"
         other.write_text("x")
-        link = self.home / ".local" / "bin" / "ct-run"
+        link = self.home / ".local" / "bin" / "arm-run"
         link.unlink()
         link.symlink_to(other)
-        (self.home / ".local" / "bin" / "ct-help").unlink()
-        (self.home / ".local" / "bin" / "ct-help").write_text("my own script")
+        (self.home / ".local" / "bin" / "arm-help").unlink()
+        (self.home / ".local" / "bin" / "arm-help").write_text("my own script")
         self.go(confirm=lambda p: True).run_all()
         self.assertTrue(link.is_symlink() and other.exists())
-        self.assertEqual((self.home / ".local" / "bin" / "ct-help").read_text(), "my own script")
+        self.assertEqual((self.home / ".local" / "bin" / "arm-help").read_text(), "my own script")
 
     def test_a_startup_file_whose_line_after_the_marker_is_not_ours_is_left_alone(self):
         self.rc.write_text(f"{MARKER}\nexport SOMETHING_ELSE=1\n")
@@ -83,7 +83,7 @@ class Remove(Home):
 
     def test_no_answer_means_nothing_is_removed(self):
         self.assertEqual(self.go(confirm=lambda p: False).run_all()[-1][1], "declined")
-        self.assertTrue(self.conf.exists() and (self.home / ".local" / "bin" / "ct-run").is_symlink())
+        self.assertTrue(self.conf.exists() and (self.home / ".local" / "bin" / "arm-run").is_symlink())
 
     def test_running_it_twice_is_safe(self):
         self.go(confirm=lambda p: True).run_all()
@@ -97,13 +97,13 @@ class Remove(Home):
 
 class Route(Home):
     def test_the_command_lists_the_workers_still_set_up_and_changes_nothing_without_apply(self):
-        old = os.environ.get("CT_CONFIG")
-        os.environ["CT_CONFIG"] = str(self.conf)
+        old = os.environ.get("ARM_CONFIG")
+        os.environ["ARM_CONFIG"] = str(self.conf)
         try:
             a = SimpleNamespace(worker=None, here=False, remove_account=False, yes=False, apply=False, keep_data=False, client=False)
             rc = cli.client_uninstall_command(a, None, lambda m: None, scripts_dir=self.scripts, home=self.home)
         finally:
-            os.environ.pop("CT_CONFIG") if old is None else os.environ.__setitem__("CT_CONFIG", old)
+            os.environ.pop("ARM_CONFIG") if old is None else os.environ.__setitem__("ARM_CONFIG", old)
         self.assertEqual(rc, 0)
         self.assertTrue(self.conf.exists())
 

@@ -9,6 +9,6 @@ TimeoutStartSec=10min
 # jobs are started detached; do not kill them when this short pass exits
 KillMode=process
 Environment=PYTHONPATH={{lib}}
-Environment=CT_CONFIG={{config}}/ct.toml
+Environment=ARM_CONFIG={{config}}/armada.toml
 {{sandbox}}
-ExecStart=/usr/bin/python3 -m ct.cli step
+ExecStart=/usr/bin/python3 -m armada.cli step

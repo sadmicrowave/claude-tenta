@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402,F401
-from ct import updatecheck  # noqa: E402
+from armada import updatecheck  # noqa: E402
 
 T = 1_800_000_000          # a realistic "now": the rules are about hours and days, so tiny fake clocks would hide mistakes
 LS = ("aaa111\trefs/tags/release-0.1.0\nbbb222\trefs/tags/release-0.2.0\nccc333\trefs/tags/release-0.2.0^{}\n"
@@ -130,10 +130,10 @@ class Banner(unittest.TestCase):
         self.home = Path(tempfile.mkdtemp())
         updatecheck.save(self.home, {"checked": T, "tag": "release-0.2.0", "commit": "ccc3334"})
         self.refreshed = []
-        os.environ.pop("CT_NO_UPDATE_CHECK", None)
+        os.environ.pop("ARM_NO_UPDATE_CHECK", None)
 
     def test_it_is_shown_once_per_run_even_when_two_workers_each_have_their_own_cache(self):
-        """Seen on a real `ct-admin apply`: the same banner printed twice, once from each worker's client context."""
+        """Seen on a real `arm-admin apply`: the same banner printed twice, once from each worker's client context."""
         self.assertTrue(self.run_it()[0])
         import tempfile
         other_home = Path(tempfile.mkdtemp())
@@ -150,7 +150,7 @@ class Banner(unittest.TestCase):
         self.assertTrue(shown)
         self.assertEqual(len([l for l in text.splitlines() if l]), 1)
         self.assertIn("release-0.2.0", text)
-        self.assertIn("ct-admin update", text)
+        self.assertIn("arm-admin update", text)
 
     def test_it_is_shown_at_most_twice_a_day_not_on_every_command(self):
         self.assertTrue(self.run_it(now=lambda: T)[0])
@@ -160,9 +160,9 @@ class Banner(unittest.TestCase):
 
     def test_nothing_is_shown_when_piped_or_switched_off(self):
         self.assertFalse(self.run_it(stream=io.StringIO())[0])                       # not a terminal: a script's output stays clean
-        os.environ["CT_NO_UPDATE_CHECK"] = "1"
+        os.environ["ARM_NO_UPDATE_CHECK"] = "1"
         self.assertFalse(self.run_it()[0])
-        os.environ.pop("CT_NO_UPDATE_CHECK")
+        os.environ.pop("ARM_NO_UPDATE_CHECK")
         off = type("S", (), {"check": False, "source": "u"})
         self.assertFalse(self.run_it(cfg=off)[0])
 

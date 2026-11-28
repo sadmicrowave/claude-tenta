@@ -1,12 +1,12 @@
-"""Checks that are ABOUT one worker (the install check after `ct-admin apply`, the wizard's first job) must run on that worker, never on whichever the orchestrator prefers.
+"""Checks that are ABOUT one worker (the install check after `arm-admin apply`, the wizard's first job) must run on that worker, never on whichever the orchestrator prefers.
 
-Found in the first real `ct-admin apply` on two workers: the Mac mini was upgraded, its check printed "a test job ran and came back: ok", and the job had run on the other worker."""
+Found in the first real `arm-admin apply` on two workers: the Mac mini was upgraded, its check printed "a test job ran and came back: ok", and the job had run on the other worker."""
 import unittest
 from unittest import mock
 
 import support  # noqa: F401
-from ct.admin import cli as admin_cli
-from ct.client import cli as client_cli
+from armada.admin import cli as admin_cli
+from armada.client import cli as client_cli
 
 
 class TheInstallCheck(unittest.TestCase):
@@ -35,7 +35,7 @@ class HereMeansNoChoosing(unittest.TestCase):
         ctx = object()
         a = mock.Mock(here=True, worker=None)
         a.cls = "sys-status"
-        with mock.patch("ct.client.place.route", side_effect=AssertionError("must not choose")):
+        with mock.patch("armada.client.place.route", side_effect=AssertionError("must not choose")):
             self.assertIs(client_cli.route_submit(ctx, object(), a), ctx)
 
 

@@ -3,7 +3,7 @@
 Part of [Windows as a Special Use device](WINDOWS-SPECIAL-USE.md), the first piece of slice 5. One small branch.
 
 ## Goal
-`ct-setup` puts `git` and `python` (3.11 or newer) on a Windows computer, in the worker's own tools folder, over SSH, with PowerShell and nothing else. Nothing is assumed to be installed.
+`arm-setup` puts `git` and `python` (3.11 or newer) on a Windows computer, in the worker's own tools folder, over SSH, with PowerShell and nothing else. Nothing is assumed to be installed.
 
 ## Done when
 1. On a Windows 10 or 11 computer with only OpenSSH Server, one call leaves a working `git` and `python` in the tools folder, each at a pinned version.
@@ -23,7 +23,7 @@ Windows NT 10.0.26300, AMD64, Windows PowerShell 5.1, execution policy Restricte
 - **Where:** `<tools>` is a parameter (default `%ProgramData%\armada\tools`).
 - **Idempotent:** a marker file in `<tools>` records the versions and hashes installed; a match means "nothing to do".
 - **Result:** the script's last line is one JSON object (`{"git": "...", "python": "...", "changed": true}`) that the Python side parses; any other output is shown only on failure.
-- **Code:** `src/ct/setup/wintools.py` builds and runs it through the existing `Ssh`; the pinned table is data, not code.
+- **Code:** `src/armada/setup/wintools.py` builds and runs it through the existing `Ssh`; the pinned table is data, not code.
 
 ## Tests
 Unit: the encoded command round-trips; the pin table is complete and every hash is 64 hex; a hash mismatch is refused; the result line is parsed; a failure keeps the real text; the "already there" and "reuse an existing tool" decisions (script text checked, plus the Python-side parser). Real: the VM run in Done-when 6, kept as a documented by-hand route (no automated Windows runner for this yet).

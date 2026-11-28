@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BY HAND, on a real Windows computer: register the worker's Scheduled Task (src/ct/setup/wintask.py) with a harmless long-running command, start it, read back that it runs AS the worker account, stop it,
+"""BY HAND, on a real Windows computer: register the worker's Scheduled Task (src/armada/setup/wintask.py) with a harmless long-running command, start it, read back that it runs AS the worker account, stop it,
 register again (must change nothing), and remove it.
   scripts/win-task-check USER@HOST
 The layout step (scripts/win-layout-check) and the tools must be there first. Leaves nothing registered."""
@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from ct.setup import wintask, wintools   # noqa: E402
+from armada.setup import wintask, wintools   # noqa: E402
 
 TEST = '-c "import time; time.sleep(3600)"'
 

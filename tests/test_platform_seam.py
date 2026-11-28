@@ -1,4 +1,4 @@
-"""The platform seam (src/ct/plat.py): the worker's runtime reaches the operating system only through it, so a port has one place to write. The modules that are Linux by nature are listed by name and are the
+"""The platform seam (src/armada/plat.py): the worker's runtime reaches the operating system only through it, so a port has one place to write. The modules that are Linux by nature are listed by name and are the
 whole list of exceptions."""
 import ast
 import os
@@ -8,9 +8,9 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))              # deliberately not `support`: the Windows CI job runs this file alone
-from ct import plat  # noqa: E402
+from armada import plat  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1] / "src" / "ct"
+ROOT = Path(__file__).resolve().parents[1] / "src" / "armada"
 LINUX_BY_NATURE = {"jail.py", "sandboxtest.py", "canarywatch.py", "helper.py", "privileged.py", "update.py", "firewall.py", "plat.py", "theme.py", "mailshell.py", "clonediag.py", "rediscover.py"}
 LINUX_FOLDERS = {"setup", "admin", "client"}              # the install (run as root on a server), and the administrator's computer: their own platforms, their own work
 BAD_IMPORT = {"fcntl", "pwd", "grp", "resource", "termios", "tty", "select", "signal"}
@@ -36,7 +36,7 @@ class Seam(unittest.TestCase):
                     bad.append(f"{f.name}: start_new_session (use plat.new_session())")
                 elif isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.startswith("/proc/"):
                     bad.append(f"{f.name}: {n.value}")
-        self.assertEqual(bad, [], "call ct.plat instead (see docs/design/WINDOWS-SPECIAL-USE.md)")
+        self.assertEqual(bad, [], "call armada.plat instead (see docs/design/WINDOWS-SPECIAL-USE.md)")
 
     def test_every_exception_is_a_module_that_exists(self):
         for name in LINUX_BY_NATURE:
