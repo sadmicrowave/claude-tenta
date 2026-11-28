@@ -76,6 +76,7 @@ show and check every step. The end-to-end test uses the real one ([testing](test
    `gh repo deploy-key add` (queue read-only, results `--allow-write`, titled `<name>-server`), skipping any that are already on the repository (`keys.py`). Without `gh` it prints each key and the exact settings page. The server's own wait loop notices as soon as the
    repositories become reachable and carries on, so there is one sudo password and no second run.
 7. **Cleanup and a first job.** The working folder is removed. `sys-status` is sent and waited for (the worker needs a minute after its first start to publish its class list, so it retries), then `ct-admin check` runs.
+8. **Your shell history (terminal only).** When your command log is empty or short, the install offers to read your past shell commands in once (zsh, bash and fish history; a separate yes for each shell; see "The first-day data" in the client docs), then shows the summary. A no changes nothing, and a problem here is a note, never a failed install.
 
 A preview (`--dry-run`) does steps 1 to 4 without creating repositories or changing your configuration, and runs the server half as a preview (no sudo, no changes).
 

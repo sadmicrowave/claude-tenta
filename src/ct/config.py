@@ -288,6 +288,8 @@ SCHEMA = {
         "review_top": (5, _int(1, 50), "how many commands the summary recommends; the rest are counted in the totals and listed by ct-run offload log top"),
         "review_min_commands": (20, _int(1, 100000), "fewer commands than this in the window and the summary shows no hours (too little to say anything honest)"),
         "review_ask_again_days": (30, _int(1, 3650), "a command you answered not now in the review (ct-run offload review) is asked about again after this many days; never is asked again only when you undo it with ct-run offload review --forget"),
+        "import_days": (90, _int(1, 3650), "the one-time import of your past commands (ct-run offload import, offered at the end of ct-setup install) reads only the last this many days; older ones are left out"),
+        "import_max_mb": (200, _int(1, 100000), "a session transcript or history file larger than this many MB is not read by the one-time import (it is named so you can decide)"),
         "review_min_days": (3, _int(1, 365), "a command log younger than this many days is too short for the summary to show hours"),
     },
     "limits": {

@@ -605,3 +605,8 @@ define("review.forget.unknown", "error", "Forgetting an answer is by the number 
        "The numbers come from the list of commands you answered no to.", who="client", steps=["List them with the command below, then use a number from it."])
 define("review.answers.unreadable", "error", "The remembered answers are only a convenience; when the file is damaged the review starts them again and says so instead of stopping.",
        "Your remembered answers could not be read", "They are started again from nothing.", who="client", steps=["Nothing to do: the review asks again about the commands you had answered."])
+
+# ---- the first-day data: the one-time import of past shell commands (docs/design/WORKSPACE-JOBS.md) ----
+define("import.log.unwritable", "error", "The one-time import adds rows to the private command log; when that cannot be written the import says so with the system's own words.",
+       "The command log could not be written to", "{reason}", who="client",
+       steps=["Make the log file named above writable by you (it is your own file), then run the import again."])
