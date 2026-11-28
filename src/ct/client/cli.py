@@ -729,11 +729,11 @@ def note_runs(ctx, results):
         pass
 
 
-def show_hint(ctx):
+def show_hint(ctx, cfg=None):
     """After a ct-run command: at most one hint line, never two. First the faster-worker hint (offload.recommend_hint), then, only when that said nothing, the history hint
     (offload.history_hint). Both read only local files, are rate limited, and never fail or change the command's exit status."""
     if not _recommend_hint(ctx):
-        _history_hint(ctx)
+        _history_hint(ctx, cfg)
 
 
 def _recommend_hint(ctx):
@@ -759,7 +759,26 @@ def _recommend_hint(ctx):
         return False
 
 
-def _history_hint(ctx):
+def local_views(ctx, cfg=None):
+    """[(registry info, exclusions)] for the main worker and every one in workers.toml, read from the local copies only (no network): what the history hint needs to leave out a command
+    that every worker already answers for. A worker that cannot be read gives (None, []), which keeps its commands in the hint."""
+    from . import place
+    from .repo import ClientRepos
+    try:
+        ents = place.entries(cfg) if cfg is not None and hasattr(cfg, "identity") else [(ctx.product, None, None)]
+    except Exception:
+        ents = [(ctx.product, None, None)]
+    out = []
+    for n, e in enumerate(ents):
+        try:
+            repos = ctx.repos if n == 0 else ClientRepos.from_config(e[1])
+            out.append((repos.registry_info(), off.read_exclusions(repos).get("excluded", [])))
+        except Exception:
+            out.append((None, []))
+    return out
+
+
+def _history_hint(ctx, cfg=None):
     """One line when the command log holds commands with an offload reason (setting offload.history_hint, on by default). Quiet for a command answered no in the review."""
     try:
         if not ctx.history_hint:
@@ -773,7 +792,7 @@ def _history_hint(ctx):
         if now - state.get("checked", 0) < histhint.CHECK_SECONDS:             # a log with nothing to say is not read again on every command
             return
         review = review_of(command_log(ctx), ctx, ctx.host_load(), now)
-        facts, new = histhint.pick(review, rf.Answers(ctx.home, clock=ctx.clock), state, now, ctx.history_hint_hours, ctx.own_tools, ctx.review_ask_again_days)
+        facts, new = histhint.pick(review, rf.Answers(ctx.home, clock=ctx.clock), state, now, ctx.history_hint_hours, ctx.own_tools, ctx.review_ask_again_days, local_views(ctx, cfg))
         if facts:
             line = [("Commands", plural(facts["kinds"], "kind") + " with an offload reason")]
             if facts["seconds"] > 0:
@@ -1246,7 +1265,7 @@ def cmd_review(ctx, a, cfg=None):
         return fail_from(unreadable_log(log, e))
     show_review(r, log, ctx.product, sys.stderr, sys.stdout, interactive=ctx.is_tty())
     from . import histhint
-    histhint.mark_seen(ctx.home, r, answers, ctx.clock(), ctx.own_tools, ctx.review_ask_again_days)
+    histhint.mark_seen(ctx.home, r, answers, ctx.clock(), ctx.own_tools, ctx.review_ask_again_days, local_views(ctx, cfg))
     if r["state"] == "ok":
         run_review_flow(ctx, cfg, r, log)
     return 0
@@ -1592,7 +1611,7 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_setup(ctx, cfg or config.load())
         if cfg is not None and a.cmd in ("jobs", "classes", "submit", "result") and not getattr(a, "json", False):
             import atexit
-            atexit.register(show_hint, ctx)
+            atexit.register(show_hint, ctx, cfg)
             atexit.register(updatecheck_banner, cfg, ctx)                  # after the command's own output; never during it
         if cfg is not None and a.cmd in ("submit", "jobs", "result", "classes", "where", "queue"):
             health_sweep(ctx, cfg, a)

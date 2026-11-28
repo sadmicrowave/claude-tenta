@@ -91,6 +91,38 @@ class Pick(unittest.TestCase):
             self.assertEqual(facts["seconds"], 0)
 
 
+REG = {"classes": {"t": {"run": ["scripts/t", "{a}"], "cost": "light", "tier": "A"}}}
+EXCL = [{"argv": ["scripts/t", "test_a"], "reasons": ["too big"]}]
+
+
+class Settled(unittest.TestCase):
+    def left(self, views):
+        facts, _ = histhint.pick(review_of(suite() + filler()), Answers(), {}, NOW, 24, OWN, 30, views)
+        return facts
+
+    def test_a_command_every_worker_has_registered_is_not_counted(self):
+        self.assertIsNone(self.left([(REG, []), (REG, [])]))
+
+    def test_a_worker_that_lacks_it_keeps_the_command_in(self):
+        self.assertEqual(self.left([(REG, []), ({"classes": {}}, [])])["kinds"], 1)
+
+    def test_tried_and_excluded_counts_as_answered(self):
+        self.assertIsNone(self.left([(REG, []), ({"classes": {}}, EXCL)]))
+
+    def test_a_worker_that_published_nothing_is_unknown_and_keeps_it_in(self):
+        self.assertEqual(self.left([(REG, []), (None, [])])["kinds"], 1)
+        self.assertEqual(self.left([])["kinds"], 1)
+
+    def test_the_hint_reads_the_local_copies_when_it_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_log(d, suite() + filler())
+            err = io.StringIO()
+            with mock.patch.object(here, "global_pins", return_value=None), mock.patch.object(here, "pins_for", return_value=None), \
+                    mock.patch.object(cli, "local_views", return_value=[(REG, [])]), contextlib.redirect_stderr(err):
+                cli.show_hint(cli.Context(None, home=d, clock=lambda: NOW, own_tools=OWN, host_load=IDLE))
+            self.assertEqual(err.getvalue(), "")
+
+
 class Shown(unittest.TestCase):
     def ctx(self, home, **kw):
         return cli.Context(None, home=home, clock=lambda: NOW, own_tools=OWN, host_load=IDLE, **kw)

@@ -203,7 +203,7 @@ After `ct-run jobs`, `result`, `submit` and `classes` (the same places as the fa
 - **Silenced by the review's answers:** a command answered never, or not now inside `offload.review_ask_again_days`, is not counted; commands a worker is never offered (secrets, network, tenta's own) are not counted either.
 - **Honest numbers:** only timed runs add to the time; runs without timing (imported history without durations) are named as "not timed" and add no hours. The words are "offload reason" (the ladder's term).
 - **Cheap and safe:** the interval is checked before the log is read; local files only; any failure is swallowed and the command's exit status is untouched.
-- **Known limit:** a command already registered on every worker still counts, because telling needs a look at the workers (a network step); the same-set rule keeps it from repeating. Backlog.
+- **Already registered:** a command that every known worker has registered, or tried and excluded, is not counted (read from the local copies of each worker's registry and exclusion list, no network). A worker that published nothing is unknown, and unknown keeps the command in.
 
 ## The offload review flow (slices 6-8)
 

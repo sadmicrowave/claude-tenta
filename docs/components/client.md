@@ -85,7 +85,7 @@ A new install has an empty log, so the summary has nothing to add up. `ct-run of
 
 ### The history hint
 
-After a `ct-run` job command (`jobs`, `result`, `submit`, `classes`), one line says when your command history holds commands with an offload reason, and points at `ct-run offload review`. It is on by default (`offload.history_hint = false` turns it off), comes at most once per `offload.history_hint_hours` (24), and names the same set of commands only once. Commands you answered no to in the review are not counted. It counts only timed runs for time. It never changes a command's result.
+After a `ct-run` job command (`jobs`, `result`, `submit`, `classes`), one line says when your command history holds commands with an offload reason, and points at `ct-run offload review`. It is on by default (`offload.history_hint = false` turns it off), comes at most once per `offload.history_hint_hours` (24), and names the same set of commands only once. Commands you answered no to in the review are not counted, and neither are commands every worker already has (registered or excluded; read from local copies, no network). It counts only timed runs for time. It never changes a command's result.
 
 ### Known problems
 
