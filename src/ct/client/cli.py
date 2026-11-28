@@ -71,6 +71,7 @@ class Context:
         self.silent_hours = int(silent_hours)
         self.audit_keep_days = int(audit_keep_days)
         self.recommend_hint, self.recommend_hint_hours = bool(recommend_hint), int(recommend_hint_hours)
+        self.history_hint, self.history_hint_hours = bool(history_hint), int(history_hint_hours)
         self.hints = hints or [("on your computer", f"{admin} approve {{}}")]
         self.label_of = label_of or (lambda jid, cls: self.names.get(jid) or ("-" if cls in ("", "profile-run") else cls))
         self.ask, self.sleep, self.clock, self.run_admin = ask, sleep, clock, run_admin
@@ -729,25 +730,58 @@ def note_runs(ctx, results):
 
 
 def show_hint(ctx):
-    """After a ct-run command: one line when a pinned command has run clearly faster on another worker (setting offload.recommend_hint, on by default). Reads only local
-    files, says each suggestion once and at most once a day, and never fails or changes the command's exit status."""
+    """After a ct-run command: at most one hint line, never two. First the faster-worker hint (offload.recommend_hint), then, only when that said nothing, the history hint
+    (offload.history_hint). Both read only local files, are rate limited, and never fail or change the command's exit status."""
+    if not _recommend_hint(ctx):
+        _history_hint(ctx)
+
+
+def _recommend_hint(ctx):
+    """One line when a pinned command has run clearly faster on another worker (setting offload.recommend_hint, on by default). True when it said something."""
     try:
         if not ctx.recommend_hint:
-            return
+            return False
         from . import recommend
         pins = {}
         for p in (here.global_pins(), here.pins_for()):
             pins.update(p.commands if p else {})
         rows = recommend.RunLog(ctx.home).read() if pins else []
         if not rows:
-            return
+            return False
         st = recommend.HintState(ctx.home)
         v, new = recommend.hint(recommend.recommend(rows, pins, ctx.recommend_runs, ctx.recommend_gain), st.read(), ctx.clock(), ctx.recommend_hint_hours)
         if v:
             emit("A faster worker for a pinned command", ("Command", v["class"]), ("Faster on", alias.show(v["worker"])), f"It took {v['gain_pct']}% less time than on the pinned worker. Turn these hints off: offload.recommend_hint = false.",
                  tag="HINT", color=CYAN, run_label="See the numbers", run="ct-run offload recommend")
         st.write(new)
+        return bool(v)
     except Exception:                                          # a hint is a courtesy: whatever is wrong with it, the command's answer stands
+        return False
+
+
+def _history_hint(ctx):
+    """One line when the command log holds commands with an offload reason (setting offload.history_hint, on by default). Quiet for a command answered no in the review."""
+    try:
+        if not ctx.history_hint:
+            return
+        from . import histhint, review_flow as rf
+        now = ctx.clock()
+        st = histhint.State(ctx.home)
+        state = st.read()
+        if now - state.get("at", 0) < ctx.history_hint_hours * 3600:          # the cheap check first: the log is read only when a line could be said
+            return
+        if now - state.get("checked", 0) < histhint.CHECK_SECONDS:             # a log with nothing to say is not read again on every command
+            return
+        review = review_of(command_log(ctx), ctx, ctx.host_load(), now)
+        facts, new = histhint.pick(review, rf.Answers(ctx.home, clock=ctx.clock), state, now, ctx.history_hint_hours, ctx.own_tools, ctx.review_ask_again_days)
+        if facts:
+            line = [("Commands", plural(facts["kinds"], "kind") + " with an offload reason")]
+            if facts["seconds"] > 0:
+                line.append(("Recorded time", rf._span(facts["seconds"]) + (f", {plural(facts['untimed'], 'run')} not timed" if facts["untimed"] else "")))
+            emit("Your command history has commands a worker could take", *line, "Turn these hints off: offload.history_hint = false.",
+                 tag="HINT", color=CYAN, run_label="See them", run="ct-run offload review")
+        st.write({**new, "checked": now})
+    except Exception:
         pass
 
 
@@ -1211,6 +1245,8 @@ def cmd_review(ctx, a, cfg=None):
     except OSError as e:
         return fail_from(unreadable_log(log, e))
     show_review(r, log, ctx.product, sys.stderr, sys.stdout, interactive=ctx.is_tty())
+    from . import histhint
+    histhint.mark_seen(ctx.home, r, answers, ctx.clock(), ctx.own_tools, ctx.review_ask_again_days)
     if r["state"] == "ok":
         run_review_flow(ctx, cfg, r, log)
     return 0

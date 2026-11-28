@@ -154,6 +154,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker |
 | `recommend_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see ct-run offload recommend); off: never |
 | `recommend_hint_hours` | `24` | int | the least hours between two of those hint lines; a hint is also shown only once for the same suggestion |
+| `history_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when your own command history holds commands with an offload reason (see ct-run offload review); off: never |
+| `history_hint_hours` | `24` | int | the least hours between two of those hint lines; the same set of commands is said only once |
 | `recommend_gain` | `25` | int | ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
 
 ## [limits]
