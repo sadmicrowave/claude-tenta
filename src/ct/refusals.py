@@ -599,3 +599,9 @@ define("env.rebuild.no_space", "error", "A rebuild that cannot fit on the disk w
 define("review.log.unreadable", "error", "The summary reads only this computer's own command log; when that cannot be read it says so with the system's own words instead of showing numbers made from nothing.",
        "The command log could not be read", "{reason}", who="client",
        steps=["Open the log file named above and make it readable by you (it is your own file).", "Or delete it with the second command below: the hooks start a new log from the next command."])
+
+# ---- the offload review: register what the history recommends (design: docs/design/WORKSPACE-JOBS.md) ----
+define("review.forget.unknown", "error", "Forgetting an answer is by the number the list shows, so one command is undone and never a wrong one.", "No command has that number",
+       "The numbers come from the list of commands you answered no to.", who="client", steps=["List them with the command below, then use a number from it."])
+define("review.answers.unreadable", "error", "The remembered answers are only a convenience; when the file is damaged the review starts them again and says so instead of stopping.",
+       "Your remembered answers could not be read", "They are started again from nothing.", who="client", steps=["Nothing to do: the review asks again about the commands you had answered."])

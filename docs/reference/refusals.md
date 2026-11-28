@@ -2269,3 +2269,21 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Open the log file named above and make it readable by you (it is your own file). Or delete it with the second command below: the hooks start a new log from the next command.
+
+### `review.forget.unknown`: No command has that number
+
+- **Text:** The numbers come from the list of commands you answered no to.
+- **Protects:** Forgetting an answer is by the number the list shows, so one command is undone and never a wrong one.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** List them with the command below, then use a number from it.
+
+### `review.answers.unreadable`: Your remembered answers could not be read
+
+- **Text:** They are started again from nothing.
+- **Protects:** The remembered answers are only a convenience; when the file is damaged the review starts them again and says so instead of stopping.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Nothing to do: the review asks again about the commands you had answered.

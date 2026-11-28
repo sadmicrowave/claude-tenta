@@ -106,6 +106,9 @@ A worker that keeps files by hash (its `registry.json` says `cache: {version: 1,
 | A rebuild ran out of its own time (15 min) | `env.rebuild.timeout`; the job did not start | send it again |
 | Not enough free disk to rebuild | `env.rebuild.no_space` with the sizes | free disk on the worker, or lower `packages.keep_days` |
 | Binary files in the folder | `files.not_text` | leave them out with `--exclude` |
+| A worker cannot be asked in the review (unreachable, silent, locked, older release) | the card "Workers that cannot be asked now" names it with the reason | fix it (`ct-admin apply --worker NAME` for an old release), then `ct-run offload review` again |
+| The review's test run does not fit, runs out of time, is not approved, or no result arrives in time | the closing card names the worker with the tool's own reason or the command to read it later | `ct-run result JOB --wait`, or `ct-run offload profile` again with a longer `--timeout-s` |
+| The remembered review answers file is damaged | the note `review.answers.unreadable`; the answers start again | none |
 
 ## Files a class was profiled with
 
