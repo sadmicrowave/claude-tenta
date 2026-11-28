@@ -136,6 +136,8 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `review_top` | `5` | int | how many commands the summary recommends; the rest are counted in the totals and listed by ct-run offload log top |
 | `review_min_commands` | `20` | int | fewer commands than this in the window and the summary shows no hours (too little to say anything honest) |
 | `review_ask_again_days` | `30` | int | a command you answered not now in the review (ct-run offload review) is asked about again after this many days; never is asked again only when you undo it with ct-run offload review --forget |
+| `import_days` | `90` | int | the one-time import of your past commands (ct-run offload import, offered at the end of ct-setup install) reads only the last this many days; older ones are left out |
+| `import_max_mb` | `200` | int | a session transcript or history file larger than this many MB is not read by the one-time import (it is named so you can decide) |
 | `review_min_days` | `3` | int | a command log younger than this many days is too short for the summary to show hours |
 
 ## [limits]

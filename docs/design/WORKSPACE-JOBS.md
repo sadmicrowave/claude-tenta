@@ -160,11 +160,39 @@ Owner approved on 2026-11-26: **A** (a class's npm and pip packages run from a s
 
 ## Built: the review summary (slice `feat/offload-setup-summary`, 2026-11-27)
 
-Steps 1 to 3 of the flow below, as `ct-run offload review` and a card at the end of `ct-setup install` (terminal only; a failure there is a note, never a failed install). Owner decisions 2026-11-27: the hours are **"hours of commands a worker could take"** (recorded seconds of candidate commands, no claim of speed or "saved"); ranked by the highest-weighted rung met, then by time; **too short** means fewer than 3 days or 20 commands (settings `offload.review_min_days`, `review_min_commands`; also `review_days` 14 and `review_top` 5). `CommandLog.review` is the pure function slice 7 builds on: `recs` is its ranked list (shape, example, count, median, total, untimed, rung, headline, why). Not built: the y/n loop and profiling (slice 7), the history hint (slice 8), installing the Claude Code hooks (setup does not; with no hooks the summary says "Nothing recorded yet").
+Steps 1 to 3 of the flow below, as `ct-run offload review` and a card at the end of `ct-setup install` (terminal only; a failure there is a note, never a failed install). Owner decisions 2026-11-27: the hours are **"hours of commands a worker could take"** (recorded seconds of candidate commands, no claim of speed or "saved"); ranked by the highest-weighted rung met, then by time; **too short** means fewer than 3 days or 20 commands (settings `offload.review_min_days`, `review_min_commands`; also `review_days` 14 and `review_top` 5). `CommandLog.review` is the pure function slice 7 builds on: `recs` is its ranked list (shape, example, count, median, total, untimed, rung, headline, why). Not built here: the y/n loop and profiling (slice 7), the history hint (slice 8); the one-time import of shell history came later ("Built: the first-day data").
 
 ## Built: the y/n review (slice `feat/offload-review`, 2026-11-27)
 
 Steps 4 to 6 of the flow below, in `ct.client.review_flow`. Owner decisions 2026-11-27: one y/n per command (`y`, `n` = not now, `never`, Enter = skip this time), no yes to all; `n` is quiet for `offload.review_ask_again_days` (30), `never` until `--forget`; the folder a command last ran in is confirmed (never the home folder or `/`); a worker that cannot be asked (offline, silent over `sched.STALE_S`, locked, or without `profile_time`/`cache` in its registry) is named once with its reason and never skipped silently; a class already on some workers is offered for the rest; a command excluded on a worker is not tried there again. **Eligibility check against the code:** `sched.choose` reads each worker's `registry.json` classes, so a class registered on a worker is already a candidate there; the orchestrator needed no change. Without a terminal the list and exact commands are printed and nothing is asked. The end of `ct-setup install` asks once whether to go through the list now. Not built: the history hint (slice 8), installing the Claude Code hooks (backlog), a time estimate beyond the median of the recorded runs.
+
+## Built: the first-day data (slice `feat/setup-offload-history`, 2026-11-28)
+
+Why: a new install has an empty command log, so the summary and the y/n review say "Nothing recorded yet" and the goal, value visible right after setup, fails. **Owner decision 2026-11-28: the first release is the CLI and assumes no AI model use, so the data comes from shell history only.** The coding assistant's hooks (merging pre/post Bash hooks into its settings file) and its session transcripts are a later feature, parked on the local branch `feat/assistant-hooks-and-transcripts` (built, tested, not merged). Code: `client/histimport.py`, `client/histflow.py`; the command is `ct-run offload import [--source S] [--clear]`, offered at the end of `ct-setup install` while the log is empty or short.
+
+**Sources: what each can honestly give** (owner decisions 2026-11-28: zsh, bash and fish; the last 90 days; more shells expand the value).
+
+| Source | Date | Duration | Imported? |
+| ------ | ---- | -------- | --------- |
+| zsh `EXTENDED_HISTORY` (`~/.zsh_history`, `$ZDOTDIR`) | yes | whole seconds; 0 means "under a second", which is not a measurement, so untimed | yes |
+| bash with `HISTTIMEFORMAT` (`#epoch` lines) | yes | never | only the dated commands |
+| fish (`fish_history`, `$XDG_DATA_HOME`) | yes, every entry | never | yes |
+| plain zsh or bash history | no | no | no: without a date there is no honest "in the last N days"; the lines are counted and said |
+| PowerShell, nushell, a custom `HISTFILE` | PowerShell: no | no | not yet (backlog) |
+
+Import reads private data, so: nothing is saved or sent while counting (the screen says so); each shell is a separate yes (one whose commands are all in the log already is not asked about); only command lines are kept, with the live hook's secret screening and length cap; the log stays mode 0600 and is never pushed or sent to a worker; the source files are never modified. Rows are marked `src` (`zsh`, `bash`, `fish`) and `id` (a hash of source, time, command and folder, so a second run adds nothing); a live row has neither. `import --clear` removes only imported rows. An untimed row counts as a run and adds no seconds, so no hours are invented; the summary says how many runs, and how much of the time, come from imported history, so imported hours are never passed off as measured. **Live recording after setup** needs a hook: the existing `offload log hook pre|post` is for an assistant or a shell hook; a zsh/bash/fish hook that calls it is a later feature (backlog), so until then the log grows by re-running the import.
+
+**Windows.** The zsh, bash and fish files do not exist there, so the import finds nothing and says so; PowerShell's history has no dates and is not read.
+
+### End-user failures (how a person reaches each, the message, the test)
+
+| Failure | How it is reached | What is shown | Test |
+| ------- | ----------------- | ------------- | ---- |
+| A history file is huge or unreadable | years of history, wrong owner | the file is named with the size rule or the system's error; the others still import | `test_a_huge_file...`, `test_an_unreadable_file...` |
+| A history file holds junk or odd bytes | an interrupted write, another tool | the bad lines are skipped, the scan goes on | `test_binary_junk...` |
+| The log cannot be read or written | wrong owner or mode | `review.log.unreadable` / `import.log.unwritable` with the system's text; at setup a note and the install goes on | `test_an_unreadable_log...`, `test_the_real_error_of_an_unwritable_log_is_shown` |
+| Imported hours overstate | a time is only known where the shell wrote one | untimed rows add no time; the summary says which runs are imported | `test_the_summary_card_says_which_runs_came_from_history` |
+| History has no dates | plain zsh/bash history | counted and said, not imported | `test_zsh_plain_history...` |
 
 ## The offload review flow (slices 6-8)
 

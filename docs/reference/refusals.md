@@ -2287,3 +2287,12 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 - **Depends on:** nothing
 - **Configured:** not configurable
 - **What to do:** Nothing to do: the review asks again about the commands you had answered.
+
+### `import.log.unwritable`: The command log could not be written to
+
+- **Text:** {reason}
+- **Protects:** The one-time import adds rows to the private command log; when that cannot be written the import says so with the system's own words.
+- **Decided by:** client
+- **Depends on:** nothing
+- **Configured:** not configurable
+- **What to do:** Make the log file named above writable by you (it is your own file), then run the import again.

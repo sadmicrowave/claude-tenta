@@ -26,6 +26,7 @@ Nothing in `ct-run` can change what the worker is allowed to do. It only sends r
 | `classes` | the classes the worker published, their cost, tier and limits, plus pending proposals |
 | `prune [--days N]` | squash old job files out of the `jobs` branch |
 | `offload log hook\|top\|show\|clear` | the command log (below) |
+| `offload import [--source S] [--clear]` | read your past shell commands in once (zsh, bash, fish history), a separate yes per shell; `--clear` removes what was imported |
 | `offload fit -- <cmd>` | registered / excluded / retry-after-upgrade / unknown; exit 0 / 3 / 5 / 4 |
 | `offload history` | every fit check you or Claude made |
 | `offload profile [options] -- <cmd>` | queue a profiling run of one exact command |
@@ -42,7 +43,7 @@ Job files go to the `jobs` branch, exclusions to the `data` branch, proposals to
 
 ### The command log
 
-`offload log hook pre|post` is meant to be called by Claude Code's Bash hooks. It records each command and how long it took in `<client home>/command-log.jsonl` (mode 0600, never pushed).
+`offload log hook pre|post` is meant to be called by a hook before and after each command (the coding assistant's hooks are a later feature; the first release fills the log from your shell history, below). It records each command and how long it took in `<client home>/command-log.jsonl` (mode 0600, never pushed).
 A command that looks like it carries a secret is not recorded. `offload log top` ranks normalised "shapes" (tool, subcommand, flag names; paths and values are dropped) of commands that
 could suit the worker: not network or version control, not a package manager, not privileged or interactive, not several real commands in one line, and slow enough (median 30 s by default) to be worth the 15 to 60
 seconds of job overhead, or repeated (`offload.repeat_runs` runs, 3 by default, within `offload.repeat_days` days, 14 by default) with a total time of at least that long. Each row says which reason on the ladder makes it worth offloading (its "offload reason"); `--all` also lists every reason's verdict for every shape. While this computer is busy (5-minute load average per core at least `offload.busy_load_ratio`, 1 by default) a command that usually takes `offload.busy_min_seconds` (10) or more also counts, with the headline "Your computer is busy"; that is a live reading shown as a note, never stored in the log. `offload measure` reads the same log and suggests `offload.repeat_days` (the typical time your repeated commands took to reach `offload.repeat_runs` runs), with a table of how many commands would be candidates at other settings; it changes nothing and prints the one `ct-setup install --set` command that applies the suggestion. With too little data it says so and suggests nothing.
@@ -73,12 +74,22 @@ For each recommended command, best first, `ct-run offload review` asks `Register
 - **Without a terminal** (a pipe, a script, a run started by Claude) it prints the list and the exact `ct-run offload profile` commands and asks or registers nothing.
 - **Workers to update:** a worker must run this release (it publishes `profile_time` and `cache`) to be asked; update with `ct-admin apply`.
 
+### The first-day data: the one-time import of past shell commands
+
+A new install has an empty log, so the summary has nothing to add up. `ct-run offload import` fills it from your own shell history, once. The first release assumes no AI model use, so only shell history is read; the coding assistant's hooks and transcripts are a later feature. It is offered at the end of `ct-setup install` (only while the log is empty or short) and available any time. Nothing is read or recorded without a terminal and a yes; without a terminal it prints the command and does nothing.
+
+- **What is read:** `~/.zsh_history` (or `$ZDOTDIR/.zsh_history`), `~/.bash_history`, and `~/.local/share/fish/fish_history` (or under `$XDG_DATA_HOME`). It first shows what it found (paths, how many commands, the dates, how many have a time) and then asks a separate yes for each shell. Counting reads the files on this computer; nothing is saved or sent until you say yes, the files are never changed, and a command that looks like it carries a secret is left out. Only the last `offload.import_days` (90) days are read; a file over `offload.import_max_mb` (200 MB) is skipped and named.
+- **What each shell can honestly give.** zsh with `EXTENDED_HISTORY` writes a date and a whole-second duration (0 means under a second, so it is untimed). bash writes dates only when `HISTTIMEFORMAT` is set, and never a duration. fish writes a date for every command and never a duration. Lines with no date (plain zsh or bash history) are not imported: without a date there is no honest "in the last N days"; their number is shown. A command with no time counts as a run and adds no time, so no hours are invented. The summary says how many of its runs came from imported history.
+- **Rows** from the import carry `src` (`zsh`, `bash`, `fish`) and `id`; running the import again adds nothing (and asks nothing when there is nothing new). `ct-run offload import --clear` removes only what was imported; `ct-run offload log clear` removes the whole log.
+- **Windows:** the zsh, bash and fish files do not exist there, so the import finds nothing; PowerShell's history has no dates and is not read yet (backlog).
+
 ### Known problems
 
 | Problem | What you see | What to run |
 | ------- | ------------ | ----------- |
 | The command log cannot be read (wrong owner or mode) | `review.log.unreadable` with the system's own message; at the end of an install, a note instead (the install still succeeds) | make the file readable, or `ct-run offload log clear` |
-| No hooks installed yet | "Nothing recorded yet" | install the Claude Code hooks that call `ct-run offload log hook pre` and `post` |
+| Nothing recorded yet | "Nothing recorded yet" (a new install offers the import at the end of `ct-setup install`) | `ct-run offload import` |
+| Windows: no shell history to import | "There is nothing to import" | none yet: PowerShell history is not read (backlog) |
 | No worker yet | the summary still shows: it reads only this computer's log | none |
 
 ### Profiling and proposals

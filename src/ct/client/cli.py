@@ -30,7 +30,7 @@ from pathlib import Path
 from .. import alias, cards, clihelp, config, transport
 from .. import ui as _ui
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
-from . import candidacy, cap, delta, hostload, markers, refuse
+from . import candidacy, cap, delta, histimport, hostload, markers, refuse
 from .. import patch as patch_mod
 from . import offload as off
 from . import submit as sub
@@ -50,7 +50,7 @@ def emit(*a, **k):
 
 class Context:
     def __init__(self, repos, *, product="the worker", admin="ct-admin", hints=None, label_of=None, ask=input, sleep=time.sleep, clock=time.time, run_admin=None,
-                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, busy_load_ratio=1.0, busy_min_seconds=10.0, host_load=None, review_days=14, review_top=5, review_min_commands=20, review_min_days=3, review_ask_again_days=30):
+                 is_tty=None, own_tools=(), home=None, max_in_flight=0, fleet=None, auto_adopt=False, kind="github", repeat_runs=3, repeat_days=14, busy_load_ratio=1.0, busy_min_seconds=10.0, host_load=None, review_days=14, review_top=5, review_min_commands=20, review_min_days=3, review_ask_again_days=30, user_home=None, import_days=90, import_max_mb=200):
         self.kind = kind                                   # the transport: jobs leave the person's network unless it is "direct"
         self.repos, self.product, self.admin, self.own_tools = repos, product, admin, tuple(own_tools)
         self.home = Path(home) if home else Path("~/.ct").expanduser()
@@ -60,6 +60,7 @@ class Context:
         self.commands = off.CommandBook(self.home)
         self.repeat_runs, self.repeat_days = int(repeat_runs), int(repeat_days)
         self.busy_load_ratio, self.busy_min_seconds = float(busy_load_ratio), float(busy_min_seconds)
+        self.user_home, self.import_days, self.import_max_mb = user_home, int(import_days), int(import_max_mb)       # user_home: where the assistant's settings and the shell history are (the real home unless a test says otherwise)
         self.review_days, self.review_top, self.review_min_commands, self.review_min_days = int(review_days), int(review_top), int(review_min_commands), int(review_min_days)
         self.review_ask_again_days = int(review_ask_again_days)
         self.host_load = host_load or hostload.read       # a live reading of this computer, or None when it cannot be read
@@ -77,7 +78,7 @@ class Context:
         return cls(repos, product=name, admin="ct-admin", hints=[("on your computer", "ct-admin approve {}"), ("on the worker", "ct-worker approve {}")],
                    own_tools=OWN_TOOLS, home=Path(cfg.paths.client_home).expanduser(),
                    max_in_flight=cfg.limits.max_in_flight, fleet=lambda: fleet_of(cfg, repos), auto_adopt=cfg.offload.auto_adopt, repeat_runs=cfg.offload.repeat_runs, repeat_days=cfg.offload.repeat_days, busy_load_ratio=cfg.offload.busy_load_ratio, busy_min_seconds=cfg.offload.busy_min_seconds, review_days=cfg.offload.review_days, review_top=cfg.offload.review_top,
-                   review_min_commands=cfg.offload.review_min_commands, review_min_days=cfg.offload.review_min_days, review_ask_again_days=cfg.offload.review_ask_again_days, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
+                   review_min_commands=cfg.offload.review_min_commands, review_min_days=cfg.offload.review_min_days, review_ask_again_days=cfg.offload.review_ask_again_days, import_days=cfg.offload.import_days, import_max_mb=cfg.offload.import_max_mb, run_admin=run_admin_command, kind=transport.for_config(cfg).kind)
 
 
 def run_admin_command(args):
@@ -868,7 +869,7 @@ def cmd_measure(ctx, a, cfg=None):
     log = command_log(ctx, cfg)
     m = log.measure(a.min_seconds, repeat_runs=ctx.repeat_runs, repeat_days=ctx.repeat_days)
     if not m["records"]:
-        emit("Nothing recorded yet", ("Where", "ct-run offload log show"), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
+        emit("Nothing recorded yet", ("Where", "ct-run offload log show"), tag="NOTE", color=YELLOW, steps=["Read in your past shell commands: ct-run offload import"])
         return 0
     _ui.table("Candidates at each setting", ["runs needed", *(f"in {plural(d, 'day')}" for d in log.GRID_DAYS)],
               [[str(k), *(str(m["grid"][k][d]) for d in log.GRID_DAYS)] for k in sorted(m["grid"])], tag="MEASURE", stream=sys.stdout,
@@ -876,7 +877,7 @@ def cmd_measure(ctx, a, cfg=None):
                      f"Now: {plural(ctx.repeat_runs, 'run')} in {plural(ctx.repeat_days, 'day')} gives {plural(m['current'], 'candidate')}."))
     if m["suggested_days"] is None:
         emit("No suggestion yet", f"No command has been run {plural(ctx.repeat_runs, 'time')} yet; the most is {m['most_runs']}.", tag="NOTE", color=YELLOW,
-             steps=["Keep working with the hooks installed, then measure again once a command you repeat has reached that many runs."])
+             steps=["Keep working, then measure again once a command you repeat has reached that many runs."])
         return 0
     d = m["suggested_days"]
     emit("Suggested", f"{plural(m['shapes_enough'], 'command shape')} of yours reached {plural(ctx.repeat_runs, 'run')}: the typical one took {plural(d, 'day')} to do it, so count {plural(ctx.repeat_runs, 'run')} within {plural(d, 'day')}.",
@@ -907,18 +908,21 @@ def show_review(r, log, product, err, out, interactive=False):
     """Print the summary card and the ranked table. Cards go to `err`, the table to `out` (both the same stream after an install)."""
     name = alias.show(product)
     if r["state"] == "empty":
-        _ui.say("Nothing recorded yet", ("Log file", log.path), "Nothing is in your command history, so there is nothing to add up. Claude Code's hooks record each command here once they are installed.",
-                tag="NOTE", color=YELLOW, stream=err, run_label="The command the hooks call", run="ct-run offload log hook pre")
+        _ui.say("Nothing recorded yet", ("Log file", log.path), "Nothing is in your command history, so there is nothing to add up. Your past shell commands can be read in once to fill it, and commands recorded by a hook (offload log hook) add to it.",
+                tag="NOTE", color=YELLOW, stream=err, run_label="Read in your past shell commands", run="ct-run offload import")
         return
     if r["state"] == "short":
         _ui.say("Not enough history yet", f"Only {plural(r['commands_recorded'], 'command')} over {plural(r['window_days'], 'day')} so far, too little to say what {name} could take.",
-                tag="NOTE", color=YELLOW, stream=err, steps=["Keep working with the hooks installed, then run ct-run offload review again."])
+                tag="NOTE", color=YELLOW, stream=err, steps=["Read in your past shell commands with ct-run offload import, or keep working, then run ct-run offload review again."])
         return
     if r["state"] == "none":
         _ui.say("Nothing a worker could take yet", f"{plural(r['commands_recorded'], 'command')} recorded in the last {plural(r['window_days'], 'day')}; none that a worker could take.",
                 *[f"{why} ({n})" for why, n in r["reasons"]], tag="REVIEW", color=CYAN, stream=err)
         return
     note = ([f"{r['untimed']} of those runs had no timing recorded and {'is' if r['untimed'] == 1 else 'are'} not in the time."] if r["untimed"] else [])
+    if r.get("imported_commands"):
+        note.append(f"{r['imported_commands']} of those runs ({span(r['imported_seconds'])} of the time) come from your past history, read in once at setup, not measured live. "
+                    "A run with no time adds none.")
     _ui.say("Commands a worker could take",
             f"In the last {plural(r['window_days'], 'day')} you ran {plural(r['kinds'], 'different command')} that a worker could take: {plural(r['commands'], 'run')}, {span(r['seconds'])} in all.",
             cards.Why("That is the time they took on this computer. It is not a promise that a worker is quicker: it may be slower. What you gain is this computer left free for your own work. This only adds up your history; nothing has been set up, changed or sent."),
@@ -996,7 +1000,7 @@ def ctx_for_worker(ctx, cfg, worker):
     return made
 
 
-def after_install_review(cfg, stream=None, host_load=None, now=None, ask=input):
+def after_install_review(cfg, stream=None, host_load=None, now=None, ask=input, user_home=None):
     """The same summary at the end of `ct-setup install`, on a terminal only. Never raises for a log it cannot read: that becomes a note. True when something was printed."""
     from .cmdlog import CommandLog
     stream = stream or sys.stderr
@@ -1004,7 +1008,11 @@ def after_install_review(cfg, stream=None, host_load=None, now=None, ask=input):
         return False
     log = CommandLog(Path(cfg.paths.client_home).expanduser(), own_tools=OWN_TOOLS)
     try:
-        r = review_of(log, cfg.offload, (host_load or hostload.read)(), time.time() if now is None else now)
+        now = time.time() if now is None else now
+        r = review_of(log, cfg.offload, (host_load or hostload.read)(), now)
+        if r["state"] in ("empty", "short"):                 # too little to show value: offer to read in past shell commands, with its own yes
+            first_day_offers(cfg, log, ask, stream, user_home, now)
+            r = review_of(log, cfg.offload, (host_load or hostload.read)(), now)
     except OSError as e:
         from ..packages import card_safe
         _ui.say("The summary of your command history could not be made", ("Log file", str(log.path)), cards.Why(card_safe(str(e))), tag="NOTE", color=YELLOW, stream=stream,
@@ -1014,6 +1022,17 @@ def after_install_review(cfg, stream=None, host_load=None, now=None, ask=input):
     if r["state"] == "ok":
         offer_review_flow(cfg, r, log, ask, stream)
     return True
+
+
+def first_day_offers(cfg, log, ask, stream, user_home, now):
+    """The one-time import of past shell commands (client/histflow.py). A failure here is a note, never a failed install."""
+    from . import histflow
+    o = cfg.offload
+    try:
+        histflow.setup_offers(log, ask, stream, user_home or Path.home(), now, days=getattr(o, "import_days", 90), max_bytes=getattr(o, "import_max_mb", 200) * 1024 * 1024)
+    except Exception as e:
+        from ..packages import card_safe
+        _ui.say("The first-day setup could not go on", cards.Why(card_safe(str(e))), tag="NOTE", color=YELLOW, stream=stream, steps=["Run it whenever you like."], run="ct-run offload import")
 
 
 def offer_review_flow(cfg, r, log, ask, stream):
@@ -1035,7 +1054,7 @@ def offer_review_flow(cfg, r, log, ask, stream):
 
 
 # ---- offload: what is worth running on the worker ----
-LOG_HELP = {"hook": ("(called by Claude Code's hooks; you never run this yourself)", [("Installed once in Claude Code's settings", "ct-run offload log hook pre")]),
+LOG_HELP = {"hook": ("(called by a hook before and after each command; you never run this yourself)", [("What a hook calls", "ct-run offload log hook pre")]),
             "top": ("rank the commands you run most that the worker could take",
                     [("The top 10 candidates", "ct-run offload log top"), ("Include shapes that are not candidates, with the reason", "ct-run offload log top --all"),
                      ("Only commands that usually take over a minute", "ct-run offload log top --min-seconds 60")]),
@@ -1056,6 +1075,9 @@ def cmd_offload(ctx, a, cfg):
         return cmd_measure(ctx, a, cfg)
     if c == "review":
         return cmd_review(ctx, a, cfg)
+    if c == "import":
+        from . import histflow
+        return histflow.cmd_import(ctx, a)
     if c == "history":
         return cmd_history(ctx, a)
     if c == "exclusions":
@@ -1067,14 +1089,14 @@ def cmd_offload(ctx, a, cfg):
     if c != "log" or not a.log_cmd:
         emit("Where to start", ("offload log top", "which of your commands are worth running on the worker"), ("offload fit -- <cmd>", "is it registered, excluded or unknown?"),
              ("offload profile ... -- <cmd>", "test-run it on the worker (you approve it)"), ("offload propose <job>", "turn a profile result into a proposal"),
-             ("offload review", "what your own history says a worker could take, best first"), ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
+             ("offload review", "what your own history says a worker could take, best first"), ("offload import", "read your past shell commands in once (each shell is its own yes)"), ("offload measure", "suggest the repeat settings from your own log"), ("offload history / exclusions", "what was checked, and what does not fit"), tag="HELP", color=CYAN)
         return 0
     log = command_log(ctx, cfg)
     if a.log_cmd == "hook":
         try:
             log.hook(a.phase, sys.stdin.read())
         except Exception:
-            pass                                              # a hook must never get in Claude Code's way
+            pass                                              # a hook must never get in the way of the command
         return 0
     if a.log_cmd == "show":
         emit(f"{len(log.read())} commands recorded", ("Log file", str(log.path) + ("" if log.path.exists() else "  (not created yet)")), tag="LOG", color=CYAN)
@@ -1085,7 +1107,7 @@ def cmd_offload(ctx, a, cfg):
         return 0
     recs = log.read()
     if not recs:
-        emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Install the Claude Code hooks: ct-run offload log hook pre|post"])
+        emit("Nothing recorded yet", ("Log file", log.path), tag="NOTE", color=YELLOW, steps=["Read in your past shell commands: ct-run offload import"])
         return 0
     host = ctx.host_load()
     rows = log.rank(a.min_seconds, a.all, recs, ctx.repeat_runs, ctx.repeat_days, load_ratio=host["ratio"] if host else None, busy_ratio=ctx.busy_load_ratio, busy_min_seconds=ctx.busy_min_seconds)[:a.top]
@@ -1186,6 +1208,9 @@ def build_parser():
     rv = osp.add_parser("review", add_help=False, help="what your own command history says a worker could take, ranked, then register the ones you choose")
     rv.add_argument("--declined", action="store_true", help="list the commands you said not now or never to")
     rv.add_argument("--forget", metavar="N", help="ask about a command you said no to again (its number from --declined)")
+    im = osp.add_parser("import", add_help=False, help="read your past shell commands in once (zsh, bash, fish history), so the log is not empty on the first day")
+    im.add_argument("--source", action="append", choices=sorted(histimport.SOURCES), help="only this source; repeat for more")
+    im.add_argument("--clear", action="store_true", help="forget what was imported (commands recorded live stay)")
     osp.add_parser("exclusions", add_help=False, help="commands that were test-run on the worker and do not fit")
     pf = osp.add_parser("profile", add_help=False, help="describe one exact command and have the worker measure it (needs your approval)")
     pf.add_argument("--spec", metavar="FILE", help="read the description from a file of `key: value` lines")

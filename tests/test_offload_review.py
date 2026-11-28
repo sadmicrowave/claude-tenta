@@ -104,7 +104,7 @@ class Review(unittest.TestCase):
     def test_each_entry_carries_only_what_slice_7_needs_and_no_paths_or_values(self):
         r = self.review(suite_runs(10, cmd="cd /srv/example/private-project && scripts/t test_a --seed-value=1 | tail -5") + filler(20))
         (e,) = r["recs"]
-        self.assertEqual(set(e), {"shape", "example", "count", "median", "total", "untimed", "rung", "headline", "why"})
+        self.assertEqual(set(e), {"shape", "example", "count", "median", "total", "untimed", "imported", "rung", "headline", "why"})
         self.assertNotIn("private-project", json.dumps(e["shape"]))
 
     def test_the_settings_exist_with_the_agreed_defaults(self):
@@ -167,11 +167,11 @@ class Screens(unittest.TestCase):
         code, out, err = self.run_cli("offload", "review")
         self.assertIn("1 of those runs had no timing", out + err)
 
-    def test_empty_log_points_at_the_hook(self):
+    def test_empty_log_points_at_the_import(self):
         code, out, err = self.run_cli("offload", "review")
         self.assertEqual(code, 0)
         self.assertIn("Nothing recorded yet", out + err)
-        self.assertIn("offload log hook", out + err)
+        self.assertIn("offload import", out + err)
 
     def test_short_log_gives_no_hours(self):
         self.put(suite_runs(5, days_ago=1))

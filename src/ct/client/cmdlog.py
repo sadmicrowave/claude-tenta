@@ -234,7 +234,7 @@ class CommandLog:
         """Group records by shape and judge each against every rung of the ladder (candidacy.judge). Returns dicts sorted by count (then total time):
         candidates only (a rung is met), unless show_all. Each row carries `rungs` and `headline` (the name of the highest-weighted rung met)."""
         now = time.time() if now is None else now
-        groups = defaultdict(lambda: {"count": 0, "secs": [], "ts": [], "example": "", "reason": None, "tool": ""})
+        groups = defaultdict(lambda: {"count": 0, "secs": [], "ts": [], "example": "", "reason": None, "tool": "", "imp": 0, "imp_secs": 0.0})
         for r in (self.read() if records is None else records):
             c = classify(r["cmd"], self.own_tools)
             if not c:
@@ -244,8 +244,12 @@ class CommandLog:
             g["count"] += 1
             g["tool"], g["reason"], g["example"] = tool, reason, example_of(r["cmd"])
             g["ts"].append({"ts": r.get("ts")})
+            if r.get("src"):
+                g["imp"] += 1
             if r.get("secs") is not None:
                 g["secs"].append(r["secs"])
+                if r.get("src"):
+                    g["imp_secs"] += r["secs"]
         rows = []
         for sh, g in groups.items():
             med = median(g["secs"]) if g["secs"] else None
@@ -257,7 +261,7 @@ class CommandLog:
             if reason and not show_all:
                 continue
             rows.append({"shape": sh, "count": g["count"], "median": med, "total": sum(g["secs"]), "untimed": g["count"] - len(g["secs"]), "example": g["example"], "reason": reason,
-                         "rungs": res["rungs"], "headline": candidacy.NAMES[res["headline"]] if res["headline"] else None})
+                         "imported": g["imp"], "imported_secs": g["imp_secs"], "rungs": res["rungs"], "headline": candidacy.NAMES[res["headline"]] if res["headline"] else None})
         rows.sort(key=lambda r: (-r["count"], -r["total"]))
         return rows
 
@@ -273,7 +277,7 @@ class CommandLog:
         log_days = (now - min(stamps)) / 86400 if stamps else 0.0
         window = max(1, min(days, math.ceil(log_days)))
         win = [r for r in recs if (r.get("ts") or 0) >= now - window * 86400]
-        out = {"state": "empty", "recs": [], "more": 0, "kinds": 0, "commands": 0, "seconds": 0, "untimed": 0, "reasons": [], "commands_recorded": len(win), "log_days": log_days, "window_days": window}
+        out = {"state": "empty", "recs": [], "more": 0, "kinds": 0, "commands": 0, "seconds": 0, "untimed": 0, "imported_commands": 0, "imported_seconds": 0, "imported": sum(1 for r in win if r.get("src")), "reasons": [], "commands_recorded": len(win), "log_days": log_days, "window_days": window}
         if not recs:
             return out
         if len(win) < min_commands or log_days < min_days:
@@ -289,11 +293,12 @@ class CommandLog:
         ranked = []
         for r in rows:
             met = max((x for x in r["rungs"] if x["verdict"] == candidacy.MET), key=lambda x: x["weight"])
-            ranked.append({"shape": r["shape"], "example": r["example"], "count": r["count"], "median": r["median"], "total": r["total"], "untimed": r["untimed"],
+            ranked.append({"shape": r["shape"], "example": r["example"], "count": r["count"], "median": r["median"], "total": r["total"], "untimed": r["untimed"], "imported": r["imported"],
                            "rung": met["rung"], "headline": r["headline"], "why": met["reason"]})
         ranked.sort(key=lambda r: (-candidacy.WEIGHTS[r["rung"]], -r["total"]))
         return {**out, "state": "ok", "recs": ranked[:top], "more": max(0, len(ranked) - top), "kinds": len(ranked), "commands": sum(r["count"] for r in ranked),
-                "seconds": sum(r["total"] for r in ranked), "untimed": sum(r["untimed"] for r in ranked)}
+                "seconds": sum(r["total"] for r in ranked), "untimed": sum(r["untimed"] for r in ranked),
+                "imported_commands": sum(r["imported"] for r in rows), "imported_seconds": sum(r["imported_secs"] for r in rows)}
 
     GRID_RUNS, GRID_DAYS = (2, 3, 4), (7, 14, 30)
 
@@ -312,6 +317,42 @@ class CommandLog:
         return {"shapes": len(stamps), "most_runs": max((len(v) for v in stamps.values()), default=0), "shapes_enough": enough, "suggested_days": days, "grid": grid,
                 "current": len(self.rank(min_seconds, False, recs, repeat_runs, repeat_days, now)), "records": len(recs),
                 "log_days": (now - min((r["ts"] for r in recs if r.get("ts")), default=now)) / 86400}
+
+    def imported_count(self):
+        return sum(1 for r in self.read() if r.get("src"))
+
+    def import_rows(self, rows):
+        """Add rows read once from the person's past history (client/histimport.py): each has `src` and `id`, and one already in the log (the same id) is not added again. Returns (added, duplicates).
+        The file is created private (mode 0600) like the live log. Raises OSError when it cannot be written."""
+        have = {r.get("id") for r in self.read() if r.get("id")}
+        fresh, dup = [], 0
+        for r in rows:
+            if r["id"] in have:
+                dup += 1
+                continue
+            have.add(r["id"])
+            fresh.append(r)
+        if fresh:
+            self.home.mkdir(parents=True, exist_ok=True)
+            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write("".join(json.dumps({k: r[k] for k in ("ts", "cmd", "secs", "cwd", "src", "id")}) + "\n" for r in fresh))
+        return len(fresh), dup
+
+    def clear_imported(self):
+        """Forget only the rows that were imported; the live ones stay. Returns how many went."""
+        if not self.path.exists():
+            return 0
+        recs = self.read()
+        keep = [r for r in recs if not r.get("src")]
+        if len(keep) == len(recs):
+            return 0
+        tmp = self.path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in keep))
+        os.replace(tmp, self.path)
+        return len(recs) - len(keep)
 
     def clear(self):
         self.path.unlink(missing_ok=True)
