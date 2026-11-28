@@ -80,7 +80,7 @@ Every rule that refuses a job on the job path, defined once in `src/ct/refusals.
 ### `files.name.path`: A file name could leave the job's folder
 
 - **Text:** bad file name: {name!r} ({reason})
-- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.
+- **Protects:** Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space (the client applies the same rules before sending when the worker says it runs Windows, and the worker checks again where it writes).
 - **Decided by:** worker
 - **Depends on:** nothing
 - **Configured:** not configurable

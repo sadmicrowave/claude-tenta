@@ -13,7 +13,7 @@ from ct.setup.server import SetupError
 
 TOOLS = {"git": "git version 2.56.1.windows.1", "python": "Python 3.13.17", "changed": False}
 ANSWERS = [("requirements.txt", TOOLS), ("claude-tenta worker (standard account)", {"user": "ctworker", "changed": True}), ("robocopy", {"commit": "a" * 40, "changed": True}), ("claude-tenta mailbox account", {"user": "claude-tenta-mail", "changed": True}),
-           ("$cfgB64", {"changed": True}), ("started = $true", {"started": True}), ("Register-ScheduledTask -TaskName $tn -Action $action -Trigger", {"changed": True})]
+           ("$cfgB64", {"changed": True}), ("config check", {"ok": True}), ("started = $true", {"started": True}), ("Register-ScheduledTask -TaskName $tn -Action $action -Trigger", {"changed": True})]
 
 
 class FakeRepos:
@@ -42,6 +42,8 @@ class Fixture(unittest.TestCase):
 
     def runner(self, fail_on=None):
         def run(argv, text):
+            if "worker.log" in text and "Get-Content" in text:                                 # the read of the worker's own log
+                return 0, 'CT-RESULT {"log": "ERROR The configuration has problems - transport.profile_approval is not a known setting (known: kind)."}'
             if "'CT-RESULT ' + '{}'" in text:                                              # the reachability check: not a step
                 return 0, "CT-RESULT {}"
             self.sent.append(text)
@@ -62,10 +64,10 @@ class Fixture(unittest.TestCase):
 class Whole(Fixture):
     def test_every_step_runs_in_order_and_the_report_says_each_one(self):
         report = self.installer().run_all()
-        self.assertEqual([r[0] for r in report], ["your configuration", "mailbox key", "tools", "accounts and folders", "release", "mailbox", "worker files", "worker task", "your copies of the mailbox", "first job"])
+        self.assertEqual([r[0] for r in report], ["your configuration", "mailbox key", "tools", "accounts and folders", "release", "mailbox", "worker files", "configuration check", "worker task", "your copies of the mailbox", "first job"])
         self.assertTrue(all(r[1] != "failed" for r in report))
         order = [next(m for m, _ in ANSWERS if m in t) for t in self.sent]
-        self.assertEqual(order, ["requirements.txt", "claude-tenta worker (standard account)", "robocopy", "claude-tenta mailbox account", "$cfgB64", "Register-ScheduledTask -TaskName $tn -Action $action -Trigger", "started = $true"])
+        self.assertEqual(order, ["requirements.txt", "claude-tenta worker (standard account)", "robocopy", "claude-tenta mailbox account", "$cfgB64", "config check", "Register-ScheduledTask -TaskName $tn -Action $action -Trigger", "started = $true"])
 
     def test_the_computers_own_configuration_is_written_once_with_its_client_folder_and_kept_after(self):
         inst = self.installer()
@@ -163,6 +165,20 @@ class Failures(Fixture):
             self.installer().run_all()
         self.assertIn("first job did not come back", e.exception.title)
         self.assertIn("worker.log", " ".join(e.exception.steps))
+
+    def test_a_first_job_failure_shows_the_workers_own_error_in_plain_words(self):
+        """Known problem: the worker refused its configuration, the first job timed out, and the only hint was a command to run by hand."""
+        self.repos.result = None
+        with self.assertRaises(SetupError) as e:
+            self.installer().run_all()
+        self.assertIn(("The worker said", "ERROR The configuration has problems - transport.profile_approval is not a known setting (known: kind)."), e.exception.facts)
+        self.assertIn("newer Windows release", " ".join(e.exception.steps))
+
+    def test_a_release_that_cannot_read_the_configuration_stops_before_the_worker_is_started(self):
+        with self.assertRaises(SetupError) as e:
+            self.installer(fail_on="config check").run_all()
+        self.assertIn("the real words", e.exception.why + str(e.exception.facts) + e.exception.title)
+        self.assertFalse(any("Register-ScheduledTask" in t or "started = $true" in t for t in self.sent))
 
     def test_no_result_at_all_within_the_wait_is_a_failure_too(self):
         self.repos.result = None

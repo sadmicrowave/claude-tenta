@@ -40,6 +40,7 @@ Run on your computer. Everything that changes the worker asks first and shows wh
 | `ct-admin quarantine` | list results held back by the output guard, or read one |
 | `ct-admin unlock` | clear a security lockdown after you have looked at it |
 | `ct-admin output` | the full output of a failed command (only its error lines are ever published) |
+| `ct-admin received` | every job the Direct mailbox key sent to the worker, as the worker saw it (a copied key shows up here) |
 
 ### Registry
 

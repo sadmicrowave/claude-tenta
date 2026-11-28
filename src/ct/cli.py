@@ -41,6 +41,7 @@ CT_HELP = (("status [--hours N]", "health, what it is doing, recent use, and the
            ("show <job>", "print a job file"),
            ("review <job>...", "show what waiting jobs will run, asking nothing"),
            ("quarantine [job]", "list results held back by the output guard, or read one"),
+           ("received [--last N]", "every job the Direct mailbox key sent here, as this worker saw it (when, class, what it did with it)"),
            ("output [job]", "the full output of a failed command (only its error lines were published)"),
            ("wake", "end idle or sleep now and look for jobs right away"),
            ("unlock", "clear a security lockdown after you have looked at it"),
@@ -377,6 +378,23 @@ def cmd_output(ctx, jid=None):
         return 0
     _ui.say("Full output of failed commands", *cards.job_blocks([(name, [("SIZE", f"{kb} KB"), ("AGE", f"{human_dur(age)} ago")]) for name, kb, age in rows]), "Newest first; only the error lines were published.",
             tag="KEPT", color=_ui.PRIMARY, stream=sys.stdout, run="ct-output <job>", run_label="Read one")
+    return 0
+
+
+def cmd_received(ctx, last=30):
+    """The worker's own record of the jobs that reached it through the Direct mailbox (spot-check F4): if the mailbox key was copied, this is where its use shows."""
+    rec = ctx.w.received
+    if rec is None:
+        emit("This worker does not use the Direct mailbox", "Jobs reach it through GitHub, where the queue repository's history is the record of who sent what.", tag="NOTE", color=YELLOW)
+        return 0
+    rows = rec.read(last)
+    if not rows:
+        emit("No job has come through the mailbox yet", tag="OK", color=GREEN)
+        return 0
+    names = {"queued": "queued", "awaiting_approval": "waiting for approval", "started_unapproved": "profile run, no approval needed", "rejected": "refused", "error": "worker error"}
+    blocks = cards.job_blocks([(r.get("id", ""), [("When", r.get("at", "")[:19].replace("T", " ")), ("Class", r.get("class") or "?"),
+                                                  ("What it did", names.get(r.get("outcome"), r.get("outcome") or "?") + (f" ({r['refusal']})" if r.get("refusal") else ""))]) for r in rows])
+    emit("Jobs the mailbox key sent", *blocks, "Written by this worker before the job ran; it holds no job contents. A job you did not send means the key was copied: ct-setup rotate-key.", tag="RECEIVED", color=CYAN)
     return 0
 
 
@@ -769,6 +787,8 @@ def main(argv=None, ctx=None, cfg=None):
             return cmd_unlock(ctx)
         if cmd == "output" and len(args) <= 1:
             return cmd_output(ctx, args[0] if args else None)
+        if cmd == "received":
+            return cmd_received(ctx, last=min(500, max(1, _value(args, "--last", 30, int))))
         if cmd == "prune-results":
             force = _flag(args, "--force")
             return cmd_prune_results(ctx, days=_value(args, "--days", 14, int), force=force)

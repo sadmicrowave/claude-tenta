@@ -252,7 +252,7 @@ class ACommandOnAJobSentToAnotherWorker(AdminBase):
 class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
     """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
     so a new command cannot be added without saying which it is."""
-    FLEET = {"update", "apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
+    FLEET = {"update", "apply", "diff", "check", "status", "quarantine", "received", "unlock"}                  # every worker, one after the other, each asked its own questions
     PICK = {"clean", "adopt", "retire", "class", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
     OWN_FLAG = {"wake", "audit", "tripwire-test", "locate"}                                # already every worker (or the one named) with their own --worker
     BY_NATURE = {"watch", "workers"}                                                       # look at the whole fleet by definition

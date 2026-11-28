@@ -69,6 +69,17 @@ class Lifecycle(Base):
         self.assertFalse((self.state / "work" / "escape.txt").exists())
         self.assertFalse((self.state / "escape.txt").exists())
 
+    def test_the_write_path_runs_the_same_name_check_again_on_a_windows_worker(self):
+        from unittest import mock
+        from ct import jobs
+        with mock.patch.object(jobs, "check_files", side_effect=lambda files, cls, limits: files), mock.patch.object(jobs, "_on_windows", return_value=True):      # intake let it through: the write is the last defence
+            self.job("job-0001", "files", files={"C:evil.txt": "x", "nul.txt": "y"})
+            self.run_all()
+        res = self.result("job-0001")
+        self.assertEqual(res["status"], "rejected")
+        self.assertEqual(res["refusal"], "files.name.path")
+        self.assertFalse((self.state / "work" / "job-0001" / "C:evil.txt").exists())
+
     def test_a_job_whose_file_left_the_repo_is_still_handled_from_its_snapshot(self):
         self.job("job-0001")
         self.w.fetch()
