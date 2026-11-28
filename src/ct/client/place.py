@@ -1,4 +1,4 @@
-"""Placing a job: which of your workers gets it (the scheduler's wiring, `ct.sched` is the decision).
+"""Placing a job: which of your workers gets it (the orchestrator's wiring, `ct.sched` is the decision).
 
 With one worker nothing here runs: sending works as it always did. With several (the main one and those in workers.toml), `route` reads what each published (state and registry, over
 each worker's OWN connection, side by side), asks `sched.choose`, says why, and hands back the Context of the chosen worker. `--worker NAME` forces one. Where a job went is written to
@@ -91,7 +91,7 @@ def channel_problem(c, repos):
     return (sends, listens) if listens and listens != sends else None
 
 
-def view_of(name, c, repos, fetch=None, now=None, home=None):
+def view_of(name, c, repos, fetch=None, now=None, home=None, silent_s=None):
     """What is known about one worker, after one look over its own connection. A look that fails is a worker that is not reachable now, with what was said."""
     from ..admin import workers as workers_mod
     configured = transport.for_config(c).kind
@@ -103,19 +103,25 @@ def view_of(name, c, repos, fetch=None, now=None, home=None):
         return sched.worker_view(name, kind, workers_mod.read_state(repos.results), repos.registry_info(), None, pickup_s(c, kind), reachable=False, why_not=first, configured=configured)
     state = workers_mod.read_state(repos.results)
     return sched.worker_view(name, kind, state, repos.registry_info(), workers_mod.age_s(state, now) if state else None, pickup_s(c, kind), configured=configured,
-                             sent_pending=pending_sent(home, name, repos, now) if home else 0)
+                             sent_pending=pending_sent(home, name, repos, now) if home else 0,
+                             silent_after_s=silent_s or sched.SILENT_S)
 
 
-def gather(ents, repos_of, fetch=None, home=None):
+def _silent_s(ctx):
+    hours = getattr(ctx, "silent_hours", 24)
+    return (hours if isinstance(hours, (int, float)) else 24) * 3600
+
+
+def gather(ents, repos_of, fetch=None, home=None, silent_s=None):
     """One view per worker, all looked at at the same time (a slow or dead one does not hold up the others)."""
     with ThreadPoolExecutor(max_workers=max(1, len(ents))) as pool:
-        return list(pool.map(lambda e: view_of(e[0], e[1], repos_of(e), fetch, home=home), ents))
+        return list(pool.map(lambda e: view_of(e[0], e[1], repos_of(e), fetch, home=home, silent_s=silent_s), ents))
 
 
 SNAPSHOT_FOR_S = 5
 
 
-def gather_shared(ents, repos_of, fetch=None, home=None):
+def gather_shared(ents, repos_of, fetch=None, home=None, silent_s=None):
     """`gather`, but a look taken in the last few seconds by another placement is reused (a burst of sends reads each worker once, not once per send). What is NOT shared is this computer's own record of
     what it has sent: that is worked out fresh, so every placement still sees the ones before it."""
     f = Path(home) / "views.json" if home else None
@@ -131,12 +137,13 @@ def gather_shared(ents, repos_of, fetch=None, home=None):
                     if d.get("age_s") is not None:
                         d["age_s"] += now - snap["at"]
                     v = sched.Worker(**d)
+                    v.silent_after_s = silent_s or sched.SILENT_S                   # the limit is today's setting, not the one when the look was taken
                     v.sent_pending = pending_sent(home, e[0], repos_of(e))
                     out.append(v)
                 return out
         except (OSError, ValueError, KeyError, TypeError):
             pass
-    views = gather(ents, repos_of, fetch, home=home)
+    views = gather(ents, repos_of, fetch, home=home, silent_s=silent_s)
     if f:
         try:
             keep = ("name", "connection", "reachable", "why_not", "state", "registry", "age_s", "pickup_s", "configured")
@@ -221,6 +228,34 @@ def reserve(home, worker, cls=None):
     return token
 
 
+def reserved(home, skip=None, now=None):
+    """[(worker, class)] of the sends in progress on this computer (not stale, not `skip`, the caller's own token)."""
+    now = time.time() if now is None else now
+    try:
+        data = json.loads((Path(home) / "placements.json").read_text()) or {}
+    except (OSError, ValueError, TypeError):
+        return []
+    return [(p.get("worker"), p.get("class")) for k, p in data.items() if p.get("reserve") and k != skip and now - p.get("at", 0) <= RESERVE_FOR_S]
+
+
+def choose_within_share(cls, views, prefs, share, ch):
+    """(choice, why) for `ch`, the choice already made. A worker at its own limit is left out and the next best is tried; `why` is the sentence when every worker that could take the job is over its
+    share (the caller queues it); None when the returned choice has room."""
+    pool, first = list(views), None
+    while True:
+        over = share(ch.worker)
+        if not over:
+            return ch, None
+        first = first or (ch, over[1])
+        if over[0] != "worker" or len(pool) < 2:
+            return first
+        pool = [v for v in pool if v.name != ch.worker]
+        nxt = decide(cls, pool)
+        if nxt.worker is None or nxt.busy_all:
+            return first
+        ch = nxt
+
+
 def release(home, token):
     if token:
         _update(home, lambda data: data.pop(token, None))
@@ -233,8 +268,9 @@ def worker_of(home, jid):
         return None
 
 
-def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None):
-    """The Context to send a job of class `cls` with. With one worker, or when there is no configuration (a test), the one it was given. `forced` is a worker name (--worker)."""
+def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=None, fetch=None, say=None, prefs=None, hold=False, share=None):
+    """The Context to send a job of class `cls` with. With one worker, or when there is no configuration (a test), the one it was given. `forced` is a worker name (--worker).
+    With `hold`, a job that fits no worker right now is not placed: the Context comes back with `.held` set to the explanation, nothing is reserved, and the caller queues it (queue.py)."""
     ents = (entries_fn or entries)(cfg) if cfg is not None else []
     if len(ents) < 2 and not forced:
         return ctx, None
@@ -252,15 +288,24 @@ def route(ctx, cfg, cls, forced, *, entries_fn=None, repos_of=None, make_ctx=Non
             raise refuse.error("placement.transport.mismatch", ("Worker", forced), connection=wrong[0], listens=wrong[1])
         return _with(make_ctx(e), ctx), None
     with _locked(ctx.home, "placements.decide.lock"):                  # looking, choosing and reserving are ONE step: eight sends at once must not all see the same idle workers
-        views = gather_shared(ents, repos_of, fetch, home=ctx.home)
+        views = gather_shared(ents, repos_of, fetch, home=ctx.home, silent_s=_silent_s(ctx))
         ch = decide(cls, views, prefs)
         if ch.worker is None:
             raise none_error(cls, ch)
+        if hold and ch.busy_all:
+            ctx.held = ch
+            return ctx, ch
+        if hold and share:                                           # checked in the same step as the reservation, so two sends at once cannot both take the last place
+            ch, why = choose_within_share(cls, views, prefs, share, ch)
+            if why:
+                ctx.held, ctx.share_why = ch, why
+                return ctx, ch
         token = reserve(ctx.home, ch.worker, cls)
     if say:
         say(ch)
     chosen = _with(make_ctx(by_name[ch.worker]), ctx)
     chosen.reservation = token
+    chosen.choice = ch                                                 # kept for the audit trail (audit.placed)
     return chosen, ch
 
 
@@ -275,6 +320,7 @@ def _with(chosen, original):
     """The chosen worker's Context, counting the cap across the WHOLE fleet and keeping where results are looked up."""
     if chosen is not original:
         chosen.fleet, chosen.max_in_flight = original.fleet, original.max_in_flight
+        chosen.max_per_worker, chosen.max_per_class = getattr(original, "max_per_worker", 0), getattr(original, "max_per_class", 0)
     chosen.home_main = original.home                                   # every placement is remembered, the main worker's too: it is how pending jobs are counted
     return chosen
 

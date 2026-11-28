@@ -19,7 +19,7 @@ Neither is marked "recommended": Direct is faster and keeps everything on your n
 
 - The worker has a mailbox account (`<name>-mail`) with no password. Its one SSH key (yours, made on your computer, no passphrase) is restricted to a forced command: git reading the queue and results, git writing the queue. It cannot get a shell, forward a port or write the results, and a hostile client cannot change what the worker publishes (`src/ct/mailshell.py`, `tests/test_mailshell.py`).
 - The worker never connects out. It reads its queue and writes its results as local repositories (`<state>-mail/queue.git`, `results.git`).
-- Alerts: a worker with no outbound access cannot post to a phone. `ct-admin watch` runs on your computer, reads what each worker published (`security.json`, `worker-state.json`) and alerts on changes: locked, reminders while locked, unlocked, gone quiet, unreachable, recovered. Each worker has its own schedule; one that does not answer is asked less often each time (up to every 15 minutes) so many workers cost little. Run it from a scheduler of your own, or `ct-admin watch --loop`.
+- Alerts: a worker with no outbound access cannot post to a phone. `ct-admin watch` runs on your computer, reads what each worker published (`security.json`, `worker-state.json`) and alerts on changes: locked, reminders while locked, unlocked, gone quiet, unreachable, recovered. Each worker has its own schedule; one that does not answer is asked less often each time (up to every 15 minutes) so many workers cost little. Run it from an orchestrator of your own, or `ct-admin watch --loop`.
 
 ### Moving an installed worker
 
@@ -36,4 +36,4 @@ The first end-to-end run of Direct on a fresh machine found four faults that no 
 
 ### Later
 
-mDNS discovery (a laptop that moves between networks), a LAN git server, the packaged Gitea and the several-workers scheduler: see [Transports (design)](../design/TRANSPORTS.md).
+mDNS discovery (a laptop that moves between networks), a LAN git server, the packaged Gitea and the several-workers orchestrator: see [Transports (design)](../design/TRANSPORTS.md).

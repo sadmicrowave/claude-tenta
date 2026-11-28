@@ -26,6 +26,34 @@ class Config(unittest.TestCase):
         c = config.load(d / "ct.toml")
         self.assertEqual((c.server.ssh_port, c.path("queue_clone")), (2222, "C:/ProgramData/claude-tenta/state/queue"))
 
+    def test_a_windows_worker_is_never_given_profile_approval(self):
+        self.assertNotIn("profile_approval", winfiles.windows_config("claude-tenta", "192.0.2.10", "me"))
+
+    def test_the_newest_windows_release_loads_the_configuration_this_client_writes(self):
+        """Known problem: a release-win tag that predates a setting refuses a config that has it ("transport.profile_approval is not a known setting") and the worker never starts.
+        Loads the written file with the config code of the newest release-win tag itself."""
+        import subprocess
+        import tempfile
+        root = Path(__file__).resolve().parent.parent
+        tags = subprocess.run(["git", "tag", "--list", "release-win-*"], cwd=root, capture_output=True, text=True).stdout.split()
+        if not tags:
+            self.skipTest("no release-win tag in this checkout (a shallow clone)")
+        tag = max(tags, key=lambda t: [int(x) for x in re.findall(r"\d+", t)])
+        d = Path(tempfile.mkdtemp())
+        arch = subprocess.run(["git", "archive", tag, "src"], cwd=root, capture_output=True)
+        self.assertEqual(arch.returncode, 0, arch.stderr)
+        subprocess.run(["tar", "-x", "-C", str(d)], input=arch.stdout, check=True)
+        (d / "ct.toml").write_text(winfiles.windows_config("claude-tenta", "192.0.2.10", "me"))
+        r = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from ct import config; config.load(sys.argv[2], env={'CT_CONFIG': ''})", str(d / "src"), str(d / "ct.toml")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"{tag} cannot load the worker configuration this client writes: {(r.stderr or r.stdout)[-600:]}")
+
+    def test_the_workers_last_error_is_read_from_its_log(self):
+        out = 'CT-RESULT {"log": "INFO started\\nERROR The configuration has problems\\n  - transport.profile_approval is not a known setting (known: kind).\\n\\n2026-11-27T20:40:36Z queued job"}'
+        said = winfiles.worker_error(lambda argv, text: (0, out))
+        self.assertIn("not a known setting", said)
+        self.assertNotIn("queued", said)
+        self.assertEqual(winfiles.worker_error(lambda argv, text: (255, "no route")), "")
+
     def test_a_bad_value_is_refused_before_anything_is_sent(self):
         with self.assertRaises(ValueError):
             winfiles.windows_config("claude-tenta", "192.0.2.10", "me", root="C:/Program Files/x")

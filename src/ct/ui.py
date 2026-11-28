@@ -72,9 +72,10 @@ def offer_copy(run, stream):
     except (OSError, ValueError):
         return []
     from . import cards
-    if len(f"copied to your clipboard: {first}") > cards.width():                      # too long for the pane: the sentence, then the command alone under it (never cut, so it can still be read whole)
-        return ["", paint("copied to your clipboard:", DIM, stream=stream), paint(first, DIM, stream=stream)]
-    return ["", paint(f"copied to your clipboard: {first}", DIM, stream=stream)]
+    said = "copied to your clipboard:" if cards.width() > len("copied to your clipboard:") else "copied:"      # a pane too narrow for the sentence gets the one word
+    if len(f"{said} {first}") > cards.width():                      # too long for the pane: the sentence, then the command alone under it (never cut, so it can still be read whole)
+        return ["", paint(said, DIM, stream=stream), paint(first, DIM, stream=stream)]
+    return ["", paint(f"{said} {first}", DIM, stream=stream)]
 
 
 def say(title, *details, tag="DONE", color=GREEN, steps=None, steps_label="Next", run=None, run_label="Run this", stream=None, framed=None):
@@ -221,7 +222,7 @@ def confirm_prompt(question, stream=None):
     from . import cards
     cols = cards.width()
     import textwrap
-    lines = textwrap.wrap(cards.code_spans(question), cols - 8, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False) or [""]     # a command in the question is a code chip
+    lines = textwrap.wrap(cards.code_spans(question), max(10, cols - 16), subsequent_indent="    ", break_long_words=True, break_on_hyphens=False) or [""]     # a command in the question is a code chip
     lines[0], lines[-1] = "  ❯ " + lines[0], lines[-1] + "  [y/N] "
     return "\n" + "\n".join(cards.inline(lines, ("prompt", "strong")))
 

@@ -113,3 +113,14 @@ Branch `docs/offload-workspace-design`, slice 0 of `theme/offload-value`. The fu
 - **A usage-history hint** (rate-limited, default on, with an off switch) points at the review when the log shows a worthwhile command.
 - **Environment cleanup** is a setting (`packages.keep_days`, default 30), not a constant: an unused environment is removed after that many days and rebuilt on the next use, and the result says so.
 - **Not decided here:** the weight of the "your computer is busy" rung.
+
+## Recommending a better worker for a pinned command (list item 8b; design 2026-11-24)
+
+Branch `feat/worker-recommend` (slice 1), a feature of `theme/orchestrator`. The user's words (2026-11-22, [[project-orchestrator-direction]]): a light, default-on (configurable) utility that measures all or specific jobs, watches existing job runs, and RECOMMENDS a better worker when a pinned command fits another worker better.
+
+**Goal.** From the person's own finished jobs, say which worker ran a pinned command faster, and offer the one `ct-run use --command ... <worker>` line that would move the pin. It never moves a pin itself.
+**Done when (slice 1).**
+- Every finished job this computer sees (`ct-run result`, `ct-run jobs`) is recorded once in `runs.jsonl` (job, class, worker, seconds the worker ran it, status), local, mode 0600, trimmed to 60 days.
+- One pure function (`recommend.py`) takes those rows and the pins and returns, per pinned command, the worker that is clearly faster, or says why not: too few runs on a worker (`offload.recommend_runs`, default 3), or a gain below `offload.recommend_gain` percent (default 25). Only successful runs count; the median is used, never the mean.
+- `ct-run offload recommend` prints it and the command that applies it, and changes nothing. With no evidence it says what is missing (which worker has too few runs), never a guess from hardware.
+**Not in scope.** Slice 2: the default-on one-line hint at the end of `ct-run` commands and its off switch; trial runs sent to an unmeasured worker; recommending from hardware or load alone; unpinned jobs (the orchestrator already places those); moving a pin automatically.

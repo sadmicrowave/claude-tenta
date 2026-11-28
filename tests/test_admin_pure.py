@@ -56,6 +56,31 @@ class SshTests(unittest.TestCase):
     def test_arguments_are_quoted(self):
         self.assertEqual(Ssh.quote(["approve", "a b", "x;y"]), "approve 'a b' 'x;y'")
 
+    def test_a_connection_that_fails_under_a_terminal_command_is_a_card_not_raw_ssh_text(self):
+        """Found by the output audit: `ct-admin status` and `quarantine` printed ssh's own line ("Could not resolve hostname ...") bare, where `check` drew an error card."""
+        said = "ssh: Could not resolve hostname worker2.example: nodename nor servname provided, or not known"
+        seen = {}
+        s = Ssh("h", run=lambda argv, **k: seen.update(k) or subprocess.CompletedProcess(argv, 255, "", said + "\n"), control_dir="/tmp/ct-test-ctl")
+        with redirect_stderr(io.StringIO()) as err, self.assertRaises(ClientError) as c:
+            s.interactive("ct-worker status")
+        self.assertIn("Could not resolve", c.exception.why)
+        self.assertEqual(err.getvalue(), "")                                                   # nothing printed bare
+        self.assertEqual(seen.get("stderr"), subprocess.PIPE)
+
+    def test_the_remote_commands_own_failure_and_text_are_passed_through(self):
+        s = Ssh("h", run=lambda argv, **k: subprocess.CompletedProcess(argv, 2, "", "usage: ct-worker x\n"), control_dir="/tmp/ct-test-ctl")
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(s.interactive("ct-worker x"), 2)
+        self.assertIn("usage: ct-worker x", err.getvalue())
+
+    def test_status_for_a_name_that_is_not_a_worker_draws_nothing_before_refusing(self):
+        drawn = []
+        ctx = SimpleNamespace(targets=lambda name=None: (_ for _ in ()).throw(ClientError("There is no such worker")))
+        with unittest.mock.patch.object(cli, "status_overview", side_effect=lambda *a, **k: drawn.append(1)):
+            with self.assertRaises(ClientError):
+                cli.run_command(ctx, SimpleNamespace(cmd="status", worker="nope", every=None))
+        self.assertEqual(drawn, [], "the panel was drawn before the name was checked")
+
 
 ANSI_ = __import__("re").compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 

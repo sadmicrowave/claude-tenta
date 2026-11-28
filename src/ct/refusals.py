@@ -122,7 +122,7 @@ define("files.too_many", "limit", "Bounds how much one job asks of the worker an
        depends="the transport (these limits were written for GitHub)", config="the worker's registry: limits.files.max_count (moving to the transport config)",
        steps=["Attach fewer files with --include on ct-run submit."])
 define("files.name.path", "security", "Keeps a file inside the job's work folder: the name must be a relative path with no '..', empty part, control character or backslash, and a sane length. "
-       "Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space.", "A file name could leave the job's folder",
+       "Nothing else about a name is checked on Linux and a Mac: an earlier character list refused names like helper@.service.in and protected nothing. A Windows worker also refuses what Windows reads as something else: a drive, a data stream, a device name, a trailing dot or space (the client applies the same rules before sending when the worker says it runs Windows, and the worker checks again where it writes).", "A file name could leave the job's folder",
        "bad file name: {name!r} ({reason})", steps=["Rename the file, or leave it out with --include on ct-run submit."])
 define("files.name.hidden", "policy", "A class whose tool reads its settings from its working folder (an AI tool) must not get a settings file planted by a job, so such a class takes no name that starts with a dot.",
        "This kind of class takes no file whose name starts with a dot", "a name may not start with a dot for this kind of class: {name!r}",
@@ -169,6 +169,9 @@ define("placement.unreachable", "placement", "A worker that cannot be reached ca
        "cannot be reached now ({reason})", who="client", steps=["Run ct-admin check to see why it does not answer."])
 define("placement.no_state", "placement", "A worker that has published no state cannot be described, so no job is placed on it blind.", "A worker has published no state",
        "has published no state (an older release, or not set up yet), so nothing can be said about it", who="client", steps=["Update it with ct-admin apply."])
+define("placement.silent", "placement", "A worker that has not published for a day may be off, broken or cut off, so no new job goes to it until it does.", "A worker has gone silent",
+       "has published nothing for {age} (its latest reading is older than health.silent_hours), so no job is placed on it", who="client", config="the client setting health.silent_hours (default 24 hours)",
+       steps=["Look at the computer: is it on and on the network?", "It is used again as soon as it publishes a new reading."])
 define("placement.locked", "placement", "The worker locked itself after a security event and runs nothing until the owner has looked.", "A worker is locked",
        "is LOCKED (a security lockdown): unlock it after you have looked", who="client", steps=["Look at what happened with ct-admin quarantine, then run ct-admin unlock."])
 define("placement.isolation_off", "placement", "A job runs only where its isolation is on.", "A worker's job isolation is off", "has its job isolation OFF", who="client",
@@ -530,6 +533,16 @@ define("files.link.skipped", "security", "A link is never followed: it can point
 define("job.too_big_for_worker", "limit", "A worker accepts only a job it can hold: its file is refused, unread, when it is over the ceiling (a quarter of free disk and memory, at most 1024 MB, or hardware.max_job_mb), so one job cannot fill the disk or the memory.",
        "The job is too big for this worker", "this job file is {size} MB, over the {ceiling} MB this worker accepts right now; it was not read", depends="the worker's free disk and memory, or hardware.max_job_mb",
        config="the worker's hardware.max_job_mb (unset: automatic)", steps=["Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room."])
+
+# ---- what the mailbox takes in before the worker reads anything (finding F5: a push is on the disk before a job file is read) ----
+define("job.push.disk_nearly_full", "limit", "A worker's mailbox takes no push while the disk is below its reserve, so a client cannot fill the last of the disk, however small each job.",
+       "This worker's disk is nearly full", "{free} GB is free on this worker and {reserve} GB is kept in reserve, so it takes no job until space is back. Nothing was sent.",
+       who="worker", depends="the worker's free disk (the same reserve that stops it starting a job)", config="none: the reserve is 10% of the disk, at least 2 GB",
+       steps=["On the worker, free disk space: ct-worker status shows how much is free.", "Or send it to another worker."])
+define("job.push.too_big", "limit", "A worker's mailbox stops a push that is over what the worker accepts as a job, while it is still arriving, so one push cannot fill the disk before the job file is ever checked.",
+       "The job is too big for this worker", "this push is over the {ceiling} MB this worker accepts right now (plus {slack} MB for git); it was stopped and nothing was kept.",
+       who="worker", depends="the worker's free disk and memory, or hardware.max_job_mb", config="the worker's hardware.max_job_mb (unset: automatic)",
+       steps=["Send fewer or smaller files with --include on ct-run submit, or send it to a worker with more room."])
 
 # ---- replacing a Direct worker's mailbox key (ct-setup rotate-key) ----
 define("rotate.not_direct", "policy", "Only the Direct connection has a mailbox key to replace: GitHub workers use deploy keys that ct-setup install manages.", "Only a Direct worker has a mailbox key",

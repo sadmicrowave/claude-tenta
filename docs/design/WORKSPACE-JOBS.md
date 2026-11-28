@@ -25,7 +25,7 @@ Each line was read in the code on `theme/offload-value` (identical to `main` at 
 8. **The command log** records the commands Claude Code runs, with seconds. `classify` returns "compound command (offload a single command)" for any line with more than one segment, so `cd x && cmd | tail` is never a candidate (`src/ct/client/cmdlog.py:91-92`). `rank` and `measure` read the log with the settings `offload.repeat_runs` (3) and `offload.repeat_days` (14).
 9. **Placement.** `sched.choose` leaves a worker out for a list of reasons and then ranks the rest (preferred, freshness, held, fits now, headroom, pickup time, load, name; `src/ct/sched.py:123-208`). **A worker is eligible for a class when the class is in that worker's own registry** (`cls not in w.offered` is the "class missing" reason, `sched.py:142`). So the orchestrator already picks per job among every worker that offers the class, and a "registered and passed" class needs nothing new there.
 10. **Profile and adopt are per worker.** `cmd_profile` sends one profile job; `ct-admin adopt JOB --worker NAME` adds the class to that worker's registry (`src/ct/client/cli.py:96`, `src/ct/admin/cli.py:1141`). Nothing today profiles one command on every worker or adopts it on each. **This is the gap behind "profile on every worker" (slice 7).**
-11. **The usage hint is not on this theme yet.** `offload.recommend_hint` (default on), `offload.recommend_hint_hours` (24), `show_hint` and `HintState` exist on `theme/orchestrator` (PR 77 merged there) and not on `main` or this theme (`git merge-base` check: `origin/theme/orchestrator` is not an ancestor). Slice 8 depends on that code arriving (see slice list).
+11. **The usage hint** (`offload.recommend_hint`, `show_hint`, `HintState`) came to this theme when `main` was merged in; the history hint (slice 8) reuses it. See "Built: the usage-history hint".
 
 ## The workspace recipe
 
@@ -194,6 +194,17 @@ Import reads private data, so: nothing is saved or sent while counting (the scre
 | Imported hours overstate | a time is only known where the shell wrote one | untimed rows add no time; the summary says which runs are imported | `test_the_summary_card_says_which_runs_came_from_history` |
 | History has no dates | plain zsh/bash history | counted and said, not imported | `test_zsh_plain_history...` |
 
+## Built: the usage-history hint (slice `feat/offload-history-hint`, 2026-11-28)
+
+After `ct-run jobs`, `result`, `submit` and `classes` (the same places as the faster-worker hint, and never both on one command: the faster-worker line goes first), one `HINT` card says "Your command history has commands a worker could take", with how many kinds of command have an offload reason and the recorded time of the timed runs, and points at `ct-run offload review`. Code: `ct.client.histhint` (pure `pick`, the state file `history-hint.json`, mode 0600) and `_history_hint` in `ct.client.cli`.
+
+- **Settings:** `offload.history_hint` (default true) and `offload.history_hint_hours` (24). The wording and rate limit follow `offload.recommend_hint`.
+- **When it speaks:** the review has state `ok`, at least the interval passed, and the set of commands differs from the one last named (a set that went away is forgotten). Opening `ct-run offload review` counts as seen, so the hint does not repeat what you just looked at.
+- **Silenced by the review's answers:** a command answered never, or not now inside `offload.review_ask_again_days`, is not counted; commands a worker is never offered (secrets, network, tenta's own) are not counted either.
+- **Honest numbers:** only timed runs add to the time; runs without timing (imported history without durations) are named as "not timed" and add no hours. The words are "offload reason" (the ladder's term).
+- **Cheap and safe:** the interval is checked before the log is read; local files only; any failure is swallowed and the command's exit status is untouched.
+- **Already registered:** a command that every known worker has registered, or tried and excluded, is not counted (read from the local copies of each worker's registry and exclusion list, no network). A worker that published nothing is unknown, and unknown keeps the command in.
+
 ## The offload review flow (slices 6-8)
 
 Goal: show value the first minute after setup, from the person's own history.
@@ -204,7 +215,7 @@ Goal: show value the first minute after setup, from the person's own history.
 4. **One y/n per command**, highest saving first: "Register `<command>` as a worker class? (y/n)". **That answer is the per-command approval; there is no "yes to all".** A no is remembered so it is not asked again until the shape changes.
 5. **On yes:** build the recipe (folder, command, environment proposal), then **profile it on every worker**; each worker where it **succeeds** is a **candidate**. The review does not pick a worker. Adopt asks once as today (`offload.auto_adopt`), per worker, with the person's own approval key. A failing worker is reported with the tool's real error and leaves a gap the person can see (`ct-run classes`).
 6. **The orchestrator, not the review, picks per job** among the workers that offer the class, by availability and the other criteria it already uses (fact 9). The review flow adds no ranking of its own.
-7. **The usage-history hint (slice 8):** after a `ct-run` command, at most once per `offload.review_hint_hours`, one line such as "You ran `<command>` 14 times last week (3.1 h). `ct-run offload review` can set it up." Reuses the existing default-on hint mechanism (`show_hint`, `HintState`, fact 11): a terminal only, never in a pipe, script or `--json`, never fails the command, and an off switch `offload.review_hint = false` (and the existing `CT_HINTS=never`).
+7. **The usage-history hint (slice 8):** after a `ct-run` command, at most once per `offload.history_hint_hours`, one line such as "You ran `<command>` 14 times last week (3.1 h). `ct-run offload review` can set it up." Reuses the existing default-on hint mechanism (`show_hint`, `HintState`, fact 11): a terminal only, never in a pipe, script or `--json`, never fails the command, and an off switch `offload.review_hint = false` (and the existing `CT_HINTS=never`).
 
 **Missing pieces found against the code:** (a) profile and adopt on every worker (fact 10) is new work: it is slice 7. (b) Placement needs nothing new for the "candidate" idea (fact 9). (c) The hint arrives with `theme/orchestrator` (fact 11): slice 8 starts only after that theme is merged into `main` and `theme/offload-value` has merged `main`.
 
@@ -224,7 +235,7 @@ All branch from `theme/offload-value`, merge into it one at a time, then the the
 | 5 | `feat/busy-host-rung` | the "your computer is busy" rung (host load against core count) in the candidacy ladder | 0 and the owner's weight (not chosen here) |
 | 6 | `feat/offload-review-summary` | post-install saved-hours summary, ranked recommendations, `ct-run offload review` listing and the setup offer | 1 |
 | 7 | `feat/offload-review-profile-all` | y/n per command, profile on every worker, per-worker adopt, a remembered no | 4, 6 |
-| 8 | `feat/offload-review-hint` | rate-limited usage-history hint and `offload.review_hint` | 6; `theme/orchestrator` merged into `main` and `main` merged into the theme |
+| 8 | `feat/offload-history-hint` | rate-limited usage-history hint and `offload.history_hint` | 6; `theme/orchestrator` merged into `main` and `main` merged into the theme |
 
 Slices 2 and 3 do not touch the same files (the file packaging and the worker's cache, against `packages.py` and its prune call) and can run in parallel; 6 can start once 1 is merged.
 

@@ -443,8 +443,21 @@ class Flow(unittest.TestCase):
         fewer = questions.count_to_ask(("server",), {"server.admin_user": "a", "network.lan_deny_out": False}, advanced=True)
         self.assertEqual(all_server - fewer, 4)
 
+    def test_a_narrow_pane_gets_a_shorter_bar_never_a_row_past_the_edge(self):
+        for width in (50, 54, 59, 60):
+            p, _ = prompter(width=width)
+            for pos, total in ((0, 4), (2, 4), (4, 4), (8, 19)):
+                self.assertLessEqual(tui.vlen(p.progress(pos, total)), width, (width, pos, total))
+
 
 class Review(unittest.TestCase):
+    def test_the_review_screen_wraps_its_message_and_keys_at_a_narrow_width(self):
+        for width in (50, 59, 61):
+            p, out = prompter(["enter"], width=width)
+            p.confirm([("Server address", "h.example")], 1, "That was the question screens. Continue to the protection screens?", hidden=3)
+            for line in out.screen.lines:
+                self.assertLessEqual(tui.vlen(line), width, (width, line))
+
     ONLY = {"server.host", "server.admin_user", "server.ssh_port"}
 
     def test_a_last_screen_lists_every_answer_and_enter_goes_on(self):

@@ -83,6 +83,10 @@ A new install has an empty log, so the summary has nothing to add up. `ct-run of
 - **Rows** from the import carry `src` (`zsh`, `bash`, `fish`) and `id`; running the import again adds nothing (and asks nothing when there is nothing new). `ct-run offload import --clear` removes only what was imported; `ct-run offload log clear` removes the whole log.
 - **Windows:** the zsh, bash and fish files do not exist there, so the import finds nothing; PowerShell's history has no dates and is not read yet (backlog).
 
+### The history hint
+
+After a `ct-run` job command (`jobs`, `result`, `submit`, `classes`), one line says when your command history holds commands with an offload reason, and points at `ct-run offload review`. It is on by default (`offload.history_hint = false` turns it off), comes at most once per `offload.history_hint_hours` (24), and names the same set of commands only once. Commands you answered no to in the review are not counted, and neither are commands every worker already has (registered or excluded; read from local copies, no network). It counts only timed runs for time. It never changes a command's result.
+
 ### Known problems
 
 | Problem | What you see | What to run |

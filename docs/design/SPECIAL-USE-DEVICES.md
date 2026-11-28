@@ -11,7 +11,7 @@ Today the install bundles three different things: a job jail with no network (th
 
 ## What changes: three separate settings
 
-1. **Isolation level, chosen on purpose.** `isolation.mode = "full"` (today's default: system folders only) or `"relaxed"` (the machine owner accepts that tool folders are shown to jobs). Network stays what it already is: per class (`network: true` in the class, which is why such a class is `approve` by default); the mode does not change it. A relaxed worker is a normal worker: it publishes `isolation: relaxed (by choice)` and the scheduler takes it. `ct-admin status` and `ct-admin workers` show the state in plain words, never as "OFF": `ISOLATION RELAXED  classes that declare network may use it; tool folders: /opt/tools`.
+1. **Isolation level, chosen on purpose.** `isolation.mode = "full"` (today's default: system folders only) or `"relaxed"` (the machine owner accepts that tool folders are shown to jobs). Network stays what it already is: per class (`network: true` in the class, which is why such a class is `approve` by default); the mode does not change it. A relaxed worker is a normal worker: it publishes `isolation: relaxed (by choice)` and the orchestrator takes it. `ct-admin status` and `ct-admin workers` show the state in plain words, never as "OFF": `ISOLATION RELAXED  classes that declare network may use it; tool folders: /opt/tools`.
 2. **Tool folders.** The machine owner lists the folders classes may use in the worker's config: `isolation.tool_roots = ["/opt/tools", "/usr/local/pentest"]` (any number). A class names the folders it needs: `tools: ["/opt/tools/nmap", "/opt/tools/bin"]` (any number, each inside a root; checked when the registry is validated, so a class cannot expose a folder the owner did not allow). Each folder is shown read-only inside the jail and put in front of the job's PATH, in the order given. Packages are not reinstalled: a class that lists `tools` needs no `packages`. A folder that does not exist is a clear error when the class is approved and when it runs, with the fix.
 3. **Whole-machine protections are individually opt-in on a shared machine.** Each hardening module says in one line whether it changes only tenta's jobs or every user of the machine (`affects: tenta only | every user`). The setup question below picks the defaults; every one stays editable in `ct.toml` and in the review screen.
 
@@ -47,7 +47,7 @@ There is no command today that changes a class after it was created: `ct-admin a
 1. **Built.** `isolation.mode`, `tool_roots` in the configuration, `tools` in the registry (validated), the jail shows the folders read-only and sets PATH; unit tests plus a probe on the four supported releases (a jail run that can read a tool folder and cannot read another).
 2. **Built.** `ct-admin class set` and `class show`.
 3. **Built.** The setup question and the per-protection labels (see "Slice 3 as built").
-4. **Built.** Status, workers cards and the scheduler know the relaxed state.
+4. **Built.** Status, workers cards and the orchestrator know the relaxed state.
 5. **Built.** A check before approval that shows which tool a class's program resolves to.
 6. Documentation and the test matrix rows (fresh install per purpose; an upgrade from a full-isolation worker that is switched to relaxed; a class naming a missing folder).
 
@@ -69,5 +69,5 @@ There is no command today that changes a class after it was created: `ct-admin a
 ## Slices 4 and 5 as built
 
 - **Status.** `ct-worker status` says `ISOLATION RELAXED` (a warning-coloured notice, never a problem) with the tool folders, and a `USED FOR` row. `ct-admin workers` shows `PURPOSE` and `jail ON, relaxed`; `ct-run classes` lists a class's `TOOLS`. A worker from before these settings publishes nothing and shows no row.
-- **Scheduler.** A class that names tool folders goes only to a worker in `relaxed` mode that allows each folder; the others are left out with the reason (`ct-run where CLASS` says it).
+- **Orchestrator.** A class that names tool folders goes only to a worker in `relaxed` mode that allows each folder; the others are left out with the reason (`ct-run where CLASS` says it).
 - **Which tool will run.** The worker looks at its own folders (`workerstate.tool_check`) and publishes, per class with tool folders: the program (the first word of its command), where it is found (the first folder, in the order the class lists them, that holds an executable of that name; else the system's folders; else not found) and each folder's state (exists here, allowed). `ct-admin class show CLASS` and the review card that `ct-admin review` and `approve` show for a job of that class print it: `FOUND /opt/tools/a/scan (in a tool folder)`, `NOT FOUND ...` in red words, `/opt/tools/b missing on the worker`. When the worker has not published it (an older release, or not looked yet) the card says "not known yet" and claims nothing.

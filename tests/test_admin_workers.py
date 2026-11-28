@@ -111,7 +111,7 @@ class WorkersCommand(AdminBase):
         code, out, _ = self.admin("workers", "--claude")
         self.assertNotIn("TESTCT", out)
 
-    def test_json_is_machine_readable_for_a_future_scheduler(self):
+    def test_json_is_machine_readable_for_a_future_orchestrator(self):
         code, out, _ = self.admin("workers", "--json")
         rows = json.loads(out)
         self.assertEqual([r["name"] for r in rows], ["testct", "studio"])
@@ -124,9 +124,16 @@ class WorkersCommand(AdminBase):
         self.assertIn("no state published", out)
 
     def test_an_old_reading_is_marked_stale(self):
-        self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
+        from datetime import datetime, timedelta, timezone
+        self.put_state(self.other, state_doc(updated=(datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")))
         _, out, _ = self.admin("workers")
         self.assertIn("(STALE)", out)
+        self.assertNotIn("(SILENT)", out)
+
+    def test_a_reading_older_than_the_limit_is_marked_silent(self):
+        self.put_state(self.other, state_doc(updated="2020-01-01T00:00:00Z"))
+        _, out, _ = self.admin("workers")
+        self.assertIn("(SILENT)", out)
 
     def test_a_worker_that_cannot_be_refreshed_is_noted_and_its_last_state_still_shown(self):
         self.ctx.fleet = lambda: [("testct", self.repos), ("studio", Fleet(self.other, True))]
@@ -223,7 +230,7 @@ class ALostWorkerThatWasReinstalled(LocateFixture):
 
 
 class ACommandOnAJobSentToAnotherWorker(AdminBase):
-    """A job the scheduler placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
+    """A job the orchestrator placed on another worker is approved, read and stopped THERE, by the same command with the same id."""
 
     def test_the_context_of_the_worker_it_was_sent_to_is_used(self):
         from ct.client import place
@@ -245,7 +252,7 @@ class ACommandOnAJobSentToAnotherWorker(AdminBase):
 class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
     """The standing rule: a command about one worker is never scheduled, and a command that acts on workers acts on every one unless --worker narrows it. Every ct-admin command is classified here,
     so a new command cannot be added without saying which it is."""
-    FLEET = {"update", "apply", "diff", "check", "status", "quarantine", "unlock"}                  # every worker, one after the other, each asked its own questions
+    FLEET = {"update", "apply", "diff", "check", "status", "quarantine", "received", "unlock"}                  # every worker, one after the other, each asked its own questions
     PICK = {"clean", "adopt", "retire", "class", "action", "proposals"}                   # one worker: the main one, or the one named with --worker
     OWN_FLAG = {"wake", "audit", "tripwire-test", "locate"}                                # already every worker (or the one named) with their own --worker
     BY_NATURE = {"watch", "workers"}                                                       # look at the whole fleet by definition
@@ -263,7 +270,7 @@ class EveryCommandKnowsWhichWorkersItActsOn(AdminBase):
         self.assertEqual(set(cli.FLEET_COMMANDS), self.FLEET)
         self.assertEqual(set(cli.PICK_COMMANDS), self.PICK)
 
-    def test_no_internal_send_is_left_to_the_scheduler(self):
+    def test_no_internal_send_is_left_to_the_orchestrator(self):
         """The checks that are ABOUT a worker (the install check, the wizard's first job) must say so: --here."""
         import re
         root = Path(__file__).resolve().parents[1] / "src" / "ct"
@@ -309,6 +316,25 @@ class FleetWideCommands(AdminBase):
         self.assertEqual(text.count("ct-admin review"), 1, text)
         self.assertEqual(text.count("card for"), 2)                                     # the content is still repeated for every worker
         self.assertGreater(text.index("From here you can"), text.rindex("card for"))              # and the footer comes after the last of them
+
+    def test_the_status_overview_is_drawn_once_for_the_whole_fleet_not_per_worker(self):
+        """R6: the panel covers every worker, so several workers must not repeat it."""
+        a, b = self.two()
+        shown = []
+        with mock.patch.object(self.ctx, "targets", side_effect=lambda n=None: [("first", a), ("second", b)]), \
+                mock.patch.object(cli.overview, "show", side_effect=lambda d, **k: shown.append(d)), \
+                mock.patch.object(cli, "overview_data", return_value={}), \
+                mock.patch.dict(cli.DISPATCH, {"status": lambda c, args: 0}):
+            code, out, err = self.admin("status")
+        self.assertEqual((code, len(shown)), (0, 1))
+
+    def test_status_every_draws_only_the_overview_and_stops_on_ctrl_c(self):
+        shown = []
+        with mock.patch.object(cli, "overview_data", return_value={}), mock.patch.object(cli.overview, "show", side_effect=lambda d, **k: shown.append(d)), \
+                mock.patch.object(cli.time, "sleep", side_effect=[None, KeyboardInterrupt]), \
+                mock.patch.dict(cli.DISPATCH, {"status": lambda c, args: self.fail("a worker was asked")}):
+            code, out, err = self.admin("status", "--every", "3")
+        self.assertEqual((code, len(shown)), (0, 2))
 
     def test_a_single_worker_still_gets_its_footer_straight_after_its_card(self):
         from ct import ui as _ui

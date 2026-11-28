@@ -47,6 +47,25 @@ class FilesAndBatches(unittest.TestCase):
         self.assertEqual(sorted((n, c) for n, c, _ in left.unsent), [("big.txt", "files.too_big"), ("binary.bin", "files.not_text")])
         self.assertEqual(sorted(submit.collect_dir(d, LIMITS, include=["*.py"])), ["a.py", "sub/b.py"])
 
+    def test_for_a_windows_worker_names_it_would_refuse_are_left_out_here_and_named_with_the_reason(self):
+        d = Path(tempfile.mkdtemp())
+        for rel in ("ok.py", "con.txt", "sub/Nul.py", "COM1", "stream:x.txt", "dots.", "dir /f.txt"):
+            f = d / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("x")
+        left = submit.LeftOut()
+        files = submit.collect_dir(d, LIMITS, left=left, windows=True)
+        self.assertEqual(sorted(files), ["ok.py"])
+        self.assertEqual(sorted(n for n, c, _ in left.unsent), ["COM1", "con.txt", "dir /f.txt", "dots.", "stream:x.txt", "sub/Nul.py"])
+        self.assertTrue(all(c == "files.name.path" and "Windows" in why for _, c, why in left.unsent))
+        plain = submit.collect_dir(d, LIMITS, left=submit.LeftOut())                          # a Linux or Mac worker: ordinary names
+        self.assertIn("con.txt", plain)
+
+    def test_the_workers_published_platform_decides_whether_windows_rules_apply(self):
+        self.assertTrue(submit.worker_is_windows({"platform": "windows"}))
+        for state in (None, {}, {"platform": "linux"}, {"platform": "macos"}):
+            self.assertFalse(submit.worker_is_windows(state))
+
     def repo(self):
         import subprocess
         d = Path(tempfile.mkdtemp())

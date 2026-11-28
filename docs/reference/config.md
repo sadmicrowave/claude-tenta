@@ -123,6 +123,18 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `turns_per_day` | `300` | float | the most Claude turns (model calls) the jobs of a UTC day may use in total; reaching it pauses new Claude jobs like jobs_per_day. 0 means no limit |
 | `update_days` | `7` | float | days between automatic updates of the claude tool on this worker (the tool cannot update itself inside a job's jail) |
 
+## [health]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `silent_hours` | `24` | int | a worker whose latest reading is older than this many hours is called silent (at most 312, a bit under the 14 days placements are remembered): no new job is placed on it, and a job sent to it that has no result by then is called lost (re-queued only if its class is repeatable) |
+
+## [audit]
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `keep_days` | `90` | int | days the audit trail (ct-run audit) keeps a line: where every job ran, why, and what happened, after the 14 days placements are remembered; older lines are dropped (at most once an hour) |
+
 ## [offload]
 
 | Setting | Default | Allowed | What it does |
@@ -139,12 +151,20 @@ Every setting of `ct.toml`, with its default. The file is read from `~/.config/c
 | `import_days` | `90` | int | the one-time import of your past commands (ct-run offload import, offered at the end of ct-setup install) reads only the last this many days; older ones are left out |
 | `import_max_mb` | `200` | int | a session transcript or history file larger than this many MB is not read by the one-time import (it is named so you can decide) |
 | `review_min_days` | `3` | int | a command log younger than this many days is too short for the summary to show hours |
+| `recommend_runs` | `3` | int | a worker needs this many successful runs of a pinned command before ct-run offload recommend compares it with the pinned worker |
+| `recommend_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when a command pinned to a worker has run clearly faster on another (see ct-run offload recommend); off: never |
+| `recommend_hint_hours` | `24` | int | the least hours between two of those hint lines; a hint is also shown only once for the same suggestion |
+| `history_hint` | `true` | bool | on: after ct-run jobs, result or submit, one line says when your own command history holds commands with an offload reason (see ct-run offload review); off: never |
+| `history_hint_hours` | `24` | int | the least hours between two of those hint lines; the same set of commands is said only once |
+| `recommend_gain` | `25` | int | ct-run offload recommend suggests another worker for a pinned command only when its median time is at least this many percent lower |
 
 ## [limits]
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `max_in_flight` | `8` | float | the most jobs this computer will have queued or running at once across every worker it administers; ct-run submit refuses to send past it. A job waiting for your approval does not count. 0 means no cap |
+| `max_per_worker` | `0` | float | the most jobs this computer will have queued or running on ONE worker; a job over it waits on this computer (ct-run jobs shows it) and is sent when one finishes. 0 means no limit |
+| `max_per_class` | `0` | float | the most jobs of ONE command this computer will have queued or running at once, so a big batch of one command cannot use every place; the rest wait their turn behind other jobs. 0 means no limit |
 
 ## [access]
 

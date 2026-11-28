@@ -2,7 +2,7 @@
 
   WORKER     status [--hours N]     check
   JOBS       review [job...]        approve <job>|--all        cancel <job>      kill <job> [--hard]
-  SECURITY   quarantine [job]       unlock                     output [job]
+  SECURITY   quarantine [job]       unlock                     output [job]       received [--last N]
   REGISTRY   adopt <profile-job>    retire <class>             proposals [list|merge|tidy]
   RELEASE    diff [rev]             apply [rev]
 
@@ -21,8 +21,10 @@ from pathlib import Path
 
 from .. import alias, cards, transport, __version__, approvals, clihelp, config, diffview, registry, render, review, theme, updatecheck
 from .. import ui as _ui
+from ..client import audit, overview
 from ..client import offload as off
 from ..client import refuse
+from ..client import retry
 from ..client import cli as client_cli
 from ..client.repo import ClientError, ClientRepos
 from ..ui import BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint
@@ -117,6 +119,32 @@ def fail_from(e):
 
 
 # ---- worker ----
+def overview_data(ctx):
+    """The panel's facts from this computer's own files (queue, worker states, audit trail): no login to any worker."""
+    silent_s = ctx.cfg.health.silent_hours * 3600 if ctx.cfg else workers.SILENT_S
+    rows = []
+    for n, c in ctx.targets():
+        try:
+            rows.append((n, workers.row_for(n, workers.read_state(c.repos.results), silent_s=silent_s)))
+        except Exception:                                                       # one unreadable worker is a row with no state, never a missing panel
+            rows.append((n, workers.row_for(n, None)))
+    return overview.collect(audit.home_of(ctx), rows)
+
+
+def status_overview(ctx, a):
+    """The panel, once before the per-worker reports (it covers every worker, so it is not repeated for each); with --every, the panel alone, redrawn until Ctrl-C (no login to a worker on every turn). True when that was all."""
+    if not getattr(a, "every", None):
+        overview.show(overview_data(ctx))
+        return False
+    try:
+        while True:
+            print("\x1b[2J\x1b[H", end="")                                  # output: data (clears the screen between redraws)
+            overview.show(overview_data(ctx))
+            time.sleep(a.every)
+    except KeyboardInterrupt:
+        return True
+
+
 def cmd_status(ctx, a):
     rc = ctx.remote("status", "--hours", str(a.hours))
     _ui.related(("Jobs waiting for you", "ct-admin review"), ("Compare every worker you run", "ct-admin workers"), ("See what a worker can run", "ct-run classes"))
@@ -164,11 +192,15 @@ def cmd_review(ctx, a):
         _ui.say(card.pop("title"), *card.pop("details"), stream=sys.stdout, **card)
         ctx.viewed.mark(jid, jobs.digest_of(raw))
     if gone:
-        emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} are no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
-        if ctx.remote("review", *gone):
+        emit("Showing the worker's own copy", f"{plural(len(gone), 'job')} {'is' if len(gone) == 1 else 'are'} no longer on {ctx.store}. It may ask for your sudo password once.", tag="NOTE", color=YELLOW)
+        failed = []
+        for jid in gone:                                                  # one at a time: only a job the worker really showed is noted as viewed
+            if ctx.remote("review", jid):
+                failed.append(jid)
+            else:
+                ctx.viewed.mark(jid, "")
+        if failed:
             raise refuse.error("review.show_failed", example="ct-admin check")
-        for jid in gone:
-            ctx.viewed.mark(jid, "")
     emit("Viewed", f"{plural(len(todo), 'job')} noted as viewed.", tag="DONE", color=GREEN, run_label="Approve the ones you viewed", run="ct-admin approve --all")
     return 0
 
@@ -760,7 +792,7 @@ def cmd_workers(ctx, a):
             hit = None
         if hit:
             shared.append((name, hit))
-    cells = [workers.row_for(n, d) for n, d in rows]
+    cells = [workers.row_for(n, d, silent_s=(ctx.cfg.health.silent_hours if ctx.cfg else 24) * 3600) for n, d in rows]
     mine = client_cli.here.global_pins()
     for c in cells:
         c["dedicated"] = workers.dedicated_text(mine, c["name"])
@@ -948,6 +980,12 @@ def cmd_kill(ctx, a):
 def cmd_quarantine(ctx, a):
     rc = ctx.remote("quarantine", *([jobs.require_id(a.id)] if a.id else []))
     _ui.related(None if a.id else ("Read one held result in full", "ct-admin quarantine <job>"), ("Clear a lockdown after you have looked", "ct-admin unlock"))
+    return rc
+
+
+def cmd_received(ctx, a):
+    rc = ctx.remote("received", *(["--last", str(a.last)] if a.last else []))
+    _ui.related(("If a job here is not yours, the key was copied: replace it", "ct-setup rotate-key") if ctx.cfg and ctx.cfg.transport.kind == "direct" else None)
     return rc
 
 
@@ -1193,6 +1231,20 @@ def class_facts(c):
     return c.get("tier", "approve"), bool(c.get("network", False)), list(c.get("tools") or [])
 
 
+def retry_rows(c, from_pack=False):
+    """The rows of `class show` for the stop rule (timeout_s, max_timeout_s) and the retry rule (R3)."""
+    kind = c.get("kind", "command")
+    rows = [("Stops after", f"{int(c.get('timeout_s') or (600 if kind == 'claude' else 60))} s: a job that runs longer is stopped and reported as timeout, and is never run again")] if kind != "profile" else []
+    if c.get("max_timeout_s"):
+        rows += [("Longest allowed", f"{int(c['max_timeout_s'])} s: the most any job of this class may be given")]
+    n = c.get("retries") or 0
+    if n:
+        rows += [("Retries", f"up to {n} more (attempt 2 of {n + 1} and so on): a job stopped from outside is run again after at least {c.get('retry_delay_s') or retry.DEFAULT_DELAY_S} s; an error or a timeout is never run again")]
+    else:
+        rows += [("Retries", "none: a job that is stopped from outside is not run again" + ("" if from_pack else "   (ct-admin class set CLASS --repeatable on --retries 2)"))]
+    return rows
+
+
 def cmd_class(ctx, a):
     """`ct-admin class show CLASS` says what a class may do; `ct-admin class set CLASS ...` changes its approval tier, its network access and its tool folders without editing registry.yaml by hand
     (the change is shown first, asked about, merged and installed the way retire and adopt are)."""
@@ -1209,11 +1261,15 @@ def cmd_class(ctx, a):
     if from_pack and a.verb == "set":
         raise refuse.error("class.from_pack", ("Class", name), example=f"ct-admin class show {name}")
     tier, network, tools = class_facts(mine[name] if name in mine else published[name])
+    cur = mine[name] if name in mine else published[name]
+    repeat = bool(cur.get("repeatable"))
     if a.verb == "show":
         state = workers.read_state(r.results) or {}
         iso = state.get("isolation") or {}
         roots = list(iso.get("tool_roots") or [])
         rows = [("Class", name), ("Defined in", "a pack (change it there)" if from_pack else "your registry"), ("Tier", tier + ("  (waits for your approval each time)" if tier == "approve" else "  (runs as soon as it is sent)")), ("Network", "yes: jobs of this class can reach the network" if network else "no")]
+        rows += [("Safe to repeat", "yes: if a worker goes silent before it answers, the job is sent again to another" if repeat else "no: if a worker goes silent before it answers, the job is only marked lost")]
+        rows += retry_rows(cur, from_pack)
         if tools:
             allowed = lambda t: registry.inside(t, roots)                                                    # noqa: E731
             rows += [("Tool folders" if i == 0 else "", t + ("" if allowed(t) else "   NOT inside a folder this worker allows")) for i, t in enumerate(tools)]
@@ -1229,6 +1285,12 @@ def cmd_class(ctx, a):
         changes["tier"] = a.tier
     if a.network:
         changes["network"] = a.network == "on"
+    if a.repeatable:
+        changes["repeatable"] = a.repeatable == "on"
+    if a.retries is not None:
+        changes["retries"] = a.retries or None
+    if a.retry_delay is not None:
+        changes["retry_delay_s"] = a.retry_delay
     if a.tools:
         flat = [t for group in a.tools for t in group]
         changes["tools"] = None if flat == ["none"] else flat
@@ -1244,7 +1306,10 @@ def cmd_class(ctx, a):
     if problems:
         raise refuse.error("class.set.invalid", ("Class", name), problems="\n".join(problems[:5]))
     now_tier, now_net, now_tools = class_facts(registry.parse(new_text)["classes"][name])
-    if (now_tier, now_net, now_tools) == (tier, network, tools):
+    now_cls = registry.parse(new_text)["classes"][name]
+    now_repeat = bool(now_cls.get("repeatable"))
+    now_retry = (now_cls.get("retries") or 0, now_cls.get("retry_delay_s"))
+    if (now_tier, now_net, now_tools, now_repeat, now_retry) == (tier, network, tools, repeat, (cur.get("retries") or 0, cur.get("retry_delay_s"))):
         emit("Nothing to change", ("Class", name), "It already is that way.", tag="NOTE", color=YELLOW)
         return 0
     rows = [("Class", name)]
@@ -1252,6 +1317,10 @@ def cmd_class(ctx, a):
         rows.append(("Tier", f"{tier}  ->  {now_tier}"))
     if now_net != network:
         rows.append(("Network", f"{'yes' if network else 'no'}  ->  {'yes' if now_net else 'no'}"))
+    if now_repeat != repeat:
+        rows.append(("Safe to repeat", f"{'yes' if repeat else 'no'}  ->  {'yes' if now_repeat else 'no'}"))
+    if now_retry != (cur.get("retries") or 0, cur.get("retry_delay_s")):
+        rows += [("Retries", f"{cur.get('retries') or 0}  ->  {now_retry[0]}"), ("Retry delay", f"{now_retry[1] or retry.DEFAULT_DELAY_S} s")]
     if now_tools != tools:
         rows += [("Tool folders" if i == 0 else "", f) for i, f in enumerate(now_tools)] or [("Tool folders", "none (removed)")]
     emit("Change a class", *rows, *notes, tag="CHANGE", color=RED if (now_net and now_tier == "auto") else CYAN)
@@ -1398,17 +1467,17 @@ def selftest(ctx, wait_s=240):
     info = ctx.repos.registry_info() or {}
     if release.SELFTEST_CLASS not in (info.get("classes") or {}):
         return None, f"the worker has no {release.SELFTEST_CLASS} class to test with"
-    argv = ["submit", release.SELFTEST_CLASS, "--here", "--wait", "--timeout", str(wait_s)]            # --here: the check is ABOUT this worker, so the scheduler must not pick another
+    argv = ["submit", release.SELFTEST_CLASS, "--here", "--wait", "--timeout", str(wait_s)]            # --here: the check is ABOUT this worker, so the orchestrator must not pick another
     rc = client_cli.main(argv, ctx=client_cli.Context.from_config(ctx.cfg), cfg=ctx.cfg) if getattr(ctx, "cfg", None) is not None else client_cli.main(argv)
     return rc == 0, "ok" if rc == 0 else f"exit {rc}"
 
 
 # ---- parser and help ----
-GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output"]),
+GROUPS = [("Worker", ["status", "check", "wake", "audit", "tripwire-test", "workers", "locate", "watch"]), ("Jobs", ["review", "approve", "cancel", "kill"]), ("Security", ["quarantine", "unlock", "output", "received"]),
           ("Registry", ["adopt", "retire", "class", "action", "proposals", "action-hash"]), ("Release", ["diff", "apply", "update", "clean"]), ("Look", ["theme"])]
 
 HELP = {
-    "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48")]),
+    "status": ("health, what the worker is doing, recent use, and its safety checks", [("Show the report", "ct-admin status"), ("Look further back", "ct-admin status --hours 48"), ("Watch the overview", "ct-admin status --every 5")]),
     "workers": ("compare the workers you administer: hardware, Claude access and state, side by side", [("Compare them all", "ct-admin workers"), ("Only those with working Claude access", "ct-admin workers --claude"), ("Add another worker", "ct-admin workers add studio --config ~/.config/claude-tenta/studio.toml"), ("Give a worker a name here", "ct-admin workers rename tenta3 lab-vm"), ("Name every worker in turn", "ct-admin workers rename")]),
     "locate": ("find a worker whose address changed, by the SSH host key this computer recorded for it (a name is never proof); offers to save the new address", [("Look for the main worker", "ct-admin locate"), ("Look for another one", "ct-admin locate --worker studio")]),
     "watch": ("read what every worker published and alert on changes: locked, unlocked, gone quiet, unreachable (a Direct worker cannot send alerts itself)", [("One look at every worker", "ct-admin watch"), ("Keep watching, each worker on its own schedule", "ct-admin watch --loop")]),
@@ -1421,6 +1490,7 @@ HELP = {
     "cancel": ("stop a job that has not started yet", [("Cancel it", "ct-admin cancel some-job")]),
     "kill": ("stop a running job", [("Ask it to stop", "ct-admin kill some-job"), ("Stop the whole process tree", "ct-admin kill some-job --hard")]),
     "quarantine": ("list results held back by the output guard, or read one", [("List them", "ct-admin quarantine"), ("Read one in full", "ct-admin quarantine some-job")]),
+    "received": ("every job the Direct mailbox key sent to the worker, as the worker saw it (a copied key shows up here)", [("Show the latest", "ct-admin received"), ("Show more", "ct-admin received --last 100")]),
     "unlock": ("clear a security lockdown after you have looked at it", [("Unlock", "ct-admin unlock")]),
     "output": ("the full output of a failed command (only its error lines are ever published)", [("List the kept outputs", "ct-admin output"), ("Read one", "ct-admin output some-job")]),
     "adopt": ("turn a finished profile run into a class and install it", [("Preview, ask once, then register, merge and install", "ct-admin adopt profile-k7m2xq --name ssh-version")]),
@@ -1444,6 +1514,7 @@ def build_parser():
     yes = lambda s: s.add_argument("--yes", action="store_true", help="do not ask; answer yes")      # noqa: E731
     s = sp.add_parser("status", add_help=False)
     s.add_argument("--hours", type=int, default=12, metavar="N", help="hours of use to summarise (default %(default)s, at most 168)")
+    s.add_argument("--every", type=int, default=None, metavar="SECONDS", help="only the overview, redrawn every SECONDS until you press Ctrl-C (it reads this computer's files, so it asks no worker)")
     sp.add_parser("check", add_help=False)
     s = sp.add_parser("review", add_help=False)
     s.add_argument("ids", nargs="*", metavar="job-id", help="job ids (default: every job waiting for approval)")
@@ -1458,6 +1529,9 @@ def build_parser():
     s.add_argument("cls", metavar="class", help="the class (ct-run classes lists them)")
     s.add_argument("--tier", choices=["auto", "approve"], help="auto runs as soon as it is sent; approve waits for your OK each time")
     s.add_argument("--network", choices=["on", "off"], help="may jobs of this class reach the network?")
+    s.add_argument("--repeatable", choices=["on", "off"], help="on: a job of this class that is lost because its worker went silent may be run again on another worker (only if running it twice does no harm)")
+    s.add_argument("--retries", type=int, metavar="N", help="0 to 5: a job of this class that is stopped from outside (ended killed) is run again up to N more times; needs --repeatable on; a job that ran to an error or ran too long is never run again")
+    s.add_argument("--retry-delay", dest="retry_delay", type=int, metavar="SECONDS", help="the least time to wait before a retry (default 60)")
     s.add_argument("--tools", action="append", nargs="+", metavar="FOLDER", help="folders of tools that already exist on the worker (repeat or list several; none removes them); each must be inside a folder the worker allows")
     yes(s)
     s = sp.add_parser("action", add_help=False)
@@ -1508,6 +1582,8 @@ def build_parser():
     s = sp.add_parser("unlock", add_help=False)
     s.add_argument("--ssh", action="store_true", help="log in to the worker (needs its sudo password) instead of signing the order here")
     yes(s)
+    s = sp.add_parser("received", add_help=False)
+    s.add_argument("--last", type=int, help="how many of the newest jobs to show (default 30)")
     s = sp.add_parser("output", add_help=False)
     s.add_argument("id", nargs="?", help="a job id, to read the full output of its failed command")
     s = sp.add_parser("adopt", add_help=False)
@@ -1540,7 +1616,7 @@ def build_parser():
     return ap, sp
 
 
-FLEET_COMMANDS = ("update", "apply", "diff", "check", "status", "quarantine", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
+FLEET_COMMANDS = ("update", "apply", "diff", "check", "status", "quarantine", "received", "unlock")     # every worker, one after the other (each asked its own questions), unless --worker names one
 PICK_COMMANDS = ("clean", "adopt", "retire", "class", "action", "proposals")      # one worker: the main one, or the one named with --worker
 
 
@@ -1575,6 +1651,11 @@ def run_fleet(ctx, cmd, targets, a, label=None):
 def run_command(ctx, a):
     """Run a command on the workers it is about. A fleet command visits every worker in turn with a heading each; one that fails, or is declined, does not stop the rest, and the exit code is the worst of them.
     `--worker NAME` narrows either kind to one worker. Everything else is run on the one context it was given."""
+    if a.cmd == "status":
+        if getattr(a, "worker", None):
+            ctx.targets(a.worker)                                         # a name that is not a worker is refused before anything is drawn, as `check` does
+        if status_overview(ctx, a):
+            return 0
     if a.cmd in FLEET_COMMANDS:
         targets = ctx.targets(getattr(a, "worker", None))
         if a.cmd == "update":                                             # one worker: as it always was; several: the release is looked up and shown once, then each worker in turn
@@ -1609,7 +1690,7 @@ def run_command(ctx, a):
 
 
 DISPATCH = {"status": cmd_status, "check": cmd_check, "review": cmd_review, "approve": cmd_approve, "cancel": cmd_cancel, "kill": cmd_kill,
-            "quarantine": cmd_quarantine, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "class": cmd_class, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
+            "quarantine": cmd_quarantine, "received": cmd_received, "unlock": cmd_unlock, "output": cmd_output, "adopt": cmd_adopt, "retire": cmd_retire, "class": cmd_class, "workers": cmd_workers, "locate": cmd_locate, "watch": cmd_watch, "update": cmd_update, "clean": cmd_clean, "action-hash": cmd_action_hash, "action": cmd_action, "theme": cmd_theme, "wake": cmd_wake, "audit": cmd_audit, "tripwire-test": cmd_tripwire_test,
             "proposals": cmd_proposals, "diff": cmd_diff, "apply": apply}
 
 
